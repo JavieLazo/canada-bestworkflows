@@ -20,58 +20,108 @@ use Illuminate\Support\Facades\Schema;
  * WHY ACTIVE-ONLY, NOT A BLANKET UNIQUE. A deactivated account keeping its link
  * is a real state this system supports and tests: "Notifier::employee tells
  * every ACTIVE login of that employee, and nobody else"
- * (tests/Feature/NotificationsModuleTest.php:250) builds exactly that — one
- * active account and one disabled account on a single employee — which is how a
+ * (tests/Feature/NotificationsModuleTest.php) builds exactly that — one active
+ * account and one disabled account on a single employee — which is how a
  * rehire, or an account rotated after a credential incident, keeps its history
  * attached to the 201 record. A blanket UNIQUE would forbid it. Scoping the
- * constraint to active rows keeps that path open while making "who is this
- * employee's login" a question with one answer.
+ * rule to active rows keeps that path open while making "who is this employee's
+ * login" a question with one answer. NULL stays repeatable — any number of
+ * accounts may hold no employee link at all; the whole admin tier does.
  *
- * NULL stays repeatable on both drivers: any number of accounts may hold no
- * employee link at all — the whole admin tier does.
+ * THE ENFORCEMENT IS DRIVER-SPLIT because "unique among a subset of rows" has
+ * no portable spelling — neither MySQL nor MariaDB has a partial index:
  *
- * THE INDEX IS DRIVER-SPLIT because a partial unique index is not portable:
- *   - SQLite (the test connection) indexes a WHERE clause directly.
- *   - MySQL/MariaDB have no partial index, so the same rule is expressed as a
- *     VIRTUAL generated column that collapses to NULL for inactive rows, with
- *     the unique index on that. VIRTUAL rather than STORED: it costs no row
- *     bytes, which keeps this clear of the COMPACT row-size ceiling the create
- *     migration budgets against.
- * Both spellings also reject REACTIVATING a disabled account whose employee is
- * already held by an active one, which is the other half of the rule.
+ *   - SQLite (the test connection) DOES, so it indexes the WHERE clause
+ *     directly. The suite therefore still proves the rule at the database
+ *     level, not just through the application guard.
  *
- * `users_employee_idx` is deliberately left in place — it still supports
- * `users_employee_id_foreign`, which the new index does not cover on MySQL.
+ *   - MySQL / MariaDB use a BEFORE INSERT + BEFORE UPDATE trigger pair. The
+ *     first, obvious attempt here was a generated column collapsing to NULL for
+ *     inactive rows with a unique index on it — and it works on Oracle MySQL,
+ *     but MariaDB (11.4, the cPanel host) refuses to index ANY generated column
+ *     built from a conditional, throwing error 1901 for CASE, IF and both
+ *     VIRTUAL and PERSISTENT. Verified against a real MariaDB 11.4 instance.
+ *     The triggers do the same job with no generated column: they reject a
+ *     write that would give an employee a second ACTIVE account, which covers
+ *     both a fresh duplicate and REACTIVATING a disabled account onto an
+ *     employee an active one already holds.
+ *
+ * The trigger is a BACKSTOP, not the front line. Every UI write already passes
+ * through App\Livewire\Users\Index::activeAccountHolding(), which refuses the
+ * clash with a named message before the row is written — so the trigger's raw
+ * SIGNAL is only ever reached by a write that skips the app (a direct SQL edit,
+ * a tinker session), which is exactly where a database-level guarantee earns
+ * its place.
+ *
+ * `users_employee_idx` is left in place throughout — it still supports
+ * `users_employee_id_foreign`.
  */
 return new class extends Migration
 {
+    private const string TRIGGER_INSERT = 'users_active_employee_bi';
+
+    private const string TRIGGER_UPDATE = 'users_active_employee_bu';
+
+    private const string INDEX = 'users_active_employee_unq';
+
+    /**
+     * The two triggers, written out in full rather than built from a template.
+     *
+     * A helper that interpolated the name and the self-exclusion clause would
+     * be shorter, but its result is a `string`, and DB::unprepared() insists on
+     * a `literal-string` — the type system's way of guaranteeing nothing
+     * caller-controlled reaches an unparameterised query. Two literals it is.
+     *
+     * The only real difference is the UPDATE form's `id <> NEW.id`: an account
+     * being renamed or deactivated must not read as clashing with itself. The
+     * INSERT form has no such row yet.
+     */
+    private const string CREATE_TRIGGER_INSERT = <<<'SQL'
+CREATE TRIGGER `users_active_employee_bi` BEFORE INSERT ON `users` FOR EACH ROW
+BEGIN
+  IF NEW.`is_active` = 1 AND NEW.`employee_id` IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM `users`
+       WHERE `is_active` = 1 AND `employee_id` = NEW.`employee_id`
+     ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'That employee record already has an active account.';
+  END IF;
+END
+SQL;
+
+    private const string CREATE_TRIGGER_UPDATE = <<<'SQL'
+CREATE TRIGGER `users_active_employee_bu` BEFORE UPDATE ON `users` FOR EACH ROW
+BEGIN
+  IF NEW.`is_active` = 1 AND NEW.`employee_id` IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM `users`
+       WHERE `is_active` = 1 AND `employee_id` = NEW.`employee_id` AND `id` <> NEW.`id`
+     ) THEN
+    SIGNAL SQLSTATE '45000'
+      SET MESSAGE_TEXT = 'That employee record already has an active account.';
+  END IF;
+END
+SQL;
+
     public function up(): void
     {
         $this->guardAgainstExistingDuplicates();
 
         if ($this->onMySql()) {
-            // Each step is skipped if already present. MySQL DDL does not roll
-            // back, so a run that adds the column and then fails on the index
-            // leaves the migration unrecorded and half-applied; without these
-            // checks the operator's retry would die at 1060 "Duplicate column
-            // name" and have to be unpicked by hand on a host with no SSH.
-            if (! Schema::hasColumn('users', 'active_employee_id')) {
-                DB::statement(
-                    'ALTER TABLE `users` ADD COLUMN `active_employee_id` CHAR(26)'
-                    .' COLLATE utf8mb4_unicode_ci'
-                    .' GENERATED ALWAYS AS (CASE WHEN `is_active` = 1 THEN `employee_id` END) VIRTUAL'
-                );
-            }
+            $this->dropMySqlArtifacts();
 
-            if (! $this->mySqlIndexExists('users_active_employee_unq')) {
-                DB::statement('ALTER TABLE `users` ADD UNIQUE INDEX `users_active_employee_unq` (`active_employee_id`)');
-            }
+            // One statement each — no DELIMITER, that is a CLI concern; the
+            // driver sends the whole CREATE TRIGGER as a single statement.
+            DB::unprepared(self::CREATE_TRIGGER_INSERT);
+            DB::unprepared(self::CREATE_TRIGGER_UPDATE);
 
             return;
         }
 
+        // SQLite: a partial unique index says the same thing in one line.
         DB::statement(
-            'CREATE UNIQUE INDEX IF NOT EXISTS "users_active_employee_unq" ON "users" ("employee_id")'
+            'CREATE UNIQUE INDEX IF NOT EXISTS "'.self::INDEX.'" ON "users" ("employee_id")'
             .' WHERE "is_active" = 1 AND "employee_id" IS NOT NULL'
         );
     }
@@ -79,20 +129,35 @@ return new class extends Migration
     public function down(): void
     {
         if ($this->onMySql()) {
-            // Symmetrical with up(): a rollback after a half-applied run drops
-            // whichever half exists rather than failing on the half that does not.
-            if ($this->mySqlIndexExists('users_active_employee_unq')) {
-                DB::statement('ALTER TABLE `users` DROP INDEX `users_active_employee_unq`');
-            }
-
-            if (Schema::hasColumn('users', 'active_employee_id')) {
-                DB::statement('ALTER TABLE `users` DROP COLUMN `active_employee_id`');
-            }
+            $this->dropMySqlArtifacts();
 
             return;
         }
 
-        DB::statement('DROP INDEX IF EXISTS "users_active_employee_unq"');
+        DB::statement('DROP INDEX IF EXISTS "'.self::INDEX.'"');
+    }
+
+    /**
+     * Remove every trace of this migration's MySQL side, in any state.
+     *
+     * Covers the current trigger pair AND the abandoned generated-column
+     * artifact from the version that MariaDB rejected — a host that got part
+     * way through that one is left with an `active_employee_id` column and no
+     * index, so both are dropped here. Every drop is guarded, so up() and
+     * down() are both safe to re-run.
+     */
+    private function dropMySqlArtifacts(): void
+    {
+        DB::unprepared('DROP TRIGGER IF EXISTS `'.self::TRIGGER_INSERT.'`');
+        DB::unprepared('DROP TRIGGER IF EXISTS `'.self::TRIGGER_UPDATE.'`');
+
+        if ($this->mySqlIndexExists(self::INDEX)) {
+            DB::statement('ALTER TABLE `users` DROP INDEX `'.self::INDEX.'`');
+        }
+
+        if (Schema::hasColumn('users', 'active_employee_id')) {
+            DB::statement('ALTER TABLE `users` DROP COLUMN `active_employee_id`');
+        }
     }
 
     private function mySqlIndexExists(string $name): bool
@@ -108,11 +173,12 @@ return new class extends Migration
     /**
      * Refuse to run while two ACTIVE accounts still share an employee record.
      *
-     * Reported rather than resolved: deciding which of two live sign-ins keeps
-     * the 201 record is an HR question about who the person actually is, and a
-     * migration that guessed would silently unlink somebody's working account.
-     * Production migrates from a temporary cron job on cPanel, where a raw
-     * SQLSTATE 23000 halfway through a deploy is expensive to unpick.
+     * A trigger only judges the write in front of it, so it would happily let
+     * an already-violating table stand. This keeps the invariant honest: when
+     * the migration records as run, no employee has two active accounts.
+     * Reported rather than resolved, because deciding which of two live
+     * sign-ins keeps the 201 record is an HR question, and a migration that
+     * guessed would silently unlink somebody's working account.
      */
     private function guardAgainstExistingDuplicates(): void
     {
@@ -142,7 +208,7 @@ return new class extends Migration
         }
 
         throw new RuntimeException(
-            "users.employee_id cannot be made unique among active accounts while these employee records are claimed by more than one:\n"
+            "One employee record cannot be held by more than one active account when this rule is applied:\n"
             .implode("\n", $lines)
             ."\nIn User Management, open the accounts that should not hold the record and either set Linked employee to"
             .' "No linked employee" or deactivate them, then run the migration again.'
