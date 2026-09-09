@@ -1,0 +1,21 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - vendor/nesbot/carbon/extension.neon
+
+parameters:
+    # Larastan's own extension.neon declares this as a path relative to itself, which
+    # PHPStan's parallel worker processes fail to resolve — they look for ./bootstrap.php
+    # in the project root, find nothing, and skip it. LARAVEL_VERSION is then never
+    # defined and LarastanStubFilesExtension fatals. Declaring it here, relative to this
+    # file, resolves correctly in workers too. Remove once larastan/larastan fixes it.
+    bootstrapFiles:
+        - vendor/larastan/larastan/bootstrap.php
+
+    paths:
+        - app/
+        - bootstrap/app.php
+        - config/
+        - database/
+        - routes/
+
+    level: 7

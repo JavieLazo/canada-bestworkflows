@@ -1,0 +1,46 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+node_modules
+
+# Laravel
+/.phpunit.cache
+/public/build
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/vendor
+.phpunit.result.cache
+/auth.json
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.fleet
+.nova
+.zed
+.phpactor.json
+.DS_Store
+*.sw?
+
+# AI assistant / agent tooling — local only, never tracked
+CLAUDE.md
+AGENTS.md
+.claude/
+.agents/
+skills-lock.json
+
+# Internal docs — local only, never pushed
+docs/
+DEPLOY*.md

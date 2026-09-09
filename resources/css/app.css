@@ -1,0 +1,484 @@
+@import url('https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700,800|jetbrains-mono:400,500,600,700&display=swap');
+@import 'tailwindcss';
+@import '../../vendor/livewire/flux/dist/flux.css';
+
+@source '../views';
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../vendor/livewire/flux/stubs/**/*.blade.php';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * HRIS design system — clean corporate HR. Ported from copems/src/styles.css.
+ * Light slate canvas, white rounded cards, blue primary,
+ * emerald = valid/earnings, rose = flags/deductions, amber = warnings.
+ * All colors are oklch semantic tokens. Never hardcode colors in components.
+ */
+
+@theme inline {
+    --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+    --radius-2xl: calc(var(--radius) + 8px);
+    --radius-3xl: calc(var(--radius) + 12px);
+    --radius-4xl: calc(var(--radius) + 16px);
+
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary-soft: var(--primary-soft);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-success-soft: var(--success-soft);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    --color-warning-soft: var(--warning-soft);
+    --color-danger: var(--danger);
+    --color-danger-foreground: var(--danger-foreground);
+    --color-danger-soft: var(--danger-soft);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-ring-offset-background: var(--background);
+    --color-chart-1: var(--chart-1);
+    --color-chart-2: var(--chart-2);
+    --color-chart-3: var(--chart-3);
+    --color-chart-4: var(--chart-4);
+    --color-chart-5: var(--chart-5);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-ring: var(--sidebar-ring);
+
+    --shadow-card: 0 1px 2px oklch(0.2 0.04 255 / 0.06), 0 8px 24px -12px oklch(0.2 0.04 255 / 0.14);
+    --shadow-lift: 0 2px 4px oklch(0.2 0.04 255 / 0.06), 0 18px 40px -18px oklch(0.2 0.04 255 / 0.28);
+}
+
+:root {
+    /* Drives every rounded-* utility and hris-card: inputs/buttons 4px,
+       dialogs 6px, cards 10px. Pills and avatars stay fully round.
+       Floor: --radius-sm is this minus 4px, so 0.25rem squares off small marks. */
+    --radius: 0.375rem;
+
+    --background: oklch(0.972 0.005 247.9);
+    --foreground: oklch(0.23 0.035 260);
+
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.23 0.035 260);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.23 0.035 260);
+
+    --primary: oklch(0.55 0.19 258);
+    --primary-foreground: oklch(0.99 0.005 250);
+    --primary-soft: oklch(0.95 0.03 258);
+
+    --secondary: oklch(0.955 0.008 250);
+    --secondary-foreground: oklch(0.32 0.035 260);
+
+    --muted: oklch(0.958 0.008 250);
+    --muted-foreground: oklch(0.53 0.028 258);
+
+    --accent: oklch(0.945 0.02 258);
+    --accent-foreground: oklch(0.36 0.09 258);
+
+    --success: oklch(0.6 0.13 163);
+    --success-foreground: oklch(0.99 0.01 160);
+    --success-soft: oklch(0.95 0.04 163);
+
+    --warning: oklch(0.72 0.15 72);
+    --warning-foreground: oklch(0.26 0.06 72);
+    --warning-soft: oklch(0.96 0.05 85);
+
+    --danger: oklch(0.6 0.19 15);
+    --danger-foreground: oklch(0.99 0.01 15);
+    --danger-soft: oklch(0.955 0.03 15);
+
+    --destructive: oklch(0.6 0.19 15);
+    --destructive-foreground: oklch(0.99 0.01 15);
+
+    --border: oklch(0.915 0.01 252);
+    --input: oklch(0.915 0.01 252);
+    --ring: oklch(0.55 0.19 258);
+
+    --chart-1: oklch(0.55 0.19 258);
+    --chart-2: oklch(0.6 0.13 163);
+    --chart-3: oklch(0.72 0.15 72);
+    --chart-4: oklch(0.6 0.19 15);
+    --chart-5: oklch(0.55 0.1 285);
+
+    --sidebar: oklch(1 0 0);
+    --sidebar-foreground: oklch(0.23 0.035 260);
+    --sidebar-primary: oklch(0.55 0.19 258);
+    --sidebar-primary-foreground: oklch(0.99 0.005 250);
+    --sidebar-accent: oklch(0.95 0.03 258);
+    --sidebar-accent-foreground: oklch(0.36 0.09 258);
+    --sidebar-border: oklch(0.915 0.01 252);
+    --sidebar-ring: oklch(0.55 0.19 258);
+}
+
+.dark {
+    --background: oklch(0.19 0.025 260);
+    --foreground: oklch(0.96 0.006 250);
+    --card: oklch(0.24 0.03 260);
+    --card-foreground: oklch(0.96 0.006 250);
+    --popover: oklch(0.24 0.03 260);
+    --popover-foreground: oklch(0.96 0.006 250);
+    --primary: oklch(0.66 0.16 258);
+    --primary-foreground: oklch(0.16 0.03 260);
+    --primary-soft: oklch(0.3 0.06 258);
+    --secondary: oklch(0.29 0.03 260);
+    --secondary-foreground: oklch(0.96 0.006 250);
+    --muted: oklch(0.29 0.03 260);
+    --muted-foreground: oklch(0.72 0.02 256);
+    --accent: oklch(0.32 0.05 258);
+    --accent-foreground: oklch(0.93 0.02 258);
+    --success: oklch(0.68 0.13 163);
+    --success-foreground: oklch(0.16 0.03 160);
+    --success-soft: oklch(0.3 0.05 163);
+    --warning: oklch(0.78 0.14 75);
+    --warning-foreground: oklch(0.2 0.04 72);
+    --warning-soft: oklch(0.32 0.06 75);
+    --danger: oklch(0.68 0.17 18);
+    --danger-foreground: oklch(0.16 0.03 15);
+    --danger-soft: oklch(0.32 0.07 18);
+    --destructive: oklch(0.68 0.17 18);
+    --destructive-foreground: oklch(0.16 0.03 15);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 16%);
+    --ring: oklch(0.66 0.16 258);
+    --sidebar: oklch(0.22 0.03 260);
+    --sidebar-foreground: oklch(0.96 0.006 250);
+    --sidebar-primary: oklch(0.66 0.16 258);
+    --sidebar-primary-foreground: oklch(0.16 0.03 260);
+    --sidebar-accent: oklch(0.3 0.06 258);
+    --sidebar-accent-foreground: oklch(0.93 0.02 258);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: oklch(0.66 0.16 258);
+}
+
+@layer base {
+    * {
+        border-color: var(--color-border);
+    }
+
+    html {
+        overflow-x: hidden;
+    }
+
+    body {
+        background-color: var(--color-background);
+        color: var(--color-foreground);
+        font-family: var(--font-sans);
+        -webkit-font-smoothing: antialiased;
+
+        /* `clip`, never `hidden`. `overflow-x: hidden` leaves overflow-y
+           computing to `auto`, which makes the body a scroll container — and
+           the shell hangs `position: sticky` off the body: the sidebar (Flux
+           writes it inline in setStickyPositionStyles) and the header both.
+           Sticky resolves against the nearest scrolling ancestor, so they
+           would pin to a body that never scrolls itself while `html` does the
+           real scrolling, and both would ride the page out of view. `clip`
+           clips the identical box without establishing a scroll container.
+           The `html` rule above cannot stand in for this one, and deleting
+           this line is not an option: `html`'s overflow propagates to the
+           viewport, which leaves the overflow REACHABLE rather than discarded
+           — no scrollbar appears, but the document still reports it and still
+           scrolls there under script. Measured with 4000px of content and this
+           line removed: `html.scrollWidth` 4256 and `window.scrollTo` moved
+           2976px; with `clip` it stays 1280 and moves 0. */
+        overflow-x: clip;
+    }
+
+    h1,
+    h2,
+    h3 {
+        letter-spacing: -0.015em;
+    }
+
+    [x-cloak] {
+        display: none !important;
+    }
+}
+
+/*
+ * Flux free reads `--color-accent` as its brand color for primary buttons,
+ * focus rings, checkboxes and links — but the ported palette's `accent` token
+ * is the SOFT hover tint (`hover:bg-accent` all over the reference JSX), and
+ * both meanings have to survive. So the Tailwind theme keeps `accent` = the
+ * soft tint, and Flux's own controls are re-pointed at `primary` here.
+ *
+ * That mapping held in light mode only. Flux's own dark theme re-points the
+ * same variable at white — `@layer theme { .dark { --color-accent:
+ * var(--color-white) } }` in flux.css — and `.dark` and `:root` carry equal
+ * specificity, so Flux's later rule won and every `accent` utility resolved to
+ * white once night mode was on. The row hover below then painted 55% WHITE
+ * behind unchanged light text: measured 1.14:1 on muted cells and 2.51:1 on
+ * ordinary ones, against 6.64 and 14.7 unhovered. Re-assert the ported palette
+ * for dark here. This block is unlayered, so it outranks Flux's layered rule
+ * whatever the source order. `--color-accent-content` is deliberately left to
+ * Flux: it is the CONTRASTING pair to `accent-foreground`, not a tint.
+ */
+.dark {
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+}
+
+[data-flux-button],
+[data-flux-control],
+[data-flux-checkbox],
+[data-flux-radio],
+[data-flux-switch],
+[data-flux-link],
+[data-flux-tab],
+[data-flux-tabs],
+[data-flux-profile],
+ui-checkbox,
+ui-radio,
+ui-switch {
+    --color-accent: var(--primary);
+    --color-accent-content: var(--primary);
+    --color-accent-foreground: var(--primary-foreground);
+}
+
+/* Starter-kit form ergonomics, kept for the Fortify/settings pages. */
+[data-flux-field]:not(ui-radio, ui-checkbox) {
+    @apply grid gap-2;
+}
+
+[data-flux-label] {
+    @apply !mb-0 !leading-tight;
+}
+
+input:focus[data-flux-control],
+textarea:focus[data-flux-control],
+select:focus[data-flux-control] {
+    @apply outline-hidden ring-2 ring-(--ring) ring-offset-2 ring-offset-(--background);
+}
+
+@utility hris-card {
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--color-border);
+    background-color: var(--color-card);
+    box-shadow: var(--shadow-card);
+}
+
+@utility num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+
+@utility hris-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+/*
+ * Opt-in companion to `hris-table-wrap` for the long list tables.
+ *
+ * `hris-table` pins its `thead` with `position: sticky; top: 0`, but sticky
+ * resolves against the nearest scrolling ancestor — and that is the wrap,
+ * whose `overflow-x: auto` leaves `overflow-y` computing to `auto`. With no
+ * bound on its height the wrap has a scrollport the exact size of its content,
+ * so it never scrolls, the header has nothing to stick to, and it rides the
+ * page away instead. Capping the height gives the header a scrollport to hold
+ * on to. The wrap has to keep `overflow-x: auto` — at narrow widths the wide
+ * tables genuinely need it, and the body clips horizontally — so bounding the
+ * height is the only way the pin can work.
+ *
+ * Not applied to the payslip and record tables: those print, and a printed
+ * record must not be cut off at the screen viewport (see the print block).
+ * Not applied to the DTR either, for the same reason plus one of its own: its
+ * rows ARE the period somebody picked, all of them, and a month of them behind
+ * a scrollbar is not the whole month. It gives up the pinned header for that,
+ * and drops `hris-table-wrap` too so the header pins to the page instead —
+ * see `hris-table-flush`. The payroll run workspace drops only the cap: at
+ * twenty-two columns it still needs the wrap to keep its width off the page.
+ * `live-feed` and the run workspace picker bound themselves already, which is
+ * why their headers pinned even while every other one was broken.
+ */
+@utility hris-table-scroll {
+    max-height: max(20rem, calc(100dvh - 20rem));
+}
+
+/*
+ * A table that sits flush in its card WITHOUT the card clipping it.
+ *
+ * `hris-card overflow-hidden` is the usual way to keep a table's corners
+ * inside the card's radius, and it is exactly what a page-pinned header cannot
+ * survive: `overflow: hidden` establishes a scrollport just as surely as
+ * `auto` does, `hris-table`'s sticky thead resolves against the nearest one,
+ * and a scrollport that never scrolls is a header that never pins. So the DTR
+ * card carries no overflow at all — not the wrap's `overflow-x`, not the
+ * card's `hidden` — and its thead sticks to the PAGE, staying put down a
+ * thirty-one row month.
+ *
+ * This does the clipping's job with border-radius instead. Minus the 1px
+ * border, because `overflow: hidden` clipped at the padding box and this is
+ * matching what it looked like, not what it measured.
+ *
+ * The trade it accepts: nothing bounds the table's width any more, so a table
+ * wider than the page scrolls the page sideways. Only put this on a table
+ * whose columns fit the screens it is read on.
+ */
+@utility hris-table-flush {
+    & thead th:first-child {
+        border-top-left-radius: calc(var(--radius-xl) - 1px);
+    }
+
+    & thead th:last-child {
+        border-top-right-radius: calc(var(--radius-xl) - 1px);
+    }
+
+    /* The hover tint is the only thing that paints into the bottom corners. */
+    & tbody tr:last-child td:first-child {
+        border-bottom-left-radius: calc(var(--radius-xl) - 1px);
+    }
+
+    & tbody tr:last-child td:last-child {
+        border-bottom-right-radius: calc(var(--radius-xl) - 1px);
+    }
+}
+
+@utility hris-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.875rem;
+
+    & thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background-color: var(--color-muted);
+        color: var(--color-muted-foreground);
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        text-align: left;
+        white-space: nowrap;
+        padding: 0.65rem 1rem;
+        border-bottom: 1px solid var(--color-border);
+    }
+
+    & tbody td {
+        padding: 0.7rem 1rem;
+        border-bottom: 1px solid var(--color-border);
+        vertical-align: middle;
+    }
+
+    & tbody tr:last-child td {
+        border-bottom: none;
+    }
+
+    & tbody tr:hover td {
+        background-color: color-mix(in oklab, var(--color-accent) 55%, transparent);
+    }
+
+    & tfoot td {
+        padding: 0.7rem 1rem;
+        border-top: 2px solid var(--color-border);
+        background-color: var(--color-muted);
+        vertical-align: middle;
+        font-weight: 700;
+    }
+}
+
+@utility pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 9999px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/*
+ * Pills keep the page scannable: success is reserved for finished or approved
+ * states, while active and neutral states stay quiet. Danger remains the
+ * strongest treatment for work that needs attention.
+ *
+ * The semantic class names are kept even where two now look alike — the meaning
+ * still reads in the markup, and re-tinting one of them later is a change here
+ * rather than a sweep through every page.
+ */
+@utility pill-success {
+    background-color: var(--color-success-soft);
+    color: var(--color-success);
+}
+
+/* The exception: rejected, returned, overdue, out-of-geofence. */
+@utility pill-danger {
+    background-color: var(--color-danger-soft);
+    color: var(--color-danger);
+}
+
+@utility pill-warning {
+    background-color: var(--color-muted);
+    color: var(--color-foreground);
+}
+
+@utility pill-info {
+    background-color: var(--color-muted);
+    color: var(--color-foreground);
+}
+
+/* Quietest of all — dormant states: cancelled, inactive, not applicable. */
+@utility pill-muted {
+    background-color: var(--color-muted);
+    color: var(--color-muted-foreground);
+}
+
+/*
+ * Printing a payslip. Everything that is not the payslip's branch is removed
+ * from the print flow here. (`:has()` — Chrome 105+, Safari 15.4+, Firefox 121+.)
+ */
+@media print {
+    body > *:not(:has(.payslip-print, .record-print)) {
+        display: none !important;
+    }
+
+    body
+        > *:has(.payslip-print, .record-print)
+        > *:not(:has(.payslip-print, .record-print)):not(.payslip-print, .record-print) {
+        display: none !important;
+    }
+
+    [role='dialog']:has(.payslip-print, .record-print) > button {
+        display: none !important;
+    }
+
+    .payslip-print,
+    .record-print {
+        width: 100%;
+    }
+
+    /* A capped, scrolling table would print as a single clipped screenful. */
+    .hris-table-scroll {
+        max-height: none;
+    }
+}

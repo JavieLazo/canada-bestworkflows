@@ -1,0 +1,68 @@
+name: tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    # `composer setup` runs `artisan migrate --force` against the credentials in
+    # .env.example, which it has just copied to .env. Those name MySQL on
+    # 127.0.0.1:3306, so without a database here the Setup Application step fails
+    # and ci:check never runs. Values below mirror .env.example exactly — change
+    # them together. Production is MySQL, so migrating here on MySQL rather than
+    # sqlite is what makes this step worth running: it catches a migration that
+    # only the real engine would reject. The suite itself is unaffected either
+    # way; phpunit.xml pins it to sqlite :memory:.
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+          MYSQL_DATABASE: ems_laravel
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Production is cPanel ea-php84 and composer.json pins config.platform.php
+      # to 8.4.17, so the suite has to run here on 8.4 — not on whatever the
+      # development machines happen to have. Testing a PHP the host does not
+      # have is how a $fillable trait collision that is fatal on 8.4 and fine on
+      # 8.5 reached production once already; test-on-target-php.sh closes that
+      # gap locally and this closes it in CI. Keep in step with composer.json
+      # config.platform.php and TARGET_MINOR in test-on-target-php.sh.
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Setup Application
+        run: composer setup
+
+      - name: Run CI Checks
+        run: composer ci:check

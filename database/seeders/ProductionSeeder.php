@@ -1,0 +1,39 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+
+/**
+ * Configuration-only seed for a PRODUCTION database.
+ *
+ * Roles + module grants, the reference lists, PH holidays, payroll formulas
+ * and the shift-type catalogue - and deliberately NOTHING else. No employees,
+ * no accounts, no credentials, no work sites (those are the client's real
+ * locations, entered through Records). The demo dataset lives in
+ * DatabaseSeeder and must never run in production.
+ *
+ * Every insert is updateOrCreate on a natural key, so this is re-runnable and
+ * non-destructive: never insertOrIgnore (INSERT IGNORE downgrades truncation,
+ * FK and NOT NULL violations to warnings) and never upsert() (Laravel's
+ * $uniqueBy is ignored on MySQL, unsafe on double-unique tables).
+ *
+ * First admin account: php artisan ems:create-admin (see that command).
+ */
+final class ProductionSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $this->call([
+            RoleSeeder::class,
+            ReferenceListSeeder::class,
+            HolidaySeeder::class,
+            PayrollFormulaSeeder::class,
+        ]);
+
+        // Shift-type catalogue (shared with the demo seeder; assignments are not seeded).
+        $this->call(ShiftTypeSeeder::class);
+    }
+}
