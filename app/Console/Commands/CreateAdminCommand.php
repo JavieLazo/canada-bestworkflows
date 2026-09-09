@@ -21,7 +21,7 @@ use Illuminate\Support\Str;
  * production bootstraps through this command - typically via the cPanel
  * cron-once trick when there is no SSH:
  *
- *   artisan ems:create-admin admin@example.com "Full Name"
+ *   artisan bestworkflows:create-admin admin@example.com "Full Name"
  *
  * The password is GENERATED and printed once (cron mails stdout to the Cron
  * Email address); it is never accepted as an argument, so it cannot land in
@@ -34,7 +34,7 @@ use Illuminate\Support\Str;
  */
 final class CreateAdminCommand extends Command
 {
-    protected $signature = 'ems:create-admin {email} {name}';
+    protected $signature = 'bestworkflows:create-admin {email} {name}';
 
     protected $description = 'Create the first System Admin account with a generated one-time password';
 
@@ -44,7 +44,7 @@ final class CreateAdminCommand extends Command
         $name = trim((string) $this->argument('name'));
 
         if (! filter_var($email, FILTER_VALIDATE_EMAIL) || $name === '') {
-            $this->error('Usage: ems:create-admin valid@email "Full Name"');
+            $this->error('Usage: bestworkflows:create-admin valid@email "Full Name"');
 
             return self::FAILURE;
         }

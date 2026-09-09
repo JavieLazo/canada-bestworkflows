@@ -20,7 +20,7 @@ use Illuminate\Database\Seeder;
  * FK and NOT NULL violations to warnings) and never upsert() (Laravel's
  * $uniqueBy is ignored on MySQL, unsafe on double-unique tables).
  *
- * First admin account: php artisan ems:create-admin (see that command).
+ * First admin account: php artisan bestworkflows:create-admin (see that command).
  */
 final class ProductionSeeder extends Seeder
 {
