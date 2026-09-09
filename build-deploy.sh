@@ -69,7 +69,7 @@ composer install --no-interaction
 
 echo
 echo "Built:"
-ls -lh "$OUT"/ems-*.zip
+ls -lh "$OUT"/bestworkflows-*.zip
 echo
 echo "Sanity checks:"
 for d in storage/framework/views storage/framework/sessions storage/framework/cache/data storage/logs bootstrap/cache; do
