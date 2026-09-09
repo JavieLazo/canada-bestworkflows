@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Models\Role;
 use App\Models\User;
+use App\Support\Access;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
 use Illuminate\Session\TokenMismatchException;
@@ -92,20 +94,72 @@ it('leaves an API caller with the status code, not a redirect', function () {
 
 /*
 |--------------------------------------------------------------------------
-| Accounts are provisioned, never self-served
+| Registration is a one-time bootstrap, then it is provisioning only
 |--------------------------------------------------------------------------
+|
+| /register exists only to stand up the first System Administrator on a fresh
+| install. Fortify's own registration stays off — this is a gated route that
+| makes a full admin, not a roleless stub — and it 404s the instant any account
+| exists, after which accounts are made in User Management.
 */
 
-it('does not expose a public registration screen', function () {
+it('leaves Fortify’s own registration feature off', function () {
     expect(Features::enabled(Features::registration()))->toBeFalse();
+});
+
+it('opens registration on a fresh install and makes the first account a System Admin', function () {
+    expect(User::query()->count())->toBe(0);
+
+    $this->get('/register')->assertOk();
+
+    $this->post('/register', [
+        'name' => 'First Admin',
+        'email' => 'admin@example.com',
+        'password' => 'bootstrap-pass-1',
+        'password_confirmation' => 'bootstrap-pass-1',
+    ])->assertRedirect(route('dashboard'));
+
+    $this->assertAuthenticated();
+
+    $admin = User::query()->where('email', 'admin@example.com')->firstOrFail();
+    $role = Role::query()->whereKey($admin->role_id)->firstOrFail();
+
+    expect((bool) $admin->is_active)->toBeTrue()
+        ->and($admin->email_verified_at)->not->toBeNull()
+        ->and($role->name)->toBe('System Admin')
+        ->and((bool) $role->all_data)->toBeTrue();
+
+    // The account can actually open an admin-only module — a roleless stub could not.
+    expect(Access::forActor($admin)->mayReadAllData('USERS'))->toBeTrue();
+});
+
+it('closes registration the moment an account exists', function () {
+    User::factory()->create();
 
     $this->get('/register')->assertNotFound();
     $this->post('/register', [
         'name' => 'Walk In',
         'email' => 'walkin@example.com',
-        'password' => 'password-1234',
-        'password_confirmation' => 'password-1234',
+        'password' => 'bootstrap-pass-1',
+        'password_confirmation' => 'bootstrap-pass-1',
     ])->assertNotFound();
 
     expect(User::query()->where('email', 'walkin@example.com')->exists())->toBeFalse();
+});
+
+it('reuses a System Admin role the seeder already created rather than duplicating it', function () {
+    $seeded = tap(new Role, fn (Role $r) => $r->forceFill([
+        'name' => 'System Admin', 'all_data' => true, 'is_system' => true,
+    ])->save());
+
+    $this->post('/register', [
+        'name' => 'First Admin',
+        'email' => 'admin@example.com',
+        'password' => 'bootstrap-pass-1',
+        'password_confirmation' => 'bootstrap-pass-1',
+    ])->assertRedirect(route('dashboard'));
+
+    expect(Role::query()->where('name', 'System Admin')->count())->toBe(1);
+    expect((string) User::query()->where('email', 'admin@example.com')->value('role_id'))
+        ->toBe((string) $seeded->getKey());
 });

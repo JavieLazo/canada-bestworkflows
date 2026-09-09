@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use App\Domain\Enums\AuditEvent;
+use App\Http\Controllers\Auth\RegisterController;
+use App\Http\Middleware\RegistrationBootstrapGate;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\ModuleRegistry;
@@ -58,6 +60,17 @@ Route::middleware('auth')->group(static function () use ($landing): void {
 
         return redirect('/');
     })->name('shell.logout');
+});
+
+/*
+ * First-run registration. Open ONLY while the system has no account, so it can
+ * stand up the first System Administrator on a fresh install where accounts are
+ * never seeded; RegistrationBootstrapGate 404s it the instant one exists. Every
+ * account after that is provisioned through User Management.
+ */
+Route::middleware(['guest', RegistrationBootstrapGate::class])->group(static function (): void {
+    Route::get('register', [RegisterController::class, 'show'])->name('register');
+    Route::post('register', [RegisterController::class, 'store'])->name('register.store');
 });
 
 // Every module registers its own routes in routes/modules/<module>.php,

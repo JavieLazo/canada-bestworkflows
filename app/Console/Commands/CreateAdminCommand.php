@@ -4,21 +4,16 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
-use App\Models\Role;
-use App\Models\User;
-use App\Support\AuditService;
+use App\Support\FirstAdmin;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 /**
- * Bootstrap the FIRST admin account on a production database.
+ * Bootstrap the FIRST admin account from the command line.
  *
- * The port has no web first-run setup screen (the demo seeder covers dev), so
- * production bootstraps through this command - typically via the cPanel
+ * The same bootstrap the browser registration screen runs — both go through
+ * {@see FirstAdmin::provision()} — for anyone who would rather not open a
+ * one-time public page, or is scripting the install. Typically the cPanel
  * cron-once trick when there is no SSH:
  *
  *   artisan bestworkflows:create-admin admin@example.com "Full Name"
@@ -27,10 +22,9 @@ use Illuminate\Support\Str;
  * Email address); it is never accepted as an argument, so it cannot land in
  * cron job listings or shell history. Change it after first login.
  *
- * Self-healing per the port plan 7.6: the System Admin role is created (with
- * every module except TASKS, all_data) if the seeder has not run yet, so a
- * bootstrap against a bare-but-migrated schema cannot produce a roleless
- * admin. Refuses to run when any account already exists.
+ * The System Admin role and its grants are created if the seeder has not run
+ * yet, so a bootstrap against a bare-but-migrated schema cannot produce a
+ * roleless admin. Refuses to run when any account already exists.
  */
 final class CreateAdminCommand extends Command
 {
@@ -49,46 +43,22 @@ final class CreateAdminCommand extends Command
             return self::FAILURE;
         }
 
-        return DB::transaction(function () use ($email, $name): int {
-            // The emptiness recount inside the transaction is the authorization.
-            if (User::query()->lockForUpdate()->exists()) {
-                $this->error('Refused: accounts already exist. Use User Management instead.');
+        // Shared with the browser bootstrap so the two cannot diverge; the
+        // command's part is a generated one-time password and console output.
+        $password = Str::password(16);
 
-                return self::FAILURE;
-            }
+        $user = FirstAdmin::provision($name, $email, $password);
 
-            $role = Role::query()->firstOrCreate(
-                ['name' => 'System Admin'],
-                ['all_data' => true, 'is_system' => true],
-            );
+        if ($user === null) {
+            $this->error('Refused: accounts already exist. Use User Management instead.');
 
-            if ($role->grants()->doesntExist()) {
-                foreach (ModuleCode::all() as $module) {
-                    if ($module === ModuleCode::TASKS) {
-                        continue; // employee-facing module, per the role matrix
-                    }
-                    $role->grants()->create(['module' => $module]);
-                }
-            }
+            return self::FAILURE;
+        }
 
-            $password = Str::password(16);
+        $this->info("Admin created: {$email}");
+        $this->warn("One-time password: {$password}");
+        $this->line('Change it immediately after first login.');
 
-            $user = new User;
-            $user->fill(['name' => $name, 'email' => $email]);
-            $user->password = Hash::make($password);
-            $user->forceFill([
-                'role_id' => $role->id,
-                'is_active' => true,
-                'email_verified_at' => now(),
-            ])->save();
-
-            AuditService::anonymous($name, AuditEvent::BOOTSTRAP_ADMIN, 'users', (string) $user->id);
-
-            $this->info("Admin created: {$email}");
-            $this->warn("One-time password: {$password}");
-            $this->line('Change it immediately after first login.');
-
-            return self::SUCCESS;
-        });
+        return self::SUCCESS;
     }
 }
