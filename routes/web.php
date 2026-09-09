@@ -29,8 +29,10 @@ $landing = static function (): RedirectResponse|View {
 };
 
 Route::get('/', static function () use ($landing): RedirectResponse|View {
+    // Guests meet the public marketing landing; its "Sign In" points at /login.
+    // A signed-in account skips it and goes straight to the app.
     if (! Auth::check()) {
-        return redirect()->route('login');
+        return view('pages::landing');
     }
 
     return $landing();
