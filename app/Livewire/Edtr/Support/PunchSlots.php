@@ -40,10 +40,10 @@ final class PunchSlots
     public static function error(array $slots, bool $overnightShift = false): ?string
     {
         $entries = [
-            ['Time in', $slots['time_in']],
-            ['Break out', $slots['break_out']],
-            ['Break in', $slots['break_in']],
-            ['Time out', $slots['time_out']],
+            ['First Time In', $slots['time_in']],
+            ['First Time Out', $slots['break_out']],
+            ['Second Time In', $slots['break_in']],
+            ['Final Time Out', $slots['time_out']],
         ];
 
         foreach ($entries as [$label, $value]) {
@@ -55,7 +55,7 @@ final class PunchSlots
         $hasBreakOut = $slots['break_out'] !== null;
         $hasBreakIn = $slots['break_in'] !== null;
         if ($hasBreakOut !== $hasBreakIn) {
-            return 'Record both halves of the break, or neither — a break out with no break in never closes.';
+            return 'Record both middle punches, or neither - First Time Out with no Second Time In never closes.';
         }
         if ($slots['time_in'] === null && ($hasBreakOut || $slots['time_out'] !== null)) {
             return 'A day needs a time in before anything else can be recorded against it.';

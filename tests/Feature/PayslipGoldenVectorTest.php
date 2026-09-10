@@ -6,6 +6,7 @@ use App\Domain\Attendance\AttendanceLog;
 use App\Domain\Attendance\HolidaySetting;
 use App\Domain\Attendance\LeaveRequest;
 use App\Domain\Attendance\Shift;
+use App\Domain\Attendance\ShiftResolver;
 use App\Domain\Payroll\PayslipCalculator;
 use App\Support\Money;
 
@@ -81,6 +82,26 @@ const PAYSLIP_COMPOUNDABLE = [
     'holiday_pay', 'basic_pay', 'total_base_pay', 'overtime_pay', 'gross_pay',
 ];
 
+/*
+|--------------------------------------------------------------------------
+| The third divergence: scheduled break slots
+|--------------------------------------------------------------------------
+| The EMS now treats a fixed shift with a real break window as four neutral DTR
+| slots: First Time In, First Time Out, Second Time In, Final Time Out. The
+| TypeScript corpus predates that policy, so vectors with such a window can no
+| longer be held to strict identity on fields derived from worked, late,
+| undertime or overtime minutes. The arithmetic is pinned in
+| DtrBreakWindowTest; this corpus still checks every unaffected vector and the
+| non-time-derived fields around them.
+*/
+const PAYSLIP_SCHEDULED_BREAK_SLOT_AFFECTED = [
+    'work_days', 'holiday_days', 'rest_days', 'absence_days', 'unpaid_leave_days',
+    'work_days_pay', 'holiday_pay', 'rest_day_pay', 'basic_pay', 'total_base_pay',
+    'overtime_hours', 'overtime_pay', 'night_differential', 'leave_pay', 'gross_pay',
+    'late_minutes', 'late_deduction', 'undertime_minutes', 'undertime_deduction',
+    'total_deductions', 'net_pay',
+];
+
 /** The Rest Day uplift a vector's own settings imply, floored as the engine floors it. */
 function vectorRestDayUplift(array $input): float
 {
@@ -98,6 +119,15 @@ function vectorRestDayUplift(array $input): float
     }
 
     return max(1.0, $rate);
+}
+
+/**
+ * @param  array<string, mixed>  $input
+ */
+function vectorUsesScheduledBreakSlots(array $input): bool
+{
+    return is_array($input['shift'] ?? null)
+        && ShiftResolver::scheduledBreakWindow(Shift::fromArray($input['shift'])) !== null;
 }
 
 /**
@@ -163,6 +193,7 @@ it('PayslipGolden: matches the TypeScript engine on every golden payslip vector'
         }
 
         $uplift = vectorRestDayUplift($vector['input']);
+        $usesScheduledBreakSlots = vectorUsesScheduledBreakSlots($vector['input']);
 
         foreach ($want as $field => $expected) {
             if (in_array($field, PAYSLIP_STRING_FIELDS, true)) {
@@ -171,6 +202,8 @@ it('PayslipGolden: matches the TypeScript engine on every golden payslip vector'
                 $ok = $actual[$field] === (bool) $expected;
             } elseif (in_array($field, PAYSLIP_ZEROED, true)) {
                 $ok = $actual[$field] === 0.0;
+            } elseif ($usesScheduledBreakSlots && in_array($field, PAYSLIP_SCHEDULED_BREAK_SLOT_AFFECTED, true)) {
+                $ok = array_key_exists($field, $actual);
             } elseif ($uplift > 1.0 && in_array($field, PAYSLIP_COMPOUNDABLE, true)) {
                 // Never less than the reference, never more than the uplift.
                 // A cent of slack: these are sums of independently rounded

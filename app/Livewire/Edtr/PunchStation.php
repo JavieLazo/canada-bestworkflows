@@ -7,6 +7,7 @@ namespace App\Livewire\Edtr;
 use App\Domain\Attendance\AttendanceLog as DomainLog;
 use App\Domain\Attendance\Minutes;
 use App\Domain\Attendance\Shift as DomainShift;
+use App\Domain\Attendance\ShiftGeometry;
 use App\Domain\Attendance\ShiftResolver;
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
@@ -273,7 +274,6 @@ class PunchStation extends Component
                 $distance,
                 $inBounds,
                 $window,
-                $today,
             ): AttendanceLog {
                 $windowRows = AttendanceLog::query()
                     ->where('employee_id', (string) $employee->id)
@@ -301,7 +301,8 @@ class PunchStation extends Component
                 $rates = PayrollRates::fromFormulas(
                     array_values(PayrollFormula::query()->get(['key', 'params'])->map->toArray()->all()),
                 );
-                $nowIso = DomainLog::isoFromUtc(CarbonImmutable::now()->utc());
+                $now = CarbonImmutable::now(ManilaClock::TZ);
+                $nowIso = DomainLog::isoFromUtc($now->utc());
 
                 $anomaly = AttendancePolicy::pairingAnomaly(
                     array_values($windowLogs),
@@ -313,26 +314,11 @@ class PunchStation extends Component
                     throw new RuntimeException($anomaly);
                 }
 
-                if ($shiftRow !== null && (bool) $shiftRow->requires_break_punch) {
-                    $completedPairs = 0;
-                    foreach ($windowRows as $row) {
-                        if ($row->log_type === DomainLog::TIME_OUT
-                            && ManilaClock::dayKey($row->logged_at) === $today) {
-                            $completedPairs++;
-                        }
-                    }
-
-                    if (AttendancePolicy::blocksTimeOutWithoutBreak(
-                        $logType,
-                        true,
-                        $completedPairs,
-                        ManilaClock::minutesOfDay(CarbonImmutable::now()),
-                        ShiftResolver::clockMinutes($shiftRow->end_time),
-                    )) {
-                        throw new RuntimeException(
-                            AttendancePolicy::breakPunchRequiredMessage($shiftRow->break_start),
-                        );
-                    }
+                $windowError = $domainShift === null
+                    ? null
+                    : self::punchWindowError(array_values($windowLogs), $logType, $now, $domainShift);
+                if ($windowError !== null) {
+                    throw new RuntimeException($windowError);
                 }
 
                 return AttendanceLog::query()->create([
@@ -444,6 +430,192 @@ class PunchStation extends Component
                 ? ''
                 : Hris::employeeName(EmployeeProfile::query()->whereKey($this->lockedEmployeeId)->first()),
         ]);
+    }
+
+    /**
+     * Shift-slot guard for the live station. The DTR still flags imported or
+     * corrected rows that violate these windows, but live punches should be
+     * guided before a bad row lands.
+     *
+     * @param  list<DomainLog>  $windowLogs
+     */
+    private static function punchWindowError(
+        array $windowLogs,
+        string $logType,
+        CarbonImmutable $now,
+        DomainShift $shift,
+    ): ?string {
+        if ($shift->isFlexible()) {
+            return null;
+        }
+
+        $geometry = ShiftResolver::geometry($shift);
+        $workDate = self::workDateForPunch($windowLogs, $logType, $now, $geometry);
+        $nowMinute = self::timelineMinuteForInstant($now, $workDate);
+        if (! is_finite($nowMinute)) {
+            return null;
+        }
+
+        $workLogs = self::logsForWorkDate($windowLogs, $workDate, $geometry);
+        $completedOuts = count(array_filter(
+            $workLogs,
+            static fn (DomainLog $log): bool => $log->logType === DomainLog::TIME_OUT,
+        ));
+        $last = $workLogs === [] ? null : $workLogs[count($workLogs) - 1];
+
+        if ($logType === DomainLog::TIME_IN) {
+            $firstOpensAt = $geometry->start - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES;
+            if ($nowMinute < $firstOpensAt) {
+                return self::tooEarlyMessage('Time In', 'First Time In', $firstOpensAt);
+            }
+
+            if ($nowMinute >= $geometry->end) {
+                return 'Time In is blocked: this shift already ended.';
+            }
+        }
+
+        $breakWindow = ShiftResolver::scheduledBreakWindow($shift, $geometry);
+        if ($breakWindow === null) {
+            if ($logType === DomainLog::TIME_IN && $completedOuts > 0) {
+                return 'Time In is blocked: this shift already has a Time Out.';
+            }
+
+            return null;
+        }
+
+        $firstBreakMinute = $breakWindow[0];
+        $secondSlotStart = $breakWindow[0] + (($breakWindow[1] - $breakWindow[0]) / 2);
+
+        if ($logType === DomainLog::TIME_IN) {
+            if ($completedOuts >= 2) {
+                return 'Time In is blocked: this shift already has a Final Time Out.';
+            }
+
+            $waitingForSecondTimeIn = $last !== null
+                && $last->logType === DomainLog::TIME_OUT
+                && $completedOuts === 1;
+            $missedMorningAndInsideBreak = $last === null
+                && $nowMinute >= $firstBreakMinute
+                && $nowMinute < $secondSlotStart;
+
+            if (($waitingForSecondTimeIn || $missedMorningAndInsideBreak) && $nowMinute < $secondSlotStart) {
+                return self::tooEarlyMessage('Time In', 'Second Time In', $secondSlotStart);
+            }
+
+            return null;
+        }
+
+        $firstOutOpensAt = $firstBreakMinute - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES;
+        if ($completedOuts === 0 && $nowMinute < $firstOutOpensAt) {
+            return self::tooEarlyMessage('Time Out', 'First Time Out', $firstOutOpensAt);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<DomainLog>  $windowLogs
+     */
+    private static function workDateForPunch(
+        array $windowLogs,
+        string $logType,
+        CarbonImmutable $now,
+        ShiftGeometry $geometry,
+    ): string {
+        $latest = self::latestLog($windowLogs);
+        if ($logType === DomainLog::TIME_OUT && $latest !== null && $latest->logType === DomainLog::TIME_IN) {
+            return self::workDateForInstant(ManilaClock::instant($latest->loggedAt), $geometry);
+        }
+
+        return self::workDateForInstant($now, $geometry);
+    }
+
+    private static function workDateForInstant(CarbonImmutable $instant, ShiftGeometry $geometry): string
+    {
+        $date = ManilaClock::dayKey($instant);
+
+        if ($geometry->overnight && ManilaClock::minutesOfDay($instant) <= $geometry->rawEnd) {
+            return PayrollPeriod::addCalendarDays($date, -1);
+        }
+
+        return $date;
+    }
+
+    /**
+     * @param  list<DomainLog>  $windowLogs
+     * @return list<DomainLog>
+     */
+    private static function logsForWorkDate(array $windowLogs, string $workDate, ShiftGeometry $geometry): array
+    {
+        $from = $geometry->start - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES;
+        $to = $geometry->end + (12 * 60);
+
+        $logs = [];
+        foreach ($windowLogs as $log) {
+            $minute = self::timelineMinuteForInstant(ManilaClock::instant($log->loggedAt), $workDate);
+            if ($minute >= $from && $minute <= $to) {
+                $logs[] = $log;
+            }
+        }
+
+        usort(
+            $logs,
+            static fn (DomainLog $a, DomainLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
+                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+        );
+
+        return $logs;
+    }
+
+    /**
+     * @param  list<DomainLog>  $windowLogs
+     */
+    private static function latestLog(array $windowLogs): ?DomainLog
+    {
+        if ($windowLogs === []) {
+            return null;
+        }
+
+        usort(
+            $windowLogs,
+            static fn (DomainLog $a, DomainLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
+                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+        );
+
+        return $windowLogs[count($windowLogs) - 1];
+    }
+
+    private static function timelineMinuteForInstant(CarbonImmutable $instant, string $workDate): float
+    {
+        $base = ManilaClock::ms(ManilaClock::instant($workDate.'T00:00:00'));
+
+        return (ManilaClock::ms($instant) - $base) / 60000;
+    }
+
+    private static function tooEarlyMessage(string $action, string $slot, float $opensAt): string
+    {
+        return "{$action} is blocked: too early for {$slot}. Earliest allowed is ".self::slotMinuteLabel($opensAt).'.';
+    }
+
+    private static function slotMinuteLabel(float $minute): string
+    {
+        $whole = (int) Minutes::round($minute);
+        $dayOffset = (int) floor($whole / (24 * 60));
+        $within = (($whole % (24 * 60)) + (24 * 60)) % (24 * 60);
+        $hour24 = intdiv($within, 60);
+        $minutePart = $within % 60;
+        $hour12 = $hour24 % 12 === 0 ? 12 : $hour24 % 12;
+        $suffix = $hour24 < 12 ? 'AM' : 'PM';
+
+        $label = sprintf('%d:%02d %s', $hour12, $minutePart, $suffix);
+        if ($dayOffset < 0) {
+            return $label.' previous day';
+        }
+        if ($dayOffset > 0) {
+            return $label.' next day';
+        }
+
+        return $label;
     }
 
     /** TS: `coordinate(text)` — a typed box as a number, or null for anything else. */

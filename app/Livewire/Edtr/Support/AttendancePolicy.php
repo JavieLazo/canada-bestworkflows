@@ -30,36 +30,6 @@ final class AttendancePolicy
         return ! $inBounds;
     }
 
-    /**
-     * TS: `blocksTimeOutWithoutBreak(input)` — whether a shift that requires
-     * its break to be punched is about to have it skipped. The first punch out
-     * of the day is a break punch right up until the shift is over; a first
-     * punch out AT or AFTER the shift's end is someone leaving without having
-     * recorded one. Leaving early is never blocked — that is undertime.
-     */
-    public static function blocksTimeOutWithoutBreak(
-        string $logType,
-        bool $requiresBreakPunch,
-        int $completedPairs,
-        float $punchMinutes,
-        float $shiftEndMinutes,
-    ): bool {
-        return $logType === AttendanceLog::TIME_OUT
-            && $requiresBreakPunch
-            && $completedPairs === 0
-            && $punchMinutes >= $shiftEndMinutes;
-    }
-
-    /** TS: `breakPunchRequiredMessage(breakStart)`. */
-    public static function breakPunchRequiredMessage(?string $breakStart): string
-    {
-        $suffix = $breakStart !== null && $breakStart !== ''
-            ? " — this shift's break starts at ".substr($breakStart, 0, 5)
-            : '';
-
-        return "Punch out for your break first{$suffix}. Your shift records the break as its own Time Out and Time In.";
-    }
-
     /** TS: `geofenceBlockMessage(input)`. */
     public static function geofenceBlockMessage(
         string $logType,

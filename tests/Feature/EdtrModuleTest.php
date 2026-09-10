@@ -11,6 +11,7 @@ use App\Models\AttendanceRemark;
 use App\Models\EmployeeProfile;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
+use App\Models\Shift;
 use App\Models\User;
 use App\Models\WorkSite;
 use App\Support\ManilaClock;
@@ -77,6 +78,23 @@ function edtrEmployee(?WorkSite $site = null, string $first = 'Liza', string $la
     ])->save();
 
     return $employee;
+}
+
+function edtrRosterShift(EmployeeProfile $employee, array $overrides = []): Shift
+{
+    return Shift::query()->create(array_merge([
+        'employee_id' => (string) $employee->getKey(),
+        'mode' => 'FIXED',
+        'work_days' => [1, 2, 3, 4, 5],
+        'start_time' => '10:00:00',
+        'end_time' => '17:00:00',
+        'grace_minutes' => 10,
+        'required_hours' => null,
+        'break_start' => '12:00:00',
+        'break_end' => '13:00:00',
+        'break_minutes' => 60,
+        'requires_break_punch' => true,
+    ], $overrides));
 }
 
 /* ── the route gates on the module grant ─────────────────────────────────── */
@@ -171,6 +189,231 @@ it('records a kiosk punch pair, audits it, and refuses a duplicate Time In', fun
     $this->assertDatabaseHas('audit_logs', ['action' => 'PUNCH_TIME_OUT']);
 });
 
+it('blocks a time in before the one-hour early shift window', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    edtrActor(['EDTR'], allData: true);
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 08:59:00', ManilaClock::TZ));
+
+    try {
+        Livewire::test(PunchStation::class)
+            ->call('employeePicked', 'punch-employee', (string) $employee->getKey())
+            ->call('punch', 'TIME_IN');
+
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->count())->toBe(0);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('allows a time in exactly one hour before the shift starts', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    edtrActor(['EDTR'], allData: true);
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 09:00:00', ManilaClock::TZ));
+
+    try {
+        Livewire::test(PunchStation::class)
+            ->call('employeePicked', 'punch-employee', (string) $employee->getKey())
+            ->call('punch', 'TIME_IN');
+
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(1);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('uses the one-hour early window for the first time out slot', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    edtrActor(['EDTR'], allData: true);
+
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_IN',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+    ]);
+
+    $station = Livewire::test(PunchStation::class)
+        ->call('employeePicked', 'punch-employee', (string) $employee->getKey());
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 10:59:00', ManilaClock::TZ));
+
+    try {
+        $station->call('punch', 'TIME_OUT');
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_OUT')->count())->toBe(0);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 11:00:00', ManilaClock::TZ));
+        $station->call('punch', 'TIME_OUT');
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_OUT')->count())->toBe(1);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('opens the second time in slot at the break midpoint', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    edtrActor(['EDTR'], allData: true);
+
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_IN',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+    ]);
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_OUT',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T12:00:00')->utc(),
+    ]);
+
+    $station = Livewire::test(PunchStation::class)
+        ->call('employeePicked', 'punch-employee', (string) $employee->getKey());
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 12:29:00', ManilaClock::TZ));
+
+    try {
+        $station->call('punch', 'TIME_IN');
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(1);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 12:30:00', ManilaClock::TZ));
+        $station->call('punch', 'TIME_IN');
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(2);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('lets the final time out land when middle punches were missed', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    edtrActor(['EDTR'], allData: true);
+
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_IN',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+    ]);
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 17:00:00', ManilaClock::TZ));
+
+    try {
+        Livewire::test(PunchStation::class)
+            ->call('employeePicked', 'punch-employee', (string) $employee->getKey())
+            ->call('punch', 'TIME_OUT');
+
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_OUT')->count())->toBe(1);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('does not apply middle slot windows when the shift has no break', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee, [
+        'end_time' => '14:00:00',
+        'break_start' => null,
+        'break_end' => null,
+        'break_minutes' => 0,
+        'requires_break_punch' => false,
+    ]);
+    edtrActor(['EDTR'], allData: true);
+
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_IN',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+    ]);
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 10:59:00', ManilaClock::TZ));
+
+    try {
+        Livewire::test(PunchStation::class)
+            ->call('employeePicked', 'punch-employee', (string) $employee->getKey())
+            ->call('punch', 'TIME_OUT');
+
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_OUT')->count())->toBe(1);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('maps an overnight second time in window to the shift start date', function () {
+    $site = edtrSite(exempt: true);
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee, [
+        'start_time' => '20:00:00',
+        'end_time' => '01:00:00',
+        'break_start' => '23:30:00',
+        'break_end' => '00:30:00',
+        'break_minutes' => 60,
+    ]);
+    edtrActor(['EDTR'], allData: true);
+
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_IN',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T20:00:00')->utc(),
+    ]);
+    AttendanceLog::query()->create([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => (string) $site->getKey(),
+        'log_type' => 'TIME_OUT',
+        'source' => 'WEB_GPS',
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant('2026-09-02T23:30:00')->utc(),
+    ]);
+
+    $station = Livewire::test(PunchStation::class)
+        ->call('employeePicked', 'punch-employee', (string) $employee->getKey());
+
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 23:59:00', ManilaClock::TZ));
+
+    try {
+        $station->call('punch', 'TIME_IN');
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(1);
+
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-03 00:00:00', ManilaClock::TZ));
+        $station->call('punch', 'TIME_IN');
+        expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(2);
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
 it('refuses the kiosk to a holder without all_data', function () {
     $site = edtrSite();
     $employee = edtrEmployee($site);
@@ -221,10 +464,10 @@ it('refuses a shapeless correction with the shared message', function () {
         ->set('tab', 'dtr')
         ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
         ->call('openCorrection', Hris::todayKey())
-        ->set('correctionForm.break_out', '12:00')  // a break out with no break in
+        ->set('correctionForm.break_out', '12:00')
         ->call('saveCorrection')
         ->assertSet('correctionOpen', true)
-        ->assertSet('correctionError', 'Record both halves of the break, or neither — a break out with no break in never closes.');
+        ->assertSet('correctionError', 'Record both middle punches, or neither - First Time Out with no Second Time In never closes.');
 
     expect(AttendanceLog::query()->count())->toBe(0);
 });

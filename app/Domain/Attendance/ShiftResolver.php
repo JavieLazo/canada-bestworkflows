@@ -62,6 +62,9 @@ final class ShiftResolver
 
     public const NIGHT_WINDOW_END = 30 * 60;
 
+    /** Punches may arrive up to one hour before the next scheduled slot. */
+    public const EARLY_PUNCH_WINDOW_MINUTES = 60;
+
     private const MINUTES_PER_DAY = 24 * 60;
 
     /**
@@ -246,6 +249,52 @@ final class ShiftResolver
             requiredMinutes: $requiredMinutes,
             paidMinutes: self::paidShiftMinutes($s),
         );
+    }
+
+    /**
+     * A configured break window projected into the same timeline as geometry().
+     *
+     * Clock values can cross midnight independently of the shift itself. The
+     * stable way to place them is by offset from shift start: 23:30-00:30 on a
+     * 20:00-05:00 roster becomes 1410-1470, and 02:00-03:00 on a 22:00-06:00
+     * roster becomes 1560-1620. A noon break on that same night shift falls
+     * outside the shift and is ignored here; the write policies already block
+     * new rows in that shape.
+     *
+     * @return array{0: float, 1: float}|null
+     */
+    public static function scheduledBreakWindow(?Shift $shift, ?ShiftGeometry $geometry = null): ?array
+    {
+        $s = $shift ?? Shift::default();
+        if ($s->isFlexible() || $s->breakStart === null || $s->breakEnd === null || $s->breakAllowance() <= 0) {
+            return null;
+        }
+
+        $geometry ??= self::geometry($s);
+
+        $breakStart = self::clockMinutes($s->breakStart);
+        $breakEnd = self::clockMinutes($s->breakEnd);
+        if (! is_finite($breakStart) || ! is_finite($breakEnd) || ! is_finite($geometry->start)) {
+            return null;
+        }
+
+        $windowLength = fmod($breakEnd - $breakStart + self::MINUTES_PER_DAY, self::MINUTES_PER_DAY);
+        if ($windowLength <= 0.0) {
+            return null;
+        }
+
+        if (abs($windowLength - $s->breakAllowance()) > 0.0001) {
+            return null;
+        }
+
+        $offset = fmod($breakStart - $geometry->start + self::MINUTES_PER_DAY, self::MINUTES_PER_DAY);
+        if ($offset + $windowLength > $geometry->fixedLength) {
+            return null;
+        }
+
+        $start = $geometry->start + $offset;
+
+        return [$start, $start + $windowLength];
     }
 
     /**

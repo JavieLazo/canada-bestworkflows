@@ -237,6 +237,10 @@ final class Hris
             return $holiday->name;
         }
 
+        if ($day->remarks !== null && $day->remarks !== '') {
+            return $day->remarks;
+        }
+
         if ($day->status === DayRecord::ABSENT) {
             return 'No punches';
         }

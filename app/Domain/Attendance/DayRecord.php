@@ -56,6 +56,14 @@ final readonly class DayRecord
         /** How much of the day the leave covers — 1, or 0.5 for a half day. */
         public float $excuseDays,
         public string $status,
+        /**
+         * Computed DTR flags for missing or out-of-window punches.
+         *
+         * @var list<string>
+         */
+        public array $flags = [],
+        /** Human-readable version of flags, shown when no stored remark exists. */
+        public ?string $remarks = null,
     ) {}
 
     /**

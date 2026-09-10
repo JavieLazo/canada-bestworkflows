@@ -173,10 +173,10 @@
                             <thead>
                                 <tr>
                                     <th>Date</th>
-                                    <th>Time in</th>
-                                    <th>Break out</th>
-                                    <th>Break in</th>
-                                    <th>Time out</th>
+                                    <th>First Time In</th>
+                                    <th>First Time Out</th>
+                                    <th>Second Time In</th>
+                                    <th>Final Time Out</th>
                                     <th class="text-right">Break</th>
                                     <th class="text-right">Worked</th>
                                     <th class="text-right">Late</th>
@@ -305,10 +305,10 @@
 
             <form class="mt-4 grid gap-4 sm:grid-cols-2" wire:submit="saveCorrection">
                 @foreach ([
-                    ['time_in', 'Time in'],
-                    ['break_out', 'Break out'],
-                    ['break_in', 'Break in'],
-                    ['time_out', 'Time out'],
+                    ['time_in', 'First Time In'],
+                    ['break_out', 'First Time Out'],
+                    ['break_in', 'Second Time In'],
+                    ['time_out', 'Final Time Out'],
                 ] as [$slotKey, $slotLabel])
                     <div class="space-y-2" wire:key="correct-{{ $slotKey }}">
                         <flux:label>{{ $slotLabel }}</flux:label>

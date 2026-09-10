@@ -122,6 +122,8 @@ final class DtrCalculator
         $shiftLength = $requiredMinutes;
         /** Fixed shifts pay the scheduled span less break; flexible shifts owe worked hours. */
         $paidShiftLength = $geometry->paidMinutes;
+        $configuredBreakWindow = self::configuredBreakWindow($s, $overnight);
+        $scheduledBreakWindow = ShiftResolver::scheduledBreakWindow($s, $geometry);
 
         $approved = [];
         foreach ($leaves as $leave) {
@@ -169,17 +171,21 @@ final class DtrCalculator
              *   array_slice($a, 0, null) → all      (JS slice(0, undefined))
              *   array_slice($a, 0, 0)    → none     (JS slice(0, 0))
              *
-             * Note also that carryLogs can therefore never contain a TIME_IN:
-             * the slice stops before the first one, and when there is none the
-             * whole day is TIME_INless. So `$timeIn` always comes from the
-             * current day.
+             * A scheduled break on an overnight shift is the exception: its
+             * second Time In may itself be a next-day punch, so that path uses
+             * the shift timeline rather than the old "stop at first TIME_IN"
+             * slice.
              */
             $carryLogs = [];
             if ($overnight) {
                 $next = $byDay[CalendarDays::next($date)] ?? [];
-                $types = array_map(static fn (AttendanceLog $l): string => $l->logType, $next);
-                $firstIn = array_search(AttendanceLog::TIME_IN, $types, true);
-                $carryLogs = array_slice($next, 0, $firstIn === false ? null : (int) $firstIn);
+                if ($scheduledBreakWindow !== null) {
+                    $carryLogs = $this->scheduledOvernightCarryLogs($date, $next, $shiftEnd);
+                } else {
+                    $types = array_map(static fn (AttendanceLog $l): string => $l->logType, $next);
+                    $firstIn = array_search(AttendanceLog::TIME_IN, $types, true);
+                    $carryLogs = array_slice($next, 0, $firstIn === false ? null : (int) $firstIn);
+                }
             }
 
             $dayLogs = array_merge($currentLogs, $carryLogs);
@@ -234,6 +240,8 @@ final class DtrCalculator
             $undertimeMinutes = 0.0;
             $overtimeMinutes = 0.0;
             $breakMinutes = 0.0;
+            $flags = [];
+            $remarks = null;
 
             /*
              * Arriving early does not start the paid day. Someone who punches at
@@ -288,12 +296,6 @@ final class DtrCalculator
                     continue;
                 }
                 if ($openIn !== null && $openIn !== '') {
-                    // `max(0, …)` covers a pair that also *closed* before the
-                    // shift began: punching in and straight back out at 06:00
-                    // earns nothing.
-                    $workedMinutes += max(0.0, Minutes::round(
-                        ($this->ms($log->loggedAt) - $this->onTheClockFrom($openIn, $clockOpensAt)) / 60000
-                    ));
                     $pairs[] = ['in' => $openIn, 'out' => $log->loggedAt];
                     $openIn = null;
                 }
@@ -303,110 +305,138 @@ final class DtrCalculator
             $breakOut = count($pairs) > 1 ? $pairs[0]['out'] : null;
             $breakIn = count($pairs) > 1 ? $pairs[1]['in'] : null;
 
-            $unpaidWindow = self::breakWindow($s, $overnight);
+            $unpaidWindow = $configuredBreakWindow;
 
-            if ($punchIn !== null && ! $s->isFlexible()) {
-                // SECOND-granular, and the grace test is a strict `>`.
-                $inM = $this->minutesOfDay($punchIn);
-                if ($inM > $shiftStart + $s->graceMinutes) {
-                    // Measured from the shift start, NOT from the end of grace:
-                    // once someone is late, the grace period is not forgiven.
+            $usesScheduledBreakSlots = $scheduledBreakWindow !== null;
+            $hasStatusBlockingOpenPunch = $usesScheduledBreakSlots && $openIn !== null && $openIn !== '';
+
+            if ($usesScheduledBreakSlots) {
+                $metrics = $this->scheduledBreakMetrics($date, $pairs, $openIn, $s, $geometry, $scheduledBreakWindow);
+
+                $timeIn = $metrics['timeIn'];
+                $breakOut = $metrics['breakOut'];
+                $breakIn = $metrics['breakIn'];
+                $timeOut = $metrics['timeOut'];
+                $workedMinutes = $metrics['workedMinutes'];
+                $lateMinutes = $metrics['lateMinutes'];
+                $undertimeMinutes = $metrics['undertimeMinutes'];
+                $overtimeMinutes = $metrics['overtimeMinutes'];
+                $breakMinutes = $metrics['breakMinutes'];
+                $flags = $metrics['flags'];
+                $remarks = $metrics['remarks'];
+            } else {
+                foreach ($pairs as $pair) {
+                    // `max(0, …)` covers a pair that also *closed* before the
+                    // shift began: punching in and straight back out at 06:00
+                    // earns nothing.
+                    $workedMinutes += max(0.0, Minutes::round(
+                        ($this->ms($pair['out']) - $this->onTheClockFrom($pair['in'], $clockOpensAt)) / 60000
+                    ));
+                }
+
+                if ($punchIn !== null && ! $s->isFlexible()) {
+                    // SECOND-granular, and the grace test is a strict `>`.
+                    $inM = $this->minutesOfDay($punchIn);
+                    if ($inM > $shiftStart + $s->graceMinutes) {
+                        // Measured from the shift start, NOT from the end of grace:
+                        // once someone is late, the grace period is not forgiven.
+                        //
+                        // But in PAYABLE minutes, not raw clock distance. Someone
+                        // who arrives after the unpaid break has already passed was
+                        // never being paid for it, and `late_deduction` is
+                        // (lateMinutes / 60) * hourly — charging the break window
+                        // here bills them for an hour nobody owed.
+                        $lateMinutes = Minutes::round(
+                            $inM - $shiftStart - self::breakOverlap($unpaidWindow, $shiftStart, $inM)
+                        );
+                    }
+                }
+
+                if ($punchIn !== null && $punchOut !== null) {
+                    // Measured from the same clamped start as `workedMinutes`.
+                    // Against the raw punch instead, every minute the clamp just
+                    // dropped would reappear here as time spent on break.
+                    $spanMinutes = max(0.0, Minutes::round(
+                        ($this->ms($punchOut) - $this->onTheClockFrom($punchIn, $clockOpensAt)) / 60000
+                    ));
+                    $breakMinutes = max(0.0, $spanMinutes - $workedMinutes);
+
+                    // QUIRK, PRESERVED: a flat +1440 whenever the two punches land
+                    // on different Manila days — even if they are two days apart.
+                    $outM = $this->minutesOfDay($punchOut)
+                        + ($this->dayKey($punchOut) !== $this->dayKey($punchIn) ? (float) self::MINUTES_PER_DAY : 0.0);
+
+                    // Nobody punched out for the break: deduct the shift's allowance
+                    // instead, so a forgotten lunch punch is not quietly paid.
                     //
-                    // But in PAYABLE minutes, not raw clock distance. Someone
-                    // who arrives after the unpaid break has already passed was
-                    // never being paid for it, and `late_deduction` is
-                    // (lateMinutes / 60) * hourly — charging the break window
-                    // here bills them for an hour nobody owed.
-                    $lateMinutes = Minutes::round(
-                        $inM - $shiftStart - self::breakOverlap($unpaidWindow, $shiftStart, $inM)
-                    );
-                }
-            }
+                    // Only when the break was there to take, though. A shift that
+                    // says WHERE its break sits can be checked against the hours
+                    // actually on the clock, and someone who clocks in after the
+                    // window has closed never had one — deducting it turns four
+                    // worked hours into three. A shift that gives only
+                    // `breakMinutes` says nothing about when, so it keeps the flat
+                    // deduction it has always had.
+                    // The same clamp `workedMinutes` uses: a FIXED shift does not
+                    // start paying before its start_time, and a FLEXIBLE one has no
+                    // start to clamp to.
+                    $clampedIn = $s->isFlexible()
+                        ? $this->minutesOfDay($punchIn)
+                        : max($this->minutesOfDay($punchIn), $shiftStart);
 
-            if ($punchIn !== null && $punchOut !== null) {
-                // Measured from the same clamped start as `workedMinutes`.
-                // Against the raw punch instead, every minute the clamp just
-                // dropped would reappear here as time spent on break.
-                $spanMinutes = max(0.0, Minutes::round(
-                    ($this->ms($punchOut) - $this->onTheClockFrom($punchIn, $clockOpensAt)) / 60000
-                ));
-                $breakMinutes = max(0.0, $spanMinutes - $workedMinutes);
-
-                // QUIRK, PRESERVED: a flat +1440 whenever the two punches land
-                // on different Manila days — even if they are two days apart.
-                $outM = $this->minutesOfDay($punchOut)
-                    + ($this->dayKey($punchOut) !== $this->dayKey($punchIn) ? (float) self::MINUTES_PER_DAY : 0.0);
-
-                // Nobody punched out for the break: deduct the shift's allowance
-                // instead, so a forgotten lunch punch is not quietly paid.
-                //
-                // Only when the break was there to take, though. A shift that
-                // says WHERE its break sits can be checked against the hours
-                // actually on the clock, and someone who clocks in after the
-                // window has closed never had one — deducting it turns four
-                // worked hours into three. A shift that gives only
-                // `breakMinutes` says nothing about when, so it keeps the flat
-                // deduction it has always had.
-                // The same clamp `workedMinutes` uses: a FIXED shift does not
-                // start paying before its start_time, and a FLEXIBLE one has no
-                // start to clamp to.
-                $clampedIn = $s->isFlexible()
-                    ? $this->minutesOfDay($punchIn)
-                    : max($this->minutesOfDay($punchIn), $shiftStart);
-
-                // A shift that says WHERE its break sits is charged exactly the
-                // minutes the window and the clock actually SHARE. Someone who
-                // leaves before the window opens never had a break and loses
-                // nothing; someone on the clock for half of it loses half.
-                //
-                // It used to be a flat hour whenever the window was so much as
-                // touched, which broke the arithmetic in both directions: a
-                // 08:00-12:30 day lost a full hour to a window it had only
-                // reached the first half of. Charging the shared minutes is
-                // what lets late, worked and undertime partition the paid span
-                // exactly -- and they must, because all three are priced from
-                // the same hourly rate.
-                $unpaidOnClock = $unpaidWindow === null
-                    // No window means no "when", so the flat allowance stands.
-                    ? $s->breakAllowance()
-                    : self::breakOverlap($unpaidWindow, $clampedIn, $outM);
-
-                // The strict `>` is deliberate and leaves one case uneven: a
-                // day spent ENTIRELY inside the window keeps its worked minutes
-                // rather than dropping to zero. Zeroing them would be tidier
-                // arithmetic and worse pay -- `workedMinutes > 0` at
-                // PayslipCalculator.php:240 is what credits the work day at
-                // all, so the employee would lose the day's basic pay AND still
-                // carry the full late-plus-undertime deduction.
-                if ($breakMinutes === 0.0 && $unpaidOnClock > 0 && $workedMinutes > $unpaidOnClock) {
-                    $workedMinutes -= $unpaidOnClock;
-                    $breakMinutes = $unpaidOnClock;
-                }
-
-                if ($s->isFlexible()) {
-                    $undertimeMinutes = max(0.0, Minutes::round($requiredMinutes - $workedMinutes));
-                } elseif ($outM < $shiftEnd) {
-                    // In PAYABLE minutes, exactly like lateness above. The gap
-                    // between an early punch out and the shift end can contain
-                    // the unpaid window, and nobody was paying for that hour.
-                    // Charging the raw clock distance bills the employee a
-                    // second time for a break they were already not paid for.
+                    // A shift that says WHERE its break sits is charged exactly the
+                    // minutes the window and the clock actually SHARE. Someone who
+                    // leaves before the window opens never had a break and loses
+                    // nothing; someone on the clock for half of it loses half.
                     //
-                    // Clamped to the shift start for the same reason
-                    // `workedMinutes` is: someone who punched out at 07:15 on
-                    // an 08:00 shift owes the paid day, not the paid day plus
-                    // the 45 minutes before it began.
-                    $shortFrom = max($outM, $shiftStart);
-                    $undertimeMinutes = Minutes::round(
-                        $shiftEnd - $shortFrom - self::breakOverlap($unpaidWindow, $shortFrom, $shiftEnd)
-                    );
-                }
+                    // It used to be a flat hour whenever the window was so much as
+                    // touched, which broke the arithmetic in both directions: a
+                    // 08:00-12:30 day lost a full hour to a window it had only
+                    // reached the first half of. Charging the shared minutes is
+                    // what lets late, worked and undertime partition the paid span
+                    // exactly -- and they must, because all three are priced from
+                    // the same hourly rate.
+                    $unpaidOnClock = $unpaidWindow === null
+                        // No window means no "when", so the flat allowance stands.
+                        ? $s->breakAllowance()
+                        : self::breakOverlap($unpaidWindow, $clampedIn, $outM);
 
-                // Overtime is measured against the PAID span, not the required
-                // one, so a shift with an unpaid hour of lunch starts earning
-                // overtime an hour before it ends.
-                if ($workedMinutes > $paidShiftLength) {
-                    $overtimeMinutes = $workedMinutes - $paidShiftLength;
+                    // The strict `>` is deliberate and leaves one case uneven: a
+                    // day spent ENTIRELY inside the window keeps its worked minutes
+                    // rather than dropping to zero. Zeroing them would be tidier
+                    // arithmetic and worse pay -- `workedMinutes > 0` at
+                    // PayslipCalculator.php:240 is what credits the work day at
+                    // all, so the employee would lose the day's basic pay AND still
+                    // carry the full late-plus-undertime deduction.
+                    if ($breakMinutes === 0.0 && $unpaidOnClock > 0 && $workedMinutes > $unpaidOnClock) {
+                        $workedMinutes -= $unpaidOnClock;
+                        $breakMinutes = $unpaidOnClock;
+                    }
+
+                    if ($s->isFlexible()) {
+                        $undertimeMinutes = max(0.0, Minutes::round($requiredMinutes - $workedMinutes));
+                    } elseif ($outM < $shiftEnd) {
+                        // In PAYABLE minutes, exactly like lateness above. The gap
+                        // between an early punch out and the shift end can contain
+                        // the unpaid window, and nobody was paying for that hour.
+                        // Charging the raw clock distance bills the employee a
+                        // second time for a break they were already not paid for.
+                        //
+                        // Clamped to the shift start for the same reason
+                        // `workedMinutes` is: someone who punched out at 07:15 on
+                        // an 08:00 shift owes the paid day, not the paid day plus
+                        // the 45 minutes before it began.
+                        $shortFrom = max($outM, $shiftStart);
+                        $undertimeMinutes = Minutes::round(
+                            $shiftEnd - $shortFrom - self::breakOverlap($unpaidWindow, $shortFrom, $shiftEnd)
+                        );
+                    }
+
+                    // Overtime is measured against the PAID span, not the required
+                    // one, so a shift with an unpaid hour of lunch starts earning
+                    // overtime an hour before it ends.
+                    if ($workedMinutes > $paidShiftLength) {
+                        $overtimeMinutes = $workedMinutes - $paidShiftLength;
+                    }
                 }
             }
 
@@ -430,7 +460,7 @@ final class DtrCalculator
                 // OB day that also carried punches past the paid span still
                 // earns overtime — while a punchless OB day is credited exactly
                 // the paid span and so earns none.
-            } elseif ($punchIn !== null && $punchOut !== null) {
+            } elseif ($punchIn !== null && $punchOut !== null && ! $hasStatusBlockingOpenPunch) {
                 $status = $lateMinutes > 0 ? DayRecord::LATE : DayRecord::PRESENT;
             } elseif ($punchIn !== null) {
                 $status = DayRecord::INCOMPLETE;
@@ -481,6 +511,8 @@ final class DtrCalculator
                 // someone on whole-day leave came in and worked anyway.
                 excuseDays: ! $onLeave ? 0.0 : ($halfDay ? 0.5 : ($punchIn !== null ? 0.0 : 1.0)),
                 status: $status,
+                flags: $flags,
+                remarks: $remarks,
             );
         }
 
@@ -496,6 +528,269 @@ final class DtrCalculator
     public static function summarize(array $days): DtrSummary
     {
         return DtrSummary::of($days);
+    }
+
+    /**
+     * Overnight shifts with scheduled break slots can have a next-day Time In
+     * that still belongs to the same work date. The original carry slice stops
+     * before the first next-day TIME_IN, which is right for a simple
+     * Time-In/Time-Out night shift but wrong for a 22:00-06:00 shift with a
+     * 02:00-03:00 break.
+     *
+     * @param  list<AttendanceLog>  $nextLogs
+     * @return list<AttendanceLog>
+     */
+    private function scheduledOvernightCarryLogs(string $date, array $nextLogs, float $shiftEnd): array
+    {
+        usort(
+            $nextLogs,
+            fn (AttendanceLog $a, AttendanceLog $b): int => $this->ms($a->loggedAt) <=> $this->ms($b->loggedAt),
+        );
+
+        $carry = [];
+        foreach ($nextLogs as $log) {
+            $minute = $this->timelineMinute($date, $log->loggedAt);
+            if (! is_finite($minute)) {
+                continue;
+            }
+
+            if ($minute <= $shiftEnd) {
+                $carry[] = $log;
+
+                continue;
+            }
+
+            if ($log->logType !== AttendanceLog::TIME_IN && $minute <= $shiftEnd + (12 * 60)) {
+                $carry[] = $log;
+
+                continue;
+            }
+
+            break;
+        }
+
+        return $carry;
+    }
+
+    /**
+     * A fixed shift with a real break window is two paid work segments:
+     * shift start -> break start, then break end -> shift end. The raw stream
+     * still stores only TIME_IN/TIME_OUT, but the DTR slots are read as
+     * Time In, Time Out, Time In, Time Out.
+     *
+     * @param  list<array{in: string, out: string}>  $pairs
+     * @param  array{0: float, 1: float}  $breakWindow
+     * @return array{timeIn: ?string, breakOut: ?string, breakIn: ?string, timeOut: ?string,
+     *     workedMinutes: float, lateMinutes: float, undertimeMinutes: float,
+     *     overtimeMinutes: float, breakMinutes: float, flags: list<string>, remarks: ?string}
+     */
+    private function scheduledBreakMetrics(
+        string $date,
+        array $pairs,
+        ?string $openIn,
+        Shift $shift,
+        ShiftGeometry $geometry,
+        array $breakWindow,
+    ): array {
+        $firstStart = $geometry->start;
+        $firstEnd = $breakWindow[0];
+        $secondStart = $breakWindow[1];
+        $secondEnd = $geometry->end;
+        $midpoint = $firstEnd + (($secondStart - $firstEnd) / 2);
+
+        $timeIn = null;
+        $firstTimeOut = null;
+        $secondTimeIn = null;
+        $timeOut = null;
+
+        $firstTimeInMinute = null;
+        $firstTimeOutMinute = null;
+        $secondTimeInMinute = null;
+        $timeOutMinute = null;
+        $firstSpanStart = null;
+        $lastSpanEnd = null;
+        $hasFirstSegment = false;
+        $hasSecondSegment = false;
+        $regularWorked = 0.0;
+        $overtimeMinutes = 0.0;
+        $flags = [];
+
+        foreach ($pairs as $pair) {
+            $inM = $this->timelineMinute($date, $pair['in']);
+            $outM = $this->timelineMinute($date, $pair['out']);
+
+            if (! is_finite($inM) || ! is_finite($outM) || $outM <= $inM) {
+                continue;
+            }
+
+            $morning = self::spanOverlap($inM, $outM, $firstStart, $firstEnd);
+            $afternoon = self::spanOverlap($inM, $outM, $secondStart, $secondEnd);
+
+            if ($morning > 0.0) {
+                $hasFirstSegment = true;
+                if ($timeIn === null) {
+                    $timeIn = $pair['in'];
+                    $firstTimeInMinute = $inM;
+                }
+
+                // 12:29 still belongs to the first out side of a 12:00-13:00
+                // break; from the midpoint forward the same clock range is the
+                // second Time In window. Late/mistyped imports still get shown
+                // in their nearest slot, with a flag below.
+                if ($outM <= $secondStart) {
+                    $firstTimeOut = $pair['out'];
+                    $firstTimeOutMinute = $outM;
+                }
+            }
+
+            if ($afternoon > 0.0) {
+                $hasSecondSegment = true;
+            }
+
+            if ($inM >= $midpoint && $secondTimeIn === null) {
+                $secondTimeIn = $pair['in'];
+                $secondTimeInMinute = $inM;
+            } elseif ($inM >= $firstEnd && $secondTimeIn === null) {
+                // Imported/legacy data can have a TIME_IN before the live
+                // station would allow it. Keep it visible, but flag it.
+                $secondTimeIn = $pair['in'];
+                $secondTimeInMinute = $inM;
+            }
+
+            if ($afternoon > 0.0 || $outM > $secondStart) {
+                $timeOut = $pair['out'];
+                $timeOutMinute = $outM;
+            }
+
+            if ($morning > 0.0 || $afternoon > 0.0) {
+                $firstSpanStart = $firstSpanStart === null ? $inM : min($firstSpanStart, $inM);
+                $lastSpanEnd = $lastSpanEnd === null ? $outM : max($lastSpanEnd, $outM);
+            }
+
+            $regularWorked += Minutes::round($morning) + Minutes::round($afternoon);
+
+            if ($outM > $secondEnd) {
+                $overtimeMinutes += Minutes::round(max(0.0, $outM - max($inM, $secondEnd)));
+            }
+        }
+
+        if ($openIn !== null && $openIn !== '') {
+            $openM = $this->timelineMinute($date, $openIn);
+            if (is_finite($openM)) {
+                if ($openM < $firstEnd) {
+                    if ($timeIn === null) {
+                        $timeIn = $openIn;
+                        $firstTimeInMinute = $openM;
+                    }
+                } elseif ($secondTimeIn === null) {
+                    $secondTimeIn = $openIn;
+                    $secondTimeInMinute = $openM;
+                }
+            }
+        }
+
+        $lateMinutes = 0.0;
+        $forgivenStartGap = 0.0;
+        if ($firstTimeInMinute !== null) {
+            $lateUntil = min(max($firstTimeInMinute, $firstStart), $firstEnd);
+
+            if ($firstTimeInMinute > $firstStart + $shift->graceMinutes) {
+                $lateMinutes = Minutes::round(max(0.0, $lateUntil - $firstStart));
+            } elseif ($firstTimeInMinute > $firstStart) {
+                $forgivenStartGap = Minutes::round(max(0.0, $lateUntil - $firstStart));
+            }
+
+            if ($firstTimeInMinute < $firstStart - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES) {
+                $flags[] = 'First Time In was recorded before the allowed window.';
+            }
+        }
+
+        if ($secondTimeInMinute !== null) {
+            $lateUntil = min(max($secondTimeInMinute, $secondStart), $secondEnd);
+
+            if ($secondTimeInMinute > $secondStart + $shift->graceMinutes) {
+                $lateMinutes += Minutes::round(max(0.0, $lateUntil - $secondStart));
+            } elseif ($secondTimeInMinute > $secondStart) {
+                $forgivenStartGap += Minutes::round(max(0.0, $lateUntil - $secondStart));
+            }
+
+            if ($secondTimeInMinute < $midpoint) {
+                $flags[] = 'Second Time In was recorded before its allowed window.';
+            }
+        }
+
+        $breakMinutes = 0.0;
+        if ($hasFirstSegment && $firstSpanStart !== null && $lastSpanEnd !== null) {
+            $breakMinutes = Minutes::round(self::breakOverlap(
+                $breakWindow,
+                max($firstSpanStart, $firstStart),
+                min($lastSpanEnd, $secondEnd),
+            ));
+        }
+
+        $undertimeMinutes = $openIn !== null && $openIn !== ''
+            ? 0.0
+            : max(0.0, Minutes::round(
+                $geometry->paidMinutes - $regularWorked - $lateMinutes - $forgivenStartGap
+            ));
+
+        if ($timeIn === null && $secondTimeIn !== null) {
+            $flags[] = 'First work segment was missed.';
+        }
+
+        if ($hasFirstSegment && $hasSecondSegment && ($firstTimeOut === null || $secondTimeIn === null)) {
+            $missing = [];
+            if ($firstTimeOut === null) {
+                $missing[] = 'First Time Out';
+            }
+            if ($secondTimeIn === null) {
+                $missing[] = 'Second Time In';
+            }
+            $flags[] = 'Missing middle punch: '.implode(' and ', $missing).'.';
+        }
+
+        if ($firstTimeOut !== null && $secondTimeIn === null && ! $hasSecondSegment) {
+            $flags[] = 'Second Time In was not recorded after First Time Out.';
+        }
+
+        if ($timeOut === null && ($timeIn !== null || $secondTimeIn !== null)) {
+            $flags[] = 'Final Time Out was not recorded.';
+        }
+
+        if ($firstTimeOutMinute !== null) {
+            if ($firstTimeOutMinute < $firstEnd) {
+                $early = (int) Minutes::round($firstEnd - $firstTimeOutMinute);
+                $flags[] = "First Time Out was {$early} min before the scheduled break.";
+            } elseif ($firstTimeOutMinute >= $midpoint && $firstTimeOutMinute <= $secondStart) {
+                $flags[] = 'First Time Out was recorded inside the Second Time In window.';
+            }
+        }
+
+        if ($secondTimeInMinute !== null && $secondTimeInMinute > $secondStart + $shift->graceMinutes) {
+            $late = (int) Minutes::round($secondTimeInMinute - $secondStart);
+            $flags[] = "Second Time In was {$late} min late.";
+        }
+
+        if ($timeOutMinute !== null && $timeOutMinute < $secondEnd) {
+            $early = (int) Minutes::round($secondEnd - $timeOutMinute);
+            $flags[] = "Final Time Out was {$early} min before shift end.";
+        }
+
+        $flags = array_values(array_unique($flags));
+
+        return [
+            'timeIn' => $timeIn,
+            'breakOut' => $firstTimeOut,
+            'breakIn' => $secondTimeIn,
+            'timeOut' => $timeOut,
+            'workedMinutes' => $regularWorked + $overtimeMinutes,
+            'lateMinutes' => $lateMinutes,
+            'undertimeMinutes' => $undertimeMinutes,
+            'overtimeMinutes' => $overtimeMinutes,
+            'breakMinutes' => $breakMinutes,
+            'flags' => $flags,
+            'remarks' => $flags === [] ? null : implode(' ', $flags),
+        ];
     }
 
     /**
@@ -527,23 +822,22 @@ final class DtrCalculator
         return $this->minuteCache[$iso] ??= ManilaClock::minutesOfDay(ManilaClock::instant($iso));
     }
 
+    /** Minutes from the Manila midnight of the DTR row's date. */
+    private function timelineMinute(string $date, string $iso): float
+    {
+        $base = ManilaClock::ms(ManilaClock::instant($date.'T00:00:00'));
+
+        return (ManilaClock::ms(ManilaClock::instant($iso)) - $base) / 60000;
+    }
+
     /**
-     * TS: `breakWindow(s, overnight)` — the shift's unpaid break as a WINDOW in
-     * the same minutes-from-midnight space the rest of compute() works in, or
-     * null when the shift does not say where its break sits.
-     *
-     * `breakMinutes` alone is only a quantity. Without `breakStart`/`breakEnd`
-     * there is no way to know whether the employee was even on the clock while
-     * the break was available, so callers treat null as "assume they were" and
-     * keep the flat deduction every shift had before this existed.
-     *
-     * On an overnight shift a window earlier in the clock than the shift's own
-     * start belongs to the NEXT calendar day and rolls forward with it, exactly
-     * as `shiftEnd` does.
+     * Legacy unpaid break window for the pre-slot arithmetic. This keeps the
+     * TypeScript-compatible path stable for historical or malformed rows whose
+     * break window exists but is not a valid scheduled slot window.
      *
      * @return array{0: float, 1: float}|null
      */
-    private static function breakWindow(Shift $s, bool $overnight): ?array
+    private static function configuredBreakWindow(Shift $s, bool $overnight): ?array
     {
         if ($s->breakStart === null || $s->breakEnd === null || $s->breakAllowance() <= 0) {
             return null;
@@ -575,6 +869,12 @@ final class DtrCalculator
             return 0.0;
         }
 
-        return max(0.0, min($to, $window[1]) - max($from, $window[0]));
+        return self::spanOverlap($from, $to, $window[0], $window[1]);
+    }
+
+    /** How many minutes two half-open spans share. */
+    private static function spanOverlap(float $from, float $to, float $windowFrom, float $windowTo): float
+    {
+        return max(0.0, min($to, $windowTo) - max($from, $windowFrom));
     }
 }
