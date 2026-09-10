@@ -269,13 +269,16 @@ class EmployeeProfile extends BaseModel
     }
 
     /**
-     * `task_load` in the source: the tasks assigned to this employee.
+     * `task_load` in the source: the tasks assigned to this employee. Through
+     * the `project_task_assignees` pivot since a task may have several
+     * assignees; `->count()` still answers "how many tasks".
      *
-     * @return HasMany<ProjectTask, $this>
+     * @return BelongsToMany<ProjectTask, $this>
      */
-    public function taskLoad(): HasMany
+    public function taskLoad(): BelongsToMany
     {
-        return $this->hasMany(ProjectTask::class, 'assignee_id');
+        return $this->belongsToMany(ProjectTask::class, 'project_task_assignees', 'employee_id', 'task_id')
+            ->withPivot(['assigned_by', 'created_at']);
     }
 
     /**

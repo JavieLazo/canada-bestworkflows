@@ -17,6 +17,10 @@ use Symfony\Component\HttpFoundation\Response;
  * GET /projects/{project}/tasks/export — the project-detail.tsx "Export CSV"
  * button: the project's *visible* (filtered, sorted) task list as
  * `{code}-tasks-YYYY-MM-DD.csv` with the same six columns in the same order.
+ *
+ * "Assignees" mirrors the table column — every assignee, ordered by last name
+ * then first — but joined with "; " rather than the table's ", ", so a cell
+ * holding two people is not mistaken for one "Last, First" name.
  */
 class TasksExportController extends Controller
 {
@@ -37,10 +41,15 @@ class TasksExportController extends Controller
             ->get()
             ->all();
 
-        $assigneeIds = array_values(array_unique(array_filter(
-            array_map(static fn (ProjectTask $t): ?string => $t->assignee_id, $projectTasks),
-        )));
-        $employees = EmployeeProfile::query()->whereIn('id', $assigneeIds)->get();
+        // scopedTasks() eager-loaded the pivot; the union of every task's
+        // assignee set is what the sort key resolves names against.
+        $assigneeIds = [];
+        foreach ($projectTasks as $t) {
+            foreach ($t->assigneeIds() as $id) {
+                $assigneeIds[$id] = true;
+            }
+        }
+        $employees = EmployeeProfile::query()->whereIn('id', array_keys($assigneeIds))->get();
 
         $sort = (string) $request->query('sort', 'stack');
         if (! in_array($sort, ['stack', 'code', 'task', 'assignee', 'priority', 'due', 'status'], true)) {
@@ -65,12 +74,10 @@ class TasksExportController extends Controller
 
         $rows = [];
         foreach ($visible as $task) {
-            $employee = $task->assignee_id === null ? null : $employees->firstWhere('id', $task->assignee_id);
-
             $rows[] = [
                 $task->code,
                 $task->title,
-                ProjectsData::employeeName($employee),
+                self::assigneeCell($task),
                 TaskPolicy::priorityLabel($task->priority),
                 ProjectsData::dateKey($task->due_date) ?? '',
                 TaskPolicy::statusLabel($task->status),
@@ -78,7 +85,7 @@ class TasksExportController extends Controller
         }
 
         $csv = ProjectsData::toCsv(
-            ['Code', 'Task', 'Assignee', 'Priority', 'Due date', 'Status'],
+            ['Code', 'Task', 'Assignees', 'Priority', 'Due date', 'Status'],
             $rows,
         );
 
@@ -86,5 +93,27 @@ class TasksExportController extends Controller
             'Content-Type' => 'text/csv;charset=utf-8;',
             'Content-Disposition' => 'attachment; filename="'.mb_strtolower($projectRow->code).'-tasks-'.$today.'.csv"',
         ]);
+    }
+
+    /**
+     * The table's assignee order (last name, then first — what
+     * {@see ProjectsData::assigneeNames()} prints) joined with "; "; "—" when
+     * the task is unassigned.
+     */
+    private static function assigneeCell(ProjectTask $task): string
+    {
+        $employees = $task->assignees->all();
+
+        if ($employees === []) {
+            return ProjectsData::employeeName(null);
+        }
+
+        usort($employees, static function (EmployeeProfile $a, EmployeeProfile $b): int {
+            $last = ProjectsData::compareText($a->last_name, $b->last_name);
+
+            return $last !== 0 ? $last : ProjectsData::compareText($a->first_name, $b->first_name);
+        });
+
+        return implode('; ', array_map(static fn (EmployeeProfile $e): string => ProjectsData::employeeName($e), $employees));
     }
 }

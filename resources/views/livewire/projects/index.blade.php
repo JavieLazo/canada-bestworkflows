@@ -7,6 +7,12 @@
     Icons are the reference's own Lucide set, inlined through
     livewire/projects/partials/icon.blade.php (Flux ships Heroicons; the
     reference look is Lucide, exactly as the shell's module icons are inlined).
+    Inside a flux:button the include goes in the named icon slot, never the
+    default slot: Flux wraps the default slot in a bare span and preflight makes
+    an svg display:block, so an inline icon there stacks above the label.
+
+    The per-project manager (projects.manager_id, a user account) is shown to
+    people as the "Task Leader"; the identifiers keep the reference's name.
 --}}
 @php
     use App\Domain\Projects\ProjectPolicy;
@@ -23,11 +29,11 @@
         </div>
         <div class="flex items-center gap-3">
             <flux:button variant="outline" href="{{ $exportUrl }}">
-                @include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-4'])
+                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-4'])</x-slot:icon>
                 Export CSV
             </flux:button>
             <flux:button variant="primary" wire:click="$set('adding', true)">
-                @include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])
+                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
                 New project
             </flux:button>
         </div>
@@ -54,7 +60,7 @@
             wire:click="setQueue('REVIEW')"
             class="hris-card flex items-center gap-3 p-4 text-left transition-colors hover:bg-accent"
         >
-            <span class="rounded-md bg-info/10 p-2 text-info">
+            <span class="rounded-md bg-success/10 p-2 text-success">
                 @include('livewire.projects.partials.icon', ['icon' => 'clipboard-check', 'class' => 'size-4'])
             </span>
             <span>
@@ -129,8 +135,8 @@
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by manager" class="w-[13rem]" wire:model.live="manager">
-                <flux:select.option value="ALL">All managers</flux:select.option>
+            <x-kit.filter-select label="Filter by task leader" class="w-[13rem]" wire:model.live="manager">
+                <flux:select.option value="ALL">All task leaders</flux:select.option>
                 @foreach ($accounts as $account)
                     @if ((bool) $account->getAttribute('is_active'))
                         <flux:select.option value="{{ $account->id }}">{{ $account->name }}</flux:select.option>
@@ -153,7 +159,7 @@
                     <tr>
                         <x-kit.sort-header field="code" label="Code" />
                         <x-kit.sort-header field="name" label="Project" />
-                        <x-kit.sort-header field="manager" label="Manager" />
+                        <x-kit.sort-header field="manager" label="Task Leader" />
                         <th>Timeline</th>
                         <th>Progress</th>
                         <th>Health</th>
@@ -304,9 +310,9 @@
                 </div>
 
                 <div class="space-y-2">
-                    <flux:label>Manager</flux:label>
-                    <flux:select aria-label="Manager" wire:model="draftManagerId">
-                        <flux:select.option value="NONE">No manager</flux:select.option>
+                    <flux:label>Task Leader</flux:label>
+                    <flux:select aria-label="Task Leader" wire:model="draftManagerId">
+                        <flux:select.option value="NONE">No task leader</flux:select.option>
                         @foreach ($accounts as $account)
                             @if ((bool) $account->getAttribute('is_active'))
                                 {{-- A deactivated account is signed out on sight, so it
@@ -318,7 +324,7 @@
                 </div>
 
                 <flux:button type="submit" variant="primary">
-                    @include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])
+                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
                     Create project
                 </flux:button>
             </form>

@@ -13,6 +13,7 @@ use App\Models\Notification;
 use App\Models\PayrollRun;
 use App\Models\Project;
 use App\Models\ProjectTask;
+use App\Models\ProjectTaskAssignee;
 use App\Models\ProjectTaskFile;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
@@ -313,15 +314,6 @@ class Index extends Component
 
                 return;
             }
-
-            // New accounts are created active, so any live holder is a clash.
-            $holder = $this->activeAccountHolding($this->createEmployeeId);
-
-            if ($holder !== null) {
-                Flux::toast(variant: 'danger', text: "That employee record is already linked to {$holder->email}.");
-
-                return;
-            }
         }
 
         $user = new User;
@@ -461,22 +453,6 @@ class Index extends Component
 
                 return;
             }
-
-            // Only a live account competes for the record, so the check follows
-            // the status this save will LEAVE behind — reactivating a disabled
-            // account onto a taken employee is the same clash as relinking it.
-            // One's own patch carries no status, so that stays as stored.
-            $willBeActive = $isOwnAccount ? (bool) $account->is_active : $patch['is_active'];
-
-            if ($willBeActive) {
-                $holder = $this->activeAccountHolding($patch['employee_id'], (string) $account->getKey());
-
-                if ($holder !== null) {
-                    Flux::toast(variant: 'danger', text: "That employee record is already linked to {$holder->email}.");
-
-                    return;
-                }
-            }
         }
 
         $account->name = $patch['full_name'];
@@ -588,8 +564,8 @@ class Index extends Component
         }
 
         // The nine referencing tables the source counts before allowing a
-        // delete (api/accounts/[id]/route.ts:118-136) — historical attribution
-        // must stay intact.
+        // delete (api/accounts/[id]/route.ts:118-136), plus the task-assignee
+        // pivot this port added — historical attribution must stay intact.
         if ($account->employee_id !== null || $this->accountIsReferenced($account)) {
             Flux::toast(
                 variant: 'danger',
@@ -851,32 +827,6 @@ class Index extends Component
         $this->accountIsActive = (bool) $account->is_active;
     }
 
-    /**
-     * The live account already holding this employee record, if any.
-     *
-     * The database says the same thing — `users_active_employee_unq` refuses a
-     * second active account on one employee — but a constraint violation
-     * reaches the operator as a 500. This turns it into the screen's own
-     * refusal, naming the account that holds the record so they can go and
-     * unlink it. Deactivated accounts are ignored on purpose: keeping the old
-     * login attached to the 201 record is how a rehire holds onto its history.
-     *
-     * @param  string|null  $exceptAccountId  the account being edited, which
-     *                                        never clashes with itself
-     */
-    private function activeAccountHolding(string $employeeId, ?string $exceptAccountId = null): ?User
-    {
-        $query = User::query()
-            ->where('employee_id', $employeeId)
-            ->where('is_active', true);
-
-        if ($exceptAccountId !== null) {
-            $query->whereKeyNot($exceptAccountId);
-        }
-
-        return $query->orderBy('id')->first();
-    }
-
     private function resetCreateForm(): void
     {
         $this->createFullName = '';
@@ -911,7 +861,11 @@ class Index extends Component
     /**
      * The `_count` block of DELETE /api/accounts/[id]: notifications,
      * comments, tasks assigned/reviewed, projects managed, runs finalized,
-     * requests reviewed, documents added, task files added.
+     * requests reviewed, documents added, task files added — plus the
+     * task-assignee rows handed out (project_task_assignees.assigned_by),
+     * which the source had no equivalent of: that FK nulls on delete, and
+     * "who handed this person the task" is exactly the attribution this
+     * guard exists to keep.
      */
     private function accountIsReferenced(User $account): bool
     {
@@ -925,7 +879,8 @@ class Index extends Component
             || PayrollRun::query()->where('finalized_by', $id)->exists()
             || LeaveTravelRequest::query()->where('reviewed_by', $id)->exists()
             || EmployeeDocument::query()->where('uploaded_by', $id)->exists()
-            || ProjectTaskFile::query()->where('uploaded_by', $id)->exists();
+            || ProjectTaskFile::query()->where('uploaded_by', $id)->exists()
+            || ProjectTaskAssignee::query()->where('assigned_by', $id)->exists();
     }
 
     /**

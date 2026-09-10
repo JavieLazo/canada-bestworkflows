@@ -24,7 +24,10 @@ use Livewire\Livewire;
  * Covers the three non-negotiables: routes gate on the module grant, scoped
  * queries return nothing for an employee-less actor, and the happy-path flow
  * (open → start → submit) moves through TaskPolicy with the audit rows, the
- * thread comment and the notification the reference server wrote.
+ * thread comment and the notification the reference server wrote. Then the
+ * shared-task rules: any assignee may move the task, every fan-out lands once
+ * per ACCOUNT and never on the actor, and the evidence is the crew's to see
+ * but only its uploader's to withdraw.
  */
 function tasksRole(array $modules, bool $allData = false): Role
 {
@@ -80,9 +83,16 @@ function tasksProject(string $code = 'PRJ-001'): Project
     return $project;
 }
 
+/**
+ * One task, assigned to none, one or several employees through the
+ * project_task_assignees pivot (ProjectTask::syncAssignees — the only writer
+ * that mints the pivot's ULID).
+ *
+ * @param  string|list<string>|null  $assignees  employee id(s); null = unassigned
+ */
 function tasksTask(
     Project $project,
-    ?string $assigneeId,
+    string|array|null $assignees,
     string $status = 'PENDING',
     string $code = 'TSK-001',
     ?int $assignedBy = null,
@@ -92,11 +102,15 @@ function tasksTask(
         'code' => $code,
         'project_id' => $project->getKey(),
         'title' => 'Task '.$code,
-        'assignee_id' => $assigneeId,
         'status' => $status,
         'priority' => 'NORMAL',
         'assigned_by' => $assignedBy,
     ])->save();
+
+    $ids = $assignees === null ? [] : (array) $assignees;
+    if ($ids !== []) {
+        $task->syncAssignees($ids, $assignedBy);
+    }
 
     return $task;
 }
@@ -230,6 +244,159 @@ it('walks a task from pending to submitted with audit, thread and notification',
     expect($bell)->not->toBeNull();
     expect($bell->title)->toBe('TSK-001 submitted for review');
     expect($bell->href)->toBe('/projects');
+
+    // Working alone: submitted_by is the submitter, and there is nobody
+    // else to tell — no second TASK_SUBMITTED row anywhere.
+    expect($task->submitted_by)->toBe($employee->getKey());
+    expect(Notification::query()->where('kind', 'TASK_SUBMITTED')->count())->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| A shared task — several assignees on one pivot
+|--------------------------------------------------------------------------
+*/
+
+it('lists and opens a shared task for its second assignee', function () {
+    $first = tasksEmployee('EMP-001');
+    $second = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    $project = tasksProject();
+    $task = tasksTask($project, [$first->getKey(), $second->getKey()], code: 'TSK-SHARED');
+    tasksActor(['TASKS'], employeeId: $second->getKey());
+
+    Livewire::test(MyTasksPage::class)
+        ->assertSee('TSK-SHARED')
+        ->call('openTask', $task->getKey())
+        ->assertSet('openId', $task->getKey())
+        // The dialog names the peer, not the actor.
+        ->assertSee('Working with:')
+        ->assertSee('Liza Domingo');
+});
+
+it('submits a shared task for everyone, records who did, and tells the co-assignee', function () {
+    $manager = User::factory()->create();
+    $me = tasksEmployee('EMP-001');
+    $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    $peerLogin = User::factory()->create(['employee_id' => $peer->getKey(), 'is_active' => true]);
+    $project = tasksProject();
+    $task = tasksTask($project, [$me->getKey(), $peer->getKey()], status: 'IN_PROGRESS', assignedBy: (int) $manager->getKey());
+    tasksActor(['TASKS'], employeeId: $me->getKey());
+
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $task->getKey())
+        ->set('remarks', 'Both halves are done.')
+        ->call('submitTask');
+
+    $task->refresh();
+    expect($task->status)->toBe('SUBMITTED');
+    expect($task->submitted_by)->toBe($me->getKey());
+    // Membership is untouched by a submission.
+    expect($task->assigneeIds())->toBe(collect([$me->getKey(), $peer->getKey()])->sort()->values()->all());
+
+    // The assigner is told as before...
+    expect(Notification::query()->where('user_id', $manager->getKey())->where('kind', 'TASK_SUBMITTED')->exists())->toBeTrue();
+
+    // ...and so is the peer, by name, pointed at their own queue.
+    $bell = Notification::query()->where('user_id', $peerLogin->getKey())->where('kind', 'TASK_SUBMITTED')->first();
+    expect($bell)->not->toBeNull();
+    expect($bell->title)->toBe('Liza Domingo submitted TSK-001 for review');
+    expect($bell->body)->toBe('Both halves are done.');
+    expect($bell->href)->toBe('/my-tasks');
+
+    // The submitter is not told about their own submission.
+    expect(Notification::query()->where('kind', 'TASK_SUBMITTED')->count())->toBe(2);
+
+    // Reopened by the submitter, the note reads as their own.
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $task->getKey())
+        ->assertSee('Your last submission')
+        ->assertSee('Both halves are done.');
+});
+
+it('tells the co-assignee about a peer\'s comment, and every assignee about a management note', function () {
+    $manager = User::factory()->create();
+    $me = tasksEmployee('EMP-001');
+    $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    $peerLogin = User::factory()->create(['employee_id' => $peer->getKey(), 'is_active' => true]);
+    $project = tasksProject();
+    $task = tasksTask($project, [$me->getKey(), $peer->getKey()], status: 'IN_PROGRESS', assignedBy: (int) $manager->getKey());
+    tasksActor(['TASKS'], employeeId: $me->getKey());
+
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $task->getKey())
+        ->set('commentBody', 'I will take the second half.')
+        ->call('postComment');
+
+    expect(Notification::query()->where('user_id', $manager->getKey())->where('kind', 'TASK_COMMENT')->exists())->toBeTrue();
+    $bell = Notification::query()->where('user_id', $peerLogin->getKey())->where('kind', 'TASK_COMMENT')->first();
+    expect($bell)->not->toBeNull();
+    expect($bell->title)->toBe('New note on TSK-001');
+    expect($bell->href)->toBe('/my-tasks');
+    expect(Notification::query()->where('kind', 'TASK_COMMENT')->count())->toBe(2);
+});
+
+it('tells an assigner who is also on the crew once, as the assigner, and the actor never', function () {
+    $me = tasksEmployee('EMP-001');
+    $lead = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    // The task leader put themselves on the crew, so their login is reachable
+    // twice in one fan-out: as assigned_by and through the pivot.
+    $leadLogin = User::factory()->create(['employee_id' => $lead->getKey(), 'is_active' => true]);
+    $project = tasksProject();
+    $task = tasksTask($project, [$me->getKey(), $lead->getKey()], status: 'IN_PROGRESS', assignedBy: (int) $leadLogin->getKey());
+    $myLogin = tasksActor(['TASKS'], employeeId: $me->getKey());
+
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $task->getKey())
+        ->set('remarks', 'Both halves are done.')
+        ->call('submitTask');
+
+    $submitted = Notification::query()->where('kind', 'TASK_SUBMITTED')->get();
+    expect($submitted)->toHaveCount(1)
+        ->and((int) $submitted[0]->user_id)->toBe((int) $leadLogin->getKey())
+        // Heard as the reviewer, whose next step is on the Projects screen.
+        ->and($submitted[0]->title)->toBe('TSK-001 submitted for review')
+        ->and($submitted[0]->href)->toBe('/projects');
+
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $task->getKey())
+        ->set('commentBody', 'The photos are in the shared folder.')
+        ->call('postComment');
+
+    $noted = Notification::query()->where('kind', 'TASK_COMMENT')->get();
+    expect($noted)->toHaveCount(1)
+        ->and((int) $noted[0]->user_id)->toBe((int) $leadLogin->getKey())
+        ->and($noted[0]->href)->toBe('/projects');
+
+    // The actor is never told about their own actions.
+    expect(Notification::query()->where('user_id', $myLogin->getKey())->count())->toBe(0);
+});
+
+it('never tells the actor about their own action, from either side of the thread', function () {
+    $me = tasksEmployee('EMP-001');
+    $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    $peerLogin = User::factory()->create(['employee_id' => $peer->getKey(), 'is_active' => true]);
+    $project = tasksProject();
+    // A reviewer (all_data + PROJECTS) who handed the task out AND put
+    // themselves on the crew: reachable as assigned_by, through the pivot,
+    // and as the management side of the thread — three ways to be told nothing.
+    $login = tasksActor(['PROJECTS', 'TASKS'], allData: true, employeeId: $me->getKey());
+    $task = tasksTask($project, [$me->getKey(), $peer->getKey()], status: 'IN_PROGRESS', assignedBy: (int) $login->getKey());
+
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $task->getKey())
+        ->set('commentBody', 'Starting on the east wall.')
+        ->call('postComment')
+        ->set('remarks', 'Both walls are done.')
+        ->call('submitTask');
+
+    // The management branch is the one that ran.
+    expect(TaskComment::query()->where('task_id', $task->getKey())->where('side', 'MANAGEMENT')->exists())->toBeTrue();
+
+    expect(Notification::query()->where('user_id', $login->getKey())->count())->toBe(0);
+    // The peer still hears both, once each.
+    expect(Notification::query()->where('user_id', $peerLogin->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $peerLogin->getKey())->where('kind', 'TASK_SUBMITTED')->count())->toBe(1)
+        ->and(Notification::query()->count())->toBe(2);
 });
 
 it('refuses to submit without a note', function () {
@@ -322,15 +489,17 @@ it('locks submission evidence once the task is under review', function () {
 });
 
 /**
- * One stored SUBMISSION file on EMP-001's task.
+ * One stored SUBMISSION file on EMP-001's task — shared with `$peers` when
+ * given, and stamped with `$uploadedBy` (a users id) when given.
  *
+ * @param  list<string>  $peers
  * @return array{0: EmployeeProfile, 1: ProjectTaskFile}
  */
-function tasksStoredFile(): array
+function tasksStoredFile(array $peers = [], ?int $uploadedBy = null): array
 {
     Storage::fake('local');
     $mine = tasksEmployee('EMP-001');
-    $task = tasksTask(tasksProject(), $mine->getKey(), status: 'IN_PROGRESS');
+    $task = tasksTask(tasksProject(), [$mine->getKey(), ...$peers], status: 'IN_PROGRESS');
 
     $path = UploadedFile::fake()->create('evidence.pdf', 10, 'application/pdf')->store('task-files', 'local');
     $file = new ProjectTaskFile;
@@ -342,6 +511,8 @@ function tasksStoredFile(): array
         'size' => 10240,
         'path' => (string) $path,
     ]);
+    // Actor column — set the way updatedUpload() sets it, never mass-assigned.
+    $file->uploaded_by = $uploadedBy;
     $file->save();
 
     return [$mine, $file];
@@ -370,4 +541,66 @@ it('lets a reviewer download the evidence', function () {
     tasksActor(['PROJECTS'], allData: true);
 
     $this->get(route('tasks.files.download', $file->getKey()))->assertOk();
+});
+
+it('lets a co-assignee download a peer\'s evidence on the shared task', function () {
+    $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    [, $file] = tasksStoredFile(peers: [$peer->getKey()]);
+    tasksActor(['TASKS'], employeeId: $peer->getKey());
+
+    $this->get(route('tasks.files.download', $file->getKey()))->assertOk();
+});
+
+it('refuses the download to an employee-less TASKS holder even on an unassigned task', function () {
+    [, $file] = tasksStoredFile();
+    // Strip the pivot so the task is unassigned — the shape that used to
+    // leak through `assignee_id IS NULL`.
+    $file->task?->syncAssignees([], null);
+    tasksActor(['TASKS']);
+
+    $this->get(route('tasks.files.download', $file->getKey()))->assertForbidden();
+});
+
+it('lets only the uploader withdraw a submission file, never a co-assignee', function () {
+    $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    $uploader = User::factory()->create(['name' => 'Nora Reyes']);
+    [, $file] = tasksStoredFile(peers: [$peer->getKey()], uploadedBy: (int) $uploader->getKey());
+    tasksActor(['TASKS'], employeeId: $peer->getKey());
+
+    // The peer is on the task but did not upload the file: refused, row kept.
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $file->task_id)
+        ->assertSet('openId', $file->task_id)
+        // The list is the crew's, and somebody else's file says whose it is...
+        ->assertSee('Submission files')
+        ->assertDontSee('Your files')
+        ->assertSee('by Nora Reyes')
+        // ...but the trash button is not even offered on a peer's file...
+        ->assertDontSee('Remove evidence.pdf')
+        ->call('deleteFile', $file->getKey())
+        ->assertForbidden();
+
+    expect(ProjectTaskFile::query()->whereKey($file->getKey())->exists())->toBeTrue();
+    Storage::disk('local')->assertExists($file->path);
+});
+
+it('lets the uploader withdraw their own submission file on a shared task', function () {
+    $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
+    $uploaderEmployee = tasksEmployee('EMP-003', 'Nora', 'Reyes');
+    [, $file] = tasksStoredFile(peers: [$peer->getKey(), $uploaderEmployee->getKey()]);
+    // The uploader is EMP-003's account, on the task as a third assignee.
+    $login = tasksActor(['TASKS'], employeeId: $uploaderEmployee->getKey());
+    $file->uploaded_by = (int) $login->getKey();
+    $file->save();
+
+    Livewire::test(MyTasksPage::class)
+        ->call('openTask', $file->task_id)
+        // Their own file: the trash button, and no "by" line — the uploader
+        // would be named by their employee record's spelling.
+        ->assertSee('Remove evidence.pdf')
+        ->assertDontSee('by Nora Reyes')
+        ->call('deleteFile', $file->getKey());
+
+    expect(ProjectTaskFile::query()->whereKey($file->getKey())->exists())->toBeFalse();
+    expect(AuditLog::query()->where('action', 'TASK_FILE_REMOVED')->where('entity_id', $file->getKey())->exists())->toBeTrue();
 });

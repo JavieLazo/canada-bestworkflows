@@ -76,7 +76,7 @@ class ProjectsExportController extends Controller
         }
 
         $csv = ProjectsData::toCsv(
-            ['Code', 'Project', 'Site', 'Manager', 'Start date', 'Due date', 'Progress', 'Health', 'Status'],
+            ['Code', 'Project', 'Site', 'Task Leader', 'Start date', 'Due date', 'Progress', 'Health', 'Status'],
             $rows,
         );
 

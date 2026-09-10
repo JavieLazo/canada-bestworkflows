@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace App\Livewire\Kit;
 
-use App\Domain\Enums\ModuleCode;
+use App\Livewire\Kit\Concerns\ReadsEmployeeDirectory;
 use App\Models\EmployeeProfile;
-use App\Support\Access;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -45,21 +43,16 @@ use Livewire\Component;
  *
  * ── Who appears in the list ─────────────────────────────────────────────────
  *
- * The three read tiers of GET /api/employees (api/employees/route.ts:38-70),
- * collapsed to what a picker needs:
- *
- *   full directory          mayReadAllData(EMPLOYEES, PAYROLL)
- *   operational directory   mayReadAllData(EDTR, ROSTER, LEAVES, PROJECTS, TASKS)
- *                           (the picker shows only operational-directory
- *                           columns, so the reduced tier loses nothing here)
- *   otherwise               the actor's OWN row — or NO rows for an account
- *                           with no employee link, never every row
- *
- * The actor is re-read from the session EVERY request — never cached on a
- * property, never taken from the client.
+ * The scoped directory query and the multi-term search live in
+ * {@see ReadsEmployeeDirectory}, shared with the multi-select
+ * {@see EmployeeChecklist} so the two controls can never disagree about who
+ * an actor may see. The actor is re-read from the session EVERY request —
+ * never cached on a property, never taken from the client.
  */
 class EmployeePicker extends Component
 {
+    use ReadsEmployeeDirectory;
+
     /** The selected employee's id, or "" for none. Id-bearing → #[Locked]. */
     #[Locked]
     public string $value = '';
@@ -132,23 +125,7 @@ class EmployeePicker extends Component
     /** @return Collection<int, EmployeeProfile> */
     protected function visibleEmployees(): Collection
     {
-        $query = $this->directoryQuery();
-
-        // Port of `matches` (EmployeePicker.tsx:40-49): every whitespace-
-        // separated term has to match somewhere in code, name or position, so
-        // "bwf garcia" finds the Garcia with that code.
-        $terms = preg_split('/\s+/', trim($this->search), -1, PREG_SPLIT_NO_EMPTY) ?: [];
-
-        foreach ($terms as $term) {
-            $like = '%'.addcslashes($term, '\\%_').'%';
-
-            $query->where(function (Builder $q) use ($like): void {
-                $q->where('employee_code', 'like', $like)
-                    ->orWhere('first_name', 'like', $like)
-                    ->orWhere('last_name', 'like', $like)
-                    ->orWhere('position', 'like', $like);
-            });
-        }
+        $query = $this->applyDirectorySearch($this->directoryQuery(), $this->search);
 
         return $query->get([
             'id', 'employee_code', 'first_name', 'last_name', 'position', 'is_active', 'photo_path',
@@ -165,40 +142,5 @@ class EmployeePicker extends Component
         // visibility renders as the placeholder, never as a name they may not
         // read.
         return $this->directoryQuery()->whereKey($this->value)->first();
-    }
-
-    /**
-     * The scoped directory, ordered the way the source returned it
-     * (orderBy last_name asc, api/employees/route.ts:41).
-     *
-     * @return Builder<EmployeeProfile>
-     */
-    protected function directoryQuery(): Builder
-    {
-        $actor = Access::forActor(auth()->user());
-
-        $query = EmployeeProfile::query()
-            ->orderBy('last_name')
-            ->orderBy('first_name');
-
-        if (
-            $actor->mayReadAllData(ModuleCode::EMPLOYEES, ModuleCode::PAYROLL)
-            || $actor->mayReadAllData(
-                ModuleCode::EDTR,
-                ModuleCode::ROSTER,
-                ModuleCode::LEAVES,
-                ModuleCode::PROJECTS,
-                ModuleCode::TASKS,
-            )
-        ) {
-            return $query;
-        }
-
-        // Own row only — or, for an account with no employee link, NO rows.
-        // NOT a where(column, null), which would be `IS NULL` (see
-        // App\Models\Concerns\ScopesToActor for the full story).
-        return $actor->hasEmployeeLink()
-            ? $query->whereKey($actor->ownEmployeeId())
-            : $query->whereRaw('1 = 0');
     }
 }

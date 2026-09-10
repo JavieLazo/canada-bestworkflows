@@ -26,11 +26,14 @@ use Illuminate\Database\Eloquent\Builder;
  * The naive transcription of `{ employee_id: session.employeeId ?? "__none__" }`
  * is `->where('employee_id', $access->employeeId)`. In Laravel that is not a
  * translation, it is a DATA LEAK: `where($column, null)` silently compiles to
- * `WHERE column IS NULL`. `project_tasks.assignee_id` is nullable, so the naive
- * port hands EVERY UNASSIGNED TASK to any account with no employee record —
+ * `WHERE column IS NULL`. When tasks still carried a nullable
+ * `project_tasks.assignee_id` (dropped by migration 2026_09_10_0002 — the
+ * assignees now live in the `project_task_assignees` pivot), the naive port
+ * handed EVERY UNASSIGNED TASK to any account with no employee record —
  * including a freshly bootstrapped admin, and including whoever is holding the
- * one account nobody has linked yet. The TypeScript sentinel `"__none__"`
- * exists precisely so that an unlinked account matches zero rows.
+ * one account nobody has linked yet. `project_tasks.submitted_by` and every
+ * other nullable employee column are the same trap. The TypeScript sentinel
+ * `"__none__"` exists precisely so that an unlinked account matches zero rows.
  *
  * Three things make that leak unconstructible here rather than merely handled:
  *
@@ -65,8 +68,8 @@ use Illuminate\Database\Eloquent\Builder;
  *   shifts          ROSTER, EDTR, PAYROLL          api/shifts/route.ts:14
  *   leave requests  LEAVES                         api/leave-requests/route.ts:64
  *   documents       EMPLOYEES, RECORDS             api/employees/documents/route.ts:20
- *   tasks           PROJECTS                       api/tasks/route.ts:22
- *   projects        PROJECTS  (via tasks.assignee) api/projects/route.ts:21-27
+ *   tasks           PROJECTS  (via assignments)    api/tasks/route.ts:22
+ *   projects        PROJECTS  (via tasks.assignments) api/projects/route.ts:21-27
  *   payslips        PAYROLL ALONE                  api/payroll/payslips/route.ts:22
  *
  * TASKS AND PROJECTS ARE `PROJECTS` ALONE. The source computes
@@ -107,8 +110,12 @@ use Illuminate\Database\Eloquent\Builder;
  *         ->scopeToEmployee($access, 'employee_id', ModuleCode::EDTR, ModuleCode::PAYROLL)
  *         ->orderByDesc('logged_at');
  *
+ *     // One relation away — or several, dotted: whereHas() walks the path
+ *     // and the column is qualified against the LAST relation's table.
+ *     ProjectTask::query()
+ *         ->toEmployeeVia($access, 'assignments', 'employee_id', ModuleCode::PROJECTS);
  *     Project::query()
- *         ->scopeToEmployeeVia($access, 'tasks', 'assignee_id', ModuleCode::PROJECTS);
+ *         ->toEmployeeVia($access, 'tasks.assignments', 'employee_id', ModuleCode::PROJECTS);
  *
  * @see Access  the request-scoped actor, and the `#[Locked]` rule for Livewire
  */
@@ -157,21 +164,26 @@ trait ScopesToActor
     }
 
     /**
-     * The same narrowing, one relation away: the port of
+     * The same narrowing, one or more relations away: the port of
      * `{ tasks: { some: { assignee_id: session.employeeId ?? "__none__" } } }`
      * (api/projects/route.ts:26, api/tasks/comments/route.ts:17,
-     * api/tasks/files/route.ts:19).
+     * api/tasks/files/route.ts:19) — now `tasks.assignments.employee_id`, since
+     * task membership moved to the `project_task_assignees` pivot.
      *
      * It exists so that call sites never hand-roll the comparison inside a
      * `whereHas` closure, which is where the `IS NULL` leak would reappear out
      * of sight of this file.
      *
+     * `$relation` may be a dotted path ('tasks.assignments'): `whereHas` nests
+     * one EXISTS per hop and hands the closure the INNERMOST query, so
+     * `qualifyColumn` resolves `$column` against the last relation's table.
+     *
      * Prisma's `some` is an EXISTS subquery and so is `whereHas`, so a parent
      * with no matching children is excluded either way.
      *
      * @param  Builder<static>  $query
-     * @param  string  $relation  relation holding the employee key ('tasks', 'task')
-     * @param  string  $column  the employee foreign key on the RELATED table
+     * @param  string  $relation  relation (or dotted path) holding the employee key ('assignments', 'tasks.assignments', 'task.assignments')
+     * @param  string  $column  the employee foreign key on the LAST related table
      * @return Builder<static>
      */
     #[Scope]

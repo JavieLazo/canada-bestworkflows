@@ -151,13 +151,22 @@ final class TaskPolicy
         return array_key_exists($value, self::PRIORITIES);
     }
 
-    /** TS: taskStatusPill(). CSS class strings carried across verbatim. */
+    /**
+     * TS: taskStatusPill() — the one deliberate departure from the reference
+     * classes. The React app rendered SUBMITTED as info and IN_PROGRESS as
+     * warning; here the tiers follow the app.css pill palette so a task reads
+     * as "whose move is it": muted while nobody has started, primary while the
+     * assignee is on it, soft success once submitted (the employee's part is
+     * done), strong success once the reviewer accepts it, danger when it comes
+     * back. Cancelled is as quiet as pending — nothing is waiting on anyone.
+     */
     public static function statusPill(string $value): string
     {
         return match ($value) {
-            'COMPLETED' => 'pill pill-success',
-            'SUBMITTED' => 'pill pill-info',
-            'IN_PROGRESS' => 'pill pill-warning',
+            'PENDING' => 'pill pill-muted',
+            'IN_PROGRESS' => 'pill pill-primary',
+            'SUBMITTED' => 'pill pill-success',
+            'COMPLETED' => 'pill pill-success-strong',
             'RETURNED' => 'pill pill-danger',
             'CANCELLED' => 'pill pill-muted',
             default => 'pill pill-muted',

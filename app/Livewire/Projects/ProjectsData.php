@@ -50,14 +50,17 @@ final class ProjectsData
 
     /**
      * GET /api/projects: a manager (`all_data` + PROJECTS) reads every project;
-     * anyone else reads only the projects holding a task assigned to them —
-     * and an employee-less account reads none.
+     * anyone else reads only the projects holding a task they are ONE OF the
+     * assignees of — and an employee-less account reads none.
+     *
+     * Membership lives in the `project_task_assignees` pivot, so the scope
+     * walks two relations: projects → tasks → assignments.employee_id.
      *
      * @return Builder<Project>
      */
     public static function scopedProjects(Access $actor): Builder
     {
-        return Project::query()->toEmployeeVia($actor, 'tasks', 'assignee_id', ModuleCode::PROJECTS);
+        return Project::query()->toEmployeeVia($actor, 'tasks.assignments', 'employee_id', ModuleCode::PROJECTS);
     }
 
     /**
@@ -65,11 +68,20 @@ final class ProjectsData
      * with `all_data` still sees only their own queue (guard transcription in
      * ScopesToActor's docblock).
      *
+     * Narrowed through the pivot (`assignments.employee_id`); there is no
+     * employee column on project_tasks any more. `assignees` is eager-loaded
+     * here so every consumer — the show page and the CSV export — gets names
+     * without an N+1, and {@see ProjectTask::assigneeIds()} reads the loaded
+     * relation. (My Tasks never comes through here: it scopes with its own
+     * ownTasks() query and eager-loads the relation itself.)
+     *
      * @return Builder<ProjectTask>
      */
     public static function scopedTasks(Access $actor): Builder
     {
-        return ProjectTask::query()->toEmployee($actor, 'assignee_id', ModuleCode::PROJECTS);
+        return ProjectTask::query()
+            ->with('assignees')
+            ->toEmployeeVia($actor, 'assignments', 'employee_id', ModuleCode::PROJECTS);
     }
 
     /** The write gate of every project/task mutation: requireAllDataModule("PROJECTS"). */
@@ -161,7 +173,7 @@ final class ProjectsData
                 && ProjectPolicy::health(self::projectShape($project), self::taskShapes($projectTasks), $today) !== 'DUE_SOON') {
                 continue;
             }
-            if ($filters['queue'] === 'UNASSIGNED' && ! self::anyTask($projectTasks, static fn (ProjectTask $t): bool => $t->assignee_id === null)) {
+            if ($filters['queue'] === 'UNASSIGNED' && ! self::anyTask($projectTasks, static fn (ProjectTask $t): bool => $t->assigneeIds() === [])) {
                 continue;
             }
 
@@ -219,13 +231,15 @@ final class ProjectsData
                 continue;
             }
             // 'UNASSIGNED' is a real option in the assignee filter; it can
-            // never equal an id, so it matches only tasks with no assignee —
-            // exactly how the source's `t.assignee_id !== v` behaved.
-            if ($filters['assignee'] !== 'ALL') {
-                $wanted = $filters['assignee'] === 'UNASSIGNED' ? null : $filters['assignee'];
-                if ($task->assignee_id !== $wanted) {
+            // never equal an id, so it matches only tasks with NO assignee.
+            // A specific id matches every task that employee is ONE OF the
+            // assignees of.
+            if ($filters['assignee'] === 'UNASSIGNED') {
+                if ($task->assigneeIds() !== []) {
                     continue;
                 }
+            } elseif ($filters['assignee'] !== 'ALL' && ! $task->hasAssignee($filters['assignee'])) {
+                continue;
             }
             if ($filters['priority'] !== 'ALL' && $task->priority !== $filters['priority']) {
                 continue;
@@ -239,7 +253,7 @@ final class ProjectsData
             if ($filters['queue'] === 'DUE_SOON' && ! self::isTaskDueSoon($task, $today)) {
                 continue;
             }
-            if ($filters['queue'] === 'UNASSIGNED' && $task->assignee_id !== null) {
+            if ($filters['queue'] === 'UNASSIGNED' && $task->assigneeIds() !== []) {
                 continue;
             }
             if ($needle !== '' && ! str_contains(mb_strtolower($task->code.' '.$task->title), $needle)) {
@@ -249,15 +263,25 @@ final class ProjectsData
             $filtered[] = $task;
         }
 
-        $employeeLastName = static function (?string $id) use ($employees): ?string {
-            if ($id === null) {
-                return null;
+        // Sort key for the assignee column: the alphabetically-first
+        // assignee's last name, so a task shared by Reyes and Garcia files
+        // under G. Null (blank) for an unassigned task, which compareText
+        // puts last. Resolved through $employees when the caller supplied
+        // the row, else from the loaded relation.
+        $firstAssigneeLastName = static function (ProjectTask $task) use ($employees): ?string {
+            $names = [];
+
+            foreach ($task->assigneeIds() as $id) {
+                $employee = $employees->firstWhere('id', $id) ?? $task->assignees->firstWhere('id', $id);
+                $names[] = $employee?->last_name;
             }
 
-            return $employees->firstWhere('id', $id)?->last_name;
+            usort($names, [self::class, 'compareText']);
+
+            return $names[0] ?? null;
         };
 
-        usort($filtered, static function (ProjectTask $a, ProjectTask $b) use ($sortKey, $employeeLastName): int {
+        usort($filtered, static function (ProjectTask $a, ProjectTask $b) use ($sortKey, $firstAssigneeLastName): int {
             switch ($sortKey) {
                 case 'stack':
                     $rank = TaskPolicy::stackRank($a->status) - TaskPolicy::stackRank($b->status);
@@ -270,7 +294,7 @@ final class ProjectsData
                 case 'task':
                     return self::compareText($a->title, $b->title);
                 case 'assignee':
-                    return self::compareText($employeeLastName($a->assignee_id), $employeeLastName($b->assignee_id));
+                    return self::compareText($firstAssigneeLastName($a), $firstAssigneeLastName($b));
                 case 'priority':
                     return TaskPolicy::priorityRank($a->priority) - TaskPolicy::priorityRank($b->priority);
                 case 'due':
@@ -381,6 +405,28 @@ final class ProjectsData
     public static function employeeName(?EmployeeProfile $employee): string
     {
         return EmployeeName::display($employee);
+    }
+
+    /**
+     * Every assignee's display name, "Garcia-first" by last name then first
+     * name, joined with ', ' — or '—' for an unassigned task. Reads the loaded
+     * `assignees` relation (lazy-loads if a caller forgot the eager load).
+     */
+    public static function assigneeNames(ProjectTask $task): string
+    {
+        $employees = $task->assignees->all();
+
+        if ($employees === []) {
+            return EmployeeName::NONE;
+        }
+
+        usort($employees, static function (EmployeeProfile $a, EmployeeProfile $b): int {
+            $last = self::compareText($a->last_name, $b->last_name);
+
+            return $last !== 0 ? $last : self::compareText($a->first_name, $b->first_name);
+        });
+
+        return implode(', ', array_map(static fn (EmployeeProfile $e): string => self::employeeName($e), $employees));
     }
 
     /** hris.ts `initials()` as the avatar fallbacks used it. */
@@ -510,16 +556,12 @@ final class ProjectsData
     }
 
     /**
-     * notifications.ts `notifyEmployee()` — resolve the employee's account
-     * first; an employee with no account is silently not notified.
+     * notifications.ts `notifyEmployee()` — resolve the employee's ACTIVE
+     * accounts first; an employee with no login is silently not notified.
      *
-     * ACTIVE accounts only, matching {@see Notifier::employee()}.
-     * Without that filter this took the lowest id, so an employee whose older
-     * account had been disabled — a rehire, or a login rotated after a
-     * credential incident — had their task notifications delivered to the dead
-     * account and never saw them. `users_active_employee_unq` now leaves at
-     * most one active account per employee, so the ordering is a tiebreak that
-     * no longer has a tie to break.
+     * Multiple accounts may point at the same employee record. That is how the
+     * app recognizes two sign-ins as one person, so task notices fan out to
+     * every active account exactly like {@see Notifier::employee()}.
      */
     public static function notifyEmployee(
         ?string $employeeId,
@@ -528,19 +570,94 @@ final class ProjectsData
         ?string $body = null,
         ?string $href = null,
     ): void {
-        if ($employeeId === null || $employeeId === '') {
-            return;
+        self::notifyEmployees([$employeeId], $kind, $title, $body, $href);
+    }
+
+    /**
+     * The multi-assignee fan-out: one {@see self::notifyEmployee()} call per
+     * DISTINCT employee id, in the order given, blanks skipped. Use it for
+     * every "tell every assignee" moment — a review outcome, a management
+     * comment, a peer's submission — so each employee's active accounts get
+     * rows and the single-employee helper's contract stays pinned.
+     *
+     * @param  iterable<array-key, string|null>  $employeeIds
+     */
+    public static function notifyEmployees(
+        iterable $employeeIds,
+        string $kind,
+        string $title,
+        ?string $body = null,
+        ?string $href = null,
+    ): void {
+        self::notifyEmployeesExceptAccounts($employeeIds, [], $kind, $title, $body, $href);
+    }
+
+    /**
+     * Employee fan-out with an account ledger. Use when the same event has
+     * already been sent to a direct account, such as `assigned_by`, and the
+     * employee fan-out should fill in that person's other active accounts
+     * without writing the same row twice to the direct account.
+     *
+     * @param  iterable<array-key, string|null>  $employeeIds
+     * @param  iterable<array-key, int|string|null>  $exceptUserIds
+     */
+    public static function notifyEmployeesExceptAccounts(
+        iterable $employeeIds,
+        iterable $exceptUserIds,
+        string $kind,
+        string $title,
+        ?string $body = null,
+        ?string $href = null,
+    ): void {
+        $told = [];
+        foreach ($exceptUserIds as $userId) {
+            if ($userId !== null && $userId !== '') {
+                $told[] = (int) $userId;
+            }
+        }
+
+        foreach (self::accountIdsOfEmployees($employeeIds) as $userId) {
+            if (in_array($userId, $told, true)) {
+                continue;
+            }
+
+            $told[] = $userId;
+            self::notifyAccount($userId, $kind, $title, $body, $href);
+        }
+    }
+
+    /**
+     * The active accounts behind employee ids, distinct by account id.
+     *
+     * @param  iterable<array-key, string|null>  $employeeIds
+     * @return list<int>
+     */
+    private static function accountIdsOfEmployees(iterable $employeeIds): array
+    {
+        $ids = [];
+        foreach ($employeeIds as $employeeId) {
+            if ($employeeId !== null && $employeeId !== '' && ! in_array($employeeId, $ids, true)) {
+                $ids[] = $employeeId;
+            }
+        }
+
+        if ($ids === []) {
+            return [];
         }
 
         try {
-            $account = User::query()
-                ->where('employee_id', $employeeId)
+            return array_values(User::query()
+                ->whereIn('employee_id', $ids)
                 ->where('is_active', true)
                 ->orderBy('id')
-                ->first();
-            self::notifyAccount($account?->getKey(), $kind, $title, $body, $href);
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->unique()
+                ->all());
         } catch (Throwable $e) {
             Log::error('[projects] notification lookup failed', ['error' => $e->getMessage()]);
+
+            return [];
         }
     }
 

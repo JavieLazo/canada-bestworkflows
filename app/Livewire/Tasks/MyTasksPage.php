@@ -18,10 +18,12 @@ use App\Models\TaskComment;
 use App\Models\User;
 use App\Support\Access;
 use App\Support\AuditService;
+use App\Support\EmployeeName;
 use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -47,17 +49,29 @@ use Throwable;
  *
  * SCOPING. This screen is ALWAYS the actor's own queue: the reference narrows
  * `tasks.filter(t => t.assignee_id === me.employeeId)` for every role,
- * reviewers included (my-tasks-page.tsx:63-66). `toEmployee()` is deliberately
- * NOT used here — its ROWS_ALL arm would widen the queue to everyone's tasks
- * for an all_data + PROJECTS holder, which is the Projects screen's behaviour,
- * not this one's. The own-rows arm is reproduced instead with the same
- * leak-proof construction the trait uses: an explicit '=' against
- * {@see Access::ownEmployeeId()}, whose non-nullable return type makes an
- * `IS NULL` uncompilable, behind a {@see Access::hasEmployeeLink()} guard whose
- * false arm renders the unlinked card and queries nothing.
+ * reviewers included (my-tasks-page.tsx:63-66). `toEmployeeVia()` is
+ * deliberately NOT used here — its ROWS_ALL arm would widen the queue to
+ * everyone's tasks for an all_data + PROJECTS holder, which is the Projects
+ * screen's behaviour, not this one's. The own-rows arm is reproduced instead
+ * in {@see self::ownTasks()} with the same leak-proof construction the trait
+ * uses: an EXISTS on the `project_task_assignees` pivot with an explicit '='
+ * against {@see Access::ownEmployeeId()}, whose non-nullable return type makes
+ * an `IS NULL` uncompilable, behind a {@see Access::hasEmployeeLink()} guard
+ * whose false arm compiles to `1 = 0` (the unlinked card, and no rows).
+ *
+ * MULTI-ASSIGNEE. Since 2026-09-10 a task is one SHARED unit of work with
+ * 0..N assignees (the pivot, {@see ProjectTask::assignees()}). Status, remarks
+ * and submitted_at stay one-per-task: any assignee may start or submit for
+ * everyone, and `submitted_by` records who did. Co-assignees are told about a
+ * peer's submission and a peer's comment; a management-side comment reaches
+ * every other assignee. Each fan-out is resolved to ACCOUNTS and written once
+ * per account, never to the actor's own (the fan-out helpers below). An
+ * uploaded SUBMISSION file may be deleted only by the account that uploaded
+ * it ({@see self::deleteFile()}).
  *
  * Statuses move through {@see TaskPolicy} only, and stamps (`submitted_at`,
- * actor columns) come from the session and the clock, never from the client.
+ * `submitted_by`, actor columns) come from the session and the clock, never
+ * from the client.
  */
 #[Title('My Tasks')]
 class MyTasksPage extends Component
@@ -144,10 +158,7 @@ class MyTasksPage extends Component
             return;
         }
 
-        $task = ProjectTask::query()
-            ->whereKey($id)
-            ->where('assignee_id', '=', $access->ownEmployeeId())
-            ->first();
+        $task = $this->ownTasks($access)->whereKey($id)->first();
 
         if ($task === null) {
             return;
@@ -231,6 +242,10 @@ class MyTasksPage extends Component
      * reads. `remarks` only ever holds the latest note, so the thread comment
      * is what keeps a resubmission from erasing what was said the first time
      * round (task-detail-dialog.tsx:213-231).
+     *
+     * The task is shared, so this submits it for every assignee: the status
+     * moves once, `submitted_by` names the assignee who pressed the button,
+     * and the co-assignees are told alongside the assigner.
      */
     public function submitTask(): void
     {
@@ -270,6 +285,9 @@ class MyTasksPage extends Component
                 // milliseconds — a raw builder update bypasses the model's
                 // $dateFormat and the base grammar would write whole seconds.
                 'submitted_at' => now()->format('Y-m-d H:i:s.v'),
+                // Which ASSIGNEE submitted — resolved from the session, and
+                // ownOpenTask() has already proven the actor is on the pivot.
+                'submitted_by' => $access->ownEmployeeId(),
                 'remarks' => $note,
             ]);
 
@@ -303,13 +321,26 @@ class MyTasksPage extends Component
         }
 
         // A submission is news to whoever handed the task out
-        // (api/tasks/[id]/route.ts:210-216).
+        // (api/tasks/[id]/route.ts:210-216) — told first, so an assigner whose
+        // login is also on the crew hears it once, as the reviewer.
+        $told = $this->alreadyTold($access);
         $this->notifyAccount(
+            $told,
             $task->assigned_by,
             'TASK_SUBMITTED',
             $this->taskName($task).' submitted for review',
             $note,
             '/projects',
+        );
+
+        // ...and to the co-assignees, whose task just moved under them.
+        $this->notifyEmployees(
+            $told,
+            $this->peerAssigneeIds($task, $access),
+            'TASK_SUBMITTED',
+            $this->actorEmployeeName($task, $access).' submitted '.$this->taskName($task).' for review',
+            $note,
+            '/my-tasks',
         );
 
         Flux::toast(variant: 'success', text: 'Submitted for review.');
@@ -360,10 +391,20 @@ class MyTasksPage extends Component
         // note is stored — the thread keeps it whole.
         $preview = mb_strlen($text) > 120 ? mb_substr($text, 0, 117).'…' : $text;
 
+        $title = 'New note on '.$this->taskName($task);
+
+        $told = $this->alreadyTold($access);
+
         if ($comment->side === 'MANAGEMENT') {
-            $this->notifyEmployee($task->assignee_id, 'TASK_COMMENT', 'New note on '.$this->taskName($task), $preview, '/my-tasks');
+            // Management speaks to the whole task: every OTHER assignee is
+            // told — this is the actor's own queue, so they are on the crew
+            // too, and need no news of their own note.
+            $this->notifyEmployees($told, $this->peerAssigneeIds($task, $access), 'TASK_COMMENT', $title, $preview, '/my-tasks');
         } else {
-            $this->notifyAccount($task->assigned_by, 'TASK_COMMENT', 'New note on '.$this->taskName($task), $preview, '/projects');
+            // An assignee speaks to the assigner — and to the peers sharing
+            // the task, who would otherwise find the thread moved without them.
+            $this->notifyAccount($told, $task->assigned_by, 'TASK_COMMENT', $title, $preview, '/projects');
+            $this->notifyEmployees($told, $this->peerAssigneeIds($task, $access), 'TASK_COMMENT', $title, $preview, '/my-tasks');
         }
 
         $this->commentBody = '';
@@ -474,6 +515,13 @@ class MyTasksPage extends Component
      * Withdraw one of the assignee's own SUBMISSION files. The BRIEF is the
      * reviewer's spec — deleting it is not the assignee's to do
      * (api/tasks/files/[id]/route.ts:41-45).
+     *
+     * "Own" is tighter than "on my task" now that a task is shared: a
+     * co-assignee may download a peer's evidence (it is the task's), but only
+     * the account that uploaded a file may withdraw it — `uploaded_by` is the
+     * session-stamped actor column written by updatedUpload(). Being an
+     * assignee is still required on top, so a reviewer who once uploaded
+     * nothing and an ex-assignee who once did are both refused here.
      */
     public function deleteFile(string $fileId): void
     {
@@ -486,8 +534,8 @@ class MyTasksPage extends Component
         }
 
         $mine = $access->hasEmployeeLink()
-            && $file->task->assignee_id !== null
-            && $file->task->assignee_id === $access->ownEmployeeId();
+            && $file->task->hasAssignee($access->ownEmployeeId())
+            && $this->uploadedByActor($file, $access);
 
         if ($file->kind === 'BRIEF' || ! $mine) {
             abort(403);
@@ -534,10 +582,11 @@ class MyTasksPage extends Component
 
         // The actor's whole queue — tile counts and the project filter read it
         // unfiltered, exactly as `mine` did (my-tasks-page.tsx:63-66).
+        // ownTasks() compiles to `1 = 0` for an unlinked account, so the
+        // guard here only spares the query.
         $mine = $linked
-            ? ProjectTask::query()
-                ->with('project')
-                ->where('assignee_id', '=', $access->ownEmployeeId())
+            ? $this->ownTasks($access)
+                ->with(['project', 'assignees'])
                 ->orderBy('code')
                 ->get()
             : ProjectTask::query()->whereRaw('1 = 0')->get();
@@ -596,8 +645,11 @@ class MyTasksPage extends Component
         $rows = $this->paginateClamped(new Collection($filtered));
 
         $open = $this->openId !== null ? $mine->firstWhere('id', $this->openId) : null;
+        // The uploader rides along, with their employee record for the
+        // spelling the rest of the dialog uses: on a shared task the
+        // attachments partial names who attached each peer's file.
         $openFiles = $open
-            ? ProjectTaskFile::query()->where('task_id', $open->id)->orderBy('created_at')->get()
+            ? ProjectTaskFile::query()->with('uploader.employee')->where('task_id', $open->id)->orderBy('created_at')->get()
             : new Collection;
         $openComments = $open
             ? TaskComment::query()->where('task_id', $open->id)->orderBy('created_at')->get()
@@ -605,6 +657,14 @@ class MyTasksPage extends Component
 
         $assigner = $open?->assigner;
         $nexts = $open ? TaskPolicy::employeeCanMoveTo($open->status) : [];
+
+        // The peers sharing the open task, and who last submitted it — a
+        // shared task must not read "your submission" when it was a peer's.
+        $coAssignees = $open ? $this->peerAssigneeNames($open, $access) : '';
+        $submitter = $open?->submitted_by !== null
+            ? $open->assignees->firstWhere('id', $open->submitted_by) ?? $open->submitter
+            : null;
+        $submittedByPeer = $submitter !== null && $linked && $submitter->getKey() !== $access->ownEmployeeId();
 
         return view('livewire.tasks.my-tasks-page', [
             'linked' => $linked,
@@ -620,6 +680,11 @@ class MyTasksPage extends Component
             'openFiles' => $openFiles,
             'openComments' => $openComments,
             'assignedBy' => $assigner?->getAttribute('full_name') ?? $assigner?->getAttribute('name'),
+            'coAssignees' => $coAssignees,
+            'submittedByName' => $submittedByPeer ? EmployeeName::display($submitter) : null,
+            // Only the uploader may withdraw a file (deleteFile()), so the
+            // partial needs to know who is looking.
+            'actorUserId' => $access->userId === null ? null : (int) $access->userId,
             'canStart' => in_array('IN_PROGRESS', $nexts, true),
             'canSubmit' => in_array('SUBMITTED', $nexts, true),
             'nexts' => $nexts,
@@ -654,17 +719,106 @@ class MyTasksPage extends Component
         abort_unless($access->hasModule(ModuleCode::PROJECTS, ModuleCode::TASKS), 403);
     }
 
-    /** The open task, and only if it is the actor's own. */
+    /**
+     * The actor's own queue — every task whose pivot names their employee.
+     *
+     * The guard comes BEFORE the comparison on purpose, and the two must stay
+     * in this order: `ownEmployeeId()` is non-nullable and throws for an
+     * unlinked account, so the only way to build the predicate at all is to
+     * have proven the link first. That is what makes `employee_id IS NULL`
+     * — the leak ScopesToActor's docblock is built around, which would hand
+     * an unlinked account nothing today but every row of a pivot that ever
+     * allowed a null — uncompilable here rather than merely avoided. The
+     * false arm is an explicit impossible predicate, never an unfiltered
+     * query: the unlinked card shows, and the count is zero, by construction.
+     *
+     * Not `toEmployeeVia()`: its ROWS_ALL arm would widen an all_data +
+     * PROJECTS holder's queue to everyone's tasks (class docblock, SCOPING).
+     *
+     * @return Builder<ProjectTask>
+     */
+    private function ownTasks(Access $access): Builder
+    {
+        if (! $access->hasEmployeeLink()) {
+            return ProjectTask::query()->whereRaw('1 = 0');
+        }
+
+        $employeeId = $access->ownEmployeeId();
+
+        return ProjectTask::query()
+            ->whereHas('assignments', static fn (Builder $q) => $q->where('employee_id', '=', $employeeId));
+    }
+
+    /** The open task, and only if the actor is one of its assignees. */
     private function ownOpenTask(Access $access): ?ProjectTask
     {
         if ($this->openId === null || ! $access->hasEmployeeLink()) {
             return null;
         }
 
-        return ProjectTask::query()
+        return $this->ownTasks($access)
+            ->with('assignees')
             ->whereKey($this->openId)
-            ->where('assignee_id', '=', $access->ownEmployeeId())
             ->first();
+    }
+
+    /**
+     * The task's OTHER assignees — everyone on the pivot but the actor. This
+     * is the fan-out list for anything the actor did to the shared task,
+     * from either side of the thread: the actor already knows.
+     *
+     * @return list<string>
+     */
+    private function peerAssigneeIds(ProjectTask $task, Access $access): array
+    {
+        $self = $access->hasEmployeeLink() ? $access->ownEmployeeId() : null;
+
+        return array_values(array_filter(
+            $task->assigneeIds(),
+            static fn (string $id): bool => $id !== $self,
+        ));
+    }
+
+    /**
+     * The peers' names for the dialog's "Working with" line, in the same
+     * surname-first order the Projects screen prints assignees; '' when the
+     * actor works alone.
+     */
+    private function peerAssigneeNames(ProjectTask $task, Access $access): string
+    {
+        $peers = $this->peerAssigneeIds($task, $access);
+
+        if ($peers === []) {
+            return '';
+        }
+
+        $employees = $task->assignees
+            ->filter(static fn (EmployeeProfile $e): bool => in_array((string) $e->getKey(), $peers, true))
+            ->sort(static fn (EmployeeProfile $a, EmployeeProfile $b): int => self::compareText($a->last_name, $b->last_name)
+                ?: self::compareText($a->first_name, $b->first_name));
+
+        return $employees->map(static fn (EmployeeProfile $e): string => EmployeeName::display($e))->implode(', ');
+    }
+
+    /**
+     * How the actor is named to their peers — the employee record's spelling
+     * (already loaded on the task's pivot), falling back to the account name.
+     */
+    private function actorEmployeeName(ProjectTask $task, Access $access): string
+    {
+        $self = $access->hasEmployeeLink()
+            ? $task->assignees->firstWhere('id', $access->ownEmployeeId())
+            : null;
+
+        return $self instanceof EmployeeProfile ? EmployeeName::display($self) : $access->fullName;
+    }
+
+    /** Whether the signed-in account is the one that uploaded the file. */
+    private function uploadedByActor(ProjectTaskFile $file, Access $access): bool
+    {
+        return $file->uploaded_by !== null
+            && $access->userId !== null
+            && (int) $file->uploaded_by === (int) $access->userId;
     }
 
     /**
@@ -702,15 +856,40 @@ class MyTasksPage extends Component
         return trim($task->code) !== '' ? $task->code : $task->title;
     }
 
+    /* --------------------------------- fan-out --------------------------------- */
+
     /**
-     * Tells one account. Does nothing when there is nobody to tell, and never
-     * breaks the action that caused it (src/lib/api/notify.ts:23-38).
+     * Notifications are addressed to ACCOUNTS, and one person can qualify for
+     * the same event twice in one action: as the assigner (`assigned_by`, a
+     * users id) and as an assignee (an employee id on the pivot, resolved to
+     * its logins). Every fan-out therefore runs against a ledger of the
+     * accounts already told, seeded with the actor's own login: the first
+     * message a person qualifies for is the one they get, nobody gets one
+     * event twice, and nobody is told about their own action.
+     *
+     * This is the ledger an action starts with.
+     *
+     * @return list<int>
      */
-    private function notifyAccount(?int $userId, string $kind, string $title, ?string $body, ?string $href): void
+    private function alreadyTold(Access $access): array
     {
-        if ($userId === null) {
+        return $access->userId === null ? [] : [(int) $access->userId];
+    }
+
+    /**
+     * Tells one account — unless it is on the ledger already — and records
+     * it. Does nothing when there is nobody to tell, and never breaks the
+     * action that caused it (src/lib/api/notify.ts:23-38).
+     *
+     * @param  list<int>  $told
+     */
+    private function notifyAccount(array &$told, ?int $userId, string $kind, string $title, ?string $body, ?string $href): void
+    {
+        if ($userId === null || in_array($userId, $told, true)) {
             return;
         }
+
+        $told[] = $userId;
 
         try {
             $n = new Notification;
@@ -730,28 +909,53 @@ class MyTasksPage extends Component
     }
 
     /**
-     * Tells whoever holds the login attached to an employee. An employee with
-     * no login is simply not told (src/lib/api/notify.ts:40-58).
+     * Tells every active login attached to the given employees, each account
+     * once (src/lib/api/notify.ts:40-58). An employee with no login is simply
+     * not told, and the actor's own login is on the ledger before this runs.
+     *
+     * @param  list<int>  $told
+     * @param  iterable<array-key, string|null>  $employeeIds
      */
-    private function notifyEmployee(?string $employeeId, string $kind, string $title, ?string $body, ?string $href): void
+    private function notifyEmployees(array &$told, iterable $employeeIds, string $kind, string $title, ?string $body, ?string $href): void
     {
-        if ($employeeId === null || $employeeId === '') {
-            return;
+        foreach ($this->accountIdsOf($employeeIds) as $userId) {
+            $this->notifyAccount($told, $userId, $kind, $title, $body, $href);
+        }
+    }
+
+    /**
+     * The active logins behind a set of employees — distinct account ids in
+     * id order, one query for the whole set, blanks skipped. Empty when the
+     * lookup fails, which is logged rather than allowed to break the action.
+     *
+     * @param  iterable<array-key, string|null>  $employeeIds
+     * @return list<int>
+     */
+    private function accountIdsOf(iterable $employeeIds): array
+    {
+        $ids = [];
+        foreach ($employeeIds as $employeeId) {
+            if ($employeeId !== null && $employeeId !== '' && ! in_array($employeeId, $ids, true)) {
+                $ids[] = $employeeId;
+            }
+        }
+
+        if ($ids === []) {
+            return [];
         }
 
         try {
-            $ids = User::query()
-                ->where('employee_id', $employeeId)
+            return array_values(User::query()
+                ->whereIn('employee_id', $ids)
                 ->where('is_active', true)
-                ->pluck('id');
+                ->orderBy('id')
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all());
         } catch (Throwable $e) {
-            Log::error('[notify] lookup failed', ['kind' => $kind, 'error' => $e->getMessage()]);
+            Log::error('[notify] lookup failed', ['error' => $e->getMessage()]);
 
-            return;
-        }
-
-        foreach ($ids as $id) {
-            $this->notifyAccount((int) $id, $kind, $title, $body, $href);
+            return [];
         }
     }
 

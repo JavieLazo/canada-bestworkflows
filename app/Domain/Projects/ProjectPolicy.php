@@ -100,15 +100,20 @@ final class ProjectPolicy
     }
 
     /**
-     * TS: projectStatusPill(). CSS class strings, carried across verbatim so
-     * the Blade views render the same pills the React app did.
+     * TS: projectStatusPill() — mapped onto the app.css pill palette rather
+     * than carried across verbatim (the React app used info/warning, which
+     * this stylesheet renders as plain grey). Planning is quiet, active is the
+     * in-flight brand tint, on hold is amber because someone has to decide
+     * whether it resumes, completed is the strong "accepted" green, cancelled
+     * is red.
      */
     public static function statusPill(string $value): string
     {
         return match ($value) {
-            'ACTIVE' => 'pill pill-info',
-            'COMPLETED' => 'pill pill-success',
-            'ON_HOLD' => 'pill pill-warning',
+            'PLANNING' => 'pill pill-muted',
+            'ACTIVE' => 'pill pill-primary',
+            'ON_HOLD' => 'pill pill-caution',
+            'COMPLETED' => 'pill pill-success-strong',
             'CANCELLED' => 'pill pill-danger',
             default => 'pill pill-muted',
         };
@@ -198,12 +203,16 @@ final class ProjectPolicy
         return self::HEALTH_LABELS[$value] ?? $value;
     }
 
-    /** TS: projectHealthPill() */
+    /**
+     * TS: projectHealthPill(). DUE_SOON is the caution tier (amber) rather
+     * than the reference's warning class, which app.css renders as grey — the
+     * whole point of the signal is that it stands out before it turns red.
+     */
     public static function healthPill(string $value): string
     {
         return match ($value) {
             'ON_TRACK' => 'pill pill-success',
-            'DUE_SOON' => 'pill pill-warning',
+            'DUE_SOON' => 'pill pill-caution',
             'OVERDUE' => 'pill pill-danger',
             'CLOSED' => 'pill pill-muted',
             default => 'pill pill-muted',
@@ -255,7 +264,7 @@ final class ProjectPolicy
 
         $manager = $project['manager_id'] ?? null;
         if ($nextStatus === 'ACTIVE' && ($manager === null || $manager === '')) {
-            return 'Assign a project manager before activating this project.';
+            return 'Assign a task leader before activating this project.';
         }
 
         if ($nextStatus === 'COMPLETED') {

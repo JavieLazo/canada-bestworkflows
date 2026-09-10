@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Tasks;
 
 use App\Domain\Enums\ModuleCode;
 use App\Http\Controllers\Controller;
+use App\Models\ProjectTask;
 use App\Models\ProjectTaskFile;
 use App\Support\Access;
 use Illuminate\Support\Facades\Storage;
@@ -15,8 +16,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * GET /my-tasks/files/{file} — one task attachment, as a download.
  *
  * The port of `GET /api/tasks/files/[id]` (src/app/api/tasks/files/[id]/
- * route.ts): reading a file takes being on the task — its assignee, or a
- * reviewer (all_data + PROJECTS). The bytes moved from a base64 column to the
+ * route.ts): reading a file takes being on the task — one of its assignees
+ * (the task is shared; membership is the `project_task_assignees` pivot, read
+ * through {@see ProjectTask::hasAssignee()}), or a reviewer
+ * (all_data + PROJECTS). The bytes moved from a base64 column to the
  * filesystem in this port, so the data-URL decoding half of the reference
  * (`fileResponse`) is replaced by a disk stream; the `attachment` disposition
  * and the stored filename survive.
@@ -33,9 +36,11 @@ final class TaskFileController extends Controller
         // The widening gate is PROJECTS alone — a TASKS holder carrying
         // all_data still only reads files on their own tasks (guard.ts:97-99).
         $reviewer = $access->mayReadAllData(ModuleCode::PROJECTS);
+        // The link guard comes first: ownEmployeeId() throws without one, and
+        // hasAssignee() is false for null regardless — an unlinked account can
+        // never match "unassigned".
         $mine = $access->hasEmployeeLink()
-            && $row->task->assignee_id !== null
-            && $row->task->assignee_id === $access->ownEmployeeId();
+            && $row->task->hasAssignee($access->ownEmployeeId());
         abort_unless($reviewer || $mine, 403);
 
         $disk = Storage::disk('local');

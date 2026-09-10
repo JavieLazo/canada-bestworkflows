@@ -6,11 +6,17 @@ use App\Livewire\Users\Index;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\Notification;
+use App\Models\Project;
+use App\Models\ProjectTask;
+use App\Models\ProjectTaskAssignee;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Support\Access;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -285,16 +291,42 @@ it('offers a selectable "no linked employee" option on the create picker', funct
 
 /*
 |--------------------------------------------------------------------------
-| One employee record, at most one ACTIVE sign-in
+| One employee record, several sign-ins
 |--------------------------------------------------------------------------
 |
-| `users_active_employee_unq` enforces this in the database; the screen refuses
-| first so the operator gets a message naming the holder instead of a 500. A
-| DEACTIVATED account keeps its link on purpose — that is how a rehire holds
-| onto its history.
+| The employee profile represents the person. User accounts represent ways that
+| person signs in, so several active accounts may point at the same employee
+| record. Scoping still treats them as the same employee.
 */
 
-it('refuses to link an employee record another active account already holds', function () {
+it('removes a previously applied employee-link constraint without losing account links', function (string $migrationFile) {
+    $employee = usersEmployee('BWF-LINK-UPGRADE', 'Shared', 'Employee');
+    $first = User::factory()->create(['employee_id' => $employee->id, 'is_active' => true]);
+    $disabled = User::factory()->create(['employee_id' => $employee->id, 'is_active' => false]);
+
+    DB::statement('CREATE UNIQUE INDEX "users_active_employee_unq" ON "users" ("employee_id") WHERE "is_active" = 1 AND "employee_id" IS NOT NULL');
+    expect(fn () => $disabled->forceFill(['is_active' => true])->save())->toThrow(QueryException::class);
+
+    $migration = require database_path('migrations/'.$migrationFile);
+    $migration->up();
+
+    expect(Schema::hasIndex('users', 'users_active_employee_unq'))->toBeFalse();
+    $disabled->refresh()->forceFill(['is_active' => true])->save();
+    $second = User::factory()->create(['employee_id' => $employee->id, 'is_active' => true]);
+
+    // A retry and a rollback must preserve the links created under the new rule.
+    $migration->up();
+    $migration->down();
+
+    expect($employee->accounts()->where('is_active', true)->pluck('id')->sort()->values()->all())
+        ->toBe(collect([$first->id, $disabled->id, $second->id])->sort()->values()->all());
+    expect(Schema::hasIndex('users', 'users_active_employee_unq'))->toBeFalse();
+})->with([
+    'pending migration' => '2026_09_08_0001_add_unique_active_employee_link_to_users_table.php',
+    'upgrade migration' => '2026_09_10_0003_drop_unique_active_employee_link_from_users_table.php',
+]);
+
+it('allows linking a new active account to an employee record another active account already holds', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
     $employee = usersEmployee('BWF-00041', 'Nathaniel', 'Cruz');
@@ -314,18 +346,20 @@ it('refuses to link an employee record another active account already holds', fu
         ->call('createEmployeeChanged', (string) $employee->getKey())
         ->call('createAccount');
 
-    expect(User::query()->where('email', 'secondclaim@example.com')->exists())->toBeFalse();
-    expect(User::query()->where('employee_id', $employee->getKey())->count())->toBe(1);
-    expect((string) User::query()->where('employee_id', $employee->getKey())->value('id'))
-        ->toBe((string) $holder->getKey());
+    $created = User::query()->where('email', 'secondclaim@example.com')->first();
+
+    expect($created)->not->toBeNull();
+    expect((string) $created->employee_id)->toBe((string) $employee->getKey());
+    expect(User::query()->where('employee_id', $employee->getKey())->pluck('id')->map(fn ($id) => (string) $id)->all())
+        ->toContain((string) $holder->getKey(), (string) $created->getKey());
 });
 
-it('allows a new account on an employee whose only other login is deactivated', function () {
+it('allows a new account on an employee whose other login is deactivated', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
     $employee = usersEmployee('BWF-00042', 'Rehired', 'Person');
 
-    // The old login, disabled but still attached to the 201 record.
+    // The old login, disabled but still attached to the employee record.
     User::factory()->create([
         'email' => 'old-login@example.com',
         'employee_id' => $employee->getKey(),
@@ -349,11 +383,11 @@ it('allows a new account on an employee whose only other login is deactivated', 
     expect(User::query()->where('employee_id', $employee->getKey())->count())->toBe(2);
 });
 
-it('refuses to move an account onto an employee another active account holds', function () {
+it('allows moving an account onto an employee another active account holds', function () {
     usersActor(['USERS'], true);
     $employee = usersEmployee('BWF-00043', 'Taken', 'Record');
 
-    User::factory()->create([
+    $incumbent = User::factory()->create([
         'email' => 'incumbent@example.com',
         'employee_id' => $employee->getKey(),
         'is_active' => true,
@@ -371,7 +405,9 @@ it('refuses to move an account onto an employee another active account holds', f
         ->call('accountEmployeeChanged', (string) $employee->getKey())
         ->call('saveAccount');
 
-    expect($subject->fresh()->employee_id)->toBeNull();
+    expect((string) $subject->fresh()->employee_id)->toBe((string) $employee->getKey());
+    expect(User::query()->where('employee_id', $employee->getKey())->pluck('id')->map(fn ($id) => (string) $id)->all())
+        ->toContain((string) $incumbent->getKey(), (string) $subject->getKey());
 });
 
 it('lets an account keep the employee record it already holds', function () {
@@ -396,7 +432,7 @@ it('lets an account keep the employee record it already holds', function () {
     expect((string) $subject->employee_id)->toBe((string) $employee->getKey());
 });
 
-it('refuses to reactivate a disabled account whose employee is now taken', function () {
+it('allows reactivating a disabled account whose employee is linked to another active account', function () {
     usersActor(['USERS'], true);
     $employee = usersEmployee('BWF-00045', 'Contested', 'Record');
 
@@ -418,7 +454,7 @@ it('refuses to reactivate a disabled account whose employee is now taken', funct
         ->set('accountIsActive', true)
         ->call('saveAccount');
 
-    expect((bool) $disabled->fresh()->is_active)->toBeFalse();
+    expect((bool) $disabled->fresh()->is_active)->toBeTrue();
 });
 
 /*
@@ -571,6 +607,27 @@ it('refuses to delete an account with historical records', function () {
         ->call('deleteAccount');
 
     expect(User::query()->whereKey($target->getKey())->exists())->toBeTrue();
+});
+
+it('refuses to delete an account that handed out a task assignment, keeping the attribution', function () {
+    usersActor(['USERS'], true);
+    $target = User::factory()->create(['is_active' => false]);
+    $employee = usersEmployee('EMP-901', 'Ana', 'Garcia');
+
+    $project = new Project;
+    $project->forceFill(['code' => 'PRJ-901', 'name' => 'Project 901', 'status' => 'ACTIVE', 'start_date' => '2026-01-01'])->save();
+    $task = new ProjectTask;
+    $task->forceFill(['code' => 'TSK-901', 'project_id' => $project->getKey(), 'title' => 'Task 901', 'status' => 'PENDING', 'priority' => 'NORMAL'])->save();
+    // The account's only trace anywhere: it put Ana on the task. The pivot's
+    // assigned_by FK nulls on delete, which is exactly what must not happen.
+    $task->syncAssignees([$employee->getKey()], (int) $target->getKey());
+
+    Livewire::test(Index::class)
+        ->call('openAccount', (string) $target->getKey())
+        ->call('deleteAccount');
+
+    expect(User::query()->whereKey($target->getKey())->exists())->toBeTrue();
+    expect(ProjectTaskAssignee::query()->where('task_id', $task->getKey())->firstOrFail()->assigned_by)->toBe((int) $target->getKey());
 });
 
 it('refuses to delete your own account', function () {

@@ -62,6 +62,11 @@ use App\Support\AuditService;
  * Seed-only names, emitted by no writer at all: PAYROLL_POSTED, SHIFT_UPDATED.
  * They exist so the seeded historical rows stay legal. Do not write them.
  *
+ * ONE DELIBERATE ADDITION beyond the union: PROJECT_DELETED. The reference
+ * had no project delete at all (no DELETE /api/projects/[id], no dialog), so
+ * no path ever wrote it; this port adds the action and, with it, the event.
+ * It is the only case here with no reference provenance.
+ *
  * TWO CLAIMS WORTH CORRECTING, because they are easy to repeat:
  *
  *   - PROJECT_STATUS_CHANGED is NOT demo-only, and PROJECT_UPDATED is NOT
@@ -240,11 +245,19 @@ enum AuditEvent: string
     /** Status moved. A DIFFERENT event from PROJECT_UPDATED, not a second name for it. */
     case PROJECT_STATUS_CHANGED = 'PROJECT_STATUS_CHANGED';
 
+    /**
+     * NOT in the reference vocabulary — a deliberate addition (see the
+     * provenance note above). The project row and, through the DB cascades,
+     * its tasks, files and comments are gone; `details` carries the code, name
+     * and task count so the trail still says what was removed.
+     */
+    case PROJECT_DELETED = 'PROJECT_DELETED';
+
     // ── Tasks ───────────────────────────────────────────────────────────────
 
     case TASK_ASSIGNED = 'TASK_ASSIGNED';
 
-    /** Details edited by a reviewer — including a change of assignee. {@see self::taskDetails()} */
+    /** Details edited by a reviewer — including a change of the assignee set. {@see self::taskDetails()} */
     case TASK_UPDATED = 'TASK_UPDATED';
 
     /**

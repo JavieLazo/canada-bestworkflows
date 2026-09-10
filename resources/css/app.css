@@ -432,11 +432,23 @@ select:focus[data-flux-control] {
 }
 
 /*
- * Pills keep the page scannable: success is reserved for finished or approved
- * states, while active and neutral states stay quiet. Danger remains the
- * strongest treatment for work that needs attention.
+ * Pills keep the page scannable, and each tier answers one question: is
+ * anything waiting on me?
  *
- * The semantic class names are kept even where two now look alike — the meaning
+ *   pill-muted          quiet grey — dormant, nothing to do (pending, planning).
+ *   pill-primary        brand tint — in flight (a task in progress, an active
+ *                       project).
+ *   pill-caution        amber — needs a decision soon (on hold, due soon).
+ *   pill-success        soft green — this side's part is done: a submitted task
+ *                       is green because the employee has handed it over, and a
+ *                       project on track needs nothing from anyone.
+ *   pill-success-strong solid green — finished AND accepted (a completed task
+ *                       or project). The strong fill is what tells it apart
+ *                       from "submitted" at a glance.
+ *   pill-danger         red — the strongest treatment, for work that needs
+ *                       attention now (returned, overdue, cancelled project).
+ *
+ * The semantic class names are kept even where two look alike — the meaning
  * still reads in the markup, and re-tinting one of them later is a change here
  * rather than a sweep through every page.
  */
@@ -459,6 +471,31 @@ select:focus[data-flux-control] {
 @utility pill-info {
     background-color: var(--color-muted);
     color: var(--color-foreground);
+}
+
+/* In flight — the brand tint says "someone is on it", nothing to do yet. */
+@utility pill-primary {
+    background-color: var(--color-primary-soft);
+    color: var(--color-primary);
+}
+
+/* Needs a decision soon — on hold, due soon. Amber, not red: not late yet.
+   The amber token is too light to read on its own soft tint in light mode
+   (oklch(0.72 0.15 72) on oklch(0.96 0.05 85) is 2.3:1), so the text is the
+   same hue mixed 30% toward black — 5.3:1 on the tint, still amber. Dark mode
+   keeps the plain token, which already clears 6:1 on the dark tint. */
+@utility pill-caution {
+    background-color: var(--color-warning-soft);
+    color: color-mix(in oklab, var(--color-warning) 70%, black);
+    @variant dark {
+        color: var(--color-warning);
+    }
+}
+
+/* Finished and accepted — the solid fill separates it from soft "submitted". */
+@utility pill-success-strong {
+    background-color: var(--color-success);
+    color: var(--color-success-foreground);
 }
 
 /* Quietest of all — dormant states: cancelled, inactive, not applicable. */

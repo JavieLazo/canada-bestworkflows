@@ -46,16 +46,26 @@ final class RemindersSweepCommand extends Command
 
         // The datasets are org-wide; build() narrows per user by module and
         // employee id. One load, N sweeps.
-        $tasks = array_values(ProjectTask::query()->get()->map(fn ($t) => [
+        // 'assignees' is eager-loaded so the id list per task is one query for
+        // the whole set, not one per task.
+        $tasks = array_values(ProjectTask::query()->with('assignees')->get()->map(fn ($t) => [
             'id' => $t->id,
             'code' => $t->code,
             'title' => $t->title,
             'status' => $t->status,
             'project_id' => $t->project_id,
-            'assignee_id' => $t->assignee_id,
+            'assignee_ids' => $t->assigneeIds(),
+            'submitted_by' => $t->submitted_by,
             'assigned_by' => $t->assigned_by === null ? null : (string) $t->assigned_by,
             'due_date' => $t->due_date?->format('Y-m-d'),
-            'submitted_at' => $t->submitted_at?->format('Y-m-d H:i:s'),
+            // The CarbonImmutable itself, never a bare 'Y-m-d H:i:s': that
+            // string is UTC with no offset and ReminderSweep::dayKeyOf()
+            // would read it as Manila wall clock — eight hours out, which
+            // moves a late-afternoon submission onto the previous day. The
+            // TASK_REVIEW_PENDING dedupe key is unaffected: ReminderSweep::stamp()
+            // still mints the stamp the bare string used to produce, so a
+            // submission chased before this change is not chased again.
+            'submitted_at' => $t->submitted_at,
         ])->values()->all());
 
         $projects = array_values(Project::query()->get()->map(fn ($p) => [
@@ -91,7 +101,7 @@ final class RemindersSweepCommand extends Command
             'code' => $l->code,
             'status' => $l->status,
             'employee_id' => $l->employee_id,
-            'created_at' => $l->created_at->format('Y-m-d H:i:s'),
+            'created_at' => $l->created_at, // instant, not an offset-less string (see tasks)
         ])->values()->all());
 
         $swept = 0;

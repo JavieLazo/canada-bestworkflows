@@ -88,7 +88,9 @@ final class ReminderSweep
      * exactly — assignee work, then handed-out work, then leave, then HR.
      *
      * Row shapes are the database columns, as arrays:
-     *   $tasks     id, code, title, project_id, assignee_id, assigned_by,
+     *   $tasks     id, code, title, project_id, assignee_ids (list<string> of
+     *              employee ids — the project_task_assignees pivot, [] when
+     *              unassigned), submitted_by (employee id|null), assigned_by,
      *              status, due_date ('Y-m-d'), submitted_at (UTC instant)
      *   $projects  id, code, name, manager_id, status, due_date ('Y-m-d')
      *   $employees id, first_name, last_name, suffix, is_active, employment_status,
@@ -134,13 +136,38 @@ final class ReminderSweep
             return EmployeeName::display($employee, 'an employee');
         };
 
+        // Who submitted a task, for the reviewer's chase. The task is SHARED
+        // by its assignees (ProjectTask docblock): whoever pressed Submit is
+        // on submitted_by, so name them; a submission that predates that
+        // column (or a legacy row) names every assignee instead, so the
+        // sentence still points at the people who can answer for it.
+        $submitterName = static function (array $task) use ($employeeName): string {
+            $submittedBy = self::id($task['submitted_by'] ?? null);
+            if ($submittedBy !== null && $submittedBy !== '') {
+                return $employeeName($submittedBy);
+            }
+
+            $names = [];
+            foreach (self::assigneeIds($task) as $assigneeId) {
+                $names[] = $employeeName($assigneeId);
+            }
+            $names = array_values(array_unique($names));
+
+            return $names === [] ? $employeeName(null) : implode(', ', $names);
+        };
+
         /* --- as the person the work is assigned to --- */
         // Gated on TASKS as well as on holding an employee record: My Tasks is
         // the only page that shows an assignee their own work, and the
         // protected layout bounces a role without the module straight off it.
+        //
+        // A task with N assignees is announced to each of them: the dedupe
+        // key names the task and the trigger, and the (user_id, dedupe_key)
+        // unique index is per ACCOUNT, so co-assignees never collide. A task
+        // with no assignees announces itself to nobody here.
         if ($employeeId !== null && $employeeId !== '' && in_array('TASKS', $modules, true)) {
             foreach ($tasks as $task) {
-                if (($task['assignee_id'] ?? null) !== $employeeId) {
+                if (! in_array($employeeId, self::assigneeIds($task), true)) {
                     continue;
                 }
                 // A submitted task sits with the reviewer:
@@ -202,8 +229,7 @@ final class ReminderSweep
                     'dedupeKey' => 'TASK_REVIEW_PENDING:'.$task['id'].':'.self::stamp($submittedAt),
                     'kind' => 'TASK_REVIEW_PENDING',
                     'title' => $task['code'].' is waiting on your review',
-                    'body' => $employeeName(self::id($task['assignee_id'] ?? null))
-                        .' submitted it '.self::plural($waiting, 'day').' ago.',
+                    'body' => $submitterName($task).' submitted it '.self::plural($waiting, 'day').' ago.',
                     'href' => '/projects/'.$task['project_id'],
                 ];
             }
@@ -547,14 +573,26 @@ final class ReminderSweep
     /**
      * The stable trigger component of a dedupe key: one submission, one key.
      *
-     * The reference embeds the raw ISO string the JSON API produced
-     * ('2026-08-19T02:33:44.123Z'); this reproduces that byte for byte for any
-     * instant, whichever of the two accepted input forms it arrives in, so the
-     * two systems mint the same key for the same submission.
+     * THE FORMAT IS FROZEN, quirk included. The key is an opaque token matched
+     * against rows already written, so the value minted for a given submission
+     * must never change. The command originally handed submitted_at over as an
+     * offset-less 'Y-m-d H:i:s' string — UTC digits, which ManilaClock::instant()
+     * reads as Manila wall clock — so every TASK_REVIEW_PENDING row in the
+     * table carries a stamp eight hours BEFORE the true instant, at whole
+     * seconds. An instant arriving here is reduced to the same digits and sent
+     * down the same path, byte for byte, and a string is read exactly as
+     * before (as-is with a zone, as Manila without). Minting from the true
+     * instant instead would re-chase every submission already chased once.
+     * The day arithmetic ({@see self::dayKeyOf()}) is separate and reads the
+     * instant itself, so it is NOT eight hours out.
      */
     private static function stamp(DateTimeInterface|string $at): string
     {
-        return self::instantOf($at)->utc()->format('Y-m-d\TH:i:s.v\Z');
+        $digits = $at instanceof DateTimeInterface
+            ? CarbonImmutable::instance($at)->utc()->format('Y-m-d H:i:s')
+            : $at;
+
+        return ManilaClock::instant($digits)->utc()->format('Y-m-d\TH:i:s.v\Z');
     }
 
     private static function instantOf(DateTimeInterface|string $at): CarbonImmutable
@@ -588,6 +626,33 @@ final class ReminderSweep
     private static function id(mixed $value): ?string
     {
         return $value === null ? null : (string) $value;
+    }
+
+    /**
+     * A task row's `assignee_ids` as a clean list of strings. Anything that is
+     * not a list (absent, null, a stray scalar) reads as unassigned — the
+     * sweep must never guess an owner for a row it cannot read.
+     *
+     * @param  array<string, mixed>  $task
+     * @return list<string>
+     */
+    private static function assigneeIds(array $task): array
+    {
+        $raw = $task['assignee_ids'] ?? null;
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($raw as $id) {
+            if (is_string($id) && $id !== '') {
+                $ids[] = $id;
+            } elseif (is_int($id)) {
+                $ids[] = (string) $id;
+            }
+        }
+
+        return $ids;
     }
 
     /**

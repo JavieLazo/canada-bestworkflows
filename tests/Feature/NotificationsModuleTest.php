@@ -251,26 +251,30 @@ it('Notifier::account does nothing when there is nobody to tell', function () {
 it('Notifier::employee tells every ACTIVE login of that employee, and nobody else', function () {
     $employee = notifEmployee();
     $active = notifUser(employeeId: $employee->getKey());
+    $secondActive = notifUser(employeeId: $employee->getKey());
     $inactive = notifUser(employeeId: $employee->getKey(), isActive: false);
     $unrelated = notifUser();
 
     Notifier::employee($employee->getKey(), 'TASK_ASSIGNED', 'You were assigned T-0003');
 
     expect(Notification::query()->where('user_id', $active->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $secondActive->getKey())->count())->toBe(1)
         ->and(Notification::query()->where('user_id', $inactive->getKey())->count())->toBe(0)
         ->and(Notification::query()->where('user_id', $unrelated->getKey())->count())->toBe(0);
 });
 
-it('ProjectsData::notifyEmployee reaches the ACTIVE login, not a disabled older one', function () {
+it('ProjectsData::notifyEmployee reaches every ACTIVE login, not a disabled older one', function () {
     $employee = notifEmployee('EMP-003');
     // The disabled account is created FIRST, so it holds the lower id — which
-    // is what the unfiltered ->orderBy('id')->first() used to hand the task to.
+    // is what the old ->orderBy('id')->first() path used to hand the task to.
     $disabled = notifUser(employeeId: $employee->getKey(), isActive: false);
     $active = notifUser(employeeId: $employee->getKey());
+    $secondActive = notifUser(employeeId: $employee->getKey());
 
     ProjectsData::notifyEmployee($employee->getKey(), 'TASK_ASSIGNED', 'You were assigned T-0004');
 
     expect(Notification::query()->where('user_id', $active->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $secondActive->getKey())->count())->toBe(1)
         ->and(Notification::query()->where('user_id', $disabled->getKey())->count())->toBe(0);
 });
 

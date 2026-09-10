@@ -6,6 +6,13 @@
     Flux::modal('task-detail')->show() has something to open; the body renders
     only while a task is open.
 
+    A task is shared by 0..N assignees (project_task_assignees): $coAssignees
+    names the peers, $submittedByName is set when the last submission was a
+    peer's rather than the actor's, and the SUBMISSION list is the whole
+    crew's ("Submission files", each peer's file named for its uploader) —
+    status, remarks, submitted_at and the evidence are one-per-task, so
+    "your" must not be assumed.
+
     Divergence noted: the source's Radix dialog scrolled its own content
     (max-h-[90vh] overflow-y-auto on DialogContent); here that sits on a
     wrapper div inside the Flux modal, which has no free-tier equivalent prop.
@@ -106,6 +113,14 @@
                 </div>
             </div>
 
+            {{-- A shared task: the peers on the same pivot. Any of them may
+                 start or submit it for everyone, so they are worth naming. --}}
+            @if ($coAssignees !== '')
+                <p class="text-xs text-muted-foreground">
+                    Working with: <span class="font-medium text-foreground">{{ $coAssignees }}</span>
+                </p>
+            @endif
+
             <div class="space-y-1">
                 <p class="text-xs uppercase tracking-wide text-muted-foreground">Description</p>
                 <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">
@@ -115,7 +130,10 @@
 
             @if (trim((string) $open->remarks) !== '')
                 <div class="space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Your last submission</p>
+                    {{-- The note is per task, not per assignee — say whose it was. --}}
+                    <p class="text-xs uppercase tracking-wide text-muted-foreground">
+                        {{ $submittedByName !== null ? 'Last submission by '.$submittedByName : 'Your last submission' }}
+                    </p>
                     <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">{{ $open->remarks }}</p>
                 </div>
             @endif
@@ -134,7 +152,7 @@
             @if ($canSubmit)
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'SUBMISSION',
-                    'label' => 'Your files',
+                    'label' => 'Submission files',
                     'files' => $openFiles->where('kind', 'SUBMISSION')->values(),
                     'canUpload' => $canAttach,
                     'canDelete' => $canAttach,
@@ -169,7 +187,7 @@
             @unless ($canSubmit)
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'SUBMISSION',
-                    'label' => 'Your files',
+                    'label' => 'Submission files',
                     'files' => $openFiles->where('kind', 'SUBMISSION')->values(),
                     'canUpload' => $canAttach,
                     'canDelete' => $canAttach,

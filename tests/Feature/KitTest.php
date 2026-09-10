@@ -6,6 +6,7 @@ use App\Livewire\Concerns\TableDefaults;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Kit\DateText;
+use App\Livewire\Kit\EmployeeChecklist;
 use App\Livewire\Kit\EmployeePicker;
 use App\Livewire\Kit\TimeText;
 use App\Models\EmployeeProfile;
@@ -322,6 +323,105 @@ it('refuses a client write to the locked selection', function () {
 
     expect(fn () => Livewire::test(EmployeePicker::class)->set('value', 'smuggled'))
         ->toThrow(Exception::class);
+});
+
+/*
+|--------------------------------------------------------------------------
+| kit.employee-checklist — the multi-select counterpart
+|--------------------------------------------------------------------------
+*/
+
+it('renders the scoped directory as a checklist and narrows by every search term', function () {
+    kitEmployee('BWF-0001', 'Ana', 'Garcia', 'Driver');
+    kitEmployee('BWF-0002', 'Ben', 'Reyes', 'Clerk');
+    kitActor(['PROJECTS'], allData: true);
+
+    Livewire::test(EmployeeChecklist::class, ['name' => 'task-assignees'])
+        ->assertSee('Ana Garcia')
+        ->assertSee('Ben Reyes')
+        ->assertSee('Driver')
+        ->assertSee('No one selected')
+        ->assertSeeHtml('type="checkbox"')
+        ->set('search', 'bwf reyes')
+        ->assertSee('Ben Reyes')
+        ->assertDontSee('Ana Garcia');
+});
+
+it('is discoverable by its kit name', function () {
+    kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    kitActor(['PROJECTS'], allData: true);
+
+    $html = Blade::render('<livewire:kit.employee-checklist name="task-assignees" aria-label="Assignees" />');
+
+    expect($html)->toContain('Ana Garcia')->toContain('aria-label="Assignees"');
+});
+
+it('toggles an id on and then off again, keeping the summary in step', function () {
+    $garcia = kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    $reyes = kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    kitActor(['PROJECTS'], allData: true);
+
+    Livewire::test(EmployeeChecklist::class)
+        ->call('toggle', $garcia->getKey())
+        ->assertSet('value', [(string) $garcia->getKey()])
+        ->assertSee('1 selected — Ana Garcia')
+        ->call('toggle', $reyes->getKey())
+        ->assertSet('value', [(string) $garcia->getKey(), (string) $reyes->getKey()])
+        ->assertSee('2 selected — Ana Garcia, Ben Reyes')
+        ->call('toggle', $garcia->getKey())
+        ->assertSet('value', [(string) $reyes->getKey()])
+        ->assertSee('1 selected — Ben Reyes');
+});
+
+it('ignores an id outside the actor directory and an inactive employee', function () {
+    $own = kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    $other = kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    $retired = kitEmployee('BWF-0003', 'Cid', 'Santos');
+    $retired->forceFill(['is_active' => false])->save();
+    kitActor(['PORTAL'], allData: false, employeeId: (string) $own->getKey());
+
+    Livewire::test(EmployeeChecklist::class)
+        ->assertSee('Ana Garcia')
+        ->assertDontSee('Ben Reyes')
+        ->call('toggle', $other->getKey())
+        ->assertSet('value', [])
+        ->call('toggle', 'smuggled')
+        ->assertSet('value', [])
+        ->assertSee('No one selected');
+
+    kitActor(['PROJECTS'], allData: true);
+
+    Livewire::test(EmployeeChecklist::class)
+        ->assertDontSee('Cid Santos')
+        ->call('toggle', $retired->getKey())
+        ->assertSet('value', []);
+});
+
+it('keeps a selected employee selected while the search hides them', function () {
+    $garcia = kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    kitActor(['PROJECTS'], allData: true);
+
+    Livewire::test(EmployeeChecklist::class, ['value' => [(string) $garcia->getKey()]])
+        ->assertSee('1 selected — Ana Garcia')
+        ->set('search', 'reyes')
+        ->assertDontSeeHtml('ecl-option-'.$garcia->getKey())
+        ->assertSee('Ben Reyes')
+        ->assertSet('value', [(string) $garcia->getKey()])
+        ->assertSee('1 selected — Ana Garcia')
+        ->set('search', '')
+        ->assertSeeHtml('checked');
+});
+
+it('names a selected employee only through the actor scope', function () {
+    $own = kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    $other = kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    kitActor(['PORTAL'], allData: false, employeeId: (string) $own->getKey());
+
+    // A smuggled id in the entangled array renders no name the actor may not read.
+    Livewire::test(EmployeeChecklist::class, ['value' => [(string) $other->getKey(), (string) $own->getKey()]])
+        ->assertDontSee('Ben Reyes')
+        ->assertSee('1 selected — Ana Garcia');
 });
 
 /*

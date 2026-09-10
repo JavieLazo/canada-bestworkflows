@@ -3,15 +3,25 @@
     components/TaskAttachments.tsx, as a Blade partial of the My Tasks dialog.
 
     Expects: $kind ('BRIEF'|'SUBMISSION'), $label, $files (already narrowed to
-    this task and kind), $canUpload, $canDelete, $emptyLabel. Uploads bind the
-    page component's $upload property (SUBMISSION only on this screen —
-    the BRIEF is read-only for the assignee).
+    this task and kind), $canUpload, $canDelete, $emptyLabel, plus the page's
+    $actorUserId. Uploads bind the page component's $upload property
+    (SUBMISSION only on this screen — the BRIEF is read-only for the assignee).
+
+    A task is shared by its assignees, so every SUBMISSION file on it is
+    downloadable by all of them, but the trash button appears only on the
+    files THIS account uploaded — MyTasksPage::deleteFile() refuses the rest,
+    and a button that always 403s would be a lie. A SUBMISSION file somebody
+    else uploaded is named for its uploader instead ("by Ramon Cruz" — the
+    employee spelling the dialog uses elsewhere, else the account name), so a
+    peer's evidence never reads as the actor's own. $files carries the
+    `uploader.employee` relation for that (MyTasksPage::render()).
 
     Divergence noted: lucide Download/Trash2 icons approximate to heroicons
     arrow-down-tray/trash on the Flux primitives.
 --}}
 @php
     use App\Livewire\Tasks\MyTasksPage;
+    use App\Support\EmployeeName;
 @endphp
 <div class="space-y-2">
     <div class="flex items-center justify-between gap-3">
@@ -57,6 +67,10 @@
                 >
                     <flux:icon.paper-clip class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                     <span class="min-w-0 flex-1 truncate text-sm">{{ $f->file_name }}</span>
+                    @if ($kind === 'SUBMISSION' && $f->uploader !== null && (int) $f->uploaded_by !== ($actorUserId ?? null))
+                        {{-- Somebody else's evidence: say whose. --}}
+                        <span class="shrink-0 text-xs text-muted-foreground">by {{ EmployeeName::display($f->uploader->employee, $f->uploader->name) }}</span>
+                    @endif
                     <span class="num shrink-0 text-xs text-muted-foreground">{{ MyTasksPage::humanSize((int) $f->size) }}</span>
                     <a
                         href="{{ route('tasks.files.download', $f->id) }}"
@@ -65,7 +79,7 @@
                     >
                         <flux:icon.arrow-down-tray class="h-3.5 w-3.5" />
                     </a>
-                    @if ($canDelete)
+                    @if ($canDelete && $f->uploaded_by !== null && (int) $f->uploaded_by === ($actorUserId ?? null))
                         <button
                             type="button"
                             aria-label="Remove {{ $f->file_name }}"

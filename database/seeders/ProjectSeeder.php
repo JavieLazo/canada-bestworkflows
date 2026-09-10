@@ -16,6 +16,14 @@ use App\Models\WorkSite;
  * cover every status My Tasks can show: pending, in progress, submitted,
  * returned and completed (plus a cancelled one on the reviewing side).
  *
+ * Assignees live in the project_task_assignees pivot (a task is SHARED by
+ * 0..N employees — ProjectTask docblock), written through
+ * ProjectTask::syncAssignees() so a re-run is a no-op for rows already there.
+ * TSK-002 is deliberately given TWO assignees (emp-6 and the demo emp-4) so
+ * the demo data shows collaboration on first run; every other task keeps the
+ * reference's single owner. A submitted task names its first assignee as
+ * submitted_by, matching the "first to submit submits for everyone" rule.
+ *
  * Also the rework conversation on TSK-004, so the thread has something to
  * show and the two-way shape is obvious on first run, and the four task
  * notifications that keep the bell from being empty (ntf-1/2/4/5; the leave
@@ -64,30 +72,40 @@ final class ProjectSeeder extends PortSeeder
             2 => ['id' => (string) $prj2->getKey(), 'manager' => $adminId],
         ];
 
-        // id, code, project, title, description, employee index, status,
-        // priority, due (days ago; negative = future), opened (days ago),
-        // remarks, review remarks
+        // id, code, project, title, description, employee indexes (the
+        // reference's single owner, plus co-assignees), status, priority,
+        // due (days ago; negative = future), opened (days ago), remarks,
+        // review remarks
         $specs = [
-            ['tsk-1', 'TSK-001', 1, 'Survey perimeter gates A and B', 'Walk both gates, photograph every mount point and note the cabling runs.', 3, 'COMPLETED', 'HIGH', 40, 55, 'Survey done, 14 mount points logged with photos.', 'Complete and well documented.'],
-            ['tsk-2', 'TSK-002', 1, 'Install CCTV at the loading bay', 'Mount and commission the four bay cameras, then verify the night-vision feed.', 5, 'IN_PROGRESS', 'HIGH', -6, 20, null, null],
-            ['tsk-3', 'TSK-003', 1, 'Draft the access-control policy', 'Write the badge issuance, revocation and visitor escort rules for review.', 3, 'SUBMITTED', 'NORMAL', -3, 14, 'First draft attached — the visitor escort section still needs HR sign-off.', null],
-            ['tsk-4', 'TSK-004', 1, 'Replace the lobby badge readers', 'Swap both lobby readers for the new model and re-enrol the existing badges.', 3, 'RETURNED', 'URGENT', 2, 18, 'Readers swapped, badges re-enrolled.', 'The east reader still rejects contractor badges — please retest and resubmit.'],
-            ['tsk-5', 'TSK-005', 1, 'Write up the night patrol schedule', 'Draft a two-guard rotation covering 22:00 to 06:00, seven days.', 4, 'PENDING', 'NORMAL', -12, 4, null, null],
-            ['tsk-6', 'TSK-006', 1, 'Decommission the old alarm panel', 'Remove the legacy panel once the new system passes acceptance.', 5, 'CANCELLED', 'LOW', -30, 16, null, 'Panel stays in place as the fallback — cancelled by the client.'],
-            ['tsk-7', 'TSK-007', 1, 'Test the emergency exit alarms', 'Trigger and log every emergency exit alarm on floors 2 through 6.', 3, 'IN_PROGRESS', 'HIGH', -4, 9, null, null],
-            ['tsk-8', 'TSK-008', 1, 'Update the visitor logbook procedure', 'Fold the new badge rules into the front-desk visitor logbook steps.', 3, 'PENDING', 'NORMAL', -18, 2, null, null],
-            ['tsk-9', 'TSK-009', 2, 'Reconcile the Q2 payroll registers', 'Match every register line against the posted payslips and flag the gaps.', 1, 'IN_PROGRESS', 'HIGH', -7, 25, null, null],
-            ['tsk-10', 'TSK-010', 2, 'Verify the statutory deduction tables', 'Check SSS, PhilHealth and Pag-IBIG brackets against the current circulars.', 1, 'COMPLETED', 'NORMAL', 5, 26, 'All three tables match the latest circulars.', 'Verified, thanks.'],
-            ['tsk-11', 'TSK-011', 2, 'Collect the signed payslip receipts', 'Chase the outstanding acknowledgement slips from the field teams.', 6, 'PENDING', 'LOW', -10, 6, null, null],
-            ['tsk-12', 'TSK-012', 2, 'Summarise the audit findings', 'One-page summary of every variance found, with the proposed correction.', 0, 'PENDING', 'NORMAL', -14, 3, null, null],
+            ['tsk-1', 'TSK-001', 1, 'Survey perimeter gates A and B', 'Walk both gates, photograph every mount point and note the cabling runs.', [3], 'COMPLETED', 'HIGH', 40, 55, 'Survey done, 14 mount points logged with photos.', 'Complete and well documented.'],
+            ['tsk-2', 'TSK-002', 1, 'Install CCTV at the loading bay', 'Mount and commission the four bay cameras, then verify the night-vision feed.', [5, 3], 'IN_PROGRESS', 'HIGH', -6, 20, null, null],
+            ['tsk-3', 'TSK-003', 1, 'Draft the access-control policy', 'Write the badge issuance, revocation and visitor escort rules for review.', [3], 'SUBMITTED', 'NORMAL', -3, 14, 'First draft attached — the visitor escort section still needs HR sign-off.', null],
+            ['tsk-4', 'TSK-004', 1, 'Replace the lobby badge readers', 'Swap both lobby readers for the new model and re-enrol the existing badges.', [3], 'RETURNED', 'URGENT', 2, 18, 'Readers swapped, badges re-enrolled.', 'The east reader still rejects contractor badges — please retest and resubmit.'],
+            ['tsk-5', 'TSK-005', 1, 'Write up the night patrol schedule', 'Draft a two-guard rotation covering 22:00 to 06:00, seven days.', [4], 'PENDING', 'NORMAL', -12, 4, null, null],
+            ['tsk-6', 'TSK-006', 1, 'Decommission the old alarm panel', 'Remove the legacy panel once the new system passes acceptance.', [5], 'CANCELLED', 'LOW', -30, 16, null, 'Panel stays in place as the fallback — cancelled by the client.'],
+            ['tsk-7', 'TSK-007', 1, 'Test the emergency exit alarms', 'Trigger and log every emergency exit alarm on floors 2 through 6.', [3], 'IN_PROGRESS', 'HIGH', -4, 9, null, null],
+            ['tsk-8', 'TSK-008', 1, 'Update the visitor logbook procedure', 'Fold the new badge rules into the front-desk visitor logbook steps.', [3], 'PENDING', 'NORMAL', -18, 2, null, null],
+            ['tsk-9', 'TSK-009', 2, 'Reconcile the Q2 payroll registers', 'Match every register line against the posted payslips and flag the gaps.', [1], 'IN_PROGRESS', 'HIGH', -7, 25, null, null],
+            ['tsk-10', 'TSK-010', 2, 'Verify the statutory deduction tables', 'Check SSS, PhilHealth and Pag-IBIG brackets against the current circulars.', [1], 'COMPLETED', 'NORMAL', 5, 26, 'All three tables match the latest circulars.', 'Verified, thanks.'],
+            ['tsk-11', 'TSK-011', 2, 'Collect the signed payslip receipts', 'Chase the outstanding acknowledgement slips from the field teams.', [6], 'PENDING', 'LOW', -10, 6, null, null],
+            ['tsk-12', 'TSK-012', 2, 'Summarise the audit findings', 'One-page summary of every variance found, with the proposed correction.', [0], 'PENDING', 'NORMAL', -14, 3, null, null],
         ];
 
         $taskIds = [];
 
-        foreach ($specs as [$id, $code, $project, $title, $description, $empIdx, $status, $priority, $due, $opened, $remarks, $reviewRemarks]) {
+        foreach ($specs as [$id, $code, $project, $title, $description, $empIdxs, $status, $priority, $due, $opened, $remarks, $reviewRemarks]) {
             $hasSubmission = in_array($status, ['SUBMITTED', 'COMPLETED', 'RETURNED'], true);
             $isComplete = $status === 'COMPLETED';
             $wasReviewed = in_array($status, ['COMPLETED', 'RETURNED', 'CANCELLED'], true);
+
+            // Only employees the EmployeeSeeder actually produced: a missing
+            // index simply leaves the task with one assignee fewer (or none).
+            $assigneeIds = [];
+            foreach ($empIdxs as $empIdx) {
+                if (isset($employees[$empIdx])) {
+                    $assigneeIds[] = $employees[$empIdx];
+                }
+            }
 
             // A submission lands a few days after the task was handed out, and
             // the review a day after that — never before the task existed.
@@ -99,19 +117,24 @@ final class ProjectSeeder extends PortSeeder
                 'project_id' => $projects[$project]['id'],
                 'title' => $title,
                 'description' => $description,
-                'assignee_id' => $employees[$empIdx] ?? null,
                 'status' => $status,
                 'priority' => $priority,
                 'due_date' => $this->dateKey($due),
                 'assigned_by' => $projects[$project]['manager'],
                 'assigned_at' => $this->at($opened, 9, 0),
                 'submitted_at' => $hasSubmission ? $this->at($submittedAgo, 16, 0) : null,
+                'submitted_by' => $hasSubmission ? ($assigneeIds[0] ?? null) : null,
                 'completed_at' => $isComplete ? $this->at($reviewedAgo, 17, 0) : null,
                 'reviewed_by' => $wasReviewed ? $projects[$project]['manager'] : null,
                 'remarks' => $remarks,
                 'review_remarks' => $reviewRemarks,
                 'created_at' => $this->at($opened, 9, 0),
             ]);
+
+            // The pivot: diffed against what is already there, so a second run
+            // neither duplicates nor re-stamps existing memberships.
+            /** @var ProjectTask $task */
+            $task->syncAssignees($assigneeIds, $projects[$project]['manager']);
 
             $taskIds[$code] = (string) $task->getKey();
         }

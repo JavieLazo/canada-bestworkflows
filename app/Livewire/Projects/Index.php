@@ -184,7 +184,7 @@ class Index extends Component
         if ($managerId !== null) {
             $managerRow = User::query()->whereKey($managerId)->first();
             if ($managerRow === null || ! (bool) $managerRow->getAttribute('is_active')) {
-                Flux::toast(variant: 'danger', text: 'Choose an active account as project manager.');
+                Flux::toast(variant: 'danger', text: 'Choose an active account as task leader.');
 
                 return;
             }
@@ -284,7 +284,7 @@ class Index extends Component
                 $today,
             ) === 'DUE_SOON',
         )->count();
-        $unassignedCount = $data['tasks']->whereNull('assignee_id')->count();
+        $unassignedCount = $data['tasks']->filter(fn ($t): bool => $t->assigneeIds() === [])->count();
 
         return view('livewire.projects.index', [
             'rows' => $this->paginateClamped($visible),
