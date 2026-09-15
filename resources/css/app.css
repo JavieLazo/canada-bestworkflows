@@ -326,9 +326,10 @@ select:focus[data-flux-control] {
  * Not applied to the DTR either, for the same reason plus one of its own: its
  * rows ARE the period somebody picked, all of them, and a month of them behind
  * a scrollbar is not the whole month. It gives up the pinned header for that,
- * and drops `hris-table-wrap` too so the header pins to the page instead —
- * see `hris-table-flush`. The payroll run workspace drops only the cap: at
- * twenty-two columns it still needs the wrap to keep its width off the page.
+ * and drops `hris-table-wrap` too while its columns fit the card, so the header
+ * pins to the page instead; once they do not, it takes the wrap back on — see
+ * `hris-table-flush` and the DTR template. The payroll run workspace drops only
+ * the cap: at twenty-two columns it needs the wrap on every screen.
  * `live-feed` and the run workspace picker bound themselves already, which is
  * why their headers pinned even while every other one was broken.
  */
@@ -343,18 +344,20 @@ select:focus[data-flux-control] {
  * inside the card's radius, and it is exactly what a page-pinned header cannot
  * survive: `overflow: hidden` establishes a scrollport just as surely as
  * `auto` does, `hris-table`'s sticky thead resolves against the nearest one,
- * and a scrollport that never scrolls is a header that never pins. So the DTR
- * card carries no overflow at all — not the wrap's `overflow-x`, not the
- * card's `hidden` — and its thead sticks to the PAGE, staying put down a
- * thirty-one row month.
+ * and a scrollport that never scrolls is a header that never pins. So while its
+ * table fits, the DTR card carries no overflow at all — not the wrap's
+ * `overflow-x`, not the card's `hidden` — and its thead sticks to the PAGE,
+ * staying put down a thirty-one row month.
  *
  * This does the clipping's job with border-radius instead. Minus the 1px
  * border, because `overflow: hidden` clipped at the padding box and this is
  * matching what it looked like, not what it measured.
  *
- * The trade it accepts: nothing bounds the table's width any more, so a table
- * wider than the page scrolls the page sideways. Only put this on a table
- * whose columns fit the screens it is read on.
+ * The trade it accepts: nothing bounds the table's width any more, and the
+ * shell clips the x-axis (`overflow-x: clip` on the body), so a table wider
+ * than its card is cut off rather than scrolled to. Only put this on a table
+ * whose columns fit the screens it is read on — or, like the DTR, one that
+ * takes `hris-table-wrap` back on for the screens where they do not.
  */
 @utility hris-table-flush {
     & thead th:first-child {

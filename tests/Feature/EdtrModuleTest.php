@@ -756,12 +756,16 @@ it('draws every day of the chosen period, with nothing behind a scrollbar', func
         ->and($html)->toContain('wire:key="dtr-2026-08-01"')
         ->and($html)->toContain('wire:key="dtr-2026-08-31"');
 
-    // And no overflow of any kind between the card and the table, or the
-    // sticky header pins to a box that never scrolls instead of to the page.
+    // And no overflow between the card and the table while the table fits, or
+    // the sticky header pins to a box that never scrolls instead of to the
+    // page. The wrap goes on only from the card's own measurement, once the
+    // table is wider than it — never in the markup, and never a height cap.
     $card = Str::before(Str::after($html, 'hris-table-flush'), '</table>');
 
-    expect($card)->toContain('<table class="hris-table">')
+    expect($html)->toContain('class="hris-card hris-table-flush"')
+        ->and($card)->toContain('<table class="hris-table">')
         ->and($card)->not->toContain('hris-table-scroll')
-        ->and($card)->not->toContain('hris-table-wrap')
-        ->and($card)->not->toContain('overflow-hidden');
+        ->and($card)->not->toContain('overflow-hidden')
+        ->and($card)->toContain("x-bind:class=\"{ 'hris-table-wrap': overflows }\"")
+        ->and(substr_count($card, 'hris-table-wrap'))->toBe(1);
 });

@@ -145,8 +145,8 @@
                     </div>
 
                     {{--
-                        NO overflow ANYWHERE on this card, deliberately, and
-                        that is one rule with two halves.
+                        NO overflow on this card while the table fits in it,
+                        deliberately, and that is one rule with two halves.
 
                         No height cap: every day of the chosen period is
                         already in $rows — eachDate builds them and nothing
@@ -164,11 +164,41 @@
                         all the way down a 31-row month. hris-table-flush does
                         the corner-rounding the card's clip used to do.
 
-                        The cost: a table wider than the viewport now scrolls
-                        the PAGE sideways rather than itself. Twelve columns on
-                        an admin screen, which is what this is read on.
+                        Until it stops fitting. A table wider than the card does
+                        NOT scroll the page sideways: the shell clips the x-axis
+                        (`overflow-x: clip` on the body and on the content
+                        column in layouts/app), so the overflow is cut off, not
+                        reachable — and what gets cut is the right-hand end,
+                        Remarks and the correction button, the two columns
+                        anyone acts on. So the card measures itself and takes
+                        hris-table-wrap only while the table is wider than it:
+                        the x-axis then scrolls inside the card, as every other
+                        wide table here does, and for that stretch the header
+                        rides up with the page instead of pinning. Widen the
+                        screen, or collapse the sidebar, and the wrap comes off.
+
+                        Both are observed: the card for the screen and the
+                        sidebar, the table for its own content — a new period,
+                        a longer remark — neither of which resizes the card.
                     --}}
-                    <div class="hris-card hris-table-flush">
+                    <div
+                        class="hris-card hris-table-flush"
+                        x-data="{
+                            overflows: false,
+                            observer: null,
+                            init() {
+                                this.observer = new ResizeObserver(() => {
+                                    this.overflows = this.$el.scrollWidth > this.$el.clientWidth;
+                                });
+                                this.observer.observe(this.$el);
+                                this.observer.observe(this.$el.querySelector('table'));
+                            },
+                            destroy() {
+                                this.observer.disconnect();
+                            },
+                        }"
+                        x-bind:class="{ 'hris-table-wrap': overflows }"
+                    >
                         <table class="hris-table">
                             <thead>
                                 <tr>
