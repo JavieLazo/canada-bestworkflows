@@ -47,32 +47,32 @@ final class PayrollReadiness
     /**
      * The codes that actually stop a run being finalized.
      *
-     * The class docblock's rule still holds — a condition the payslip cannot
-     * price defensibly is a blocker, not a silent approximation — but what the
-     * payslip can price has moved, and four of these were describing a state
-     * of the port that no longer exists:
+     * The class docblock's rule holds — a condition the payslip cannot price
+     * defensibly is a blocker, not a silent approximation — but four of the
+     * detected codes carry the reference's message for a gap this payslip
+     * does not have, so they do not block:
      *
-     *   NIGHT_WORK        said the payslip has no field for it. It has
+     *   NIGHT_WORK        says the payslip has no field for it. It has
      *                     `night_differential`, computed from the shift and
      *                     Formulas -> NSD, and hand-editable in the workspace.
-     *   REST_DAY_WORK     asked for a rest-day premium. Formulas -> Rest Day,
+     *   REST_DAY_WORK     asks for a rest-day premium. Formulas -> Rest Day,
      *                     into `rest_day_pay`.
-     *   HOLIDAY_OVERTIME  asked for a holiday overtime rate. The holiday's own
+     *   HOLIDAY_OVERTIME  asks for a holiday overtime rate. The holiday's own
      *                     percent from Records -> Holidays, times
      *                     PayslipCalculator::HOLIDAY_OT_PREMIUM.
-     *   HOLIDAY_REST_DAY  asked for compound pricing, and it now compounds:
+     *   HOLIDAY_REST_DAY  asks for compound pricing, and it compounds:
      *                     holiday percent times the Rest Day percentage.
      *
-     * What stays is not a pricing gap at all. An unpaired punch means a day
+     * What blocks is not a pricing gap at all. An unpaired punch means a day
      * that pays nothing until somebody corrects it; a holiday percent below
      * the statutory minimum is a settings error with a settings fix; and a
      * date carrying two holidays is genuinely ambiguous, because the
      * calculator asks HolidaySetting::on() for one and gets one.
      *
-     * The detection above is deliberately left whole rather than deleted. It
-     * costs nothing on a pass that is already walking every date, and the day
-     * an advisory panel wants to show "this run contains rest-day work", the
-     * answer is already computed.
+     * Their detection is kept whole on purpose. It costs nothing on a pass
+     * that is already walking every date, and the day an advisory panel
+     * wants to show "this run contains rest-day work", the answer is already
+     * computed.
      *
      * @var list<string>
      */
@@ -108,6 +108,7 @@ final class PayrollReadiness
      * @param  list<mixed>  $logs
      * @param  list<mixed>  $leaves
      * @param  list<mixed>  $holidays
+     * @param  bool  $compoundPriced  whether the pay rules price a day with two holidays (no COMPOUND_HOLIDAY issue then)
      * @return list<array{code: string, message: string}>
      */
     public static function issues(
@@ -120,6 +121,7 @@ final class PayrollReadiness
         string $employmentStart,
         ?string $employmentEnd = null,
         array $holidays = [],
+        bool $compoundPriced = false,
     ): array {
         $start = $employmentStart > $periodStart ? $employmentStart : $periodStart;
         // `input.employmentEnd && ...` is a TRUTHINESS test in the reference, so an
@@ -139,6 +141,7 @@ final class PayrollReadiness
                 $coreLogs[] = $log;
             }
         }
+        $coreLogs = self::withoutPreviousDayTail($coreLogs, $start);
 
         $nextDate = PayrollPeriod::addCalendarDays($end, 1);
         $nextDayLogs = [];
@@ -199,7 +202,9 @@ final class PayrollReadiness
             $worked = ($day === null ? 0 : (float) self::read($day, 'workedMinutes', 'worked_minutes')) > 0;
             $dayHolidays = self::matchingHolidays($date, $holidays);
 
-            if (count($dayHolidays) > 1) {
+            // DIVERGENCE 13: a Pay Basis & Rates version that prices a double
+            // holiday (PayRules::prices('DOUBLE')) lifts the block.
+            if (count($dayHolidays) > 1 && ! $compoundPriced) {
                 $issues[] = [
                     'code' => self::CODE_COMPOUND_HOLIDAY,
                     'message' => "{$date} has multiple holidays, which requires compound holiday pricing.",
@@ -267,6 +272,49 @@ final class PayrollReadiness
         }
 
         return $unique;
+    }
+
+    /**
+     * DELIBERATE DIVERGENCE: the first day's punches BEFORE its first TIME_IN
+     * are the tail of the day before — a night shift's after-midnight Time
+     * Out — and that day is not in this period.
+     *
+     * The reference slices core logs by calendar day
+     * (payroll-readiness.ts:131-140), so a period that starts the morning
+     * after a worked night opens with that Time Out, and the pairing walk
+     * reads it as closing nothing: "Resolve every unmatched or duplicate
+     * attendance punch" on a record the DTR reads as PRESENT.
+     * The carry at the END already claims the next morning's punches up to
+     * its first TIME_IN for this period, so this is the same cut at the
+     * START: every punch is claimed by exactly ONE period. A first day with
+     * no TIME_IN at all keeps nothing, as the end carry keeps everything when
+     * the next day has none. The DTR itself needs no such cut — DtrCalculator
+     * groups a punch by the shift it belongs to — only this walk does.
+     *
+     * @param  list<mixed>  $coreLogs
+     * @return list<mixed>
+     */
+    private static function withoutPreviousDayTail(array $coreLogs, string $start): array
+    {
+        $firstDay = [];
+        foreach ($coreLogs as $index => $log) {
+            if (self::dateKey($log) === $start) {
+                $firstDay[] = ['ms' => ManilaClock::ms(self::instantOf($log)), 'index' => $index, 'log' => $log];
+            }
+        }
+        // Integer milliseconds, as sortByInstant(): PHP's sort is stable, so
+        // punches sharing a millisecond keep their insertion order.
+        usort($firstDay, static fn (array $a, array $b): int => $a['ms'] <=> $b['ms']);
+
+        $tail = [];
+        foreach ($firstDay as $entry) {
+            if (self::logType($entry['log']) === 'TIME_IN') {
+                break;
+            }
+            $tail[$entry['index']] = true;
+        }
+
+        return array_values(array_diff_key($coreLogs, $tail));
     }
 
     /**

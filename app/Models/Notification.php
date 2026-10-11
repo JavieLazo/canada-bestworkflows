@@ -11,11 +11,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * An in-app notification addressed to one account. Unique on
  * `(user_id, dedupe_key)`.
  *
- * `dedupe_key` is unique per (rule, record, trigger) for the reminders the app
- * derives on load — without a backend scheduler those are recomputed every time
- * someone opens the app, and this is what stops the same reminder landing
- * twice. It is NULL for event notifications, which fire from a write that only
- * happens once.
+ * `dedupe_key` is unique per (rule, record, trigger) for the reminders the
+ * `reminders:sweep` cron derives (`ReminderSweep::build()`) — never on page
+ * load. Every sweep re-derives them, and the key plus that unique index is
+ * what stops the same reminder landing twice on a later sweep. It is NULL for
+ * event notifications, which fire from a write that only happens once.
  *
  * MySQL/InnoDB and PostgreSQL AGREE that a UNIQUE index permits unlimited rows
  * where any indexed column is NULL, so event notifications still repeat freely
@@ -28,7 +28,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * `user_id` is the addressee and is server-assigned by the fan-out; it is
  * never mass-assigned. `kind` is one of the 19 strings in
- * `src/lib/notifications.ts`, and `href` is where clicking it should go.
+ * `src/lib/notifications.ts` or one ems added on top (the TASK_RESPONSE_*
+ * kinds among them — see Platform\Notifications\Notifier), and `href` is
+ * where clicking it should go.
  *
  * @property string $id
  * @property int $user_id

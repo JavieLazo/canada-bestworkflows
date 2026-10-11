@@ -4,16 +4,18 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Records\Support\Hris;
 use App\Models\Holiday;
+use App\Modules\Organization\Application\Commands\DeleteHoliday;
+use App\Modules\Organization\Application\Commands\SaveHoliday;
+use App\Modules\Organization\Application\HolidayDraft;
+use App\Modules\Organization\Application\Queries\HolidayRecords;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\QueryException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -41,10 +43,10 @@ class HolidaysPage extends Component
     use WithTableFilters;
 
     /** holidays-page.tsx:44-47. */
-    public const array SCHEDULES = ['ANNUAL' => 'Every year', 'ONE_TIME' => 'One time'];
+    public const array SCHEDULES = SaveHoliday::SCHEDULES;
 
     /** holidays-page.tsx:49-52. */
-    public const array TYPES = ['REGULAR' => 'Regular Holiday', 'SPECIAL_NON_WORKING' => 'Special Non-Working Holiday'];
+    public const array TYPES = SaveHoliday::TYPES;
 
     /** Type filter — 'ALL' or a holiday type. Plain filter state. */
     public string $type = 'ALL';
@@ -112,7 +114,7 @@ class HolidaysPage extends Component
 
     public function startEdit(string $id): void
     {
-        $row = Holiday::query()->find($id);
+        $row = app(HolidayRecords::class)->find(app(Access::class), $id);
 
         if ($row === null) {
             Flux::toast(variant: 'danger', text: 'That holiday no longer exists.');
@@ -163,84 +165,20 @@ class HolidaysPage extends Component
         }
 
         $this->formError = null;
-
-        if (mb_strlen($name) > 160) {
-            Flux::toast(variant: 'danger', text: 'name: must be at most 160 characters.');
-
-            return;
-        }
-
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->formDate) !== 1) {
-            Flux::toast(variant: 'danger', text: 'date: must be a real YYYY-MM-DD calendar date.');
-
-            return;
-        }
-
-        if ($percent > 999) {
-            Flux::toast(variant: 'danger', text: 'percent: must be at most 999.');
-
-            return;
-        }
-
-        if (! isset(self::SCHEDULES[$this->formSchedule]) || ! isset(self::TYPES[$this->formType])) {
-            // The selects only offer these; anything else is a tampered payload.
-            Flux::toast(variant: 'danger', text: 'That schedule or type is not recognised.');
-
-            return;
-        }
-
         $access = app(Access::class);
+        try {
+            $message = app(SaveHoliday::class)->handle($access, $this->editingId, new HolidayDraft($this->formName, $this->formDate, $this->formSchedule, $this->formType, $this->formPercent));
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
 
-        // requireAllDataModule("RECORDS") — re-checked in the action itself.
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        $payload = [
-            'name' => $name,
-            'date' => $this->formDate,
-            'schedule' => $this->formSchedule,
-            'type' => $this->formType,
-            'percent' => $percent,
-        ];
-
-        if ($this->editingId !== null) {
-            $row = Holiday::query()->find($this->editingId);
-
-            if ($row === null) {
-                Flux::toast(variant: 'danger', text: 'That holiday no longer exists.');
-
-                return;
-            }
-
-            $row->fill($payload)->save();
-
-            AuditService::record(
-                $access,
-                AuditEvent::HOLIDAY_UPDATED,
-                'holidays',
-                (string) $row->getKey(),
-                "{$row->code} updated — {$name}",
-            );
-
-            Flux::toast(variant: 'success', text: "{$name} updated.");
-        } else {
-            $code = $this->nextCode();
-            $row = Holiday::query()->create($payload + ['code' => $code]);
-
-            AuditService::record(
-                $access,
-                AuditEvent::HOLIDAY_CREATED,
-                'holidays',
-                (string) $row->getKey(),
-                "{$name} added as {$code}",
-            );
-
-            Flux::toast(variant: 'success', text: "{$name} added.");
-        }
-
+        Flux::toast(variant: 'success', text: $message);
         $this->dialogOpen = false;
         $this->editingId = null;
     }
@@ -256,89 +194,31 @@ class HolidaysPage extends Component
         $id = $this->deletingId;
         $this->confirmOpen = false;
         $this->deletingId = null;
-
         if ($id === null) {
             return;
         }
-
         $access = app(Access::class);
+        try {
+            $name = app(DeleteHoliday::class)->handle($access, $id);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The record could not be deleted. Please try again.');
 
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        $row = Holiday::query()->find($id);
-
-        if ($row === null) {
-            Flux::toast(variant: 'danger', text: 'That holiday no longer exists.');
-
-            return;
-        }
-
-        $code = $row->code;
-        $name = $row->name;
-        $row->delete();
-
-        AuditService::record(
-            $access,
-            AuditEvent::HOLIDAY_DELETED,
-            'holidays',
-            $id,
-            "{$code} \"{$name}\" deleted",
-        );
-
         Flux::toast(variant: 'success', text: "{$name} deleted.");
-    }
-
-    /** holidays-page.tsx:79-85 — `HOL-000` codes, read from the rows. */
-    private function nextCode(): string
-    {
-        $highest = 0;
-
-        foreach (Holiday::query()->pluck('code') as $code) {
-            if (preg_match('/^HOL-(\d+)$/i', (string) $code, $m) === 1) {
-                $highest = max($highest, (int) $m[1]);
-            }
-        }
-
-        return sprintf('HOL-%03d', $highest + 1);
     }
 
     public function render(): View
     {
-        $query = Holiday::query();
+        $rows = $this->acceptPage(app(HolidayRecords::class)->page(app(Access::class), $this->type, $this->search, $this->sortKey, $this->sortDir, (int) $this->getPage(), $this->perPage));
 
-        if ($this->type !== 'ALL') {
-            $query->where('type', $this->type);
-        }
-
-        $needle = trim($this->search);
-
-        if ($needle !== '') {
-            // `${r.code} ${r.name}`.includes(needle) — holidays-page.tsx:98-101.
-            $query->where(function ($q) use ($needle): void {
-                $like = '%'.addcslashes($needle, '%_\\').'%';
-                $q->where('code', 'like', $like)->orWhere('name', 'like', $like);
-            });
-        }
-
-        $this->applySort($query, [
-            'id' => 'code',
-            'name' => 'name',
-            'date' => 'date',
-            // compareText(a.type, b.type) || compareText(a.name, b.name), the
-            // whole list reversed for desc — so the tiebreak reverses too.
-            'type' => static function ($q, string $dir): void {
-                $q->orderBy('type', $dir)->orderBy('name', $dir);
-            },
-        ]);
-
-        $rows = $this->paginateClamped($query);
-
-        $editing = $this->editingId !== null ? Holiday::query()->find($this->editingId) : null;
-        $deleting = $this->deletingId !== null ? Holiday::query()->find($this->deletingId) : null;
+        $editing = $this->editingId !== null ? app(HolidayRecords::class)->find(app(Access::class), $this->editingId) : null;
+        $deleting = $this->deletingId !== null ? app(HolidayRecords::class)->find(app(Access::class), $this->deletingId) : null;
 
         return view('livewire.records.holidays-page', [
             'rows' => $rows,

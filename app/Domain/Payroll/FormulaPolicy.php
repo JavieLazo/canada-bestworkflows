@@ -5,38 +5,42 @@ declare(strict_types=1);
 namespace App\Domain\Payroll;
 
 /**
- * A literal port of copems/src/lib/payroll-formula-policy.ts.
+ * Validates the editable inputs consumed by PayrollRates.
  *
  * Protects the fixed calculation contract from duplicate, missing or unsafe
  * parameters. Only a formula's `params` are editable — which calculation a row
  * drives is fixed by its `key`, and its `expression` is display text that is
- * never evaluated — so this is the whole of what a user can change about how
- * payroll computes.
+ * never evaluated.
  */
 final class FormulaPolicy
 {
     /**
-     * TS: RULES. Key order is load-bearing: it is what the "must be exactly"
-     * message lists, in this order.
-     *
-     * A `min` of PHP_FLOAT_EPSILON is the reference's Number.EPSILON — the
-     * smallest step above 1.0, used here as "any positive number", and rendered
-     * in the message as "more than 0" rather than as 2.22e-16.
+     * DELIBERATE DIVERGENCE from payroll-formula-policy.ts: validate the active
+     * engine inputs, including NSD and rest-day pay. Rates remain multipliers;
+     * zero legitimately disables a rate or cap.
      *
      * @var array<string, array<string, array{min: int|float, max: int|float}>>
      */
     private const RULES = [
         'OT' => [
-            'working_hours' => ['min' => PHP_FLOAT_EPSILON, 'max' => 24],
             'percentage' => ['min' => 0, 'max' => 10],
             'max_ot' => ['min' => 0, 'max' => 24],
         ],
-        'SIL' => [
-            'max_leave' => ['min' => 0, 'max' => 366],
-            'months' => ['min' => PHP_FLOAT_EPSILON, 'max' => 120],
-            'days_per_month' => ['min' => PHP_FLOAT_EPSILON, 'max' => 31],
+        'NSD' => [
+            'percentage' => ['min' => 0, 'max' => 10],
+            'max_nsd' => ['min' => 0, 'max' => 24],
+        ],
+        'REST_DAY' => [
+            'percentage' => ['min' => 0, 'max' => 10],
+            'max_hours' => ['min' => 0, 'max' => 24],
         ],
     ];
+
+    /** @return list<string> */
+    public static function keys(): array
+    {
+        return array_keys(self::RULES);
+    }
 
     /**
      * TS: formulaParamsError(). Why this parameter set may not be saved, or null.
@@ -65,6 +69,12 @@ final class FormulaPolicy
         }
 
         $expected = array_keys($rules);
+        // Preserve a stored compatibility parameter without requiring it on
+        // active OT rows. Payroll derives working hours from the shift roster.
+        if ($formulaKey === 'OT' && in_array('working_hours', $keys, true)) {
+            $rules['working_hours'] = ['min' => PHP_FLOAT_EPSILON, 'max' => 24];
+            $expected[] = 'working_hours';
+        }
         $missing = false;
         foreach ($expected as $key) {
             if (! in_array($key, $keys, true)) {

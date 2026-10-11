@@ -37,8 +37,8 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
  *     may not see it costs them one index read and no render, because their
  *     stamp did not move. So the channels can be coarse.
  *  2. **A lost knock is not a lost update.** The polls stay on as a backstop
- *     (config/bestworkflows.php `realtime.poll_backstop`), so a dropped socket
- *     degrades to what the app did before this class existed.
+ *     (config/copems.php `realtime.poll_backstop`), so a dropped socket
+ *     degrades to the poll alone.
  *
  * ShouldBroadcastNow, not ShouldBroadcast: the queued variant needs a worker,
  * and production is a cPanel account with no shell to run one — a queued event

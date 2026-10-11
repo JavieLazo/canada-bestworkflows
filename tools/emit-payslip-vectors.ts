@@ -14,8 +14,9 @@
  * buckets, holiday pricing, OT/NSD/rest-day, lateness/undertime, contributions
  * (allow/fixed/mode/endsMonth) and withholding.
  *
- * Generation is ADVERSARIAL, not a tidy sweep — the statutory harness scored
- * ZERO detections until the semi-monthly halving step was added. Hence:
+ * Generation is ADVERSARIAL, not a tidy sweep — a tidy sweep leaves the traps
+ * unexercised, and the statutory harness scores ZERO detections without its
+ * semi-monthly halving step. Hence:
  *
  *   Tier A  monthly-rate traps under a canonical full-attendance period:
  *           every whole peso 10,000..11,000, the canonical 10,241, 0.01-step
@@ -409,9 +410,9 @@ function fuzzSettings(periodStart: string, periodEnd: string): PayrollSettings |
     // reference's only write path (zod: value: z.number().finite().min(0)),
     // and on it the two engines genuinely disagree: JS Number(null) === 0 (an
     // explicit zero rate) while PayrollRates::valuesOf maps a non-is_numeric
-    // value to NAN, which falls back to the default. Reported as a finding —
-    // a hand-edited formulas row carrying null would pay NSD differently —
-    // but it is not expressible through the public API, so it is not a vector.
+    // value to NAN, which falls back to the default. A hand-edited formulas
+    // row carrying null would pay NSD differently, but it is not expressible
+    // through the public API, so it is not a vector.
     [
       { key: "OT", params: [{ key: "percentage", value: "wild" as unknown as number }, { key: "max_ot", value: -3 }] },
       { key: "NSD", params: [{ key: "percentage", value: "1e-1" as unknown as number }] },

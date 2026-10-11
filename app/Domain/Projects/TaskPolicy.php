@@ -26,9 +26,23 @@ namespace App\Domain\Projects;
  * The maps below SUBSUME both flat lists — every target in ASSIGNEE_MOVES and
  * REVIEWER_MOVES already appears in the corresponding map wherever it is
  * legal, and the map additionally denies it from the wrong current status. So
- * the Laravel controller needs the map check and nothing else; do not
- * reintroduce a flat list "as well", because a flat list that is checked
- * FIRST is how the bug happened.
+ * a command must NEVER check a flat target list INSTEAD of the map, because a
+ * flat list checked on its own is how the bug happened. A vocabulary
+ * whitelist may narrow the map (ReviewTask names the three decisions it
+ * takes), never replace it. The map says only that a move EXISTS: some moves
+ * carry further gates — no self-review in ReviewTask, and an INDIVIDUAL
+ * completion (see INDIVIDUAL_MANAGER_TRANSITIONS).
+ *
+ * DELIBERATE DIVERGENCE: the reference has one assignee per task and no
+ * submission mode (copems prisma/schema.prisma:401-402, projects.ts
+ * 227-244). ems's shared multi-assignee task is what it calls GROUP — one
+ * response for the whole crew. ems adds INDIVIDUAL, where each assignee hands
+ * in their own response and the task itself only goes PENDING → IN_PROGRESS →
+ * COMPLETED/CANCELLED: it never enters SUBMITTED or RETURNED, because those
+ * states live on each member's response (TaskSubmissionPolicy in the
+ * WorkManagement module). The move methods take the mode as a trailing
+ * argument: null or GROUP is the reference maps BYTE FOR BYTE, INDIVIDUAL is
+ * the two INDIVIDUAL_* maps, and any other value allows NO move.
  *
  * Pure: no Eloquent, no Carbon, no config(). Calendar days are 'Y-m-d'
  * STRINGS, rows arrive as plain arrays.
@@ -88,7 +102,11 @@ final class TaskPolicy
      * A manager cannot start or submit work on someone's behalf (no
      * IN_PROGRESS or SUBMITTED target anywhere), cannot reopen a closed task,
      * and cannot cancel one that is awaiting review — it must be accepted or
-     * returned first. Ported as written.
+     * returned first. Ported as written, and pinned verbatim by
+     * TaskSubmissionPolicyTest. The moves it leaves out are reachable ONLY as
+     * a status set BY HAND by whoever runs the project, through the
+     * WorkManagement module's ManualTaskStatus map (DELIBERATE DIVERGENCE) —
+     * a separate map, never an edit of this one.
      *
      * @var array<string, list<string>>
      */
@@ -97,6 +115,60 @@ final class TaskPolicy
         'IN_PROGRESS' => ['CANCELLED'],
         'SUBMITTED' => ['COMPLETED', 'RETURNED'],
         'RETURNED' => ['CANCELLED'],
+        'COMPLETED' => [],
+        'CANCELLED' => [],
+    ];
+
+    /** One shared response for the whole crew — the reference behaviour. */
+    public const MODE_GROUP = 'GROUP';
+
+    /** Each assignee hands in, and is reviewed on, their own response. */
+    public const MODE_INDIVIDUAL = 'INDIVIDUAL';
+
+    /**
+     * No TS counterpart (see the class docblock). Ordered map — iteration
+     * order is picker order, and the labels are the picker's option text.
+     *
+     * @var array<string, string>
+     */
+    public const MODES = [
+        self::MODE_GROUP => 'One team response',
+        self::MODE_INDIVIDUAL => 'Each assignee submits their own response',
+    ];
+
+    /**
+     * EMPLOYEE_TRANSITIONS for an INDIVIDUAL task: the assignee may only
+     * start it. Handing in and resubmitting move the member's own response
+     * (TaskSubmissionPolicy::MEMBER_TRANSITIONS), never the task.
+     *
+     * @var array<string, list<string>>
+     */
+    public const INDIVIDUAL_EMPLOYEE_TRANSITIONS = [
+        'PENDING' => ['IN_PROGRESS'],
+        'IN_PROGRESS' => [],
+        'SUBMITTED' => [],
+        'RETURNED' => [],
+        'COMPLETED' => [],
+        'CANCELLED' => [],
+    ];
+
+    /**
+     * MANAGER_TRANSITIONS for an INDIVIDUAL task: complete it, or call it
+     * off. Accepting and returning happen per response (TaskSubmissionPolicy::
+     * REVIEWER_TRANSITIONS), so SUBMITTED and RETURNED are empty here.
+     *
+     * IN_PROGRESS → COMPLETED only says the move EXISTS. Whoever makes it
+     * must also pass the completion gate (TaskSubmissionPolicy::
+     * completeError(): every current assignee's response approved), read
+     * under the same lock as the status write.
+     *
+     * @var array<string, list<string>>
+     */
+    public const INDIVIDUAL_MANAGER_TRANSITIONS = [
+        'PENDING' => ['CANCELLED'],
+        'IN_PROGRESS' => ['COMPLETED', 'CANCELLED'],
+        'SUBMITTED' => [],
+        'RETURNED' => [],
         'COMPLETED' => [],
         'CANCELLED' => [],
     ];
@@ -137,8 +209,9 @@ final class TaskPolicy
 
     /**
      * No TS counterpart: zod's .enum([...]) validated the six literals at the
-     * API boundary. The FormRequest replacing it needs the list, and the list
-     * has exactly one home.
+     * API boundary. Here the WorkManagement commands validate their own
+     * input, and whatever checks a status against the list asks this one
+     * home for it.
      */
     public static function isStatus(string $value): bool
     {
@@ -149,6 +222,12 @@ final class TaskPolicy
     public static function isPriority(string $value): bool
     {
         return array_key_exists($value, self::PRIORITIES);
+    }
+
+    /** No TS counterpart: the reference has no submission mode at all. */
+    public static function isMode(string $value): bool
+    {
+        return array_key_exists($value, self::MODES);
     }
 
     /**
@@ -214,46 +293,66 @@ final class TaskPolicy
     }
 
     /**
-     * TS: employeeCanMoveTo() — EMPLOYEE_TRANSITIONS[from] ?? [].
+     * TS: employeeCanMoveTo() — EMPLOYEE_TRANSITIONS[from] ?? [], for a null
+     * or GROUP mode. See the class docblock for the other modes.
      *
      * @return list<string>
      */
-    public static function employeeCanMoveTo(string $from): array
+    public static function employeeCanMoveTo(string $from, ?string $mode = null): array
     {
-        return self::EMPLOYEE_TRANSITIONS[$from] ?? [];
+        return self::transitionsFor($mode, self::EMPLOYEE_TRANSITIONS, self::INDIVIDUAL_EMPLOYEE_TRANSITIONS)[$from] ?? [];
     }
 
     /**
-     * TS: managerCanMoveTo() — MANAGER_TRANSITIONS[from] ?? [].
+     * TS: managerCanMoveTo() — MANAGER_TRANSITIONS[from] ?? [], for a null or
+     * GROUP mode. See the class docblock for the other modes.
      *
      * @return list<string>
      */
-    public static function managerCanMoveTo(string $from): array
+    public static function managerCanMoveTo(string $from, ?string $mode = null): array
     {
-        return self::MANAGER_TRANSITIONS[$from] ?? [];
+        return self::transitionsFor($mode, self::MANAGER_TRANSITIONS, self::INDIVIDUAL_MANAGER_TRANSITIONS)[$from] ?? [];
     }
 
     /**
-     * The check the reference API layer should have made. Both arguments are
-     * required: a target alone decides nothing.
+     * The check the reference API layer should have made. Both statuses are
+     * required: a target alone decides nothing. Pass the task's mode; a
+     * caller that omits it gets the GROUP (reference) map.
      */
-    public static function employeeCanMove(string $from, string $to): bool
+    public static function employeeCanMove(string $from, string $to, ?string $mode = null): bool
     {
-        return in_array($to, self::employeeCanMoveTo($from), true);
+        return in_array($to, self::employeeCanMoveTo($from, $mode), true);
     }
 
     /** As employeeCanMove(), for a reviewer. */
-    public static function managerCanMove(string $from, string $to): bool
+    public static function managerCanMove(string $from, string $to, ?string $mode = null): bool
     {
-        return in_array($to, self::managerCanMoveTo($from), true);
+        return in_array($to, self::managerCanMoveTo($from, $mode), true);
+    }
+
+    /**
+     * The map a mode moves through. An unrecognised mode gets NO map, so a
+     * corrupt or future value fails closed instead of borrowing GROUP's moves.
+     *
+     * @param  array<string, list<string>>  $group
+     * @param  array<string, list<string>>  $individual
+     * @return array<string, list<string>>
+     */
+    private static function transitionsFor(?string $mode, array $group, array $individual): array
+    {
+        return match ($mode) {
+            null, self::MODE_GROUP => $group,
+            self::MODE_INDIVIDUAL => $individual,
+            default => [],
+        };
     }
 
     /**
      * The 409 message the reference API raises when a move is refused:
      * "That task cannot move to this status from its current state."
-     * (tasks/[id]/route.ts, the managerCanMoveTo branch.) The assignee branch
-     * answers 403 instead of 409 — it falls through to forbidden() — so the
-     * controller decides the status code; this only owns the wording.
+     * (tasks/[id]/route.ts, the managerCanMoveTo branch; the assignee branch
+     * answered 403 instead.) ems has no status code to pick: the commands
+     * throw it and the screens show it as a toast. This only owns the wording.
      */
     public static function transitionError(): string
     {

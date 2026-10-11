@@ -109,21 +109,7 @@ final class DtrCalculator
         string $periodEnd,
         array $holidays,
     ): array {
-        $s = $shift ?? Shift::default();
-        $week = ShiftResolver::workWeek($s);
-
-        $geometry = ShiftResolver::geometry($s);
-        $shiftStart = $geometry->start;
-        $shiftEnd = $geometry->end;
-        $overnight = $geometry->overnight;
-        $requiredMinutes = $geometry->requiredMinutes;
-        // dtr.ts:271 aliases these two; the half-day UNDERTIME allowance
-        // halves this one (lateness halves $paidShiftLength -- see below).
-        $shiftLength = $requiredMinutes;
-        /** Fixed shifts pay the scheduled span less break; flexible shifts owe worked hours. */
-        $paidShiftLength = $geometry->paidMinutes;
-        $configuredBreakWindow = self::configuredBreakWindow($s, $overnight);
-        $scheduledBreakWindow = ShiftResolver::scheduledBreakWindow($s, $geometry);
+        $schedule = $shift ?? Shift::default();
 
         $approved = [];
         foreach ($leaves as $leave) {
@@ -144,9 +130,53 @@ final class DtrCalculator
         }
 
         $records = [];
+        /** @var array<int, true> $consumedCarryLogs */
+        $consumedCarryLogs = [];
+        // rowPunches() repeats this dispatch for a single date — change the two
+        // together (DtrRowPunchesTest).
+        $previous = CalendarDays::previous($periodStart);
+        $previousShift = $schedule->forDate($previous);
+        $previousGeometry = ShiftResolver::geometry($previousShift);
+        if ($previousGeometry->overnight || $previousShift->isFlexible()) {
+            $initialCarryLogs = $previousShift->isFlexible()
+                ? $this->flexibleCarryLogs($this->flexibleOwnLogs($previous, $byDay, $schedule), $byDay[$periodStart] ?? [])
+                : $this->overnightCarryLogs($previous, $byDay[$periodStart] ?? [], $previousShift,
+                    ShiftResolver::scheduledBreakWindow($previousShift, $previousGeometry), $previousGeometry->end,
+                    $schedule->forDate($periodStart), $byDay[$previous] ?? []);
+
+            foreach ($initialCarryLogs as $log) {
+                $consumedCarryLogs[spl_object_id($log)] = true;
+            }
+        }
 
         foreach (CalendarDays::each($periodStart, $periodEnd) as $date) {
+            // DELIBERATE DIVERGENCE 8: the START weekday owns this day's
+            // geometry, independently of the preceding night's carry-over.
+            $s = $schedule->forDate($date);
+            $geometry = ShiftResolver::geometry($s);
+            $shiftStart = $geometry->start;
+            $shiftEnd = $geometry->end;
+            $overnight = $geometry->overnight;
+            $requiredMinutes = $geometry->requiredMinutes;
+            // dtr.ts:271: half-day undertime halves the raw span; late halves paid minutes.
+            $shiftLength = $requiredMinutes;
+            $paidShiftLength = $geometry->paidMinutes;
+            $configuredBreakWindow = self::configuredBreakWindow($s, $overnight);
+            $scheduledBreakWindow = ShiftResolver::scheduledBreakWindow($s, $geometry);
             $currentLogs = $byDay[$date] ?? [];
+            $precedingShift = $schedule->forDate(CalendarDays::previous($date));
+            $precedingGeometry = ShiftResolver::geometry($precedingShift);
+            if ($precedingGeometry != $geometry || $precedingShift->isFlexible() !== $s->isFlexible()
+                || ShiftResolver::scheduledBreakWindow($precedingShift, $precedingGeometry) !== $scheduledBreakWindow) {
+                // A preceding night can carry its Second Time In as well as
+                // its Time Outs. It must not become this different shift's
+                // First Time In. Uniform geometry retains the reference's
+                // existing slot-display behavior, pinned by golden vectors.
+                $currentLogs = array_values(array_filter(
+                    $currentLogs,
+                    static fn (AttendanceLog $log): bool => ! isset($consumedCarryLogs[spl_object_id($log)]),
+                ));
+            }
 
             /*
              * THE CARRY-OVER SLICE — dtr.ts:286-293.
@@ -173,19 +203,18 @@ final class DtrCalculator
              *
              * A scheduled break on an overnight shift is the exception: its
              * second Time In may itself be a next-day punch, so that path uses
-             * the shift timeline rather than the old "stop at first TIME_IN"
-             * slice.
+             * the shift timeline rather than the "stop at first TIME_IN" slice.
              */
+            // rowPunches() repeats this dispatch for a single date — change the
+            // two together (DtrRowPunchesTest).
             $carryLogs = [];
             if ($overnight) {
                 $next = $byDay[CalendarDays::next($date)] ?? [];
-                if ($scheduledBreakWindow !== null) {
-                    $carryLogs = $this->scheduledOvernightCarryLogs($date, $next, $shiftEnd);
-                } else {
-                    $types = array_map(static fn (AttendanceLog $l): string => $l->logType, $next);
-                    $firstIn = array_search(AttendanceLog::TIME_IN, $types, true);
-                    $carryLogs = array_slice($next, 0, $firstIn === false ? null : (int) $firstIn);
-                }
+                $carryLogs = $this->overnightCarryLogs($date, $next, $s, $scheduledBreakWindow, $shiftEnd,
+                    $schedule->forDate(CalendarDays::next($date)), $currentLogs);
+            } elseif ($s->isFlexible()) {
+                $next = $byDay[CalendarDays::next($date)] ?? [];
+                $carryLogs = $this->flexibleCarryLogs($currentLogs, $next);
             }
 
             $dayLogs = array_merge($currentLogs, $carryLogs);
@@ -205,7 +234,11 @@ final class DtrCalculator
             }
 
             $timeIn = $ins === [] ? null : $ins[0]->loggedAt;
-            $timeOut = $outs === [] ? null : $outs[count($outs) - 1]->loggedAt;
+            $visibleOuts = array_values(array_filter(
+                $outs,
+                static fn (AttendanceLog $log): bool => ! isset($consumedCarryLogs[spl_object_id($log)]),
+            ));
+            $timeOut = $visibleOuts === [] ? null : $visibleOuts[count($visibleOuts) - 1]->loggedAt;
 
             // JS truthiness: `if (timeIn && …)` is false for an empty
             // logged_at string as well as for null, so an empty string is not a
@@ -220,7 +253,10 @@ final class DtrCalculator
             // as plain strings, never parsed as dates.
             $excuse = null;
             foreach ($approved as $leave) {
-                if (strcmp($date, $leave->startDate) >= 0 && strcmp($date, $leave->endDate) <= 0) {
+                // DELIBERATE DIVERGENCE 12 — cancelled dates are ordinary
+                // attendance days, while the remaining approved dates stay excused.
+                if (strcmp($date, $leave->startDate) >= 0 && strcmp($date, $leave->endDate) <= 0
+                    && ! in_array($date, $leave->cancelledDates, true)) {
                     $excuse = $leave;
                     break;
                 }
@@ -232,7 +268,7 @@ final class DtrCalculator
             // employee is marked absent for a missed Saturday where a
             // Monday–Friday one is not. A holiday that is worked anyway is
             // measured like any other day.
-            $restDay = ! ShiftResolver::worksOn($date, $week)
+            $restDay = ! ShiftResolver::worksOnDate($date, $schedule)
                 || HolidaySetting::on($date, $holidays) !== null;
 
             $workedMinutes = 0.0;
@@ -324,6 +360,13 @@ final class DtrCalculator
                 $breakMinutes = $metrics['breakMinutes'];
                 $flags = $metrics['flags'];
                 $remarks = $metrics['remarks'];
+
+                $effectiveIn = $timeIn ?? $breakIn;
+                $effectiveOut = $timeOut ?? $breakOut;
+                if ($effectiveIn !== null || $effectiveOut !== null || ! $metrics['hasRelevantPunch']) {
+                    $punchIn = $effectiveIn !== null && $effectiveIn !== '' ? $effectiveIn : null;
+                    $punchOut = $effectiveOut !== null && $effectiveOut !== '' ? $effectiveOut : null;
+                }
             } else {
                 foreach ($pairs as $pair) {
                     // `max(0, …)` covers a pair that also *closed* before the
@@ -374,8 +417,8 @@ final class DtrCalculator
                     // actually on the clock, and someone who clocks in after the
                     // window has closed never had one — deducting it turns four
                     // worked hours into three. A shift that gives only
-                    // `breakMinutes` says nothing about when, so it keeps the flat
-                    // deduction it has always had.
+                    // `breakMinutes` says nothing about when, so the flat
+                    // deduction stands.
                     // The same clamp `workedMinutes` uses: a FIXED shift does not
                     // start paying before its start_time, and a FLEXIBLE one has no
                     // start to clamp to.
@@ -388,13 +431,13 @@ final class DtrCalculator
                     // leaves before the window opens never had a break and loses
                     // nothing; someone on the clock for half of it loses half.
                     //
-                    // It used to be a flat hour whenever the window was so much as
-                    // touched, which broke the arithmetic in both directions: a
-                    // 08:00-12:30 day lost a full hour to a window it had only
-                    // reached the first half of. Charging the shared minutes is
-                    // what lets late, worked and undertime partition the paid span
-                    // exactly -- and they must, because all three are priced from
-                    // the same hourly rate.
+                    // A flat hour whenever the window is so much as touched would
+                    // break the arithmetic in both directions: a 08:00-12:30 day
+                    // would lose a full hour to a window it reaches only the
+                    // first half of. Charging the shared minutes is what lets
+                    // late, worked and undertime partition the paid span exactly --
+                    // and they must, because all three are priced from the same
+                    // hourly rate.
                     $unpaidOnClock = $unpaidWindow === null
                         // No window means no "when", so the flat allowance stands.
                         ? $s->breakAllowance()
@@ -434,7 +477,19 @@ final class DtrCalculator
                     // Overtime is measured against the PAID span, not the required
                     // one, so a shift with an unpaid hour of lunch starts earning
                     // overtime an hour before it ends.
-                    if ($workedMinutes > $paidShiftLength) {
+                    //
+                    // DELIBERATE DIVERGENCE 11:
+                    // A FLEXIBLE DAY NEVER COMPUTES OVERTIME. The reference
+                    // (dtr.ts:497) credits every minute past `required_hours` as
+                    // overtime, so a Flexi 8 employee in at 06:55 and out at 16:05
+                    // earns ten minutes of it. A flexible day has no start to be
+                    // early for and no end to stay past: it owes its hours, is
+                    // short (undertime) below them, and keeps everything above
+                    // them as worked minutes, never as overtime — so the DTR never
+                    // asks anyone to decide it. Pinned in DtrFlexibleOvertimeTest;
+                    // PayslipGoldenVectorTest restates the reference's flexible
+                    // overtime as zero.
+                    if (! $s->isFlexible() && $workedMinutes > $paidShiftLength) {
                         $overtimeMinutes = $workedMinutes - $paidShiftLength;
                     }
                 }
@@ -514,6 +569,10 @@ final class DtrCalculator
                 flags: $flags,
                 remarks: $remarks,
             );
+
+            foreach ($carryLogs as $log) {
+                $consumedCarryLogs[spl_object_id($log)] = true;
+            }
         }
 
         return $records;
@@ -531,16 +590,233 @@ final class DtrCalculator
     }
 
     /**
+     * The punches the DTR reads as ONE date's row: that Manila calendar day's
+     * punches less the ones the previous date carries back, then the ones
+     * this date carries from the next — the SAME objects it was handed, never
+     * copies, the date's own first (in input order), then the carried ones.
+     *
+     * It exists for the DTR correction (Timekeeping's CorrectionWindow): a
+     * save of one row must replace exactly the punches that row is made of,
+     * never the previous night's after-midnight Time Out that happens to sit
+     * on the same calendar day, and every one of this night's next-morning
+     * punches, however the shift groups them. Adds NO rule of its own: both
+     * halves are run()'s own dispatch, called on the same private helpers —
+     *
+     *   - what the previous date carries is the period-start expression
+     *     (flexible first, then the overnight slice or timeline), the reading
+     *     `DayCorrections::computedDay` gets when it computes the date alone;
+     *   - what this date carries is the loop's expression (overnight first,
+     *     then the flexible open-Time-In carry).
+     *
+     * The two orders differ only for a FLEXIBLE shift whose filler clock
+     * crosses midnight, which no writer produces (ShiftPolicy stores
+     * 08:00–17:00). run() keeps the two orders on purpose; change the three
+     * sites together.
+     *
+     * OWNING IS NOT SHOWING. When consecutive dates retain the same geometry,
+     * a row's pairs also see the calendar-day punches the previous date
+     * consumed, so on the scheduled-break timeline a night left without its
+     * Final Time Out can SHOW the next row a Time In it does not own. A
+     * correction replaces what a row owns.
+     *
+     * @param  list<AttendanceLog>  $logs  the two preceding, own and next Manila days at least, any order
+     * @return list<AttendanceLog>
+     */
+    public static function rowPunches(array $logs, ?Shift $shift, string $date): array
+    {
+        return (new self)->ownedBy($logs, $shift ?? Shift::default(), $date);
+    }
+
+    /**
+     * @param  list<AttendanceLog>  $logs
+     * @return list<AttendanceLog>
+     */
+    private function ownedBy(array $logs, Shift $schedule, string $date): array
+    {
+        $s = $schedule->forDate($date);
+        $geometry = ShiftResolver::geometry($s);
+        $scheduledBreakWindow = ShiftResolver::scheduledBreakWindow($s, $geometry);
+
+        /** @var array<string, list<AttendanceLog>> $byDay */
+        $byDay = [];
+        foreach ($logs as $log) {
+            $byDay[$this->dayKey($log->loggedAt)][] = $log;
+        }
+        $currentLogs = $byDay[$date] ?? [];
+
+        // run()'s period-start expression, for the previous date.
+        /** @var array<int, true> $carriedBack */
+        $carriedBack = [];
+        $previous = CalendarDays::previous($date);
+        $previousShift = $schedule->forDate($previous);
+        $previousGeometry = ShiftResolver::geometry($previousShift);
+        if ($previousGeometry->overnight || $previousShift->isFlexible()) {
+            $previousCarry = $previousShift->isFlexible()
+                ? $this->flexibleCarryLogs($this->flexibleOwnLogs($previous, $byDay, $schedule), $currentLogs)
+                : $this->overnightCarryLogs($previous, $currentLogs, $previousShift,
+                    ShiftResolver::scheduledBreakWindow($previousShift, $previousGeometry), $previousGeometry->end,
+                    $s, $byDay[$previous] ?? []);
+
+            foreach ($previousCarry as $log) {
+                $carriedBack[spl_object_id($log)] = true;
+            }
+        }
+
+        $own = array_values(array_filter(
+            $currentLogs,
+            static fn (AttendanceLog $log): bool => ! isset($carriedBack[spl_object_id($log)]),
+        ));
+
+        // run()'s loop expression, for this date.
+        $carryLogs = [];
+        if ($geometry->overnight) {
+            $carryLogs = $this->overnightCarryLogs($date, $byDay[CalendarDays::next($date)] ?? [], $s, $scheduledBreakWindow, $geometry->end,
+                $schedule->forDate(CalendarDays::next($date)), $own);
+        } elseif ($s->isFlexible()) {
+            $changed = $previousGeometry != $geometry || $previousShift->isFlexible() !== $s->isFlexible()
+                || ShiftResolver::scheduledBreakWindow($previousShift, $previousGeometry) !== $scheduledBreakWindow;
+            $carryLogs = $this->flexibleCarryLogs($changed ? $own : $currentLogs, $byDay[CalendarDays::next($date)] ?? []);
+        }
+
+        return [...$own, ...$carryLogs];
+    }
+
+    /**
+     * A flexible date cannot open a pair with a preceding night's borrowed
+     * Second Time In. The period loop already removes that carry, but a
+     * single-date read must reconstruct it from TWO preceding calendar days
+     * before deciding whether the flexible date borrows a later Time Out.
+     *
+     * @param  array<string, list<AttendanceLog>>  $byDay
+     * @return list<AttendanceLog>
+     */
+    private function flexibleOwnLogs(string $date, array $byDay, Shift $schedule): array
+    {
+        $currentLogs = $byDay[$date] ?? [];
+        $currentShift = $schedule->forDate($date);
+        $currentGeometry = ShiftResolver::geometry($currentShift);
+        $previous = CalendarDays::previous($date);
+        $previousShift = $schedule->forDate($previous);
+        $previousGeometry = ShiftResolver::geometry($previousShift);
+        if (! $previousGeometry->overnight
+            || ($previousGeometry == $currentGeometry && $previousShift->isFlexible() === $currentShift->isFlexible()
+                && ShiftResolver::scheduledBreakWindow($previousShift, $previousGeometry)
+                    === ShiftResolver::scheduledBreakWindow($currentShift, $currentGeometry))) {
+            return $currentLogs;
+        }
+
+        $borrowed = $this->overnightCarryLogs($previous, $currentLogs, $previousShift,
+            ShiftResolver::scheduledBreakWindow($previousShift, $previousGeometry), $previousGeometry->end,
+            $currentShift, $byDay[$previous] ?? []);
+        $borrowedIds = array_fill_keys(array_map(spl_object_id(...), $borrowed), true);
+
+        return array_values(array_filter(
+            $currentLogs,
+            static fn (AttendanceLog $log): bool => ! isset($borrowedIds[spl_object_id($log)]),
+        ));
+    }
+
+    /**
+     * Flexible shifts have no scheduled clock geometry, but a Time In left open
+     * at the end of one calendar day still pairs with the next Time Out before
+     * the employee's next Time In.
+     *
+     * @param  list<AttendanceLog>  $currentLogs
+     * @param  list<AttendanceLog>  $nextLogs
+     * @return list<AttendanceLog>
+     */
+    private function flexibleCarryLogs(array $currentLogs, array $nextLogs): array
+    {
+        if (! $this->hasOpenTimeIn($currentLogs)) {
+            return [];
+        }
+
+        usort(
+            $nextLogs,
+            fn (AttendanceLog $a, AttendanceLog $b): int => $this->ms($a->loggedAt) <=> $this->ms($b->loggedAt),
+        );
+
+        $types = array_map(static fn (AttendanceLog $l): string => $l->logType, $nextLogs);
+        $firstIn = array_search(AttendanceLog::TIME_IN, $types, true);
+
+        return array_slice($nextLogs, 0, $firstIn === false ? null : (int) $firstIn);
+    }
+
+    /**
+     * @param  list<AttendanceLog>  $logs
+     */
+    private function hasOpenTimeIn(array $logs): bool
+    {
+        usort(
+            $logs,
+            fn (AttendanceLog $a, AttendanceLog $b): int => $this->ms($a->loggedAt) <=> $this->ms($b->loggedAt),
+        );
+
+        $openIn = null;
+        foreach ($logs as $log) {
+            if ($log->logType === AttendanceLog::TIME_IN) {
+                if ($openIn === null || $openIn === '') {
+                    $openIn = $log->loggedAt;
+                }
+
+                continue;
+            }
+
+            if ($openIn !== null && $openIn !== '') {
+                $openIn = null;
+            }
+        }
+
+        return $openIn !== null && $openIn !== '';
+    }
+
+    /**
+     * @param  list<AttendanceLog>  $nextLogs
+     * @param  array{0: float, 1: float}|null  $scheduledBreakWindow
+     * @param  list<AttendanceLog>  $currentLogs
+     * @return list<AttendanceLog>
+     */
+    private function overnightCarryLogs(
+        string $date,
+        array $nextLogs,
+        Shift $shift,
+        ?array $scheduledBreakWindow,
+        float $shiftEnd,
+        ?Shift $nextShift = null,
+        array $currentLogs = [],
+    ): array {
+        if ($scheduledBreakWindow !== null) {
+            return $this->scheduledOvernightCarryLogs($date, $nextLogs, $shiftEnd, $shift, $nextShift, $currentLogs);
+        }
+
+        // Without scheduled break slots, a fixed overnight shift is one
+        // continuous punch stream. A flat break allowance changes the minutes
+        // after pairing, not which next-day Time Out belongs to the work date.
+        if (! $shift->isFlexible()) {
+            usort(
+                $nextLogs,
+                fn (AttendanceLog $a, AttendanceLog $b): int => $this->ms($a->loggedAt) <=> $this->ms($b->loggedAt),
+            );
+        }
+
+        $types = array_map(static fn (AttendanceLog $l): string => $l->logType, $nextLogs);
+        $firstIn = array_search(AttendanceLog::TIME_IN, $types, true);
+
+        return array_slice($nextLogs, 0, $firstIn === false ? null : (int) $firstIn);
+    }
+
+    /**
      * Overnight shifts with scheduled break slots can have a next-day Time In
-     * that still belongs to the same work date. The original carry slice stops
+     * that still belongs to the same work date. The carry-over slice stops
      * before the first next-day TIME_IN, which is right for a simple
      * Time-In/Time-Out night shift but wrong for a 22:00-06:00 shift with a
      * 02:00-03:00 break.
      *
      * @param  list<AttendanceLog>  $nextLogs
+     * @param  list<AttendanceLog>  $currentLogs
      * @return list<AttendanceLog>
      */
-    private function scheduledOvernightCarryLogs(string $date, array $nextLogs, float $shiftEnd): array
+    private function scheduledOvernightCarryLogs(string $date, array $nextLogs, float $shiftEnd, Shift $shift, ?Shift $nextShift, array $currentLogs): array
     {
         usort(
             $nextLogs,
@@ -549,6 +825,11 @@ final class DtrCalculator
 
         $carry = [];
         foreach ($nextLogs as $log) {
+            if ($nextShift !== null && ShiftDayBoundary::belongsToFollowingShift(
+                [...$currentLogs, ...$nextLogs], $log, $shift, $nextShift, CalendarDays::next($date),
+            )) {
+                break;
+            }
             $minute = $this->timelineMinute($date, $log->loggedAt);
             if (! is_finite($minute)) {
                 continue;
@@ -582,7 +863,8 @@ final class DtrCalculator
      * @param  array{0: float, 1: float}  $breakWindow
      * @return array{timeIn: ?string, breakOut: ?string, breakIn: ?string, timeOut: ?string,
      *     workedMinutes: float, lateMinutes: float, undertimeMinutes: float,
-     *     overtimeMinutes: float, breakMinutes: float, flags: list<string>, remarks: ?string}
+     *     overtimeMinutes: float, breakMinutes: float, flags: list<string>, remarks: ?string,
+     *     hasRelevantPunch: bool}
      */
     private function scheduledBreakMetrics(
         string $date,
@@ -611,6 +893,7 @@ final class DtrCalculator
         $lastSpanEnd = null;
         $hasFirstSegment = false;
         $hasSecondSegment = false;
+        $hasRelevantPunch = false;
         $regularWorked = 0.0;
         $overtimeMinutes = 0.0;
         $flags = [];
@@ -621,6 +904,10 @@ final class DtrCalculator
 
             if (! is_finite($inM) || ! is_finite($outM) || $outM <= $inM) {
                 continue;
+            }
+
+            if ($outM > $firstStart - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES && $inM < $secondEnd) {
+                $hasRelevantPunch = true;
             }
 
             $morning = self::spanOverlap($inM, $outM, $firstStart, $firstEnd);
@@ -677,6 +964,10 @@ final class DtrCalculator
         if ($openIn !== null && $openIn !== '') {
             $openM = $this->timelineMinute($date, $openIn);
             if (is_finite($openM)) {
+                if ($openM >= $firstStart - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES && $openM < $secondEnd) {
+                    $hasRelevantPunch = true;
+                }
+
                 if ($openM < $firstEnd) {
                     if ($timeIn === null) {
                         $timeIn = $openIn;
@@ -728,11 +1019,15 @@ final class DtrCalculator
             ));
         }
 
-        $undertimeMinutes = $openIn !== null && $openIn !== ''
-            ? 0.0
-            : max(0.0, Minutes::round(
+        $hasScheduledSlot = $timeIn !== null || $firstTimeOut !== null || $secondTimeIn !== null || $timeOut !== null;
+
+        if ((! $hasScheduledSlot && ! $hasRelevantPunch) || ($openIn !== null && $openIn !== '')) {
+            $undertimeMinutes = 0.0;
+        } else {
+            $undertimeMinutes = max(0.0, Minutes::round(
                 $geometry->paidMinutes - $regularWorked - $lateMinutes - $forgivenStartGap
             ));
+        }
 
         if ($timeIn === null && $secondTimeIn !== null) {
             $flags[] = 'First work segment was missed.';
@@ -790,6 +1085,7 @@ final class DtrCalculator
             'breakMinutes' => $breakMinutes,
             'flags' => $flags,
             'remarks' => $flags === [] ? null : implode(' ', $flags),
+            'hasRelevantPunch' => $hasRelevantPunch,
         ];
     }
 
@@ -831,9 +1127,10 @@ final class DtrCalculator
     }
 
     /**
-     * Legacy unpaid break window for the pre-slot arithmetic. This keeps the
-     * TypeScript-compatible path stable for historical or malformed rows whose
-     * break window exists but is not a valid scheduled slot window.
+     * Unpaid break window for the two-punch arithmetic, which has no scheduled
+     * break slots. This keeps the TypeScript-compatible path stable for
+     * historical or malformed rows whose break window exists but is not a
+     * valid scheduled slot window.
      *
      * @return array{0: float, 1: float}|null
      */

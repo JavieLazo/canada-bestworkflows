@@ -7,17 +7,22 @@ namespace App\Livewire\Edtr\Support;
 use App\Domain\Attendance\DayRecord;
 use App\Domain\Attendance\HolidaySetting;
 use App\Domain\Attendance\Minutes;
+use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Support\EmployeeName;
+use App\Support\HrisFormat;
 use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 
 /**
  * The display helpers the eDTR screens use — ports of the relevant pieces of
- * `copems/src/lib/hris.ts`, kept inside the EDTR module because no shared
- * formatting layer exists yet. Every function is a literal transcription of
- * the TypeScript, en-PH locale rendered as PHP date formats:
+ * `copems/src/lib/hris.ts`. The members other modules share forward to
+ * App\Support\HrisFormat; the wrappers stay so the eDTR call sites and
+ * Blade imports keep pointing here. Every function is a literal
+ * transcription of the TypeScript, en-PH locale rendered as PHP date
+ * formats:
  *
- *   fmtTime      toLocaleTimeString(hour numeric, minute/second 2-digit, h12)
+ *   fmtTime      toLocaleTimeString(hour numeric, minute 2-digit, h12) — the
+ *                reference printed seconds too; see the method
  *   fmtDateTime  toLocaleString(year numeric, month short, day 2-digit, ...)
  *   fmtDate      toLocaleDateString(year numeric, month short, day 2-digit)
  *
@@ -33,27 +38,12 @@ final class Hris
         ['value' => 'MANUAL', 'label' => 'Manual'],
     ];
 
-    /** TS: `REQUEST_TYPES` — the built-in fallbacks for requestDescription. */
-    private const REQUEST_TYPES = [
-        'VACATION' => 'Vacation Leave',
-        'SICK' => 'Sick Leave',
-        'BUSINESS_TRAVEL' => 'Business Travel / OB',
-    ];
-
-    /** TS: `BUILT_IN_STATUSES` — rows written before Employment was editable. */
-    private const BUILT_IN_STATUSES = [
-        'REGULAR' => 'Regular',
-        'PROBATIONARY' => 'Probationary',
-        'CONTRACTUAL' => 'Contractual',
-        'JOB_ORDER' => 'Job Order',
-    ];
-
     private function __construct() {}
 
-    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()`. */
+    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()` — ManilaClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::dayKey(CarbonImmutable::now());
+        return ManilaClock::todayKey();
     }
 
     /**
@@ -79,25 +69,13 @@ final class Hris
     }
 
     /**
-     * TS: `fmtDuration(minutes)` — `457` reads as `7h 37m`. Whole hours drop
-     * the minutes and spans under an hour drop the hours, so nothing shows 0.
+     * TS: `fmtDuration(minutes)` — `457` reads as `7h 37m`. Forwards to
+     * HrisFormat::duration, the one spelling the overtime audit rows and
+     * notices share.
      */
     public static function fmtDuration(float $minutes): string
     {
-        $total = (int) Minutes::round(is_finite($minutes) ? $minutes : 0.0);
-        $sign = $total < 0 ? '-' : '';
-        $abs = abs($total);
-        $hours = intdiv($abs, 60);
-        $mins = $abs % 60;
-
-        if ($hours === 0) {
-            return "{$sign}{$mins}m";
-        }
-        if ($mins === 0) {
-            return "{$sign}{$hours}h";
-        }
-
-        return "{$sign}{$hours}h {$mins}m";
+        return HrisFormat::duration($minutes);
     }
 
     /**
@@ -126,10 +104,18 @@ final class Hris
         return $rounded === 0 ? 'text-muted-foreground' : $tone;
     }
 
-    /** TS: `fmtTime(iso)` — `2:05:31 PM`, Manila. */
+    /**
+     * TS: `fmtTime(iso)` — `2:05 PM`, Manila.
+     *
+     * DELIBERATE DIVERGENCE: hris.ts prints `2:05:31 PM`. The seconds are
+     * dropped here for DISPLAY ONLY — the four DTR punch cells and the
+     * correction dialog's recorded-punch times. Nothing stored or audited
+     * changes: the DTR_CORRECTED sentence (CorrectPunches::apply) and the
+     * live clock keep their seconds, and slotOf() still floors them.
+     */
     public static function fmtTime(string $iso): string
     {
-        return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('g:i:s A');
+        return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('g:i A');
     }
 
     /** TS: `fmtDateTime(iso)` — `Aug 31, 2026, 2:05 PM`, Manila. */
@@ -138,30 +124,16 @@ final class Hris
         return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
     }
 
-    /** TS: `fmtDate(d)` — a 'Y-m-d' calendar day as `Aug 05, 2026`. */
+    /** TS: `fmtDate(d)` — a 'Y-m-d' calendar day as `Aug 05, 2026`, shared through HrisFormat. */
     public static function fmtDate(string $d): string
     {
-        $day = CarbonImmutable::createFromFormat('!Y-m-d', substr($d, 0, 10), 'UTC');
-
-        return $day === null ? $d : $day->format('M d, Y');
+        return HrisFormat::date($d);
     }
 
-    /** TS: `fmtHm(value)` — a stored 'HH:mm[:ss]' clock time as `5:00 PM`. */
+    /** TS: `fmtHm(value)` — a stored 'HH:mm[:ss]' clock time as `5:00 PM`, shared through HrisFormat. */
     public static function fmtHm(?string $value): string
     {
-        if ($value === null || $value === '') {
-            return "\u{2014}";
-        }
-        if (preg_match('/^(\d{1,2}):(\d{2})/', trim($value), $m) !== 1) {
-            return $value;
-        }
-        $h24 = (int) $m[1];
-        if ($h24 > 23) {
-            return $value;
-        }
-        $h12 = $h24 % 12 === 0 ? 12 : $h24 % 12;
-
-        return $h12.':'.$m[2].' '.($h24 < 12 ? 'AM' : 'PM');
+        return HrisFormat::hm($value);
     }
 
     /** TS: `employeeName(e)` — "First Last", or the em dash for nobody. */
@@ -170,50 +142,35 @@ final class Hris
         return EmployeeName::display($e);
     }
 
-    /** TS: `employmentStatusLabel(v)` — built-in enum values become words. */
+    /** TS: `employmentStatusLabel(v)` — built-in enum values become words, shared through HrisFormat. */
     public static function employmentStatusLabel(string $v): string
     {
-        return self::BUILT_IN_STATUSES[$v] ?? $v;
+        return HrisFormat::employmentStatus($v);
     }
 
-    /** TS: `normalizeRequestType(name)` — a Leave Settings name as a stored key. */
+    /** TS: `normalizeRequestType(name)` — a Leave Settings name as a stored key, shared through HrisFormat. */
     public static function normalizeRequestType(string $name): string
     {
-        $key = strtoupper(trim($name));
-        $key = (string) preg_replace('/[^A-Z0-9]+/', '_', $key);
-
-        return trim($key, '_');
+        return HrisFormat::normalizeRequestType($name);
     }
 
     /**
      * TS: `requestDescription(value, leaveTypes)` — what a request is FOR,
      * resolved against Leave Settings first, the built-ins second, and a
-     * title-cased spelling of the raw value last.
+     * title-cased spelling of the raw value last. Shared through HrisFormat;
+     * this module hands over the leave-type rows, the others their names.
      *
      * @param  list<array{name: string}>  $leaveTypes
      */
     public static function requestDescription(string $value, array $leaveTypes = []): string
     {
-        foreach ($leaveTypes as $type) {
-            $key = self::normalizeRequestType($type['name']);
-            if ($key === $value || $key === $value.'_LEAVE') {
-                return $type['name'];
-            }
-        }
-
-        if (isset(self::REQUEST_TYPES[$value])) {
-            return self::REQUEST_TYPES[$value];
-        }
-
-        $words = explode('_', strtolower($value));
-
-        return implode(' ', array_map(ucfirst(...), $words));
+        return HrisFormat::requestDescription($value, array_column($leaveTypes, 'name'));
     }
 
     /**
      * TS: `autoRemark(day, holidays, leaveTypes)` — what the eDTR says about a
-     * day when nobody has written anything. This replaced the status pill
-     * because the pill announced a verdict on days that hold no record at all.
+     * day when nobody has written anything. It stands in for a status pill,
+     * which would announce a verdict on days that hold no record at all.
      *
      * @param  list<HolidaySetting>  $holidays
      * @param  list<array{name: string}>  $leaveTypes
@@ -266,14 +223,24 @@ final class Hris
      * TS: `slotOf(iso)` — `2026-01-05T07:47:31` → `07:47`, the shape the time
      * fields speak. Seconds are dropped rather than rounded, so a 07:47:31
      * punch never reads back as 07:48.
+     *
+     * Forwards to the Timekeeping domain rule: the same flooring decides, in
+     * CorrectionWindow::reconcile, whether a slot left as prefilled still
+     * matches the punch it came from and may keep it.
      */
     public static function slotOf(?string $iso): ?string
     {
-        if ($iso === null || $iso === '') {
-            return null;
-        }
-        $total = (int) floor(ManilaClock::minutesOfDay(ManilaClock::instant($iso)));
+        return PunchSlots::slotOf($iso);
+    }
 
-        return sprintf('%02d:%02d', intdiv($total, 60), $total % 60);
+    /**
+     * Whether a punch shown on the DTR row keyed on `$date` falls on the
+     * next calendar day — the "next day" tag beside a night's Time Out.
+     * Forwards to the Timekeeping domain rule, the one the correction's
+     * prefilled ticks and audit sentence read too.
+     */
+    public static function isNextDay(?string $iso, string $date): bool
+    {
+        return PunchSlots::isNextDay($iso, $date);
     }
 }

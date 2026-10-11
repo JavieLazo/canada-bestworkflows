@@ -1,12 +1,13 @@
 {{--
-    The BestWorkflows shell — the port of ProtectedShell + AppSidebar
+    The COPEMS shell — the port of ProtectedShell + AppSidebar
     (copems/src/app/(protected)/protected-shell.tsx, components/AppSidebar.tsx).
 
-    Sidebar left with the granted modules in MODULES order, identity block and
-    sign-out in the footer; sticky header with the current module's label and
-    the notification bell. Nav entries point at module paths by URL, not route
-    name, so a module whose routes are not registered yet renders (and 404s on
-    click) instead of fataling the layout.
+    Sidebar left with the granted modules in MODULES order (Community first),
+    identity block and sign-out (behind a confirm) in the footer; sticky
+    header with the current module's label and the notification bell. Nav
+    entries point at module paths by URL, not route name, so a module whose
+    routes are not registered yet renders (and 404s on click) instead of
+    fataling the layout.
 --}}
 @php
     $access = app(\App\Support\Access::class);
@@ -21,28 +22,35 @@
     $currentLabel = $currentModuleCode !== null ? $registry->moduleLabel($currentModuleCode) : null;
 
     $isCurrent = fn (string $path): bool => str_starts_with($currentPath, $path);
-    $treeHoldsCurrent = function (array $module) use ($isCurrent): bool {
+
+    // The ONE link a tree lights: of every group or item path the current page
+    // lives under (the path itself, or below it), the LONGEST. Payroll's
+    // "/payroll" is a prefix of its "/payroll/thirteenth-month", so a plain
+    // prefix test would light both; Records' paths are no prefix of one
+    // another, so for them this comes down to the plain prefix test.
+    $activeTreePath = function (array $module) use ($currentPath): ?string {
+        $best = null;
         foreach ($module['groups'] ?? [] as $group) {
-            if (isset($group['path']) && $isCurrent($group['path'])) {
-                return true;
-            }
-            foreach ($group['items'] ?? [] as $item) {
-                if ($isCurrent($item['path'])) {
-                    return true;
+            $paths = isset($group['path']) ? [$group['path']] : array_column($group['items'] ?? [], 'path');
+            foreach ($paths as $path) {
+                $under = $currentPath === $path || str_starts_with($currentPath, rtrim($path, '/').'/');
+                if ($under && ($best === null || strlen($path) > strlen($best))) {
+                    $best = $path;
                 }
             }
         }
 
-        return false;
+        return $best;
     };
+    $treeHoldsCurrent = fn (array $module): bool => $activeTreePath($module) !== null;
 
     // The signed-in employee's portrait, when their record carries one —
     // only for the identity block in the sidebar footer.
     $photoUrl = null;
     if ($access->hasEmployeeLink()) {
-        $photoPath = \App\Models\EmployeeProfile::query()->whereKey($access->employeeId)->value('photo_path');
+        $photoPath = app(\App\Modules\Workforce\Contracts\OperationalDirectory::class)->find($access, $access->ownEmployeeId())?->photo_path;
         if (is_string($photoPath) && $photoPath !== '') {
-            $photoUrl = \Illuminate\Support\Facades\Storage::disk('public')->url($photoPath);
+            $photoUrl = \App\Platform\Files\PortraitUrl::for($photoPath);
         }
     }
 
@@ -54,28 +62,44 @@
         .(count($nameWords) > 1 ? mb_substr($nameWords[count($nameWords) - 1], 0, 1) : '')
     );
 
-    $itemClasses = 'flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm text-sidebar-foreground outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground in-data-flux-sidebar-collapsed-desktop:justify-center in-data-flux-sidebar-collapsed-desktop:p-2';
+    $itemClasses = 'flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm text-sidebar-foreground outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground sidebar-rail:justify-center sidebar-rail:p-2';
     $itemActive = ' bg-sidebar-accent font-medium text-sidebar-accent-foreground';
     $subItemClasses = 'flex min-w-0 items-center gap-2 overflow-hidden rounded-md px-2 py-1.5 text-sm text-sidebar-foreground outline-hidden transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground';
-    $hideCollapsed = 'in-data-flux-sidebar-collapsed-desktop:hidden';
+    $hideCollapsed = 'sidebar-rail:hidden';
 @endphp
 <!DOCTYPE html>
 <html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
     <head>
         @include('partials.head')
     </head>
-    <body class="min-h-screen bg-background text-foreground">
-        <flux:sidebar sticky collapsible class="border-e border-sidebar-border bg-sidebar text-sidebar-foreground">
+    {{-- `hris-shell` makes the body Flux's grid BEFORE `<flux:main>` is parsed.
+         Without it the top bar drops under the sidebar while a page is still
+         arriving — see the utility in app.css and ShellLayoutTest. --}}
+    <body class="hris-shell min-h-screen bg-background text-foreground">
+        {{-- Collapsed, the sidebar is a rail that opens over the page under the
+             pointer (`hris-sidebar` and the `sidebar-rail` variant, app.css).
+             Flux expands a collapsed sidebar FOR GOOD on a click on its own
+             padding. Under a pointer that sidebar is already open, so the
+             click could only be one that missed a link, and it would move the
+             whole page: the capture listener ends it before Flux's hears it.
+             A screen without hover keeps Flux's click, its only way to open
+             the rail from the rail. --}}
+        <flux:sidebar
+            sticky
+            collapsible
+            class="hris-sidebar border-e border-sidebar-border bg-sidebar text-sidebar-foreground"
+            x-on:click.self.capture="$el.hasAttribute('data-flux-sidebar-collapsed-desktop') && window.matchMedia('(hover: hover)').matches && $event.stopImmediatePropagation()"
+        >
             <flux:sidebar.header>
-                <div class="flex min-h-12 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md p-2 in-data-flux-sidebar-collapsed-desktop:justify-center in-data-flux-sidebar-collapsed-desktop:p-0">
-                    <div class="flex aspect-square size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white in-data-flux-sidebar-collapsed-desktop:size-8">
-                        <img src="{{ asset('bestworkflows-logo.png') }}" alt="BestWorkflows logo" class="size-11 object-contain in-data-flux-sidebar-collapsed-desktop:size-8" />
+                <div class="flex min-h-12 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md p-2 sidebar-rail:justify-center sidebar-rail:p-0">
+                    <div class="flex aspect-square size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white sidebar-rail:size-8">
+                        <img src="{{ asset('bestworkflows-icon-32.png') }}" alt="BestWorkflows logo" class="size-11 object-contain sidebar-rail:size-8" />
                     </div>
                     {{-- The full company name has to read in one piece, so it wraps
                          rather than truncating — and disappears in icon mode. --}}
                     <div class="grid min-w-0 flex-1 leading-tight {{ $hideCollapsed }}">
                         <span class="text-sm font-bold">BestWorkflows</span>
-                        <span class="text-xs text-sidebar-foreground/70">Employee Management System</span>
+                        <span class="text-xs text-sidebar-foreground/70">Management Information System</span>
                     </div>
                 </div>
             </flux:sidebar.header>
@@ -94,6 +118,7 @@
                                          each folder inside it collapses again. Both open by
                                          default when the current page lives inside. --}}
                                     @php($holdsCurrent = $treeHoldsCurrent($module))
+                                    @php($activePath = $activeTreePath($module))
                                     <div x-data="{ open: @js($holdsCurrent) }">
                                         <button
                                             type="button"
@@ -114,13 +139,13 @@
                                                     @if (isset($group['path']))
                                                         {{-- A page of its own … --}}
                                                         <li>
-                                                            <a href="{{ url($group['path']) }}" class="{{ $subItemClasses }}{{ $isCurrent($group['path']) ? $itemActive : '' }}">
+                                                            <a href="{{ url($group['path']) }}" class="{{ $subItemClasses }}{{ $group['path'] === $activePath ? $itemActive : '' }}" @if ($group['path'] === $activePath) aria-current="page" @endif>
                                                                 <span class="truncate">{{ $group['label'] }}</span>
                                                             </a>
                                                         </li>
                                                     @else
                                                         {{-- … or a folder that opens to reveal its pages. --}}
-                                                        @php($folderHoldsCurrent = collect($group['items'])->contains(fn ($item) => $isCurrent($item['path'])))
+                                                        @php($folderHoldsCurrent = collect($group['items'])->contains(fn ($item) => $item['path'] === $activePath))
                                                         <li x-data="{ open: @js($folderHoldsCurrent) }">
                                                             <button
                                                                 type="button"
@@ -136,7 +161,7 @@
                                                             <ul x-show="open" x-cloak class="mx-3.5 flex min-w-0 flex-col gap-1 border-s border-sidebar-border px-2.5 py-0.5">
                                                                 @foreach ($group['items'] as $item)
                                                                     <li>
-                                                                        <a href="{{ url($item['path']) }}" class="{{ $subItemClasses }}{{ $isCurrent($item['path']) ? $itemActive : '' }}">
+                                                                        <a href="{{ url($item['path']) }}" class="{{ $subItemClasses }}{{ $item['path'] === $activePath ? $itemActive : '' }}" @if ($item['path'] === $activePath) aria-current="page" @endif>
                                                                             <span class="truncate">{{ $item['label'] }}</span>
                                                                         </a>
                                                                     </li>
@@ -157,6 +182,9 @@
                                     >
                                         @include('layouts.app.module-icon', ['icon' => $module['icon'], 'class' => 'size-4 shrink-0'])
                                         <span class="min-w-0 flex-1 truncate {{ $hideCollapsed }}">{{ $module['label'] }}</span>
+                                        @if ($module['code'] === \App\Domain\Enums\ModuleCode::CHAT)
+                                            <livewire:chat.unread-badge />
+                                        @endif
                                     </a>
                                 @endif
                             @endforeach
@@ -184,13 +212,42 @@
                     </div>
                 @endif
 
-                <form method="POST" action="{{ route('shell.logout') }}">
-                    @csrf
-                    <button type="submit" title="Sign out" class="{{ $itemClasses }} cursor-pointer" data-test="logout-button">
-                        @include('layouts.app.module-icon', ['icon' => 'log-out', 'class' => 'size-4 shrink-0'])
-                        <span class="min-w-0 flex-1 truncate {{ $hideCollapsed }}">Sign out</span>
-                    </button>
-                </form>
+                {{-- Sign out asks first. The footer button only OPENS the confirm;
+                     the POST to `shell.logout` (App\Livewire\Actions\Logout) sits
+                     inside the dialog, so a stray click on the collapsed icon
+                     cannot end the session. One wrapper holds the trigger and
+                     the dialog, so the footer spaces them as one item. The
+                     dialog is named from its heading's id, set from x-init,
+                     because Flux forwards no aria attributes to the <dialog>
+                     itself. --}}
+                <div>
+                    <flux:modal.trigger name="confirm-sign-out">
+                        <button type="button" title="Sign out" class="{{ $itemClasses }} cursor-pointer" data-test="logout-button">
+                            @include('layouts.app.module-icon', ['icon' => 'log-out', 'class' => 'size-4 shrink-0'])
+                            <span class="min-w-0 flex-1 truncate {{ $hideCollapsed }}">Sign out</span>
+                        </button>
+                    </flux:modal.trigger>
+
+                    <flux:modal
+                        name="confirm-sign-out"
+                        class="w-full max-w-md"
+                        x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'confirm-sign-out-heading')"
+                    >
+                        <form method="POST" action="{{ route('shell.logout') }}" class="space-y-4">
+                            @csrf
+                            <div class="space-y-2">
+                                <flux:heading size="lg" id="confirm-sign-out-heading">Sign out?</flux:heading>
+                                <flux:text>You will need to sign in again to continue.</flux:text>
+                            </div>
+                            <div class="flex justify-end gap-2">
+                                <flux:modal.close>
+                                    <flux:button variant="outline">Cancel</flux:button>
+                                </flux:modal.close>
+                                <flux:button type="submit" variant="primary" data-test="confirm-logout-button">Sign out</flux:button>
+                            </div>
+                        </form>
+                    </flux:modal>
+                </div>
             </div>
         </flux:sidebar>
 
@@ -211,7 +268,7 @@
             </button>
             <div class="mr-2 h-4 w-px shrink-0 bg-border" role="separator" aria-orientation="vertical"></div>
             <span class="truncate text-sm font-semibold">
-                {{ $currentLabel ?? 'BestWorkflows Employee Management System' }}
+                {{ $currentLabel ?? 'BestWorkflows Management Information System' }}
             </span>
             <div class="ml-auto flex items-center gap-1">
                 {{--

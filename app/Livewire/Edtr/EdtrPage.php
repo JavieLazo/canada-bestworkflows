@@ -4,29 +4,40 @@ declare(strict_types=1);
 
 namespace App\Livewire\Edtr;
 
-use App\Domain\Attendance\AttendanceLog as DomainLog;
 use App\Domain\Attendance\DayRecord;
 use App\Domain\Attendance\DtrCalculator;
 use App\Domain\Attendance\DtrSummary;
 use App\Domain\Attendance\HolidaySetting;
-use App\Domain\Attendance\LeaveRequest as DomainLeave;
 use App\Domain\Attendance\Shift as DomainShift;
-use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Livewire\Edtr\Support\CorrectPunches;
 use App\Livewire\Edtr\Support\Hris;
-use App\Models\AttendanceLog;
-use App\Models\AttendanceRemark;
-use App\Models\EmployeeProfile;
-use App\Models\Holiday;
-use App\Models\LeaveTravelRequest;
-use App\Models\LeaveType;
-use App\Models\Shift;
+use App\Livewire\Kit\Support\DepartmentFilter;
+use App\Modules\Organization\Contracts\HolidayCalendar;
+use App\Modules\Timekeeping\Application\Commands\DecideOvertime;
+use App\Modules\Timekeeping\Application\Commands\DecidePendingOvertime;
+use App\Modules\Timekeeping\Application\Commands\SaveRemark;
+use App\Modules\Timekeeping\Application\Queries\AttendanceRemarks;
+use App\Modules\Timekeeping\Application\Queries\DayCorrections;
+use App\Modules\Timekeeping\Application\Queries\OvertimeDecisions;
+use App\Modules\Timekeeping\Application\Queries\ReferenceData;
+use App\Modules\Timekeeping\Application\Queries\ScheduleDays;
+use App\Modules\Timekeeping\Contracts\AttendanceSource;
+use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
+use App\Modules\Timekeeping\Contracts\Views\LeaveTypeView as LeaveType;
+use App\Modules\Timekeeping\Contracts\Views\ShiftView as Shift;
+use App\Modules\Timekeeping\Domain\Attendance\DayClose;
+use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
+use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
+use App\Modules\Timekeeping\Domain\Roster\ScheduleBasis;
+use App\Modules\Workforce\Contracts\DirectoryEmployee as EmployeeProfile;
+use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\AuditService;
+use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\QueryException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -41,7 +52,16 @@ use RuntimeException;
  * Two tabs: the punch station beside the live feed, and the computed Daily
  * Time Record for one employee over one period. THE DTR TAB NEVER RE-DERIVES
  * A MINUTE — every figure comes from DtrCalculator / DtrSummary, exactly as
- * the reference read `computeDtr` / `summarize`.
+ * the reference read `computeDtr` / `summarize`, and every overtime figure
+ * from Timekeeping's OvertimeDecisions (through OvertimeApprovalPolicy),
+ * shown beside the computed OT in each row and in its approval dialog.
+ *
+ * DELIBERATE DIVERGENCE: edtr-page.tsx:465 shows `totals.absences` over
+ * days computed through today, so today's row — ABSENT before its shift
+ * starts — counts before anyone is due. The Absences tile counts through
+ * Timekeeping's DayClose instead: a day with no complete Time In and Time
+ * Out (DayRecord::isAbsenceDay, the payslip's own per-day test), once its
+ * shift and the Formulas OT max after it have passed.
  *
  * Tab switching re-renders server-side and only the active tab's content is
  * mounted, which matches the reference: Radix TabsContent unmounts inactive
@@ -53,6 +73,33 @@ use RuntimeException;
  *   - remarks and corrections take the role that sees everyone (`me.allData`);
  *     the write actions re-check for themselves — route middleware alone is
  *     not enough for a Livewire action.
+ *
+ * The correction dialog reads a per-date view — DayCorrections::view(), the
+ * shift for THAT date, the day as computed, the stored remark and the
+ * recorded punches with their captured location — on open and on every
+ * render while it is open. Nothing from it lands in Livewire state: it is
+ * not Wireable, and reading it afresh means the punches listed are the ones
+ * on the table right now.
+ *
+ * Night shifts: where the date's shift can hold a next-day time (overnight
+ * or flexible) each of the four slots has a "Next day" tick, prefilled from
+ * the saved punch — on a shift that ends the same day only while a tick is
+ * still set, so it can be unticked — and a save uses exactly what is
+ * ticked: nothing is inferred from the order of the times. The DTR table
+ * tags a time dated after its row "next day". The save replaces the punches
+ * the DTR reads as that row and nothing else (Timekeeping's
+ * CorrectionWindow), and a tick on a shift that ends the same day is
+ * refused there, not here.
+ *
+ * Overtime is decided here (payroll pays only what is approved): each
+ * pending OT cell offers inline approval. The OT amount opens details for a
+ * typed minutes or note change. Unapproved overtime is excluded without
+ * holding up payroll. The table keeps computed OT and its approval status
+ * together, and punch corrections use a separate dialog. Decision controls
+ * show only to an all-data EDTR holder, including on their own record, and
+ * each action resolves the actor afresh; Timekeeping's DecideOvertime /
+ * DecidePendingOvertime re-check everything and own the audit and the
+ * notification.
  */
 #[Layout('layouts.app')]
 #[Title('eDTR & Attendance')]
@@ -64,6 +111,13 @@ class EdtrPage extends Component
     /** The DTR tab's picked employee id — id-bearing, so #[Locked]. */
     #[Locked]
     public string $dtrEmployee = '';
+
+    /**
+     * The DTR tab's "Department or unit": ALL, NONE (Not placed), or a
+     * department or unit id. It only narrows the employee picker's list,
+     * which applies its own row scope first, so deliberately unlocked.
+     */
+    public string $department = DepartmentFilter::ALL;
 
     /** Period start, 'Y-m-d'. A date filter — deliberately unlocked. */
     public string $start = '';
@@ -102,7 +156,35 @@ class EdtrPage extends Component
         'note' => '',
     ];
 
+    /**
+     * The correction dialog's "Next day" tick per slot. A wire:model draft
+     * with no id in it, so deliberately not #[Locked]; client-writable, so
+     * only a literal true counts (saveCorrection), and CorrectPunches judges
+     * the ticks again against the date's shift and the rows the DTR reads.
+     *
+     * @var array<string, mixed>
+     */
+    public array $correctionNextDay = PunchSlots::SAME_DAY;
+
     public ?string $correctionError = null;
+
+    /** The overtime date, independent of the day being corrected. */
+    #[Locked]
+    public ?string $overtimeDate = null;
+
+    /** Drives the dedicated overtime dialog; closing it clears its draft. */
+    public bool $overtimeOpen = false;
+
+    /**
+     * The per-day dialog's overtime draft: minutes to approve and a note.
+     * Free text the approver edits — no id in it, so not #[Locked];
+     * DecideOvertime re-validates both against the day it recomputes.
+     *
+     * @var array<string, string>
+     */
+    public array $overtimeForm = ['minutes' => '', 'note' => ''];
+
+    public ?string $overtimeError = null;
 
     public function mount(): void
     {
@@ -112,6 +194,17 @@ class EdtrPage extends Component
         $period = Hris::semiMonthlyPeriod();
         $this->start = $period['start'];
         $this->end = $period['end'];
+
+        // The ?tab=dtr&employee= deep link behind the Live Feed's names: the
+        // DTR tab, and the employee only where the picker would take them —
+        // a self-only viewer still lands on their own record.
+        if (request()->query('tab') === 'dtr') {
+            $this->tab = 'dtr';
+            $employee = request()->query('employee');
+            if (is_string($employee) && $employee !== '' && $this->mayShowEmployee($this->actor(), $employee)) {
+                $this->dtrEmployee = $employee;
+            }
+        }
     }
 
     /* ── guards on client-writable state ─────────────────────────────────── */
@@ -119,18 +212,21 @@ class EdtrPage extends Component
     public function updatedTab(string $value): void
     {
         $this->tab = in_array($value, ['punch', 'dtr'], true) ? $value : 'punch';
+        $this->resetOvertime();
     }
 
     public function updatedStart(string $value): void
     {
         $this->start = $value === '' || PayrollPeriod::isPayrollDate($value) ? $value : '';
         $this->remarkDrafts = [];
+        $this->resetOvertime();
     }
 
     public function updatedEnd(string $value): void
     {
         $this->end = $value === '' || PayrollPeriod::isPayrollDate($value) ? $value : '';
         $this->remarkDrafts = [];
+        $this->resetOvertime();
     }
 
     /* ── DTR tab actions ─────────────────────────────────────────────────── */
@@ -144,13 +240,10 @@ class EdtrPage extends Component
 
         // selfOnly viewers have no picker at all; a forged event must not
         // widen the record they see.
-        if (! $this->actor()->mayReadAllData(ModuleCode::EDTR)) {
-            return;
-        }
-
-        if (EmployeeProfile::query()->whereKey($id)->exists()) {
+        if ($this->mayShowEmployee($this->actor(), $id)) {
             $this->dtrEmployee = $id;
             $this->remarkDrafts = [];
+            $this->resetOvertime();
         }
     }
 
@@ -161,6 +254,7 @@ class EdtrPage extends Component
         $this->start = $cutoff['start'];
         $this->end = $cutoff['end'];
         $this->remarkDrafts = [];
+        $this->resetOvertime();
     }
 
     /**
@@ -170,52 +264,12 @@ class EdtrPage extends Component
     public function updatedRemarkDrafts(mixed $value, string $date): void
     {
         $actor = $this->actor();
-        $targetId = $this->targetId($actor);
-
-        // A remark is an HR note about someone, so writing one needs the wider
-        // role (the reference PUT checks `session.allData`; the page itself is
-        // behind EDTR, so the pair is mayReadAllData(EDTR)).
-        if (! $actor->mayReadAllData(ModuleCode::EDTR) || $targetId === '') {
+        $note = app(SaveRemark::class)->handle($actor, $this->targetId($actor), $date, $value);
+        if ($note === null) {
             unset($this->remarkDrafts[$date]);
 
             return;
         }
-        if (! PayrollPeriod::isPayrollDate($date)) {
-            unset($this->remarkDrafts[$date]);
-
-            return;
-        }
-
-        $note = trim(is_string($value) ? $value : '');
-        $stored = AttendanceRemark::query()
-            ->where('employee_id', $targetId)
-            ->whereDate('date', $date)
-            ->first();
-
-        if ($note === trim($stored->note ?? '')) {
-            $this->remarkDrafts[$date] = $note;
-
-            return;
-        }
-
-        if ($note === '') {
-            $stored?->delete();
-        } else {
-            $remark = $stored ?? new AttendanceRemark;
-            $remark->fill(['employee_id' => $targetId, 'date' => $date, 'note' => $note]);
-            // Actor column from the session, never the request.
-            $remark->author_id = $actor->userId === null ? null : (int) $actor->userId;
-            $remark->save();
-        }
-
-        AuditService::record(
-            $actor,
-            AuditEvent::dtrRemark($note !== ''),
-            'attendance_remarks',
-            $targetId,
-            $date.($note !== '' ? ' — '.$note : ''),
-        );
-
         $this->remarkDrafts[$date] = $note;
     }
 
@@ -236,21 +290,25 @@ class EdtrPage extends Component
             return;
         }
 
-        $day = $this->computedDayFor($actor, $targetId, $date);
+        // The prefill comes from the same per-date view the dialog draws, so
+        // a slot left as it is still reads as the punch it came from.
+        $view = app(DayCorrections::class)->view($actor, $targetId, $date);
+        if ($view === null) {
+            return;
+        }
 
         $this->correctionForm = [
-            'time_in' => Hris::slotOf($day?->timeIn) ?? '',
-            'break_out' => Hris::slotOf($day?->breakOut) ?? '',
-            'break_in' => Hris::slotOf($day?->breakIn) ?? '',
-            'time_out' => Hris::slotOf($day?->timeOut) ?? '',
-            'note' => trim((string) AttendanceRemark::query()
-                ->where('employee_id', $targetId)
-                ->whereDate('date', $date)
-                ->value('note')),
+            'time_in' => $view->slots['time_in'],
+            'break_out' => $view->slots['break_out'],
+            'break_in' => $view->slots['break_in'],
+            'time_out' => $view->slots['time_out'],
+            'note' => trim($view->remark),
         ];
+        $this->correctionNextDay = $view->next_day;
         $this->correctionError = null;
         $this->correctingDate = $date;
         $this->correctionOpen = true;
+        $this->resetOvertime();
     }
 
     public function updatedCorrectionOpen(bool $value): void
@@ -259,6 +317,28 @@ class EdtrPage extends Component
             $this->correctingDate = null;
             $this->correctionError = null;
         }
+    }
+
+    /**
+     * Empty all four slots of the open correction — the dialog's "Clear all"
+     * (one slot is emptied by deleting its typed time). This touches
+     * component state only — nothing is written until saveCorrection(), which
+     * re-checks Access — so there is deliberately no Access check here. The
+     * remark is never cleared this way.
+     */
+    public function clearAllSlots(): void
+    {
+        if ($this->correctingDate === null) {
+            return;
+        }
+
+        foreach (PunchSlots::KEYS as $key) {
+            $this->correctionForm[$key] = '';
+        }
+        // An empty slot is on no day at all.
+        $this->correctionNextDay = PunchSlots::SAME_DAY;
+        // The error described a shape that no longer exists.
+        $this->correctionError = null;
     }
 
     public function saveCorrection(): void
@@ -271,12 +351,12 @@ class EdtrPage extends Component
             return;
         }
 
-        $slots = [
-            'time_in' => $this->slotOrNull($this->correctionForm['time_in'] ?? ''),
-            'break_out' => $this->slotOrNull($this->correctionForm['break_out'] ?? ''),
-            'break_in' => $this->slotOrNull($this->correctionForm['break_in'] ?? ''),
-            'time_out' => $this->slotOrNull($this->correctionForm['time_out'] ?? ''),
-        ];
+        $slots = $this->draftSlots();
+        // Client-writable: a tick is a literal true or nothing.
+        $nextDay = [];
+        foreach (PunchSlots::KEYS as $key) {
+            $nextDay[$key] = ($this->correctionNextDay[$key] ?? false) === true;
+        }
 
         try {
             CorrectPunches::apply(
@@ -284,8 +364,14 @@ class EdtrPage extends Component
                 $targetId,
                 $date,
                 $slots,
+                $nextDay,
                 (string) ($this->correctionForm['note'] ?? ''),
             );
+        } catch (QueryException) {
+            // Before RuntimeException, which it extends: never show raw SQL.
+            $this->correctionError = 'The correction could not be saved. Nothing was changed.';
+
+            return;
         } catch (RuntimeException $e) {
             $this->correctionError = $e->getMessage();
 
@@ -300,6 +386,171 @@ class EdtrPage extends Component
         Flux::toast(text: Hris::fmtDate($date).' corrected.', variant: 'success');
     }
 
+    /* ── overtime decisions ──────────────────────────────────────────────── */
+
+    /** The row approves its displayed minutes; a concurrent decision must never be overwritten. */
+    public function approveDayOvertime(string $employeeId, string $date, int $minutes): void
+    {
+        $actor = $this->actor();
+        $targetId = $this->targetId($actor);
+        if (! $actor->mayReadAllData(ModuleCode::EDTR) || $targetId === ''
+            || $employeeId !== $targetId || $this->tab !== 'dtr') {
+            return;
+        }
+        if (! PayrollPeriod::isPayrollDate($date) || $date > Hris::todayKey()
+            || $this->start === '' || $this->end === '' || $date < $this->start || $date > $this->end) {
+            return;
+        }
+
+        try {
+            $sentence = app(DecideOvertime::class)->handle(
+                $actor, $targetId, $date, OvertimeApprovalPolicy::APPROVED, $minutes, onlyIfPending: true,
+            );
+        } catch (QueryException) {
+            Flux::toast(text: 'The overtime could not be approved. Nothing was changed.', variant: 'danger');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
+
+            return;
+        }
+
+        Flux::toast(text: $sentence, variant: 'success');
+    }
+
+    /** Review overtime directly from its computed amount, without opening punch fields. */
+    public function openOvertime(string $date): void
+    {
+        $actor = $this->actor();
+        $targetId = $this->targetId($actor);
+
+        if (! $actor->mayReadAllData(ModuleCode::EDTR) || $targetId === '') {
+            return;
+        }
+        if (! PayrollPeriod::isPayrollDate($date) || $date > Hris::todayKey()) {
+            return;
+        }
+        if ($this->start === '' || $this->end === '' || $date < $this->start || $date > $this->end) {
+            return;
+        }
+
+        $view = app(DayCorrections::class)->view($actor, $targetId, $date);
+        if ($view?->overtime === null) {
+            return;
+        }
+
+        $this->correctionOpen = false;
+        $this->correctingDate = null;
+        $this->correctionError = null;
+        $this->overtimeDate = $date;
+        $this->overtimeOpen = true;
+        $this->overtimeForm = [
+            'minutes' => (string) ($view->overtime->decision === OvertimeApprovalPolicy::APPROVED
+                ? $view->overtime->approved_minutes
+                : $view->overtime->ceiling),
+            'note' => (string) ($view->overtime->note ?? ''),
+        ];
+        $this->overtimeError = null;
+    }
+
+    public function updatedOvertimeOpen(bool $value): void
+    {
+        if (! $value) {
+            $this->resetOvertime();
+        }
+    }
+
+    /** An employee or period change must not apply an open approval draft to another record. */
+    private function resetOvertime(): void
+    {
+        $this->overtimeOpen = false;
+        $this->overtimeDate = null;
+        $this->overtimeForm = ['minutes' => '', 'note' => ''];
+        $this->overtimeError = null;
+    }
+
+    /** Approve the open day's overtime — the typed minutes, re-validated by the command. */
+    public function approveOvertime(): void
+    {
+        $this->decideOvertime($this->actor(), OvertimeApprovalPolicy::APPROVED);
+    }
+
+    /** Reject the open day's overtime: none of it is paid. */
+    public function rejectOvertime(): void
+    {
+        $this->decideOvertime($this->actor(), OvertimeApprovalPolicy::REJECTED);
+    }
+
+    /** Reject every pending overtime day of the shown period. */
+    public function rejectPendingOvertime(): void
+    {
+        $this->decidePendingOvertime($this->actor(), OvertimeApprovalPolicy::REJECTED);
+    }
+
+    /** Every action resolves its actor fresh and hands it here; the all-data check comes first. */
+    private function decideOvertime(Access $actor, string $decision): void
+    {
+        $targetId = $this->targetId($actor);
+        $date = $this->overtimeDate;
+
+        if (! $actor->mayReadAllData(ModuleCode::EDTR) || $targetId === '' || $date === null || ! $this->overtimeOpen) {
+            return;
+        }
+
+        try {
+            $sentence = app(DecideOvertime::class)->handle(
+                $actor,
+                $targetId,
+                $date,
+                $decision,
+                $this->overtimeForm['minutes'] ?? '',
+                (string) ($this->overtimeForm['note'] ?? ''),
+            );
+        } catch (QueryException) {
+            $this->overtimeError = 'The decision could not be saved. Nothing was changed.';
+
+            return;
+        } catch (RuntimeException $e) {
+            $this->overtimeError = $e->getMessage();
+
+            return;
+        }
+
+        // The dialog stays open on the fresh figures.
+        $this->overtimeError = null;
+        Flux::toast(text: $sentence, variant: 'success');
+    }
+
+    private function decidePendingOvertime(Access $actor, string $decision): void
+    {
+        $targetId = $this->targetId($actor);
+
+        if (! $actor->mayReadAllData(ModuleCode::EDTR) || $targetId === '' || $this->start === '' || $this->end === '') {
+            return;
+        }
+
+        try {
+            $result = app(DecidePendingOvertime::class)->handle($actor, $targetId, $this->start, $this->end, $decision);
+        } catch (QueryException) {
+            Flux::toast(text: 'The overtime could not be decided. Nothing was changed.', variant: 'danger');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
+
+            return;
+        }
+
+        $verb = $decision === OvertimeApprovalPolicy::APPROVED ? 'Approved' : 'Rejected';
+        $days = $result['decided'] === 1 ? '1 day' : "{$result['decided']} days";
+        $skipped = $result['skipped'] > 0 ? " {$result['skipped']} could not be decided (already paid, or nothing approvable)." : '';
+        Flux::toast(
+            text: $result['decided'] === 0 && $result['skipped'] === 0 ? 'No unreviewed overtime to approve or reject.' : "{$verb} overtime on {$days}.{$skipped}",
+            variant: $result['decided'] > 0 ? 'success' : 'warning',
+        );
+    }
+
     /* ── render ──────────────────────────────────────────────────────────── */
 
     public function render(): View
@@ -309,30 +560,76 @@ class EdtrPage extends Component
         $targetId = $this->targetId($actor);
         $canEditRemarks = $actor->mayReadAllData(ModuleCode::EDTR);
 
+        // The picker's narrowing select, for a viewer who has a picker. A
+        // department deleted since, or a value typed in by hand, falls back
+        // to every department.
+        $departments = [];
+        if ($this->tab === 'dtr' && ! $selfOnly) {
+            $departments = DepartmentFilter::options($actor);
+            $this->department = DepartmentFilter::choice($this->department, $departments);
+        }
+
         $employee = null;
         $shiftRow = null;
         $rows = [];
         $totals = null;
+        $absences = 0;
         $holidays = [];
         $leaveTypes = [];
         $nothingToShow = '';
+        $correction = null;
+        $overtimeReview = null;
+        $overtimeByDate = [];
+        $correctionAutoRemark = '';
+        $correctionStaleTick = false;
+        $scheduleDays = [];
+        $unscheduled = ['days' => 0, 'late' => 0, 'undertime' => 0, 'absences' => 0];
 
         if ($this->tab === 'dtr' && $targetId !== '') {
             $employee = $this->visibleEmployee($actor, $targetId);
-            $shiftRow = Shift::query()
-                ->toEmployee($actor, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL)
-                ->where('employee_id', $targetId)
-                ->first();
+            $shiftRow = app(ReferenceData::class)->shift($actor, $targetId);
 
-            $holidays = HolidaySetting::listFromArrays(
-                Holiday::query()->get()->map->toArray()->all(),
-            );
-            $leaveTypes = LeaveType::query()->orderBy('name')->get(['code', 'name'])
+            $holidays = app(HolidayCalendar::class)->all();
+            $leaveTypes = array_values(app(ReferenceData::class)->leaveTypes($actor)
                 ->map(static fn (LeaveType $t): array => ['code' => (string) $t->code, 'name' => (string) $t->name])
-                ->all();
+                ->all());
 
-            $computedDays = $this->computeDays($actor, $targetId, $holidays);
+            [$computedDays, $schedule] = $this->computeDays($actor, $targetId, $holidays);
             $totals = DtrSummary::of($computedDays);
+
+            // The Absences tile counts a day only once it is over: its shift's
+            // end plus the Formulas OT max (DayClose). Today's row reads ABSENT
+            // before its shift has even started, and INCOMPLETE while the
+            // employee is still at work.
+            $absences = $computedDays === [] ? 0 : DayClose::absences(
+                $computedDays,
+                $schedule,
+                app(OpenPunchLimit::class)->hours(),
+                CarbonImmutable::now(),
+            );
+
+            // The dates NOBODY ASSIGNED A SCHEDULE FOR: the engine judges
+            // them by its default, which is an unverified fallback, so what
+            // they add to the tiles is counted apart and the page says so
+            // instead of presenting it as the record. The table itself shows
+            // only the date: the shift a day was measured against is read in
+            // its dialog.
+            $scheduleDays = app(ScheduleDays::class)->forEmployee($actor, $targetId, $this->start, $this->end);
+            $fallbackDays = array_values(array_filter(
+                $computedDays,
+                static fn (DayRecord $day): bool => ($scheduleDays[$day->date] ?? null)?->basis === ScheduleBasis::NONE,
+            ));
+            if ($fallbackDays !== []) {
+                $unscheduled = [
+                    'days' => count($fallbackDays),
+                    'late' => array_sum(array_map(static fn (DayRecord $day): float => (float) $day->lateMinutes, $fallbackDays)),
+                    'undertime' => array_sum(array_map(static fn (DayRecord $day): float => (float) $day->undertimeMinutes, $fallbackDays)),
+                    'absences' => DayClose::absences($fallbackDays, $schedule, app(OpenPunchLimit::class)->hours(), CarbonImmutable::now()),
+                ];
+            }
+
+            // The overtime decisions, judged against the SAME computed days.
+            $overtimeByDate = app(OvertimeDecisions::class)->forDays($actor, $targetId, $computedDays, $this->start, $this->end);
 
             $byDate = [];
             foreach ($computedDays as $day) {
@@ -363,6 +660,25 @@ class EdtrPage extends Component
                     }
                 }
             }
+
+            // The open dialog, read fresh every render: a detached view, never
+            // Livewire state, so the punches it lists are the ones on the
+            // table now. The all-data check is the query's precondition.
+            if ($this->correctingDate !== null && $canEditRemarks) {
+                $correction = app(DayCorrections::class)->view($actor, $targetId, $this->correctingDate);
+                if ($correction?->day !== null) {
+                    $correctionAutoRemark = Hris::autoRemark($correction->day, $holidays, $leaveTypes);
+                }
+                // The dialog's "Untick Next day" warning, for a shift that ends
+                // the same day: only a tick CorrectPunches would count — beside
+                // a filled box (PunchSlots::nextDayFlags) — is one it refuses.
+                $correctionStaleTick = $correction !== null && ! $correction->next_day_allowed
+                    && in_array(true, PunchSlots::nextDayFlags($this->correctionNextDay, $this->draftSlots()), true);
+            }
+
+            if ($this->overtimeOpen && $this->overtimeDate !== null && $canEditRemarks) {
+                $overtimeReview = app(DayCorrections::class)->view($actor, $targetId, $this->overtimeDate);
+            }
         }
 
         return view('livewire.edtr.edtr-page', [
@@ -375,12 +691,19 @@ class EdtrPage extends Component
             'shiftLabel' => $this->shiftLabel($shiftRow),
             'rows' => $rows,
             'totals' => $totals,
+            'absences' => $absences,
             'holidays' => $holidays,
             'leaveTypes' => $leaveTypes,
             'nothingToShow' => $nothingToShow,
             'storedRemarks' => $targetId === '' ? [] : $this->storedRemarks($actor, $targetId),
             'selfName' => $selfOnly ? Hris::employeeName($this->visibleEmployee($actor, $targetId)) : '',
-            'employeeLabel' => $employee !== null ? Hris::employeeName($employee) : 'This employee',
+            'correction' => $correction,
+            'overtimeReview' => $overtimeReview,
+            'overtimeByDate' => $overtimeByDate,
+            'correctionAutoRemark' => $correctionAutoRemark,
+            'correctionStaleTick' => $correctionStaleTick,
+            'unscheduled' => $unscheduled,
+            'departments' => $departments,
         ]);
     }
 
@@ -405,6 +728,18 @@ class EdtrPage extends Component
         return $this->dtrEmployee;
     }
 
+    /**
+     * Whether the DTR tab may be pointed at this employee: only by the role
+     * that sees everyone, and only at an id the directory resolves for them.
+     * The picker's event and the deep link both arrive from the client, so
+     * both ask here.
+     */
+    private function mayShowEmployee(Access $actor, string $id): bool
+    {
+        return $actor->mayReadAllData(ModuleCode::EDTR)
+            && app(OperationalDirectory::class)->find($actor, $id) !== null;
+    }
+
     private function visibleEmployee(Access $actor, string $targetId): ?EmployeeProfile
     {
         if ($targetId === '') {
@@ -417,98 +752,32 @@ class EdtrPage extends Component
             return null;
         }
 
-        return EmployeeProfile::query()->whereKey($targetId)->first();
+        return app(OperationalDirectory::class)->find($actor, $targetId);
     }
 
     /**
      * The computed DTR for the target and period — DtrCalculator output only,
-     * never re-derived here.
+     * never re-derived here — and the shift it was computed against, which
+     * the Absences tile reads to tell when each day is over.
      *
      * @param  list<HolidaySetting>  $holidays
-     * @return list<DayRecord>
+     * @return array{0: list<DayRecord>, 1: ?DomainShift}
      */
     private function computeDays(Access $actor, string $targetId, array $holidays): array
     {
         $start = $this->start;
         $end = $this->end;
         $today = Hris::todayKey();
-
-        // A cut-off runs to the 15th or the month's last day, and today is
-        // usually somewhere in the middle of it. Computing past today would
-        // mark days that have not happened yet as absences, so those rows
-        // render blank instead.
         $lastComputed = $end < $today ? $end : $today;
-
         if ($start === '' || $end === '' || $start > $end || $start > $lastComputed) {
-            return [];
+            return [[], null];
         }
+        $inputs = app(AttendanceSource::class)->forDtr($actor, $targetId, $start, $end);
 
-        // The DTR needs every punch inside the selected period (±1 day for
-        // overnight shifts), not the newest-N window the feed shows.
-        $range = PayrollPeriod::attendanceDateRange($start, $end);
-        $instants = PayrollPeriod::attendanceInstants($range['from'], $range['to']);
-
-        $logs = AttendanceLog::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->where('employee_id', $targetId)
-            ->whereBetween('logged_at', [$instants['gte'], $instants['lte']])
-            ->orderByDesc('logged_at')
-            ->limit(50000)
-            ->get(['id', 'employee_id', 'log_type', 'logged_at'])
-            ->map(static fn (AttendanceLog $log): DomainLog => DomainLog::fromArray([
-                'id' => $log->id,
-                'employee_id' => $log->employee_id,
-                'log_type' => $log->log_type,
-                'logged_at' => $log->logged_at,
-            ]))
-            ->all();
-
-        $shiftRow = Shift::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->where('employee_id', $targetId)
-            ->first();
-
-        // Leaves widen on LEAVES, exactly as GET /api/leave-requests scoped
-        // them — a viewer without that grant computes without them, as the
-        // reference page did.
-        $leaves = LeaveTravelRequest::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
-            ->where('employee_id', $targetId)
-            ->get(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid'])
-            ->map(static fn (LeaveTravelRequest $l): DomainLeave => DomainLeave::fromArray([
-                'id' => $l->id,
-                'employee_id' => $l->employee_id,
-                'request_type' => $l->request_type,
-                'day_type' => $l->day_type,
-                'start_date' => $l->start_date,
-                'end_date' => $l->end_date,
-                'status' => $l->status,
-                'is_paid' => $l->is_paid,
-            ]))
-            ->all();
-
-        return DtrCalculator::compute(
-            array_values($logs),
-            $shiftRow === null ? null : DomainShift::fromArray($shiftRow->toArray()),
-            array_values($leaves),
-            $start,
-            $lastComputed,
-            $holidays,
-        );
-    }
-
-    /** One day's computed record, for prefilling the correction dialog. */
-    private function computedDayFor(Access $actor, string $targetId, string $date): ?DayRecord
-    {
-        $holidays = HolidaySetting::listFromArrays(Holiday::query()->get()->map->toArray()->all());
-
-        foreach ($this->computeDays($actor, $targetId, $holidays) as $day) {
-            if ($day->date === $date) {
-                return $day;
-            }
-        }
-
-        return null;
+        return [
+            DtrCalculator::compute($inputs->logs, $inputs->shift, $inputs->leaves, $start, $lastComputed, $holidays),
+            $inputs->shift,
+        ];
     }
 
     /**
@@ -518,18 +787,7 @@ class EdtrPage extends Component
      */
     private function storedRemarks(Access $actor, string $targetId): array
     {
-        if ($this->start === '' || $this->end === '' || $this->start > $this->end) {
-            return [];
-        }
-
-        return AttendanceRemark::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::EDTR)
-            ->where('employee_id', $targetId)
-            ->whereDate('date', '>=', $this->start)
-            ->whereDate('date', '<=', $this->end)
-            ->get(['date', 'note'])
-            ->mapWithKeys(static fn (AttendanceRemark $r): array => [$r->date->format('Y-m-d') => (string) $r->note])
-            ->all();
+        return app(AttendanceRemarks::class)->between($actor, $targetId, $this->start, $this->end);
     }
 
     /**
@@ -547,11 +805,27 @@ class EdtrPage extends Component
             $hours = $shiftRow->required_hours ?? 8;
             $hours = $hours == (int) $hours ? (string) (int) $hours : (string) $hours;
 
-            return "Flexible · {$hours}h a day, no set start";
+            return "Flexible · {$hours}h a day, no set start, no overtime";
         }
 
         return Hris::fmtHm($shiftRow->start_time).' – '.Hris::fmtHm($shiftRow->end_time)
             ." · {$shiftRow->grace_minutes}m grace";
+    }
+
+    /**
+     * The dialog's four boxes as CorrectPunches takes them: 'HH:mm', or null
+     * for an empty box.
+     *
+     * @return array{time_in: ?string, break_out: ?string, break_in: ?string, time_out: ?string}
+     */
+    private function draftSlots(): array
+    {
+        return [
+            'time_in' => $this->slotOrNull($this->correctionForm['time_in'] ?? ''),
+            'break_out' => $this->slotOrNull($this->correctionForm['break_out'] ?? ''),
+            'break_in' => $this->slotOrNull($this->correctionForm['break_in'] ?? ''),
+            'time_out' => $this->slotOrNull($this->correctionForm['time_out'] ?? ''),
+        ];
     }
 
     private function slotOrNull(string $value): ?string

@@ -56,6 +56,10 @@
                     <flux:select.option value="{{ $a }}">{{ $a }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
+
+            <div class="ml-auto">
+                <x-kit.export-button :href="route('audit.export', array_filter(['q' => $search, 'action' => $action, 'entity' => $entity, 'actor' => $actor, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+            </div>
         </header>
 
         <div class="hris-table-wrap hris-table-scroll">

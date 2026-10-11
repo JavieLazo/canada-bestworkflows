@@ -74,3 +74,13 @@ Broadcast::channel('attendance.employee.{employeeId}', static function (User $us
 Broadcast::channel('user.{userId}', static function (User $user, string $userId): bool {
     return (int) $user->getKey() === (int) $userId;
 });
+
+/**
+ * The whole Community feed. The gate is the module grant, like the page: the
+ * knock carries nothing, and every page that hears it re-reads through its
+ * own visibility rules, so holding the channel reveals no private group's
+ * posts, only that the feed moved.
+ */
+Broadcast::channel('community', static function (User $user): bool {
+    return Access::forActor($user)->hasModule(ModuleCode::COMMUNITY);
+});

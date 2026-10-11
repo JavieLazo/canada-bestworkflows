@@ -1,0 +1,12 @@
+{{-- Read-only holdings retain MR links without exposing property-management actions. --}}
+<section class="hris-card overflow-hidden" wire:poll.60s="pollForChanges">
+    <header class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4"><div><h2 class="font-semibold">{{ $own ? 'My issued items' : 'Issued items' }}</h2></div>@if (! $own)<x-kit.export-button :href="route('employees.inventory.export', ['employee' => $employeeId])" />@endif</header>
+    @if (! $hasEmployee)
+        <x-kit.empty-state title="No employee record is linked to this account." hint="Ask an administrator to link the correct employee record." />
+    @else
+        <div class="hris-table-wrap hris-table-scroll"><table class="hris-table"><thead><tr><th>Item code</th><th>Item</th><th>Serial number</th><th>Condition</th><th>Location</th><th>MR No.</th></tr></thead><tbody>
+            @forelse ($rows as $row)<tr wire:key="held-item-{{ $row->id }}"><td class="num">@if ($canViewInventory && ! $own)<a class="text-primary hover:underline" href="{{ route('inventory.items.show', ['id' => $row->id]) }}" wire:navigate>{{ $row->code }}</a>@else{{ $row->code }}@endif</td><td class="font-medium">{{ $row->name }}</td><td class="num">{{ $row->serial_no ?: '—' }}</td><td><span class="pill {{ $row->condition === 'SERVICEABLE' ? 'pill-success' : 'pill-caution' }}">{{ ucfirst(strtolower($row->condition)) }}</span></td><td>{{ $row->location_name ?: '—' }}</td><td class="num max-w-64 break-all">@if ($row->current_receipt_id && $canViewOwnReceipts && ($own || ! $canViewInventory))<a class="text-foreground hover:underline" href="{{ route('portal.inventory.receipts.show', ['id' => $row->current_receipt_id]) }}" wire:navigate>{{ $row->current_receipt_mr_number }}</a>@elseif ($row->current_receipt_id && $canViewInventory && ! $own)<a class="text-foreground hover:underline" href="{{ route('inventory.receipts.show', ['id' => $row->current_receipt_id]) }}" wire:navigate>{{ $row->current_receipt_mr_number }}</a>@else{{ $row->current_receipt_mr_number !== null && $row->current_receipt_mr_number !== '' ? $row->current_receipt_mr_number : '—' }}@endif</td></tr>@empty<tr wire:key="empty-held-items"><x-kit.empty-state :colspan="6" title="No items are currently issued to this employee." /></tr>@endforelse
+        </tbody></table></div>
+        <x-kit.pagination :paginator="$rows" noun="issued items" />
+    @endif
+</section>

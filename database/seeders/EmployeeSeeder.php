@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\EmployeeProfile;
+use App\Models\Position;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\WorkSite;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Schema;
+use LogicException;
 
 /**
  * Work sites, the eight employees, and the four demo accounts — the port of
@@ -21,7 +24,7 @@ use Carbon\CarbonImmutable;
  *
  * The reference's acct-admin becomes the app's existing admin@bestworkflows.local: the
  * account is attached to the System Admin role and linked to Maria Santos
- * (emp-1) so scoped screens show data. An existing account keeps its name and
+ * (emp-1) so scoped screens show data. An existing account keeps its
  * password; only role, employee link and active flag are asserted.
  */
 final class EmployeeSeeder extends PortSeeder
@@ -32,22 +35,42 @@ final class EmployeeSeeder extends PortSeeder
         ['site-3', 'Remote / Field Work', 0.0, 0.0, 0, true],
     ];
 
+    /**
+     * The company's own employee numbers, typed by HR on the 201 page and kept
+     * out of the EMPLOYEES tuples below because they are identity rather than
+     * anything a hire's pay or shift depends on.
+     *
+     * The two newest hires have none ON PURPOSE. That is how every record
+     * starts, it is the state the screens must survive — the identifier beside
+     * a name simply disappears — and a demo where everybody has a number would
+     * never show it.
+     */
+    private const ID_NUMBERS = [
+        'emp-1' => '2019-0007',
+        'emp-2' => '2020-0114',
+        'emp-3' => '2021-0286',
+        'emp-4' => '2023-0431',
+        'emp-6' => '2024-0522',
+        'emp-8' => '2024-0638',
+    ];
+
     /** id, code, first, last, position, monthly rate, allowance units, status, days employed */
     private const EMPLOYEES = [
-        ['emp-1', 'BWF-00001', 'Maria', 'Santos', 'HR Manager', 62000.0, 5, 'Regular', 1400],
-        ['emp-2', 'BWF-00002', 'Jose', 'Rivera', 'Payroll Specialist', 48000.0, 4, 'Regular', 1100],
-        ['emp-3', 'BWF-00003', 'Andrea', 'Lim', 'Site Supervisor', 42000.0, 3, 'Regular', 900],
-        ['emp-4', 'BWF-00004', 'Paolo', 'Bautista', 'Security Officer', 24000.0, 2, 'Regular', 640],
-        ['emp-5', 'BWF-00005', 'Grace', 'Mendoza', 'Security Officer', 24000.0, 2, 'Probationary', 120],
-        ['emp-6', 'BWF-00006', 'Nathaniel', 'Cruz', 'Field Technician', 28000.0, 2, 'Contractual', 300],
-        ['emp-7', 'BWF-00007', 'Liza', 'Domingo', 'Admin Assistant', 22000.0, 1, 'Probationary', 95],
-        ['emp-8', 'BWF-00008', 'Ramon', 'Aquino', 'Driver', 20000.0, 1, 'Job Order', 210],
+        ['emp-1', '1', 'Maria', 'Santos', 'HR Manager', 62000.0, 5, 'Regular', 1400],
+        ['emp-2', '2', 'Jose', 'Rivera', 'Payroll Specialist', 48000.0, 4, 'Regular', 1100],
+        ['emp-3', '3', 'Andrea', 'Lim', 'Site Supervisor', 42000.0, 3, 'Regular', 900],
+        ['emp-4', '4', 'Paolo', 'Bautista', 'Security Officer', 24000.0, 2, 'Regular', 640],
+        ['emp-5', '5', 'Grace', 'Mendoza', 'Security Officer', 24000.0, 2, 'Probationary', 120],
+        ['emp-6', '6', 'Nathaniel', 'Cruz', 'Field Technician', 28000.0, 2, 'Contractual', 300],
+        ['emp-7', '7', 'Liza', 'Domingo', 'Admin Assistant', 22000.0, 1, 'Probationary', 95],
+        ['emp-8', '8', 'Ramon', 'Aquino', 'Driver', 20000.0, 1, 'Job Order', 210],
     ];
 
     public function run(): void
     {
+        $sites = [];
         foreach (self::SITES as [$id, $name, $lat, $lng, $radius, $exempt]) {
-            $this->upsert(WorkSite::class, ['id' => $id], [
+            $site = $this->upsert(WorkSite::class, ['id' => $id], [
                 'name' => $name,
                 'latitude' => $lat,
                 'longitude' => $lng,
@@ -55,24 +78,30 @@ final class EmployeeSeeder extends PortSeeder
                 'geofence_exempt' => $exempt,
                 'created_at' => $this->at(300, 9, 0),
             ]);
+            $sites[$id] = (string) $site->getKey();
+        }
+
+        if (! isset($sites['site-1'], $sites['site-2'], $sites['site-3'])) {
+            throw new LogicException('Every demo work site must be saved before its employees.');
         }
 
         foreach (self::EMPLOYEES as $i => [$id, $code, $first, $last, $position, $monthly, $allowanceUnits, $status, $daysEmployed]) {
             $daysEmployed = (int) $daysEmployed;
             $daysSinceRegular = $daysEmployed > 181 ? $daysEmployed - 180 : 1;
-            $this->upsert(EmployeeProfile::class, ['employee_code' => $code], [
+            $match = $this->codeMatch(EmployeeProfile::class, 'employee_code', (int) $code, 'COP', 5);
+            $this->upsert(EmployeeProfile::class, $match, $this->positionLink($match, (string) $position) + [
                 'id' => $id,
+                'employee_id_no' => self::ID_NUMBERS[$id] ?? null,
                 'first_name' => $first,
                 'middle_name' => null,
                 'last_name' => $last,
                 'suffix' => null,
-                'position' => $position,
                 'position_level' => $monthly >= 40000 ? 'Senior' : ($monthly >= 25000 ? 'Mid' : 'Junior'),
                 'employment_status' => $status,
                 'is_active' => true,
                 'work_site_id' => in_array($id, ['emp-6', 'emp-8'], true)
-                    ? 'site-3'
-                    : ($i % 2 === 0 ? 'site-1' : 'site-2'),
+                    ? $sites['site-3']
+                    : $sites[$i % 2 === 0 ? 'site-1' : 'site-2'],
                 'photo_path' => null,
                 'birth_date' => $this->dateKey($daysEmployed + 9000),
                 'sex' => $i % 2 === 0 ? 'Female' : 'Male',
@@ -97,10 +126,8 @@ final class EmployeeSeeder extends PortSeeder
                 'bank_account_no' => '0124'.(88700000 + $i * 999),
                 'bank_code' => 'GOTYPHM2XXX',
                 'bank_type' => 'Digital Bank',
-                'vacation_credits' => 15,
-                'sick_credits' => 15,
                 'pay_code' => 'SEMI',
-                'agency_code' => 'BWF',
+                'agency_code' => 'COP',
                 'section_code' => null,
                 'tax_code' => null,
                 'allow_sss' => true,
@@ -126,25 +153,51 @@ final class EmployeeSeeder extends PortSeeder
         $this->accounts();
     }
 
+    /**
+     * The seeded title and its link to the Position list: the one position
+     * of that name (ReferenceListSeeder runs first), or no link when none or
+     * several carry it. A row already linked keeps its link and the name it
+     * shows, so a re-run never undoes a rename or a re-assignment HR made.
+     * Before `position_id` exists only the title is written.
+     *
+     * @param  array<string, mixed>  $match
+     * @return array<string, mixed>
+     */
+    private function positionLink(array $match, string $position): array
+    {
+        if (! Schema::hasColumn('employee_profiles', 'position_id')) {
+            return ['position' => $position];
+        }
+
+        $existing = EmployeeProfile::query()->where($match)->first(['id', 'position', 'position_id']);
+
+        if ($existing !== null && $existing->position_id !== null) {
+            return ['position' => $existing->position, 'position_id' => $existing->position_id];
+        }
+
+        $ids = Position::query()->where('name', $position)->limit(2)->pluck('id')->all();
+
+        return ['position' => $position, 'position_id' => count($ids) === 1 ? $ids[0] : null];
+    }
+
     private function accounts(): void
     {
         $employees = $this->employeeIdsByIndex();
 
-        // email, full name, role name, employee index, last login (days ago, h, m)
+        // email, role name, employee index, last login (days ago, h, m)
         $accounts = [
-            ['admin@bestworkflows.local', 'Maria Santos', 'System Admin', 0, [0, 8, 5]],
-            ['payroll@bestworkflows.local', 'Jose Rivera', 'Payroll Officer', 1, [1, 9, 5]],
-            ['supervisor@bestworkflows.local', 'Andrea Lim', 'Supervisor', 2, [2, 7, 45]],
-            ['employee@bestworkflows.local', 'Paolo Bautista', 'Employee', 3, [1, 7, 55]],
+            ['admin@bestworkflows.local', 'System Admin', 0, [0, 8, 5]],
+            ['payroll@bestworkflows.local', 'Payroll Officer', 1, [1, 9, 5]],
+            ['supervisor@bestworkflows.local', 'Supervisor', 2, [2, 7, 45]],
+            ['employee@bestworkflows.local', 'Employee', 3, [1, 7, 55]],
         ];
 
-        foreach ($accounts as [$email, $name, $roleName, $empIdx, $login]) {
+        foreach ($accounts as [$email, $roleName, $empIdx, $login]) {
             $user = User::query()->where('email', $email)->first();
 
             if ($user === null) {
                 $user = new User;
                 $user->forceFill([
-                    'name' => $name,
                     'email' => $email,
                     // The reference's demo credential (seed.ts DEMO_ACCOUNTS).
                     'password' => 'bestworkflows123',

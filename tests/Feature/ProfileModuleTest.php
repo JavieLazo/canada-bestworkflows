@@ -3,20 +3,23 @@
 declare(strict_types=1);
 
 use App\Domain\Enums\ModuleCode;
+use App\Livewire\Employees\ChangeRequests;
+use App\Livewire\Employees\PdsList;
+use App\Livewire\Employees\Show;
 use App\Livewire\Profile\ProfilePage;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
+use App\Models\EmployeeRecordChangeRequest;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
+use App\Support\Access;
 use Illuminate\Support\Facades\Hash;
 use Livewire\Livewire;
 
-/**
- * PROFILE module: route gating, the employee-less actor seeing no employee
- * data, and the page's own-record happy paths (contact fields, account name,
- * password).
- */
+/** My Profile has one employee record; personal edits are proposals while credential changes remain immediate. */
+
+/** @param list<string> $modules ModuleCode constants, one grant each */
 function profileRole(array $modules, bool $allData = false): Role
 {
     $role = Role::query()->create([
@@ -46,7 +49,7 @@ function profileUser(Role $role, ?EmployeeProfile $employee = null): User
 function profileEmployee(): EmployeeProfile
 {
     return EmployeeProfile::query()->create([
-        'employee_code' => 'BWF-00002',
+        'employee_code' => 'COP-00002',
         'first_name' => 'Ana',
         'last_name' => 'Reyes',
         'employment_status' => 'Regular',
@@ -60,104 +63,159 @@ it('redirects guests to the login page', function () {
 });
 
 it('gates the page on the PROFILE module grant', function () {
-    // No PROFILE grant: bounced to the landing path, never rendered.
-    $user = profileUser(profileRole([ModuleCode::EMPLOYEES], true));
-
-    $this->actingAs($user)->get('/profile')->assertRedirect('/employees');
-
-    $granted = profileUser(profileRole([ModuleCode::PROFILE]));
-
-    $this->actingAs($granted)
-        ->get('/profile')
-        ->assertOk()
-        ->assertSee('My Profile');
+    $this->actingAs(profileUser(profileRole([ModuleCode::EMPLOYEES], true)))->get('/profile')->assertRedirect('/employees');
+    app()->forgetInstance(Access::class);
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE])))->get('/profile')->assertOk()->assertSee('My Profile');
 });
 
-it('shows an employee-less actor the unlinked note and no employee sections', function () {
-    // A record exists, but this account is not linked to it — the page must
-    // resolve NO employee row, never someone else's.
+it('shows an unlinked account no personal information or independent name editor', function () {
     profileEmployee();
-
-    $user = profileUser(profileRole([ModuleCode::PROFILE]));
-    // A fixed name: the shell renders the account name, and a faker surname
-    // colliding with the employee's would make the assertions below flaky.
-    $user->forceFill(['name' => 'Unlinked Account'])->save();
-
-    $this->actingAs($user)
-        ->get('/profile')
-        ->assertOk()
-        ->assertSee('links this account to an employee record')
-        ->assertDontSee('Emergency contact')
-        ->assertDontSee('BWF-00002')
-        ->assertDontSee('Reyes');
-});
-
-it('writes nothing when an employee-less actor calls the employee saves', function () {
-    $record = profileEmployee();
-
-    $user = profileUser(profileRole([ModuleCode::PROFILE]));
-    $this->actingAs($user);
-
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE])));
     Livewire::test(ProfilePage::class)
-        ->set('personal.phone', '0917 000 0000')
-        ->call('savePersonal')
-        ->set('emergency.name', 'Someone Else')
-        ->call('saveEmergency');
-
-    $record->refresh();
-
-    expect($record->phone)->toBeNull()
-        ->and($record->emergency_name)->toBeNull();
+        ->assertSee('Employee record not linked')
+        ->assertDontSee('Reyes')
+        ->assertDontSeeHtml('wire:model="fullName"')
+        ->set('tab', 'account')
+        ->assertSee('Sign-in email')
+        ->assertDontSeeHtml('wire:model="fullName"');
+    expect(EmployeeRecordChangeRequest::query()->count())->toBe(0);
 });
 
-it('saves personal and emergency details on the linked record and audits them', function () {
+it('shows the complete linked record through My Profile and offers approved corrections', function () {
     $employee = profileEmployee();
-    $user = profileUser(profileRole([ModuleCode::PROFILE]), $employee);
-
-    $this->actingAs($user);
-
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE]), $employee));
     Livewire::test(ProfilePage::class)
-        ->set('personal.phone', '0917 555 1234')
-        ->set('personal.sex', 'Female')
-        ->set('personal.civilStatus', 'Single')
-        ->call('savePersonal')
-        ->set('emergency.name', 'Ben Reyes')
-        ->set('emergency.relation', 'Brother')
-        ->set('emergency.phone', '0917 555 9999')
-        ->call('saveEmergency');
-
-    $employee->refresh();
-
-    expect($employee->phone)->toBe('0917 555 1234')
-        ->and($employee->sex)->toBe('Female')
-        ->and($employee->civil_status)->toBe('Single')
-        ->and($employee->emergency_name)->toBe('Ben Reyes')
-        ->and($employee->emergency_relation)->toBe('Brother')
-        ->and($employee->emergency_phone)->toBe('0917 555 9999');
-
-    expect(AuditLog::query()
-        ->where('action', 'PROFILE_UPDATED')
-        ->where('entity', 'employee_profiles')
-        ->where('entity_id', $employee->id)
-        ->count())->toBe(2);
+        ->assertSee('Ana Reyes')
+        ->assertSee('Government IDs')
+        ->assertSee('Education')
+        ->assertSee('Declarations')
+        ->assertDontSee('Delete employee')
+        ->assertDontSeeHtml('wire:model="fullName"');
+    Livewire::test(Show::class, ['own' => true])
+        ->call('startEdit', 'personal')
+        ->assertDontSee('Reason for change')
+        ->assertSee('Submit for approval');
 });
 
-it('renames the account from the profile page', function () {
-    $user = profileUser(profileRole([ModuleCode::PROFILE]));
+it('refuses invalid personal and emergency fields before creating a proposal', function () {
+    $employee = profileEmployee();
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE]), $employee));
+    Livewire::test(Show::class, ['own' => true])
+        ->call('startEdit', 'personal')
+        ->set('form.phone', 'abc')
+        ->call('saveSection', 'personal')
+        ->assertSet('editingSection', 'personal')
+        ->set('form.phone', '0917 123 4567')
+        ->set('form.sex', 'Invalid answer')
+        ->call('saveSection', 'personal')
+        ->call('startEdit', 'emergency')
+        ->set('form.emergency_name', 'Ben Reyes')
+        ->set('form.emergency_phone', '1')
+        ->call('saveSection', 'emergency');
+    expect($employee->refresh()->phone)->toBeNull()
+        ->and($employee->emergency_name)->toBeNull()
+        ->and(EmployeeRecordChangeRequest::query()->count())->toBe(0);
+});
 
-    $this->actingAs($user);
+it('submits emergency contact changes without editing the official record', function () {
+    $employee = profileEmployee();
+    $employee->forceFill(['emergency_name' => 'Maria Reyes', 'emergency_address' => '12 Luna Street'])->save();
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE]), $employee));
+    Livewire::test(Show::class, ['own' => true])
+        ->call('startEdit', 'emergency')
+        ->assertSet('form.emergency_address', '12 Luna Street')
+        ->set('form.emergency_name', 'Pedro Reyes')
+        ->set('form.emergency_relation', 'Father')
+        ->set('form.emergency_phone', '0918 555 1111')
+        ->set('form.emergency_address', '')
+        ->call('saveSection', 'emergency')
+        ->assertSet('editingSection', null)
+        ->assertDispatched('record-change-submitted');
+    $request = EmployeeRecordChangeRequest::query()->firstOrFail();
+    expect($employee->refresh()->emergency_name)->toBe('Maria Reyes')
+        ->and($employee->emergency_address)->toBe('12 Luna Street')
+        ->and($request->employee_id)->toBe($employee->id)
+        ->and($request->proposed['emergency_name'])->toBe('Pedro Reyes')
+        ->and($request->reason)->toBe('')
+        ->and($request->status)->toBe('PENDING');
+});
 
-    Livewire::test(ProfilePage::class)
-        ->set('fullName', 'Renamed Person')
-        ->call('saveAccount');
+it('requires manager approval in My Profile but saves their own Employee Records edits directly', function (bool $ownMode) {
+    $employee = profileEmployee();
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE, ModuleCode::EMPLOYEES], true), $employee));
+    $page = Livewire::test(Show::class, ['employee' => $employee->id, 'own' => $ownMode])
+        ->call('startEdit', 'personal')
+        ->set('form.first_name', 'Anna')
+        ->call('saveSection', 'personal');
+    if ($ownMode) {
+        $page->assertDispatched('record-change-submitted');
+        expect($employee->refresh()->first_name)->toBe('Ana')
+            ->and(EmployeeRecordChangeRequest::query()->value('status'))->toBe('PENDING');
+    } else {
+        $page->assertNotDispatched('record-change-submitted');
+        expect($employee->refresh()->first_name)->toBe('Anna')
+            ->and(EmployeeRecordChangeRequest::query()->count())->toBe(0);
+    }
+})->with([true, false]);
 
-    expect($user->refresh()->name)->toBe('Renamed Person');
+it('keeps My Profile employment and employee ID read-only and omits documents and printing', function (bool $manager) {
+    $employee = profileEmployee();
+    $employee->forceFill(['employee_id_no' => 'STAFF-42'])->save();
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE, ModuleCode::EMPLOYEES], $manager), $employee));
 
-    expect(AuditLog::query()
-        ->where('action', 'PROFILE_UPDATED')
-        ->where('entity', 'user_accounts')
-        ->where('details', 'like', '%changed their display name to Renamed Person')
-        ->exists())->toBeTrue();
+    try {
+        Livewire::withQueryParams(['tab' => 'documents']);
+        $page = Livewire::test(Show::class, ['employee' => $employee->id, 'own' => true])
+            ->assertSet('tab', 'profile')
+            ->assertDontSeeHtml('wire:click="startEdit(\'employment\')"')
+            ->assertDontSeeHtml('wire:click="printPds"')
+            ->assertDontSeeHtml('class="sheet-201')
+            ->assertDontSeeHtml('value="documents"')
+            ->assertDontSeeHtml('&quot;name&quot;:&quot;employees.documents&quot;')
+            ->set('tab', 'documents')
+            ->assertSet('tab', 'profile')
+            ->assertDontSeeHtml('class="sheet-pds')
+            ->call('startEdit', 'employment')
+            ->assertSet('editingSection', null)
+            ->set('editingSection', 'employment')
+            ->assertSet('editingSection', null)
+            ->call('startEdit', 'personal')
+            ->assertSee('STAFF-42')
+            ->assertDontSeeHtml('wire:model.blur="form.employee_id_no"')
+            ->assertSeeHtml('wire:model.blur="form.first_name"');
+
+        $page->set('form.employee_id_no', 'TAMPERED')
+            ->set('form.first_name', 'Anna')
+            ->call('saveSection', 'personal');
+        expect($employee->refresh()->employee_id_no)->toBe('STAFF-42')
+            ->and($employee->first_name)->toBe('Ana')
+            ->and(EmployeeRecordChangeRequest::query()->count())->toBe(0);
+
+        Livewire::test(PdsList::class, ['employeeId' => $employee->id, 'list' => 'experience', 'own' => true])
+            ->assertDontSee('Edit in Employee Details');
+    } finally {
+        Livewire::withQueryParams([]);
+    }
+})->with([false, true]);
+
+it('refuses forged My Profile employment saves and print actions', function (string $action, bool $manager) {
+    $employee = profileEmployee();
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE, ModuleCode::EMPLOYEES], $manager), $employee));
+    $page = Livewire::test(Show::class, ['employee' => $employee->id, 'own' => true]);
+    if ($action === 'save') {
+        $page->set('form.monthly_rate', '99999')
+            ->call('saveSection', 'employment')->assertForbidden();
+    } else {
+        $page->call('printPds')->assertForbidden();
+    }
+    expect($employee->refresh()->monthly_rate)->toBe(25000.0)
+        ->and(EmployeeRecordChangeRequest::query()->count())->toBe(0);
+})->with(['save', 'print'])->with([true, false]);
+
+it('shows own change requests without a pending counter', function () {
+    $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE]), profileEmployee()));
+    Livewire::test(ChangeRequests::class, ['own' => true])
+        ->assertSee('My change requests')->assertDontSee('0 pending');
 });
 
 it('changes the password only when the current one is correct', function () {
@@ -169,20 +227,20 @@ it('changes the password only when the current one is correct', function () {
     // Wrong current password: refused, nothing stored.
     Livewire::test(ProfilePage::class)
         ->set('currentPassword', 'not-the-password')
-        ->set('newPassword', 'brand-new-secret')
-        ->set('confirmPassword', 'brand-new-secret')
+        ->set('newPassword', 'Fresh-Password-2026!')
+        ->set('confirmPassword', 'Fresh-Password-2026!')
         ->call('changePassword');
 
-    expect(Hash::check('brand-new-secret', $user->refresh()->password))->toBeFalse();
+    expect(Hash::check('Fresh-Password-2026!', $user->refresh()->password))->toBeFalse();
 
     // Right current password: stored, and the change is on the trail.
     Livewire::test(ProfilePage::class)
         ->set('currentPassword', 'old-password')
-        ->set('newPassword', 'brand-new-secret')
-        ->set('confirmPassword', 'brand-new-secret')
+        ->set('newPassword', 'Fresh-Password-2026!')
+        ->set('confirmPassword', 'Fresh-Password-2026!')
         ->call('changePassword');
 
-    expect(Hash::check('brand-new-secret', $user->refresh()->password))->toBeTrue();
+    expect(Hash::check('Fresh-Password-2026!', $user->refresh()->password))->toBeTrue();
 
     expect(AuditLog::query()
         ->where('action', 'PASSWORD_CHANGED')

@@ -5,10 +5,11 @@
     confirm (the DB cascades take the tasks, files and comments with the row).
 
     The summary card is narrower than the reference's: Site / Task Leader /
-    Due Date / Progress. The Timeline and Health cells were dropped on request —
-    the due date is what people actually look for, and the four queue cards
-    below already say what "health" summarised. "Task Leader" is the user-facing
-    name of `projects.manager_id` (an account); the identifiers keep "manager".
+    Due Date / Progress. There are no Timeline or Health cells (the reference
+    has both): the due date is what people actually look for, and the four
+    queue cards below already say what "health" summarises. "Task Leader" is
+    the user-facing name of `projects.manager_id` (an account); the
+    identifiers keep "manager".
 
     Icons are the reference's own Lucide set, inlined through
     livewire/projects/partials/icon.blade.php (Flux ships Heroicons; the
@@ -22,16 +23,25 @@
     A task is handed to 0..N employees (project_task_assignees), so the
     "Assignees" column and the review header print every name, and both
     dialogs bind a list through the kit employee CHECKLIST, not the picker.
+    A crew of two or more hands its work in as one team response (GROUP) or
+    each member their own (INDIVIDUAL): an INDIVIDUAL task keeps its task
+    status in the Status column and adds its responses' progress under it
+    ("2 of 3 approved · 1 awaiting review") — counts only, never a note.
 
     The "Delete project" button and its confirm render for managers only
     ($canManage from Show::render()); the other header controls keep the
     module's deny-at-action convention, and deleteProject() re-checks anyway.
+
+    The project's Task Leader (`projects.manager_id`) RUNS it alongside the
+    Projects managers ($runsProject): the header status select, the "Set
+    status" control and the start dates are theirs too, and the edit dialog
+    shows a leader who is not a manager the start date alone. Every command
+    re-checks that against the locked rows.
 --}}
 @php
     use App\Domain\Projects\ProjectPolicy;
     use App\Domain\Projects\TaskPolicy;
     use App\Livewire\Projects\ProjectsData;
-    use App\Livewire\Projects\Show;
 @endphp
 <div class="space-y-6">
     <a
@@ -49,8 +59,6 @@
         </div>
     @else
         @php
-            $taskShapes = ProjectsData::taskShapes($projectTasks);
-            $projectShape = ProjectsData::projectShape($project);
             $siteName = $sites->firstWhere('id', $project->site_id)?->name ?? '—';
             $accountName = fn ($accountId) => $accountId === null ? '—' : ($accounts->firstWhere('id', $accountId)?->name ?? '—');
         @endphp
@@ -75,19 +83,24 @@
                         Delete project
                     </flux:button>
                 @endif
-                <flux:select
+                {{-- A status set by hand (ManualProjectStatus): any status,
+                     a closed project's reopen included, except what its facts
+                     forbid — Active without a Task Leader, Completed with a
+                     task still open. The rendered status rides along, so a
+                     project someone moved meanwhile is refused, not moved on. --}}
+                <x-kit.select
                     aria-label="Project status"
                     class="w-[11rem]"
-                    wire:change="changeStatus($event.target.value)"
+                    wire:change="changeStatus($event.target.value, '{{ $project->status }}')"
                 >
                     @foreach (ProjectPolicy::STATUSES as $value => $label)
                         <flux:select.option
                             value="{{ $value }}"
                             :selected="$project->status === $value"
-                            :disabled="ProjectPolicy::statusError($projectShape, $taskShapes, $value) !== null"
+                            :disabled="$taskTotals->manualStatusError($project, $value) !== null"
                         >{{ $label }}</flux:select.option>
                     @endforeach
-                </flux:select>
+                </x-kit.select>
             </div>
         </div>
 
@@ -240,12 +253,7 @@
                 <div class="divide-y divide-border">
                     @foreach ($recentActivity as $comment)
                         @php
-                            $activityTask = null;
-                            foreach ($projectTasks as $candidate) {
-                                if ($candidate->id === $comment->task_id) {
-                                    $activityTask = $candidate;
-                                }
-                            }
+                            $activityTask = $activityTasks->get($comment->task_id);
                         @endphp
                         <div wire:key="activity-{{ $comment->id }}" class="flex gap-3 px-5 py-3">
                             <span class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" aria-hidden="true"></span>
@@ -271,10 +279,17 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-base font-bold">Tasks</h2>
             <div class="flex flex-wrap items-center gap-2">
-                <flux:button variant="outline" href="{{ $tasksExportUrl }}">
+                {{-- Green like every Export CSV (x-kit.export-button); its own markup only for the projects icon set. --}}
+                <flux:button variant="primary" href="{{ $tasksExportUrl }}" class="hris-button-success">
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-4'])</x-slot:icon>
                     Export CSV
                 </flux:button>
+                <livewire:kit.csv-import
+                    table="projects.tasks"
+                    :context="$project->id"
+                    :template="route('projects.tasks.export', ['project' => $project->id, 'template' => 1])"
+                    :key="'import-tasks-'.$project->id"
+                />
                 <flux:button variant="primary" wire:click="$set('adding', true)">
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
                     Add task
@@ -330,6 +345,7 @@
                             <x-kit.sort-header field="task" label="Task" />
                             <x-kit.sort-header field="assignee" label="Assignees" />
                             <x-kit.sort-header field="priority" label="Priority" />
+                            <x-kit.sort-header field="start" label="Start" />
                             <x-kit.sort-header field="due" label="Due" />
                             <x-kit.sort-header field="status" label="Status" />
                         </tr>
@@ -338,7 +354,7 @@
                         @if ($visibleCount === 0)
                             <tr wire:key="empty">
                                 <x-kit.empty-state
-                                    :colspan="6"
+                                    :colspan="7"
                                     :title="$taskCount === 0 ? 'No tasks on this project yet.' : 'No task matches those filters.'"
                                 />
                             </tr>
@@ -346,8 +362,9 @@
                         @foreach ($rows as $t)
                             @php
                                 // ONE surname-ordered list feeds both lines of the
-                                // Assignees cell, so line N of codes is line N of names.
-                                $rowAssignees = Show::sortedAssignees($t);
+                                // Assignees cell, so entry N of the Employee IDs
+                                // below is entry N of the names.
+                                $rowAssignees = ProjectsData::sortedAssignees($t);
                                 $overdue = TaskPolicy::isOverdue(ProjectsData::taskShape($t), $today);
                                 $attached = $fileCounts[$t->id] ?? 0;
                                 $discussed = $commentCounts[$t->id] ?? 0;
@@ -411,8 +428,22 @@
                                             <p class="break-words font-medium">
                                                 {{ count($rowAssignees) === 0 ? '—' : implode(', ', array_map(static fn ($e) => ProjectsData::employeeName($e), $rowAssignees)) }}
                                             </p>
+                                            {{-- Employee IDs, not row ids. POSITIONAL: the names
+                                                 above are joined over every assignee, so an
+                                                 unnumbered one holds its place with an em dash
+                                                 rather than being dropped — otherwise three
+                                                 names sit over two ids and the reader pairs the
+                                                 wrong number with the wrong person. When NOBODY
+                                                 on the task has a number there is nothing to
+                                                 align, and the line is a single em dash. --}}
+                                            @php
+                                                $assigneeIds = array_map(static fn ($e): string => \App\Support\EmployeeIdentity::besideName($e), $rowAssignees);
+                                                $assigneeLine = \App\Support\EmployeeIdentity::meta(...$assigneeIds) === ''
+                                                    ? '—'
+                                                    : implode(' · ', array_map(static fn (string $id): string => $id === '' ? '—' : $id, $assigneeIds));
+                                            @endphp
                                             <p class="num break-words text-xs text-muted-foreground">
-                                                {{ count($rowAssignees) === 0 ? '—' : implode(' · ', array_map(static fn ($e) => $e->employee_code, $rowAssignees)) }}
+                                                {{ count($rowAssignees) === 0 ? '—' : $assigneeLine }}
                                             </p>
                                         </div>
                                     </div>
@@ -422,6 +453,9 @@
                                         {{ TaskPolicy::priorityLabel($t->priority) }}
                                     </span>
                                 </td>
+                                <td class="num whitespace-nowrap">
+                                    {{ $t->start_date ? ProjectsData::fmtDate($t->start_date) : '—' }}
+                                </td>
                                 <td class="{{ $overdue ? 'num whitespace-nowrap font-medium text-danger' : 'num whitespace-nowrap' }}">
                                     {{ $t->due_date ? ProjectsData::fmtDate($t->due_date) : '—' }}
                                     @if ($overdue)
@@ -430,6 +464,14 @@
                                 </td>
                                 <td class="whitespace-nowrap">
                                     <span class="{{ TaskPolicy::statusPill($t->status) }}">{{ TaskPolicy::statusLabel($t->status) }}</span>
+                                    {{-- The progress line WRAPS inside the nowrap cell (the
+                                         pill keeps its own nowrap): at up to four clauses it
+                                         would otherwise widen the Status column several times
+                                         over and squeeze Task and Assignees. Capped like the
+                                         Assignees column. --}}
+                                    @if ($t->isIndividual())
+                                        <span class="num mt-1 block max-w-[16rem] whitespace-normal text-xs text-muted-foreground">{{ $t->responseSummary() }}</span>
+                                    @endif
                                 </td>
                             </tr>
                         @endforeach
@@ -440,607 +482,12 @@
             <x-kit.pagination :paginator="$rows" noun="tasks" />
         </section>
 
-        {{-- add-task-dialog.tsx --}}
-        <flux:modal wire:model.self="adding" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
-            <div class="space-y-4">
-                <div>
-                    <flux:heading size="lg">Add task</flux:heading>
-                    <flux:text class="mt-1">
-                        Hand out a unit of work on {{ $project->name }}. It starts pending until an assignee picks it
-                        up from My Tasks.
-                    </flux:text>
-                </div>
+        @include('livewire.projects.partials.dialog-task-add')
 
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div class="space-y-2 sm:col-span-2">
-                        <flux:label for="task-title">Title</flux:label>
-                        <flux:input
-                            id="task-title"
-                            placeholder="What has to be done"
-                            wire:model.live.debounce.250ms="taskTitle"
-                        />
-                    </div>
+        @include('livewire.projects.partials.dialog-project-edit')
 
-                    <div class="space-y-2 sm:col-span-2">
-                        <flux:label for="task-description">Description</flux:label>
-                        <flux:textarea
-                            id="task-description"
-                            rows="3"
-                            placeholder="Scope, acceptance criteria, anything the assignee needs"
-                            wire:model="taskDescription"
-                        />
-                    </div>
+        @include('livewire.projects.partials.dialog-project-delete')
 
-                    <div class="space-y-2 sm:col-span-2">
-                        <flux:label>Assignees</flux:label>
-                        {{-- Entangled list; the nonce remounts the checklist (clean
-                             search, fresh list) every time the draft resets.
-
-                             `.live` on purpose: a nested wire:model is DEFERRED — each
-                             tick is a request on the child only, and the new array is
-                             pushed into the parent's client-side state without a
-                             parent render. The "Add task" button's disabled gate
-                             below is evaluated server-side, so without `.live` it
-                             would go stale until some other parent round-trip. Live,
-                             the child root's `wire:model.live="$parent.taskAssigneeIds"`
-                             commits the parent after every toggle and the gate
-                             re-evaluates (the server rule itself is unchanged). --}}
-                        <livewire:kit.employee-checklist
-                            wire:model.live="taskAssigneeIds"
-                            name="task-assignees"
-                            placeholder="Search employees"
-                            aria-label="Assignees"
-                            :key="'task-assignees-'.$taskDraftNonce"
-                        />
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Priority</flux:label>
-                        <flux:select aria-label="Priority" wire:model="taskPriority">
-                            @foreach (TaskPolicy::PRIORITIES as $value => $label)
-                                <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                            @endforeach
-                        </flux:select>
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label for="task-due">Due date</flux:label>
-                        <x-kit.date-field id="task-due" aria-label="Due date" wire:model="taskDueDate" />
-                    </div>
-
-                    <div class="space-y-2 sm:col-span-2">
-                        <div class="flex items-center justify-between gap-3">
-                            <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                Attach brief (optional)
-                            </p>
-                            <flux:button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                class="h-7"
-                                x-on:click="$refs.briefPickInput.click()"
-                            >
-                                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3'])</x-slot:icon>
-                                Attach
-                            </flux:button>
-                            <input
-                                type="file"
-                                multiple
-                                class="hidden"
-                                x-ref="briefPickInput"
-                                wire:model="briefPick"
-                            />
-                        </div>
-
-                        @if (count($briefStage) === 0)
-                            <p class="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                                Nothing attached. Anything you add here is stored with the task once it is created.
-                            </p>
-                        @else
-                            <ul class="space-y-1">
-                                @foreach ($briefStage as $i => $staged)
-                                    <li
-                                        wire:key="staged-{{ $i }}-{{ $staged->getClientOriginalName() }}"
-                                        class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
-                                    >
-                                        @include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3.5 shrink-0 text-muted-foreground'])
-                                        <span class="min-w-0 flex-1 truncate text-sm">{{ $staged->getClientOriginalName() }}</span>
-                                        <span class="num shrink-0 text-xs text-muted-foreground">
-                                            {{ ProjectsData::humanSize((int) $staged->getSize()) }}
-                                        </span>
-                                        <flux:button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            square
-                                            class="h-7 w-7 shrink-0"
-                                            aria-label="Remove {{ $staged->getClientOriginalName() }}"
-                                            wire:click="removeBrief({{ $i }})"
-                                        >
-                                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-3.5 text-danger'])</x-slot:icon>
-                                        </flux:button>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-                    </div>
-
-                    <div class="flex items-end sm:col-span-2">
-                        <flux:button
-                            variant="primary"
-                            wire:click="saveTask"
-                            :disabled="trim($taskTitle) === '' || count($taskAssigneeIds) === 0"
-                        >
-                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                            Add task
-                        </flux:button>
-                    </div>
-                </div>
-            </div>
-        </flux:modal>
-
-        {{-- edit-project-dialog.tsx --}}
-        <flux:modal wire:model.self="editing" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
-            <div class="space-y-4">
-                <div>
-                    <flux:heading size="lg">Edit project</flux:heading>
-                    <flux:text class="mt-1">
-                        Update the project brief, task leader, due date, or current status for {{ $project->code }}.
-                    </flux:text>
-                </div>
-
-                <form class="grid gap-4 sm:grid-cols-2" wire:submit="saveProject">
-                    <div class="space-y-2 sm:col-span-2">
-                        <flux:label for="project-edit-name">Project name</flux:label>
-                        <flux:input id="project-edit-name" wire:model="editName" />
-                    </div>
-
-                    <div class="space-y-2 sm:col-span-2">
-                        <flux:label for="project-edit-description">Description</flux:label>
-                        <flux:textarea id="project-edit-description" rows="3" wire:model="editDescription" />
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Site</flux:label>
-                        <flux:select aria-label="Project site" wire:model="editSiteId">
-                            <flux:select.option value="NONE">No site</flux:select.option>
-                            @foreach ($sites as $siteRow)
-                                <flux:select.option value="{{ $siteRow->id }}">{{ $siteRow->name }}</flux:select.option>
-                            @endforeach
-                        </flux:select>
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Task Leader</flux:label>
-                        <flux:select aria-label="Project task leader" wire:model="editManagerId">
-                            <flux:select.option value="NONE">No task leader</flux:select.option>
-                            @foreach ($accounts as $account)
-                                @if ((bool) $account->getAttribute('is_active'))
-                                    <flux:select.option value="{{ $account->id }}">{{ $account->name }}</flux:select.option>
-                                @endif
-                            @endforeach
-                        </flux:select>
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Status</flux:label>
-                        <flux:select aria-label="Project status" wire:model="editStatus">
-                            @foreach (ProjectPolicy::STATUSES as $value => $label)
-                                <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                            @endforeach
-                        </flux:select>
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label for="project-edit-start">Start date</flux:label>
-                        <x-kit.date-field id="project-edit-start" aria-label="Start date" wire:model="editStartDate" />
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label for="project-edit-due">Due date</flux:label>
-                        <x-kit.date-field id="project-edit-due" aria-label="Due date" wire:model="editDueDate" />
-                    </div>
-
-                    <div class="flex items-center justify-between gap-3 border-t border-border pt-4 sm:col-span-2">
-                        <p class="num text-xs text-muted-foreground">
-                            Created {{ ProjectsData::fmtDateManila($project->created_at) }}
-                        </p>
-                        <flux:button type="submit" variant="primary">Save changes</flux:button>
-                    </div>
-                </form>
-            </div>
-        </flux:modal>
-
-        {{-- Delete project — no reference dialog; modelled on the employees
-             delete confirm, rendered for managers only (the action re-checks
-             the gate itself).
-
-             Accessible name: Flux forwards only class/style/autofocus from
-             <flux:modal> to its <dialog>, so an aria-label on the tag lands
-             on the <ui-modal> wrapper and names nothing. The heading carries
-             an id and x-init points the dialog's aria-labelledby at it once
-             Alpine boots; the dialog is wire:ignore.self, so the attribute
-             survives every re-render. --}}
-        @if ($canManage)
-            <flux:modal
-                wire:model.self="deleteConfirmOpen"
-                class="w-full max-w-md"
-                x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'delete-project-heading')"
-            >
-                <div class="space-y-4">
-                    <div>
-                        <flux:heading size="lg" id="delete-project-heading">Delete this project?</flux:heading>
-                        <flux:text class="mt-2">
-                            This permanently removes {{ $project->code }} &mdash; {{ $project->name }}, its
-                            <span class="num">{{ $taskCount }}</span> {{ $taskCount === 1 ? 'task' : 'tasks' }}, and
-                            every file and comment attached to them. This cannot be undone.
-                        </flux:text>
-                    </div>
-                    <div class="flex items-center justify-end gap-2">
-                        <flux:button variant="outline" wire:click="$set('deleteConfirmOpen', false)">
-                            Cancel
-                        </flux:button>
-                        <flux:button variant="danger" wire:click="deleteProject">
-                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-4'])</x-slot:icon>
-                            Delete project
-                        </flux:button>
-                    </div>
-                </div>
-            </flux:modal>
-        @endif
-
-        {{-- task-review-dialog.tsx --}}
-        <flux:modal wire:model.self="reviewOpen" class="max-h-[90vh] w-full max-w-2xl overflow-y-auto">
-            @if ($openTask !== null)
-                @php
-                    $actions = TaskPolicy::managerCanMoveTo($openTask->status);
-                    $taskOverdue = TaskPolicy::isOverdue(ProjectsData::taskShape($openTask), $today);
-                @endphp
-                <div class="space-y-4">
-                    <div>
-                        <flux:heading size="lg">{{ $openTask->code !== '' ? $openTask->code : 'Task' }}</flux:heading>
-                        <flux:text class="mt-1">{{ $openTask->title }}</flux:text>
-                    </div>
-
-                    <div class="flex flex-wrap items-center gap-3 rounded-md border border-border p-4">
-                        <span class="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-                            <span class="num text-sm font-semibold">
-                                @if (count($openTaskAssignees) === 0)
-                                    —
-                                @elseif (count($openTaskAssignees) === 1)
-                                    {{ ProjectsData::initials($openTaskAssignees[0]) }}
-                                @else
-                                    {{ count($openTaskAssignees) }}
-                                @endif
-                            </span>
-                        </span>
-                        <div class="min-w-0">
-                            <p class="break-words font-semibold">{{ ProjectsData::assigneeNames($openTask) }}</p>
-                            <p class="num break-words text-xs text-muted-foreground">
-                                @if (count($openTaskAssignees) === 0)
-                                    Unassigned
-                                @else
-                                    @foreach ($openTaskAssignees as $assignee)
-                                        {{ $assignee->employee_code }} · {{ $assignee->position ?? '—' }}{{ $loop->last ? '' : ',' }}
-                                    @endforeach
-                                @endif
-                            </p>
-                        </div>
-                        <div class="ml-auto flex items-center gap-2">
-                            <span class="{{ TaskPolicy::priorityPill($openTask->priority) }}">
-                                {{ TaskPolicy::priorityLabel($openTask->priority) }}
-                            </span>
-                            <span class="{{ TaskPolicy::statusPill($openTask->status) }}">{{ TaskPolicy::statusLabel($openTask->status) }}</span>
-                            <flux:button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                square
-                                aria-label="Edit task assignment and deadline"
-                                wire:click="toggleEditingDetails"
-                            >
-                                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'edit-3', 'class' => 'size-4'])</x-slot:icon>
-                            </flux:button>
-                        </div>
-                    </div>
-
-                    @if ($editingDetails)
-                        <div class="grid gap-4 rounded-md border border-border bg-muted/20 p-4 sm:grid-cols-3">
-                            <div class="space-y-2 sm:col-span-3">
-                                <flux:label>Assignees</flux:label>
-                                <livewire:kit.employee-checklist
-                                    wire:model="draftAssigneeIds"
-                                    name="review-assignees"
-                                    placeholder="Search employees"
-                                    aria-label="Assignees"
-                                    :key="'review-assignees-'.$openTask->id"
-                                />
-                            </div>
-                            <div class="space-y-2">
-                                <flux:label>Priority</flux:label>
-                                <flux:select aria-label="Task priority" wire:model="draftPriority">
-                                    @foreach (TaskPolicy::PRIORITIES as $value => $label)
-                                        <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                                    @endforeach
-                                </flux:select>
-                            </div>
-                            <div class="space-y-2">
-                                <flux:label for="task-edit-due">Due date</flux:label>
-                                <x-kit.date-field id="task-edit-due" aria-label="Due date" wire:model="draftDueDate" />
-                            </div>
-                            <div class="flex items-end justify-end gap-2 sm:col-span-3">
-                                <flux:button type="button" variant="ghost" wire:click="$set('editingDetails', false)">
-                                    Cancel
-                                </flux:button>
-                                <flux:button type="button" variant="primary" wire:click="saveDetails">
-                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'save', 'class' => 'size-4'])</x-slot:icon>
-                                    Save task details
-                                </flux:button>
-                            </div>
-                        </div>
-                    @endif
-
-                    <div class="grid gap-4 sm:grid-cols-3">
-                        <div class="min-w-0 space-y-1">
-                            <p class="text-xs uppercase tracking-wide text-muted-foreground">Project</p>
-                            <div class="break-words text-sm font-medium">{{ $project->name }}</div>
-                        </div>
-                        <div class="min-w-0 space-y-1">
-                            <p class="text-xs uppercase tracking-wide text-muted-foreground">Due</p>
-                            <div class="break-words text-sm font-medium">
-                                @if ($openTask->due_date)
-                                    <span class="{{ $taskOverdue ? 'num text-danger' : 'num' }}">
-                                        {{ ProjectsData::fmtDate($openTask->due_date) }}{{ $taskOverdue ? ' · overdue' : '' }}
-                                    </span>
-                                @else
-                                    —
-                                @endif
-                            </div>
-                        </div>
-                        <div class="min-w-0 space-y-1">
-                            <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned by</p>
-                            <div class="break-words text-sm font-medium">
-                                {{ $accountName($openTask->getAttribute('assigned_by')) }}
-                                <span class="num block text-xs font-normal text-muted-foreground">
-                                    {{ ProjectsData::fmtDateTime($openTask->assigned_at) }}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="space-y-1">
-                        <p class="text-xs uppercase tracking-wide text-muted-foreground">Description</p>
-                        <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                            {{ trim($openTask->description ?? '') !== '' ? trim($openTask->description) : 'No description given.' }}
-                        </p>
-                    </div>
-
-                    {{-- Management owns the brief, so it stays editable at any status
-                         in the dialog; outside the editable statuses the server
-                         answers "Task evidence is locked in this status." --}}
-                    <div class="space-y-2">
-                        <div class="flex items-center justify-between gap-3">
-                            <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Brief &amp; references</p>
-                            <flux:button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                class="h-7"
-                                x-on:click="$refs.reviewBriefInput.click()"
-                            >
-                                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3'])</x-slot:icon>
-                                Attach
-                            </flux:button>
-                            <input
-                                type="file"
-                                class="hidden"
-                                x-ref="reviewBriefInput"
-                                wire:model="reviewBriefUpload"
-                            />
-                        </div>
-                        @if ($openTaskBrief->isEmpty())
-                            <p class="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                                No brief attached. Attach the spec or form the assignee should work from.
-                            </p>
-                        @else
-                            <ul class="space-y-1">
-                                @foreach ($openTaskBrief as $f)
-                                    <li wire:key="brief-{{ $f->id }}" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                                        @include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3.5 shrink-0 text-muted-foreground'])
-                                        <span class="min-w-0 flex-1 truncate text-sm">{{ $f->file_name }}</span>
-                                        <span class="num shrink-0 text-xs text-muted-foreground">{{ ProjectsData::humanSize((int) $f->size) }}</span>
-                                        <flux:button
-                                            variant="ghost"
-                                            size="sm"
-                                            square
-                                            class="h-7 w-7 shrink-0"
-                                            href="{{ route('projects.task-files.download', $f->id) }}"
-                                            aria-label="Download {{ $f->file_name }}"
-                                        >
-                                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-3.5'])</x-slot:icon>
-                                        </flux:button>
-                                        <flux:button
-                                            type="button"
-                                            variant="ghost"
-                                            size="sm"
-                                            square
-                                            class="h-7 w-7 shrink-0"
-                                            aria-label="Remove {{ $f->file_name }}"
-                                            wire:click="deleteFile('{{ $f->id }}')"
-                                        >
-                                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-3.5 text-danger'])</x-slot:icon>
-                                        </flux:button>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-                    </div>
-
-                    {{-- Read-only on purpose: the reviewer must not be able to add to
-                         or thin out what the assignee actually handed in. --}}
-                    <div class="space-y-2">
-                        <div class="flex items-center justify-between gap-3">
-                            <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Submitted files</p>
-                        </div>
-                        @if ($openTaskSubmitted->isEmpty())
-                            <p class="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                                No files were submitted with this task.
-                            </p>
-                        @else
-                            <ul class="space-y-1">
-                                @foreach ($openTaskSubmitted as $f)
-                                    <li wire:key="submission-{{ $f->id }}" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                                        @include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3.5 shrink-0 text-muted-foreground'])
-                                        <span class="min-w-0 flex-1 truncate text-sm">{{ $f->file_name }}</span>
-                                        <span class="num shrink-0 text-xs text-muted-foreground">{{ ProjectsData::humanSize((int) $f->size) }}</span>
-                                        <flux:button
-                                            variant="ghost"
-                                            size="sm"
-                                            square
-                                            class="h-7 w-7 shrink-0"
-                                            href="{{ route('projects.task-files.download', $f->id) }}"
-                                            aria-label="Download {{ $f->file_name }}"
-                                        >
-                                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-3.5'])</x-slot:icon>
-                                        </flux:button>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-                    </div>
-
-                    {{-- Returning clears submitted_at, so gate on the remarks too —
-                         the assignee's note is still the last thing they said. --}}
-                    @if ($openTask->submitted_at !== null || trim($openTask->remarks ?? '') !== '')
-                        <div class="space-y-1">
-                            <p class="text-xs uppercase tracking-wide text-muted-foreground">
-                                @php
-                                    // Who handed it in: the recorded submitter when the
-                                    // pivot era stamped one, else the assignee set.
-                                    $submittedBy = $openTask->submitter !== null
-                                        ? ProjectsData::employeeName($openTask->submitter)
-                                        : ProjectsData::assigneeNames($openTask);
-                                @endphp
-                                @if ($openTask->submitted_at !== null)
-                                    Submitted <span class="num">{{ ProjectsData::fmtDateTime($openTask->submitted_at) }}</span>
-                                @else
-                                    Last submission
-                                @endif
-                                @if ($submittedBy !== '—')
-                                    by {{ $submittedBy }}
-                                @endif
-                            </p>
-                            <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                                {{ trim($openTask->remarks ?? '') !== '' ? trim($openTask->remarks) : 'No remarks from the assignees.' }}
-                            </p>
-                        </div>
-                    @endif
-
-                    @if ($openTask->review_remarks)
-                        <div class="space-y-1">
-                            <p class="text-xs uppercase tracking-wide text-muted-foreground">
-                                Review remarks{{ $openTask->getAttribute('reviewed_by') !== null ? ' · '.$accountName($openTask->getAttribute('reviewed_by')) : '' }}
-                            </p>
-                            <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                                {{ $openTask->review_remarks }}
-                            </p>
-                        </div>
-                    @endif
-
-                    @if (count($actions) > 0)
-                        <div class="space-y-2">
-                            <flux:label for="task-review-remark">
-                                Review remark{{ in_array('RETURNED', $actions, true) ? ' (required to return)' : '' }}
-                            </flux:label>
-                            <flux:textarea
-                                id="task-review-remark"
-                                rows="3"
-                                placeholder="What the assignee should know about this decision"
-                                wire:model="remarks"
-                            />
-                        </div>
-                    @endif
-
-                    {{-- Above the decision row, and deliberately not gated on
-                         `actions` — a note is still legitimate once the task is
-                         closed (task-review-dialog.tsx:840-856). --}}
-                    <div class="space-y-2">
-                        <p class="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            @include('livewire.projects.partials.icon', ['icon' => 'message-square', 'class' => 'size-3'])
-                            Discussion
-                            @if ($openTaskComments->count() > 0)
-                                <span class="num">({{ $openTaskComments->count() }})</span>
-                            @endif
-                        </p>
-
-                        @if ($openTaskComments->isEmpty())
-                            <p class="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                                No comments yet.
-                            </p>
-                        @else
-                            <ul class="space-y-2">
-                                @foreach ($openTaskComments as $c)
-                                    <li
-                                        wire:key="comment-{{ $c->id }}"
-                                        class="rounded-md border px-3 py-2 {{ $c->side === 'MANAGEMENT' ? 'border-border bg-muted/30' : 'border-border bg-card' }}"
-                                    >
-                                        <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                                            <span class="text-sm font-medium">{{ $c->author_name }}</span>
-                                            <span class="num text-xs text-muted-foreground">
-                                                {{ ProjectsData::fmtDateTime($c->created_at) }}
-                                            </span>
-                                        </div>
-                                        @if ($c->event)
-                                            <p class="mt-0.5 text-xs text-muted-foreground">
-                                                Posted with {{ mb_strtolower(TaskPolicy::statusLabel($c->event)) }}
-                                            </p>
-                                        @endif
-                                        <p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $c->body }}</p>
-                                    </li>
-                                @endforeach
-                            </ul>
-                        @endif
-
-                        <div class="space-y-2">
-                            <flux:textarea
-                                aria-label="Add a comment"
-                                placeholder="Explain what needs changing, or answer a question…"
-                                rows="2"
-                                wire:model="commentBody"
-                            />
-                            <div class="flex justify-end">
-                                <flux:button type="button" size="sm" variant="primary" wire:click="postComment">
-                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'send', 'class' => 'size-3'])</x-slot:icon>
-                                    Post comment
-                                </flux:button>
-                            </div>
-                        </div>
-                    </div>
-
-                    @if (count($actions) > 0)
-                        <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-                            @if (in_array('CANCELLED', $actions, true))
-                                <flux:button variant="danger" wire:click="review('CANCELLED')">
-                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'ban', 'class' => 'size-4'])</x-slot:icon>
-                                    Cancel task
-                                </flux:button>
-                            @endif
-                            @if (in_array('RETURNED', $actions, true))
-                                <flux:button variant="outline" wire:click="review('RETURNED')">
-                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'undo-2', 'class' => 'size-4'])</x-slot:icon>
-                                    Return for rework
-                                </flux:button>
-                            @endif
-                            @if (in_array('COMPLETED', $actions, true))
-                                <flux:button variant="primary" wire:click="review('COMPLETED')">
-                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'check', 'class' => 'size-4'])</x-slot:icon>
-                                    Accept task
-                                </flux:button>
-                            @endif
-                        </div>
-                    @endif
-                </div>
-            @endif
-        </flux:modal>
+        @include('livewire.projects.partials.dialog-task-review')
     @endif
 </div>

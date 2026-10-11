@@ -4,26 +4,27 @@ declare(strict_types=1);
 
 namespace App\Livewire\Leaves;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
-use App\Models\LeaveTravelRequest;
-use App\Models\LeaveType;
-use App\Models\Notification;
-use App\Models\User;
+use App\Livewire\Leaves\Support\LeaveRows;
+use App\Modules\Timekeeping\Application\Commands\CancelAbsence;
+use App\Modules\Timekeeping\Application\Commands\ReviewAbsence;
+use App\Modules\Timekeeping\Application\Queries\AbsenceRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Application\Queries\ReferenceData;
+use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
+use App\Modules\Timekeeping\Contracts\Views\LeaveTravelRequestView as LeaveTravelRequest;
+use App\Modules\Timekeeping\Contracts\Views\LeaveTypeView;
+use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Support\Access;
-use App\Support\AuditService;
-use App\Support\EmployeeName;
-use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Database\QueryException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
-use Throwable;
+use RuntimeException;
 
 /**
  * Leave Management — the port of leaves-page.tsx + leave-detail-dialog.tsx.
@@ -35,9 +36,16 @@ use Throwable;
  * descending (which puts blanks first on desc), and a search needle matched
  * against "code + employee name + description" as one string.
  *
- * Review is the port of POST /api/leave-requests/[id]/review — the actor
- * checks, the self-review refusal and the status-guarded UPDATE all live in
- * {@see self::review()}. Filing and withdrawing belong to My Portal, not here.
+ * Review delegates to Timekeeping's ReviewAbsence operation, which owns
+ * authorization, self-review refusal and the status-guarded UPDATE. Portal
+ * presents the filing and withdrawal operations owned by the same module.
+ *
+ * Requests, Leave Credits and Leave Ledger have separate tab state. The
+ * credit and ledger children keep their own filters and paginator and are
+ * mounted only while their tab shows. The review dialog reads the
+ * open request's credit standing (LeaveCreditRecords) so the reviewer sees
+ * what is left before approving with pay; it is a line of information, never
+ * a refusal — balances are displayed, not enforced.
  */
 #[Layout('layouts.app')]
 #[Title('Leave Management')]
@@ -56,7 +64,11 @@ class Index extends Component
         'APPROVED' => 'Approved',
         'REJECTED' => 'Rejected',
         'WITHDRAWN' => 'Withdrawn',
+        'CANCELLED' => 'Cancelled',
     ];
+
+    /** Which tab is showing. Plain UI state; anything unknown collapses back. */
+    public string $tab = 'requests';
 
     /** Status filter. Plain filter state, deliberately unlocked. */
     public string $status = 'ALL';
@@ -81,10 +93,35 @@ class Index extends Component
      */
     public bool $detailOpen = false;
 
+    /**
+     * Selected dates are drafts; CancelAbsence revalidates every date under lock.
+     *
+     * @var list<string>
+     */
+    public array $cancelDates = [];
+
+    public string $cancelReason = '';
+
+    public string $cancelError = '';
+
     public function mount(): void
     {
         // useSort<SortKey>("id") — leaves-page.tsx:58.
         $this->sortKey = 'id';
+
+        // Credit and ledger deep links mount their child; unknown tabs stay
+        // on requests.
+        if (in_array((string) request()->query('tab', ''), ['credits', 'ledger'], true)) {
+            $this->tab = (string) request()->query('tab');
+        }
+    }
+
+    /** The strip's buttons; an unknown value collapses to the request table, and a switch forgets the open row. */
+    public function updatedTab(string $value): void
+    {
+        $this->tab = in_array($value, ['requests', 'credits', 'ledger'], true) ? $value : 'requests';
+        $this->detailOpen = false;
+        $this->openId = null;
     }
 
     /** @return list<string> */
@@ -121,17 +158,39 @@ class Index extends Component
     /** Open a request's detail — the row click of leaves-page.tsx:280. */
     public function show(string $id): void
     {
-        $visible = LeaveTravelRequest::query()
-            ->toEmployee(app(Access::class), 'employee_id', ModuleCode::LEAVES)
-            ->whereKey($id)
-            ->exists();
+        $visible = app(AbsenceRecords::class)->visible(app(Access::class), $id);
 
         if (! $visible) {
             return;
         }
 
         $this->openId = $id;
+        $this->reset('cancelDates', 'cancelReason', 'cancelError');
         $this->detailOpen = true;
+    }
+
+    /** Management may cancel its own approved leave; elapsed dates remain protected. */
+    public function cancelSelectedDates(): void
+    {
+        $actor = app(Access::class);
+        $this->cancelError = '';
+        if ($this->openId === null) {
+            return;
+        }
+        try {
+            app(CancelAbsence::class)->handle($actor, $this->openId, $this->cancelDates, $this->cancelReason);
+        } catch (QueryException $e) {
+            report($e);
+            $this->cancelError = 'The cancellation could not be saved. Please try again.';
+
+            return;
+        } catch (RuntimeException $e) {
+            $this->cancelError = $e->getMessage();
+
+            return;
+        }
+        $this->reset('cancelDates', 'cancelReason');
+        Flux::toast(text: 'Selected leave dates cancelled. Leave balances have been updated.', variant: 'success');
     }
 
     /**
@@ -145,104 +204,22 @@ class Index extends Component
     public function review(string $status, ?bool $isPaid = null): void
     {
         $actor = app(Access::class);
-
-        // requireAllDataModule("LEAVES") (review/route.ts:31): route middleware
-        // is not enough — this action is reachable without the page load.
-        if (! $actor->mayReadAllData(ModuleCode::LEAVES)) {
-            Flux::toast(text: 'Your role cannot manage organization-wide data.', variant: 'danger');
-
-            return;
-        }
-
-        // The schema's z.enum (review/route.ts:23): anything else is refused.
         if (! in_array($status, ['APPROVED', 'REJECTED'], true) || $this->openId === null) {
             return;
         }
+        try {
+            $outcome = app(ReviewAbsence::class)->handle($actor, $this->openId, $status, $isPaid);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'The review could not be saved. Please try again.', variant: 'danger');
 
-        $existing = LeaveTravelRequest::query()->whereKey($this->openId)->first();
-
-        if ($existing === null) {
-            Flux::toast(text: 'That request no longer exists.', variant: 'danger');
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        // The reviewer must not be the person who filed it (review/route.ts:39-41).
-        if ($actor->employeeId !== null && $existing->employee_id === $actor->employeeId) {
-            Flux::toast(text: 'You cannot review your own request.', variant: 'danger');
-
-            return;
-        }
-
-        if ($existing->status !== 'PENDING') {
-            Flux::toast(text: 'That request has already been reviewed.', variant: 'danger');
-
-            return;
-        }
-
-        $isOb = $existing->request_type === LeaveLabels::OFFICIAL_BUSINESS;
-
-        if ($status === 'APPROVED' && ! $isOb && $isPaid === null) {
-            Flux::toast(text: 'Choose whether approved leave is with or without pay.', variant: 'danger');
-
-            return;
-        }
-
-        $normalizedPaid = ($status === 'REJECTED' || $isOb) ? null : $isPaid;
-
-        // `status = 'PENDING'` in the WHERE is the real guard (review/route.ts:53-56):
-        // two reviewers racing both pass the read above, but only one UPDATE
-        // matches — the loser gets the same message instead of silently
-        // overwriting the first decision. The reference's demo store had the
-        // check-then-update race; its API route fixed it exactly this way, and
-        // this is the fixed behaviour, ported.
-        $won = LeaveTravelRequest::query()
-            ->whereKey($existing->id)
-            ->where('status', 'PENDING')
-            ->update([
-                'status' => $status,
-                'is_paid' => $normalizedPaid,
-                // Actor column: from the session-derived Access, never the request.
-                'reviewed_by' => (int) $actor->userId,
-                // UTC, at the DATETIME(3) precision the column declares — a raw
-                // builder update bypasses the model's $dateFormat.
-                'reviewed_at' => CarbonImmutable::now('UTC')->format('Y-m-d H:i:s.v'),
-            ]);
-
-        if ($won === 0) {
-            Flux::toast(text: 'That request has already been reviewed.', variant: 'danger');
-
-            return;
-        }
-
-        AuditService::record(
-            $actor,
-            $status === 'APPROVED' ? AuditEvent::REQUEST_APPROVED : AuditEvent::REQUEST_REJECTED,
-            'leave_travel_requests',
-            $existing->id,
-            $existing->code.' '.strtolower($status),
-        );
-
-        // notifyEmployee (review/route.ts:75-85): the addressee is derived from
-        // the record, never sent by the client.
-        $this->notifyEmployee($existing->employee_id, [
-            'kind' => 'LEAVE_REVIEWED',
-            'title' => $existing->code.' '.strtolower($status),
-            'body' => $status !== 'APPROVED' || $isOb
-                ? null
-                : ($normalizedPaid ? 'Approved with pay' : 'Approved without pay'),
-            'href' => '/portal',
-        ]);
-
-        // The page's outcome sentence (leaves-page.tsx:131-139, 162).
-        $outcome = $status === 'REJECTED'
-            ? 'rejected'
-            : ($isOb
-                ? 'approved as official business'
-                : ($normalizedPaid ? 'approved with pay' : 'approved without pay'));
-
         Flux::toast(text: "Request {$outcome}.", variant: 'success');
-
         $this->detailOpen = false;
         $this->openId = null;
     }
@@ -252,15 +229,25 @@ class Index extends Component
         $actor = app(Access::class);
 
         /** Descriptions come from Records Management → Leave Settings. */
-        $typeNames = array_values(LeaveType::query()->orderBy('name')->pluck('name')->map(static fn ($n): string => (string) $n)->all());
+        $typeNames = array_values(app(ReferenceData::class)->leaveTypes($actor)->map(static fn (LeaveTypeView $type): string => $type->name)->all());
+
+        // Both balance tabs read through their child components.
+        if (in_array($this->tab, ['credits', 'ledger'], true)) {
+            return view('livewire.leaves.index', [
+                'rows' => $this->paginateClamped([]),
+                'described' => [],
+                'descriptions' => [],
+                'open' => null,
+                'openDescription' => '',
+                'reviewerName' => null,
+                'openBalance' => null,
+                'openNeeds' => 0.0,
+            ]);
+        }
 
         // GET /api/leave-requests: scoped to the caller unless their role sees
         // all (route.ts:60-70). `reviewer` only to name whoever reviewed.
-        $rows = LeaveTravelRequest::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
-            ->with(['employee', 'reviewer'])
-            ->orderByDesc('created_at')
-            ->get();
+        $rows = app(AbsenceRecords::class)->list($actor);
 
         /** @var array<string, string> $described row id => resolved description */
         $described = [];
@@ -288,56 +275,15 @@ class Index extends Component
         $descriptions = array_keys($names);
         usort($descriptions, static fn (string $a, string $b): int => strcasecmp($a, $b));
 
-        // The filter pipeline (leaves-page.tsx:79-88).
-        $needle = mb_strtolower(trim($this->search));
-
-        $visible = $rows->filter(function (LeaveTravelRequest $r) use ($described, $needle): bool {
-            if ($this->status !== 'ALL' && $r->status !== $this->status) {
-                return false;
-            }
-
-            if ($this->description !== 'ALL' && $described[$r->id] !== $this->description) {
-                return false;
-            }
-
-            if ($this->dayType !== 'ALL' && ($r->day_type ?? 'WHOLE_DAY') !== $this->dayType) {
-                return false;
-            }
-
-            if ($needle === '') {
-                return true;
-            }
-
-            $employee = $r->employee;
-            $name = EmployeeName::display($employee);
-
-            return str_contains(mb_strtolower("{$r->code} {$name} {$described[$r->id]}"), $needle);
-        })->values();
-
-        // The sort (leaves-page.tsx:90-107) — comparator then a whole-list
-        // reverse() for descending, exactly as the source did it.
-        $sorted = $visible->sort(function (LeaveTravelRequest $a, LeaveTravelRequest $b) use ($described): int {
-            return match ($this->sortKey) {
-                'employee' => LeaveLabels::compareText($a->employee?->last_name, $b->employee?->last_name),
-                'date' => LeaveLabels::compareText($a->start_date->format('Y-m-d'), $b->start_date->format('Y-m-d'))
-                    ?: LeaveLabels::compareText($a->end_date->format('Y-m-d'), $b->end_date->format('Y-m-d')),
-                'description' => LeaveLabels::compareText($described[$a->id], $described[$b->id]),
-                'dayType' => LeaveLabels::compareText(
-                    LeaveLabels::dayTypeLabel($a->day_type),
-                    LeaveLabels::dayTypeLabel($b->day_type),
-                ),
-                default => LeaveLabels::compareText($a->code, $b->code),
-            };
-        })->values();
-
-        if ($this->sortDir === 'desc') {
-            $sorted = $sorted->reverse()->values();
-        }
+        // The filter pipeline and sort (leaves-page.tsx:79-107): one copy,
+        // shared with the CSV export.
+        $sorted = LeaveRows::arrange($rows, $described, $this->search, $this->status, $this->description, $this->dayType, $this->sortKey, $this->sortDir);
 
         $paginator = $this->paginateClamped($sorted);
 
         // The open row comes from the SCOPED list, like `rows.find` (page:111).
         $open = $this->openId !== null ? $rows->firstWhere('id', $this->openId) : null;
+        [$openBalance, $openNeeds] = $this->creditLine($actor, $open);
 
         return view('livewire.leaves.index', [
             'rows' => $paginator,
@@ -348,39 +294,47 @@ class Index extends Component
                 ? ($described[$open->id] ?? LeaveLabels::describe($open->request_type, $typeNames))
                 : '',
             'reviewerName' => $open?->reviewer?->name,
+            'openBalance' => $openBalance,
+            'openNeeds' => $openNeeds,
         ]);
     }
 
     /**
-     * Port of `notifyEmployee` (src/lib/api/notify.ts:44-57): tells whoever
-     * holds the login attached to an employee. An employee with no login is
-     * simply not told. Fire-and-forget — the review really did happen, and
-     * failing it because the bell did not ring would be the worse lie.
+     * The review dialog's credits line: the open request's standing against
+     * the credit of its type in the year it STARTS, and what it costs. Only
+     * for a request that draws on a credit — pending leave (its pay is not
+     * decided yet, so it may), or leave already approved with pay (its days
+     * are inside `used`) — and only when the type has a credit row or is a
+     * creditable Leave Settings type; official business, rejected, withdrawn
+     * and without-pay rows get no line. Read only while a dialog is open, so
+     * the list itself costs nothing more.
      *
-     * @param  array{kind: string, title: string, body: ?string, href: string}  $entry
+     * @return array{0: LeaveBalanceView|null, 1: float}
      */
-    private function notifyEmployee(string $employeeId, array $entry): void
+    private function creditLine(Access $actor, ?LeaveTravelRequest $open): array
     {
-        try {
-            $accountIds = User::query()
-                ->where('employee_id', $employeeId)
-                ->where('is_active', true)
-                ->pluck('id');
-
-            foreach ($accountIds as $accountId) {
-                $notification = new Notification;
-                $notification->fill([
-                    'kind' => $entry['kind'],
-                    'title' => $entry['title'],
-                    'body' => $entry['body'],
-                    'href' => $entry['href'],
-                ]);
-                // The addressee is server-assigned, never mass-assigned.
-                $notification->user_id = (int) $accountId;
-                $notification->save();
-            }
-        } catch (Throwable $e) {
-            Log::error('[notify] write failed', ['error' => $e->getMessage()]);
+        if ($open === null) {
+            return [null, 0.0];
         }
+        $counts = $open->status === 'PENDING'
+            ? LeaveCreditPolicy::wouldConsume($open->request_type, $open->is_paid)
+            : LeaveCreditPolicy::consumes($open->status, $open->request_type, $open->is_paid);
+        if (! $counts) {
+            return [null, 0.0];
+        }
+
+        $start = $open->start_date->format('Y-m-d');
+        $rows = app(LeaveCreditRecords::class)->balances($actor, $open->employee_id, LeaveCreditPolicy::yearOf($start));
+        $key = LeaveCreditPolicy::resolveKey(
+            $open->request_type,
+            array_map(static fn (LeaveBalanceView $row): string => $row->request_type, $rows),
+        );
+        foreach ($rows as $row) {
+            if ($row->request_type === $key) {
+                return [$row, LeaveCreditPolicy::coveredDays($open->day_type, $start, $open->end_date->format('Y-m-d'), $open->cancelled_dates)];
+            }
+        }
+
+        return [null, 0.0];
     }
 }

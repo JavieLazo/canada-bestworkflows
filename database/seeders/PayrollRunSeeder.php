@@ -19,7 +19,7 @@ use Carbon\CarbonImmutable;
  * Member rows carry NO overrides (all null): null is "the manager did not
  * enter one", which the calculator distinguishes from an explicit zero.
  *
- * A PR-001 the user has already FINALIZED is left completely alone — a
+ * A payroll 1 the user has already FINALIZED is left completely alone — a
  * re-seed must never flip a posted payroll back to draft.
  */
 final class PayrollRunSeeder extends PortSeeder
@@ -32,7 +32,11 @@ final class PayrollRunSeeder extends PortSeeder
             return;
         }
 
-        $existing = PayrollRun::query()->where('code', 'PR-001')->first();
+        $match = $this->codeMatch(PayrollRun::class, 'code', 1, 'PR');
+        $seededId = $this->seedId(PayrollRun::class, 'run-1');
+        $existing = $seededId === null
+            ? PayrollRun::query()->where($match)->first()
+            : PayrollRun::query()->find($seededId);
 
         if ($existing !== null && $existing->status === 'FINALIZED') {
             return;
@@ -42,7 +46,7 @@ final class PayrollRunSeeder extends PortSeeder
         $periodStart = $month->format('Y-m-d');
         $periodEnd = $month->addDays(14)->format('Y-m-d');
 
-        $run = $this->upsert(PayrollRun::class, ['code' => 'PR-001'], [
+        $run = $this->upsert(PayrollRun::class, $match, [
             'id' => 'run-1',
             'name' => $month->format('F Y').' — 1st cut-off',
             'period_start' => $periodStart,

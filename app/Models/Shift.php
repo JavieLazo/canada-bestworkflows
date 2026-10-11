@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace App\Models;
 
 use App\Models\Concerns\ScopesToActor;
+use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One row per employee — the shift they are rostered on.
+ * An employee's default shift from `effective_from` on (2026_09_30_0004).
+ * Each change adds a row instead of overwriting one, so a date is judged by
+ * the latest row on or before it — NULL `effective_from` is "since before
+ * history was kept" — unless its `change_id` names a cancelled
+ * `roster_schedule_changes` row. Read it through `ShiftRoster` or
+ * `RosterVersions`, never with `->first()` for an employee.
  *
  * Times are `HH:MM:SS` STRINGS rather than a MySQL TIME column, on purpose:
  * `src/lib/dtr.ts` splits them on ":" and does its arithmetic in minutes, and
@@ -25,9 +31,12 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * literal default on a JSON column.
  *
  * `mode` is a `ShiftMode` (FIXED | FLEXIBLE), copied from the shift pattern at
- * assignment so a later pattern edit does not change posted payroll. Cast as a
- * plain string until `app/Enums/ShiftMode.php` exists; the stored values are
- * already the enum's backing strings.
+ * assignment (`AssignShift`). An edit of the linked pattern (`SaveShiftType`)
+ * copies it again as a new row from the edit's date; earlier rows keep the
+ * hours they had. Posted payroll is
+ * protected by `PayrollInputs` capturing each shift at finalization, not by
+ * this copy. Cast as a plain string until `app/Enums/ShiftMode.php` exists;
+ * the stored values are already the enum's backing strings.
  *
  * This is one of only two tables with NEITHER created_at NOR updated_at.
  *
@@ -44,6 +53,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $break_end
  * @property int $break_minutes
  * @property bool $requires_break_punch
+ * @property CarbonImmutable|null $effective_from
+ * @property string|null $change_id
  * @property-read EmployeeProfile|null $employee
  * @property-read ShiftType|null $shiftType
  */
@@ -71,6 +82,8 @@ class Shift extends BaseModel
         'break_end',
         'break_minutes',
         'requires_break_punch',
+        'effective_from',
+        'change_id',
     ];
 
     /**
@@ -92,6 +105,7 @@ class Shift extends BaseModel
             'grace_minutes' => 'integer',
             'break_minutes' => 'integer',
             'requires_break_punch' => 'boolean',
+            'effective_from' => 'immutable_date:Y-m-d',
         ];
     }
 
@@ -102,7 +116,10 @@ class Shift extends BaseModel
     }
 
     /**
-     * The Shifting Settings pattern this was assigned from.
+     * The Shifting Settings pattern this was assigned from — and the link
+     * `SaveShiftType` follows to re-copy an edited pattern onto this row. The
+     * FK is nullOnDelete: a row whose pattern was deleted keeps its last copy
+     * and is never rewritten again.
      *
      * @return BelongsTo<ShiftType, $this>
      */

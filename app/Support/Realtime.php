@@ -20,7 +20,7 @@ use function Illuminate\Support\defer;
  * and each of the four steps is load-bearing:
  *
  *  1. **OFF UNLESS A BROADCASTER CAN REACH A BROWSER.** `realtime.enabled`
- *     (config/bestworkflows.php) is derived from BROADCAST_CONNECTION, so on a host
+ *     (config/copems.php) is derived from BROADCAST_CONNECTION, so on a host
  *     with no keys this returns before doing anything at all. Nothing is
  *     dispatched, nothing is logged, and the `log` driver cannot turn a busy
  *     kiosk into a busy log file.
@@ -69,7 +69,7 @@ final class Realtime
      */
     public static function announce(array $channels): void
     {
-        if (config('bestworkflows.realtime.enabled') !== true) {
+        if (config('copems.realtime.enabled') !== true) {
             return;
         }
 
@@ -109,6 +109,17 @@ final class Realtime
     public static function allPunches(): string
     {
         return 'attendance';
+    }
+
+    /**
+     * The channel every Community change is announced on. One knock for the
+     * whole feed rather than one per reader: the knock carries nothing, and
+     * each open page re-reads through its own visibility rules, so a private
+     * group's post only makes other readers' pages check and find nothing new.
+     */
+    public static function community(): string
+    {
+        return 'community';
     }
 
     /** The channel one account's notifications are announced on. */

@@ -7,10 +7,10 @@
         strip of role=tab buttons, with only the active tab's content mounted
         (Radix unmounts inactive TabsContent, and a server-side re-render
         matches that).
-      - The payslip Dialog is <flux:modal>; DialogTitle/DialogDescription are
-        plain markup carrying their classes, print-hidden exactly as the
-        source's `print:hidden` header was. The print stylesheet keys on the
-        `payslip-print` class, same as the reference.
+      - The payslip Dialog is a BARE <flux:modal> that shows the payslip alone:
+        there is no DialogTitle / DialogDescription header (the source has
+        one), because the payslip names itself and its period. The print
+        stylesheet keys on the `payslip-print` class, same as the reference.
 --}}
 @use('App\Livewire\Portal\Support\PortalLabels')
 
@@ -27,14 +27,14 @@
 
     @unless ($hasEmployee)
         <p class="hris-card p-6 text-sm text-muted-foreground">
-            Your login isn't linked to an employee record yet, so punches and requests are disabled.
+            Your login isn't linked to an employee record yet, so punches, attendance, requests and leave credits are unavailable.
             Ask HR to link your account.
         </p>
     @endunless
 
     <div>
         {{-- TabsList — shadcn's muted strip with the active trigger raised. --}}
-        <div class="inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground" role="tablist">
+        <div class="inline-flex h-auto flex-wrap items-center justify-start rounded-lg bg-muted p-1 text-muted-foreground" role="tablist">
             <button
                 type="button"
                 role="tab"
@@ -42,6 +42,13 @@
                 wire:click="$set('tab', 'punch')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'punch' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
             >Punch station</button>
+            <button
+                type="button"
+                role="tab"
+                aria-selected="{{ $tab === 'attendance' ? 'true' : 'false' }}"
+                wire:click="$set('tab', 'attendance')"
+                class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'attendance' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
+            >Attendance</button>
             <button
                 type="button"
                 role="tab"
@@ -56,9 +63,14 @@
                 wire:click="$set('tab', 'payslips')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'payslips' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
             >My payslips</button>
+            <button type="button" role="tab" aria-selected="{{ $tab === 'inventory' ? 'true' : 'false' }}" wire:click="$set('tab', 'inventory')" class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'inventory' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">My issued items</button>
         </div>
 
-        @if ($tab === 'punch')
+        @if ($tab === 'inventory')
+            <div class="mt-4"><livewire:inventory.employee-items :own="true" key="portal-inventory" /></div>
+        @elseif ($tab === 'attendance')
+            <div class="mt-4"><livewire:portal.my-attendance /></div>
+        @elseif ($tab === 'punch')
             <div class="mt-4 space-y-4">
                 @if ($hasEmployee)
                     <div class="grid items-start gap-4 xl:grid-cols-[minmax(0,27rem)_minmax(0,1fr)]">
@@ -81,64 +93,143 @@
             </div>
         @elseif ($tab === 'requests')
             <div class="mt-4 space-y-4">
-                <form class="hris-card grid gap-4 p-6 sm:grid-cols-2" wire:submit="file">
-                    <h2 class="text-base font-bold sm:col-span-2">File leave or business travel</h2>
-
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="space-y-2">
-                            <flux:label for="portal-request-type">Description</flux:label>
-                            <flux:select id="portal-request-type" wire:model.live="type" placeholder="Select leave">
-                                @foreach ($requestOptions as $t)
-                                    <flux:select.option value="{{ $t['value'] }}">{{ $t['label'] }}</flux:select.option>
-                                @endforeach
-                            </flux:select>
+                @if ($hasEmployee)
+                    <details class="hris-card p-4">
+                        <summary class="cursor-pointer text-sm font-semibold">My leave ledger · opening, earned and carried credits</summary>
+                        <div class="mt-4"><livewire:leaves.leave-ledger :own="true" wire:key="portal-leave-ledger" /></div>
+                    </details>
+                @endif
+                <div @class(['grid items-start gap-4', 'lg:grid-cols-2' => $hasEmployee])>
+                    {{-- Not in the reference: MY leave credits for the year, per
+                         type — what Leave Management entered, what approved leave
+                         with pay has used, and what is left. Own-pinned in
+                         LeaveCreditRecords::own(); nothing for an unlinked account,
+                         whose notice above already says so. --}}
+                    @if ($hasEmployee)
+                        <div class="hris-card min-w-0 overflow-hidden lg:order-2" data-leave-credits>
+                            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                                <h2 class="text-base font-bold">Leave credits · {{ $creditYear }}</h2>
+                                <div class="flex flex-wrap items-center gap-3">
+                                    <p class="text-xs text-muted-foreground">Used days come from approved leave with pay.</p>
+                                </div>
+                            </div>
+                            @if ($balances->isEmpty())
+                                <p class="px-5 py-6 text-sm text-muted-foreground">No leave credits have been entered for {{ $creditYear }} yet.</p>
+                            @else
+                                <div class="hris-table-wrap">
+                                    <table class="hris-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Type</th>
+                                                <th><span class="block text-right">Credited</span></th>
+                                                <th><span class="block text-right">Used</span></th>
+                                                <th><span class="block text-right">Left</span></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($balances as $b)
+                                                <tr wire:key="credit-{{ $b->request_type }}">
+                                                    <td>{{ $b->label }}</td>
+                                                    <td class="num text-right">{{ PortalLabels::dayCount($b->credited) }}</td>
+                                                    <td class="num text-right">{{ PortalLabels::dayCount($b->used) }}</td>
+                                                    <td class="num text-right">
+                                                        <span @class(['pill pill-caution' => $b->remaining <= 0])>{{ PortalLabels::dayCount($b->remaining) }}</span>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            @endif
                         </div>
-                        <div class="space-y-2">
-                            <flux:label for="portal-day-type">Day type</flux:label>
-                            <flux:select id="portal-day-type" wire:model.live="dayType">
-                                @foreach (PortalLabels::DAY_TYPES as $value => $label)
-                                    <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                                @endforeach
-                            </flux:select>
-                        </div>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="space-y-2">
-                            <flux:label>From</flux:label>
-                            <x-kit.date-field wire:model.live="start" aria-label="From date" />
-                        </div>
-                        <div class="space-y-2">
-                            <flux:label>To</flux:label>
-                            <x-kit.date-field wire:model.live="end" aria-label="To date" />
-                        </div>
-                    </div>
-
-                    @if ($dateError !== null)
-                        <p class="text-sm text-danger sm:col-span-2">{{ $dateError }}</p>
                     @endif
 
-                    <div class="space-y-2 sm:col-span-2">
-                        <flux:label for="portal-request-reason">Reason</flux:label>
-                        <flux:textarea id="portal-request-reason" rows="3" wire:model="reason" />
-                    </div>
+                    <form class="hris-card grid min-w-0 gap-4 p-5" wire:submit="file">
+                        <h2 class="text-base font-bold">File leave or business travel</h2>
 
-                    <div class="sm:col-span-2">
-                        <flux:button
-                            type="submit"
-                            variant="primary"
-                            :disabled="$submitDisabled"
-                            wire:loading.attr="disabled"
-                            wire:target="file"
-                        >
-                            <span wire:loading wire:target="file" class="mr-2 inline-flex"><flux:icon.loading class="size-4" /></span>
-                            <span wire:loading.remove wire:target="file" class="mr-2 inline-flex"><flux:icon.paper-airplane class="size-4" /></span>
-                            Submit request
-                        </flux:button>
-                    </div>
-                </form>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="space-y-2">
+                                <flux:label for="portal-request-type">Description</flux:label>
+                                <x-kit.select id="portal-request-type" wire:model.live="type" placeholder="Select leave">
+                                    @foreach ($requestOptions as $t)
+                                        <flux:select.option value="{{ $t['value'] }}">{{ $t['label'] }}</flux:select.option>
+                                    @endforeach
+                                </x-kit.select>
+                            </div>
+                            <div class="space-y-2">
+                                <flux:label for="portal-day-type">Day type</flux:label>
+                                <x-kit.select id="portal-day-type" wire:model.live="dayType">
+                                    @foreach (PortalLabels::DAY_TYPES as $value => $label)
+                                        <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                                    @endforeach
+                                </x-kit.select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="space-y-2">
+                                <flux:label>From</flux:label>
+                                <x-kit.date-field wire:model.live="start" aria-label="From date" />
+                            </div>
+                            <div class="space-y-2">
+                                <flux:label>To</flux:label>
+                                <x-kit.date-field wire:model.live="end" aria-label="To date" />
+                            </div>
+                        </div>
+
+                        @if ($dateError !== null)
+                            <p class="text-sm text-danger">{{ $dateError }}</p>
+                        @endif
+
+                        {{-- The selected type's credits in the request's start
+                             year gate Submit; FileAbsence checks again on save. --}}
+                        @if ($creditHint !== null)
+                            @php
+                                $hintBalance = $creditHint['balance'];
+                                $hintNeeds = PortalLabels::dayCount($creditHint['needs']);
+                            @endphp
+                            @if ($creditHint['year'] !== $creditYear)
+                                <p class="text-sm text-muted-foreground" data-credit-year>
+                                    This request falls in {{ $creditHint['year'] }}; the credits shown are for {{ $creditYear }}.
+                                </p>
+                            @endif
+                            @if ($creditHint['error'] !== null)
+                                <p class="text-sm text-danger" role="alert" data-credit-error>{{ $creditHint['error'] }}</p>
+                            @elseif ($hintBalance !== null)
+                                <p class="text-sm text-muted-foreground" data-credit-hint>
+                                    This request needs
+                                    <span @class(['num', 'pill pill-caution' => $creditHint['needs'] > $hintBalance->remaining])>{{ $hintNeeds }} {{ $creditHint['needs'] === 1.0 ? 'day' : 'days' }}</span>;
+                                    you have <span class="num">{{ PortalLabels::dayCount($hintBalance->remaining) }}</span>
+                                    {{ $hintBalance->label }} {{ $hintBalance->remaining === 1.0 ? 'credit' : 'credits' }} left.
+                                </p>
+                            @endif
+                        @endif
+
+                        <div class="space-y-2">
+                            <flux:label for="portal-request-reason">Reason</flux:label>
+                            <flux:textarea id="portal-request-reason" rows="3" wire:model="reason" />
+                        </div>
+
+                        <div>
+                            <flux:button
+                                type="submit"
+                                variant="primary"
+                                :disabled="$submitDisabled"
+                                wire:loading.attr="disabled"
+                                wire:target="file"
+                            >
+                                <span wire:loading wire:target="file" class="mr-2 inline-flex"><flux:icon.loading class="size-4" /></span>
+                                <span wire:loading.remove wire:target="file" class="mr-2 inline-flex"><flux:icon.paper-airplane class="size-4" /></span>
+                                Submit request
+                            </flux:button>
+                        </div>
+                    </form>
+                </div>
 
                 <div class="hris-card overflow-hidden">
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
+                        <h2 class="text-base font-bold">My requests</h2>
+                    </div>
                     <div class="hris-table-wrap hris-table-scroll">
                         <table class="hris-table">
                             <thead>
@@ -170,6 +261,19 @@
                                                 'pill pill-warning' => $r->status === 'PENDING',
                                                 'pill pill-muted' => ! in_array($r->status, ['APPROVED', 'REJECTED', 'PENDING'], true),
                                             ])>{{ $r->status }}</span>
+                                            @if ($r->cancelled_dates !== [])
+                                                <details class="mt-2 text-xs" wire:ignore.self wire:key="portal-cancellations-{{ $r->id }}">
+                                                    <summary class="cursor-pointer text-muted-foreground">{{ count($r->cancelled_dates) }} cancelled {{ count($r->cancelled_dates) === 1 ? 'date' : 'dates' }}</summary>
+                                                    <ul class="mt-2 space-y-2">
+                                                        @foreach ($r->cancellations as $cancellation)
+                                                            <li class="max-w-sm break-words">
+                                                                <span class="num font-medium">{{ $cancellation->date->format('M d, Y') }}</span>
+                                                                · {{ $cancellation->reason }}
+                                                            </li>
+                                                        @endforeach
+                                                    </ul>
+                                                </details>
+                                            @endif
                                             @if ($r->status === 'APPROVED' && $r->request_type !== PortalLabels::OFFICIAL_BUSINESS && $r->is_paid !== null)
                                                 <span class="ml-2 text-xs text-muted-foreground">
                                                     {{ $r->is_paid ? 'with pay' : 'without pay' }}
@@ -207,43 +311,50 @@
         @else
             <div class="mt-4">
                 <section class="hris-card overflow-hidden">
-                    <header class="border-b border-border px-5 py-4">
-                        <h2 class="text-base font-bold">My payslips</h2>
-                        <p class="text-sm text-muted-foreground">
-                            Posted cut-offs only — open one to see the full breakdown or print it.
-                        </p>
+                    <header class="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
+                        <div>
+                            <h2 class="text-base font-bold">My payslips</h2>
+                            <p class="text-sm text-muted-foreground">
+                                Posted cut-offs only — select one to see the full breakdown or print it.
+                            </p>
+                        </div>
                     </header>
                     <div class="hris-table-wrap hris-table-scroll">
                         <table class="hris-table">
                             <thead>
                                 <tr>
                                     <th>Period</th>
-                                    <th class="text-right">Gross</th>
-                                    <th class="text-right">Deductions</th>
-                                    <th class="text-right">Net</th>
-                                    <th></th>
+                                    {{-- `!`: hris-table's own `thead th { text-align: left }` outranks a plain
+                                         text-right, which would leave each heading at the far side of its amounts. --}}
+                                    <th class="!text-right">Gross</th>
+                                    <th class="!text-right">Deductions</th>
+                                    <th class="!text-right">Net</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 @if ($payslips->isEmpty())
                                     <tr wire:key="payslips-empty">
-                                        <x-kit.empty-state :colspan="5" title="No payslip has been posted for you yet." />
+                                        <x-kit.empty-state :colspan="4" title="No payslip has been posted for you yet." />
                                     </tr>
                                 @endif
                                 @foreach ($payslips as $p)
-                                    <tr wire:key="payslip-{{ $p->id }}">
+                                    {{-- The row is the control: no View button. viewPayslip()
+                                         re-checks that the payslip is the caller's own. --}}
+                                    <tr
+                                        wire:key="payslip-{{ $p->id }}"
+                                        tabindex="0"
+                                        aria-label="View payslip for {{ $p->period_start->format('M d, Y') }} to {{ $p->period_end->format('M d, Y') }}"
+                                        class="cursor-pointer focus:outline-none focus-visible:bg-accent"
+                                        wire:click="viewPayslip('{{ $p->id }}')"
+                                        x-on:keydown.enter.prevent="$wire.viewPayslip('{{ $p->id }}')"
+                                        x-on:keydown.space.prevent="$wire.viewPayslip('{{ $p->id }}')"
+                                    >
                                         <td class="num whitespace-nowrap">
                                             {{ $p->period_start->format('M d, Y') }} – {{ $p->period_end->format('M d, Y') }}
                                         </td>
                                         <td class="num text-right">{{ PortalLabels::peso($p->gross_pay) }}</td>
                                         <td class="num text-right text-danger">{{ PortalLabels::peso($p->total_deductions) }}</td>
                                         <td class="num text-right font-bold">{{ PortalLabels::peso($p->net_pay) }}</td>
-                                        <td class="text-right">
-                                            <flux:button variant="ghost" size="sm" wire:click="viewPayslip('{{ $p->id }}')">
-                                                <flux:icon.eye class="mr-2 size-4" />
-                                                View
-                                            </flux:button>
-                                        </td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -254,132 +365,37 @@
         @endif
     </div>
 
-    {{-- The payslip dialog, laid out as the document an employee expects to see. --}}
-    <flux:modal wire:model.self="payslipOpen" class="max-h-[90vh] w-full max-w-3xl overflow-y-auto">
+    {{-- The payslip dialog shows THE PAYSLIP AND NOTHING ROUND IT: Flux's bare variant
+         draws no panel — no background, padding, shadow or close button — so the sheet
+         itself is what opens over the page. No heading or period line either: the
+         payslip carries both. Only the two controls stay, above the sheet where they are
+         reachable without scrolling a long payslip on a phone.
+
+         The dialog is as wide as the sheet at its largest on-screen size (payslip.css grows
+         it to 1,120px; the 1px of padding is room for the sheet's own outline), so there is
+         no invisible strip beside it that looks like the backdrop but would not close it.
+         With no panel to keep clear of the window's edge it may use nearly the full height,
+         which shows the whole sheet on an ordinary desktop without scrolling.
+         Flux forwards no aria attribute to the <dialog>, hence the x-init. --}}
+    <flux:modal
+        wire:model.self="payslipOpen"
+        variant="bare"
+        class="max-h-[calc(100dvh-2rem)] w-full max-w-[1122px] overflow-y-auto p-px"
+        x-init="$el.querySelector('dialog')?.setAttribute('aria-label', 'Payslip')"
+    >
         @if ($viewing !== null)
-            <div class="space-y-2 print:hidden">
-                <flux:heading size="lg">Payslip</flux:heading>
-                <flux:text>
-                    {{ $viewing->period_start->format('M d, Y') }} – {{ $viewing->period_end->format('M d, Y') }}
-                </flux:text>
+            <div class="mb-2 flex justify-end gap-2 print:hidden">
+                <flux:button type="button" variant="primary" size="sm" icon="printer" x-on:click="window.print()">Print</flux:button>
+                <flux:modal.close>
+                    <flux:button type="button" variant="outline" size="sm" icon="x-mark">Close</flux:button>
+                </flux:modal.close>
             </div>
 
-            <div class="payslip-print mt-4 space-y-5">
-                <header class="flex flex-wrap items-start justify-between gap-4 border-b border-border pb-4">
-                    <div>
-                        <div class="flex items-center gap-2 font-bold">
-                            <flux:icon.shield-check class="size-5 text-primary" />
-                            BestWorkflows Employee Management System
-                        </div>
-                        <p class="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
-                            Payslip · Philippine Peso
-                        </p>
-                    </div>
-                    <div class="text-right">
-                        <p class="num text-sm font-semibold">
-                            {{ $viewing->period_start->format('M d, Y') }} – {{ $viewing->period_end->format('M d, Y') }}
-                        </p>
-                        <p class="text-xs text-muted-foreground">Cut-off period</p>
-                    </div>
-                </header>
-
-                <section class="grid gap-4 sm:grid-cols-2">
-                    <div>
-                        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee</p>
-                        <p class="mt-1 text-sm font-medium">{{ PortalLabels::employeeName($employee) }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee code</p>
-                        <p class="num mt-1 text-sm font-medium">{{ $employee?->employee_code ?? '—' }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Position</p>
-                        <p class="mt-1 text-sm font-medium">{{ $employee?->position ?? '—' }}</p>
-                    </div>
-                    <div>
-                        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Monthly rate</p>
-                        <p class="num mt-1 text-sm font-medium">{{ $employee !== null ? PortalLabels::peso($employee->monthly_rate) : '—' }}</p>
-                    </div>
-                </section>
-
-                <section class="border-y border-border py-4">
-                    <h2 class="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        Attendance basis
-                    </h2>
-                    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-                        @foreach ([
-                            ['Work days', PortalLabels::dayCount($viewing->work_days)],
-                            ['Holidays worked', PortalLabels::dayCount($viewing->holiday_days)],
-                            ['Rest days worked', PortalLabels::dayCount($viewing->rest_days)],
-                            ['Absences', PortalLabels::dayCount($viewing->absence_days)],
-                            ['Unpaid leave', PortalLabels::dayCount($viewing->unpaid_leave_days)],
-                            ['Daily rate', PortalLabels::peso($viewing->daily_rate)],
-                        ] as [$basisLabel, $basisValue])
-                            <div wire:key="basis-{{ $basisLabel }}">
-                                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{{ $basisLabel }}</p>
-                                <p class="num mt-1 text-sm font-medium">{{ $basisValue }}</p>
-                            </div>
-                        @endforeach
-                    </div>
-                    <p class="mt-3 text-xs text-muted-foreground">
-                        Every paid day is counted once: a worked holiday is paid at its own rate and appears under
-                        Holidays, not Work days. Approved paid leave counts as a work day; unpaid leave and
-                        absences earn nothing.
-                    </p>
-                </section>
-
-                <section class="grid gap-4 sm:grid-cols-2">
-                    @foreach ([
-                        ['Earnings', $earnings, $viewing->gross_pay, 'Gross pay', false],
-                        ['Deductions', $deductions, $viewing->total_deductions, 'Total deductions', true],
-                    ] as [$columnTitle, $lines, $columnTotal, $totalLabel, $dangerTone])
-                        <div class="rounded-md border border-border" wire:key="column-{{ $columnTitle }}">
-                            <p class="border-b border-border px-4 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                {{ $columnTitle }}
-                            </p>
-                            <ul class="divide-y divide-border">
-                                @if (count($lines) === 0)
-                                    <li class="px-4 py-3 text-sm text-muted-foreground">Nothing on this cut-off.</li>
-                                @endif
-                                @foreach ($lines as $l)
-                                    <li class="flex items-baseline justify-between gap-4 px-4 py-2" wire:key="line-{{ $columnTitle }}-{{ $l['label'] }}">
-                                        <span class="text-sm">
-                                            {{ $l['label'] }}
-                                            @if ($l['hint'] !== null)
-                                                <span class="num ml-2 text-xs text-muted-foreground">{{ $l['hint'] }}</span>
-                                            @endif
-                                        </span>
-                                        <span class="num text-sm">{{ PortalLabels::peso($l['value']) }}</span>
-                                    </li>
-                                @endforeach
-                            </ul>
-                            <div class="flex items-baseline justify-between gap-4 border-t border-border px-4 py-2">
-                                <span class="text-sm font-semibold">{{ $totalLabel }}</span>
-                                <span class="num text-sm font-bold {{ $dangerTone ? 'text-danger' : '' }}">{{ PortalLabels::peso($columnTotal) }}</span>
-                            </div>
-                        </div>
-                    @endforeach
-                </section>
-
-                <section class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-success/30 bg-success-soft px-5 py-4">
-                    <div>
-                        <p class="text-xs font-semibold uppercase tracking-wide text-success">Net pay</p>
-                        <p class="text-xs text-muted-foreground">Gross less all deductions</p>
-                    </div>
-                    <p class="num text-3xl font-bold text-success">{{ PortalLabels::peso($viewing->net_pay) }}</p>
-                </section>
-
-                <p class="text-xs text-muted-foreground">
-                    Computed from posted attendance and the employee's payroll settings. Statutory amounts use
-                    the contribution schedule effective from January 2025.
-                </p>
-            </div>
-
-            <div class="mt-4 flex justify-end print:hidden">
-                <flux:button type="button" variant="outline" x-on:click="window.print()">
-                    <flux:icon.printer class="mr-2 size-4" />
-                    Print
-                </flux:button>
+            {{-- The employee's copy is the payslip itself. The "Additional payroll details"
+                 fold (position, payroll name, incentive tax treatment, the employer's
+                 contributions) is NOT shown in My Portal; Payroll and Reports show it. --}}
+            <div class="payslip-print">
+                <x-payroll.document :document="$payslipDocument" :details="false" />
             </div>
         @endif
     </flux:modal>

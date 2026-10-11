@@ -14,31 +14,61 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 /**
  * One SHARED unit of work inside a project, assigned to 0..N employees.
  *
- * The source (and this port until 2026-09-10) owned a task by exactly one
- * employee through a nullable `assignee_id` column. Membership now lives in
- * the `project_task_assignees` pivot ({@see ProjectTaskAssignee}): "unassigned"
- * means zero pivot rows, and every assignee sees, starts and submits the SAME
- * task. `status`, `remarks` and `submitted_at` therefore stay one-per-task —
- * the first assignee to submit submits for everyone — and `submitted_by` (an
- * `employee_profiles` id) records who that was.
+ * The source owns a task by exactly one employee through a nullable
+ * `assignee_id` column. Here membership lives in the `project_task_assignees`
+ * pivot ({@see ProjectTaskAssignee}): "unassigned" means zero pivot rows, and
+ * every assignee sees and starts the SAME task.
+ *
+ * `submission_mode` (GROUP | INDIVIDUAL) decides where the response lives.
+ * copems has no such column; GROUP is the column default, so a task that
+ * never chose a mode reads GROUP. UNLIKE `status`, IT IS NOT FREE TEXT: on
+ * MySQL/MariaDB `tasks_submission_mode_chk` pins the two literal values, so a
+ * third mode needs a new migration that drops and re-adds that CHECK. sqlite
+ * never creates it, so the test suite passes either way.
+ *
+ *  - GROUP: one team response, ON THIS ROW. `status`, `remarks` and
+ *    `submitted_at` stay one-per-task — the first assignee to submit submits
+ *    for everyone — and `submitted_by` (an `employee_profiles` id) records who
+ *    that was.
+ *  - INDIVIDUAL: every assignee answers for themselves. Each member's latest
+ *    response, and the decision on it, belongs in their own
+ *    {@see ProjectTaskSubmission} row ({@see self::submissions()}), never in
+ *    this row's `remarks` or `submitted_by`.
+ *
+ * The mode is chosen at creation (CreateTask, GROUP for a crew under two)
+ * and can change only until anything has been handed in (UpdateTaskDetails).
+ * On an INDIVIDUAL task SubmitTask writes the member's own row and never
+ * this one, ReviewTaskResponse decides each row, and ReviewTask completes
+ * the task only once every current assignee's row is APPROVED.
  *
  * `assigned_by` and `reviewed_by` are `users` ids. Both are ACTOR columns
  * (session-supplied, never mass-assigned) and are the reason this table
  * carries two foreign keys to the same table.
+ *
+ * `start_date` is the PLANNED start, typed by whoever hands out the work —
+ * copems has no such column (DELIBERATE DIVERGENCE). Nullable: a task with
+ * none simply has no plan yet. Nothing stamps it when an assignee
+ * presses Start, and it never stops anyone starting early; the commands keep
+ * it inside the project's window and on or before `due_date`
+ * (WorkManagement's Domain\Tasks\TaskSchedule).
  *
  * `status` (PENDING | IN_PROGRESS | SUBMITTED | RETURNED | COMPLETED |
  * CANCELLED) and `priority` are free text. `TaskInput` only ever accepts
  * `status: "PENDING"` on create; every later transition is a server action.
  *
  * `remarks` and `review_remarks` hold the LATEST message only — the thread in
- * `task_comments` is what keeps the history of a task that bounces twice.
+ * `task_comments` is what keeps the history of a GROUP task that bounces
+ * twice. An INDIVIDUAL member's row is latest-only too, and its history must
+ * NOT go in the thread: a member's notes are private to them and the
+ * reviewers, so a writer that replaces a round may leave only a content-free
+ * audit row behind.
  *
  * Row scoping goes THROUGH the pivot:
  *
  *     ProjectTask::query()->toEmployeeVia($actor, 'assignments', 'employee_id', ModuleCode::PROJECTS)
  *     Project::query()->toEmployeeVia($actor, 'tasks.assignments', 'employee_id', ModuleCode::PROJECTS)
  *
- * There is no employee column on this table any more, so `toEmployee()` has
+ * There is no employee column on this table, so `toEmployee()` has
  * nothing to point at here — always use the `Via` form.
  *
  * @property string $id
@@ -48,6 +78,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $description
  * @property string $status
  * @property string $priority
+ * @property string $submission_mode
+ * @property CarbonImmutable|null $start_date
  * @property CarbonImmutable|null $due_date
  * @property int|null $assigned_by
  * @property CarbonImmutable $assigned_at
@@ -66,6 +98,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property-read User|null $assigner
  * @property-read User|null $reviewer
  * @property-read Collection<int, ProjectTaskFile> $files
+ * @property-read Collection<int, ProjectTaskSubmission> $submissions
  * @property-read Collection<int, TaskComment> $comments
  */
 class ProjectTask extends BaseModel
@@ -83,6 +116,8 @@ class ProjectTask extends BaseModel
         'description',
         'status',
         'priority',
+        'submission_mode',
+        'start_date',
         'due_date',
         'assigned_at',
         'submitted_at',
@@ -95,10 +130,22 @@ class ProjectTask extends BaseModel
         'review_remarks',
     ];
 
+    /**
+     * The column's own DEFAULT 'GROUP', mirrored so that a task built in PHP
+     * reads GROUP before it is saved and after it is created — the database
+     * default is not read back into a model that has just been inserted.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'submission_mode' => 'GROUP',
+    ];
+
     /** @return array<string, string> */
     protected function casts(): array
     {
         return [
+            'start_date' => 'immutable_date:Y-m-d',
             'due_date' => 'immutable_date:Y-m-d',
             'assigned_at' => 'immutable_datetime',
             'submitted_at' => 'immutable_datetime',
@@ -195,6 +242,17 @@ class ProjectTask extends BaseModel
         return $this->hasMany(ProjectTaskFile::class, 'task_id');
     }
 
+    /**
+     * The members' own responses to an INDIVIDUAL task, one row per member
+     * who has submitted. A GROUP task has none.
+     *
+     * @return HasMany<ProjectTaskSubmission, $this>
+     */
+    public function submissions(): HasMany
+    {
+        return $this->hasMany(ProjectTaskSubmission::class, 'task_id');
+    }
+
     /** @return HasMany<TaskComment, $this> */
     public function comments(): HasMany
     {
@@ -204,8 +262,8 @@ class ProjectTask extends BaseModel
     /* ----------------------------- assignees ------------------------------ */
 
     /**
-     * The assignees' employee ids, sorted, from the loaded (or lazily loaded)
-     * `assignees` relation. Empty list = unassigned.
+     * Employee ids from WorkManagement's membership rows, not Workforce's
+     * employee models. Empty list = unassigned.
      *
      * @return list<string>
      */
@@ -213,8 +271,8 @@ class ProjectTask extends BaseModel
     {
         $ids = [];
 
-        foreach ($this->assignees as $employee) {
-            $ids[] = (string) $employee->getKey();
+        foreach ($this->assignments as $assignment) {
+            $ids[] = (string) $assignment->employee_id;
         }
 
         sort($ids, SORT_STRING);
@@ -243,11 +301,28 @@ class ProjectTask extends BaseModel
      * retained set is left untouched — its original assigned_by/created_at
      * survive.
      *
+     * A removed member's own response ({@see ProjectTaskSubmission}) is
+     * deleted with their membership, so response rows are ALWAYS a subset of
+     * the crew, whichever caller changed it. Their files stay: evidence goes
+     * only with the task or the project.
+     *
      * Returns the diff so the caller can notify: ADDED get TASK_ASSIGNED,
      * REMOVED get TASK_REASSIGNED, RETAINED get nothing. The ids are deduped
      * and compared against what the database holds NOW, not the loaded
      * relation. Callers own the surrounding DB::transaction and have already
      * validated that each id is an active employee.
+     *
+     * CALLERS MUST ALREADY HOLD THE TASK ROW LOCK (L1 in WorkRules' task lock
+     * protocol) before the first plain read of their transaction. The pivot
+     * and response reads here are plain REPEATABLE READ reads. They see the
+     * latest committed rows only because no snapshot predates that lock and
+     * every writer of those rows takes it too. UpdateTaskDetails opens its
+     * transaction with WorkRules::lockedTask() (then the project row, P —
+     * a locking read, so the snapshot is still unopened), CreateTask's
+     * INSERT of the task row comes first, and ProjectSeeder runs with
+     * nothing concurrent. A
+     * caller that read anything plainly before locking could miss a response
+     * committed in between, and a removed member's row would then survive.
      *
      * @param  iterable<array-key, string>  $employeeIds
      * @return array{added: list<string>, removed: list<string>}
@@ -279,6 +354,20 @@ class ProjectTask extends BaseModel
 
         if ($removed !== []) {
             $this->assignments()->whereIn('employee_id', $removed)->delete();
+
+            // Read the ids, then delete by primary key. A DELETE keyed on
+            // (task, employee) would also take a gap lock on
+            // `pts_task_employee_unq` for every removed member who never
+            // submitted. That gap can reach into a NEIGHBOURING task's keys,
+            // so a first submission there would wait on this transaction or
+            // deadlock with it. Submissions on THIS task wait on the task row
+            // lock anyway. The plain read is fresh only because the caller
+            // already holds that lock (see the docblock).
+            $responseIds = $this->submissions()->whereIn('employee_id', $removed)->pluck('id')->all();
+
+            if ($responseIds !== []) {
+                ProjectTaskSubmission::query()->whereKey($responseIds)->delete();
+            }
         }
 
         // Whatever was loaded is stale now; the next read reloads.

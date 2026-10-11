@@ -7,16 +7,18 @@ namespace App\Support;
 /**
  * How a person's name is spelled, in one place.
  *
- * It was in six. `EmployeeFields::fullName()` composed every part including the
- * suffix; five separate `employeeName()` helpers — Employees, Roster, Payroll,
- * Portal, eDTR — each composed first + last from their own three-line copy, and
- * two Blade files declared the same closure inline. When `suffix` was added to
- * `employee_profiles` only the first of those learned about it, so the field
- * could be entered on Employee Records and appeared nowhere else in the system.
+ * `EmployeeFields::fullName()`, the five `employeeName()` helpers — Employees,
+ * Roster, Payroll, Portal, eDTR — the two Blade name closures and the employee
+ * picker's TRIGGER (the closed state of the control, showing the person
+ * already chosen) all delegate here. The point is not tidiness: it is that the
+ * next name part cannot be half-adopted, because there is no second place to
+ * forget. Where a name is composed in several places, a new part reaches only
+ * some of them: a `suffix` entered on Employee Records and shown nowhere
+ * else, or a trigger reading "Dela Cruz" after "Dela Cruz Jr." was picked
+ * from a list that spelled it correctly.
  *
- * The five helpers and the two closures now delegate here. The point is not
- * tidiness: it is that the next name part cannot be half-adopted, because there
- * is no longer a second place to forget.
+ * Every name in the app comes from here; the remaining risk is a NEW surface
+ * that composes one by hand.
  *
  * TWO SPELLINGS, DELIBERATELY.
  *
@@ -36,7 +38,7 @@ namespace App\Support;
  */
 final class EmployeeName
 {
-    /** The em dash every caller already used for "no employee". */
+    /** The em dash every caller shows for "no employee". */
     public const string NONE = '—';
 
     /**

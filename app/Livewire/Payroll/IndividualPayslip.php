@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace App\Livewire\Payroll;
 
-use App\Domain\Enums\ModuleCode;
-use App\Models\EmployeeProfile;
-use App\Models\PayrollRun;
+use App\Domain\Enums\PayrollRunKind;
 use App\Models\Payslip;
+use App\Modules\Payroll\Application\Queries\PayrollRecords;
+use App\Modules\Payroll\Application\Queries\PayslipRecords;
+use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
@@ -45,22 +46,28 @@ class IndividualPayslip extends Component
     {
         $actor = app(Access::class);
 
-        $run = PayrollRun::query()->whereKey($this->runId)->first();
+        $run = app(PayrollRecords::class)->find($actor, $this->runId);
 
         // What the run posted for this employee — the scoped read is what
         // keeps a payslip private to Payroll and its owner.
-        $payslip = Payslip::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
-            ->where('run_id', $this->runId)
-            ->where('employee_id', $this->employeeId)
-            ->first();
+        $payslip = app(PayslipRecords::class)->find($actor, $this->runId, $this->employeeId);
 
-        $employee = EmployeeProfile::query()->whereKey($this->employeeId)->first();
+        $employee = app(OperationalDirectory::class)->find($actor, $this->employeeId);
 
         return view('livewire.payroll.individual-payslip', [
             'run' => $run,
             'payslip' => $payslip,
             'employee' => $employee,
+            // The incentive and bonus lines it posted, itemised.
+            'incentives' => $payslip === null ? [] : (app(PayslipRecords::class)->incentives($actor, [$payslip->id])[$payslip->id] ?? []),
+            // Named deductions stay as they were when this payslip posted.
+            'customDeductions' => $payslip === null ? [] : (app(PayslipRecords::class)->customDeductions($actor, [$payslip->id])[$payslip->id] ?? []),
+            // The Deductions lines in the Payroll Deductions list's order:
+            // the query keeps issued names and ordering from this payslip's
+            // snapshot, with a legacy issued-label fallback.
+            'deductionColumns' => $payslip === null ? collect() : app(PayslipRecords::class)->deductionColumns($actor, [$payslip->id]),
+            // A 13th month payslip has its own, shorter layout.
+            'yearly' => ($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH,
         ]);
     }
 }

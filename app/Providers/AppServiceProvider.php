@@ -4,10 +4,13 @@ namespace App\Providers;
 
 use App\Domain\Enums\AuditEvent;
 use App\Models\User;
+use App\Modules\IdentityAccess\Application\PasswordPolicy;
+use App\Modules\IdentityAccess\Infrastructure\GuardedUserProvider;
 use App\Support\AuditService;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -29,6 +32,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        Auth::provider('guarded-eloquent', fn ($app, array $config) => new GuardedUserProvider($app['hash'], $config['model']));
         $this->configureDefaults();
         $this->wireLoginAudit();
     }
@@ -84,14 +88,6 @@ class AppServiceProvider extends ServiceProvider
             app()->isProduction(),
         );
 
-        Password::defaults(fn (): ?Password => app()->isProduction()
-            ? Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-                ->uncompromised()
-            : null,
-        );
+        Password::defaults(fn (): Password => PasswordPolicy::strength());
     }
 }

@@ -1,284 +1,155 @@
-{{--
-    My Profile — the port of profile-page.tsx.
-
-    A single column of short forms, capped at max-w-3xl rather than the 1400px
-    shell every table page uses (profile-page.tsx:375-378). Section order is
-    the spec: Account, [unlinked note], Personal, Emergency contact, Security,
-    Employment (read-only).
-
-    Fidelity notes where shadcn had no Flux twin:
-      - Avatar/AvatarFallback are a span with an <img> or the initials, the
-        same Tailwind the source's classes resolved to (h-14 w-14 rounded-full,
-        object-cover so a tall photo is not squashed);
-      - the source's shadcn Selects are Flux's native select; the "Not set"
-        placeholder is a hidden disabled first option — and since it cannot be
-        re-picked, it also reproduces the source's guard against the Radix
-        empty-echo wiping a seeded value;
-      - the popover DateField degrades to <x-kit.date-field> (typed input +
-        native picker), per the shared kit;
-      - the Save buttons' Loader2 spinner is Flux's built-in wire-loading
-        spinner on the submitting button.
---}}
-@php
-    use App\Livewire\Employees\EmployeeFields;
-    use App\Livewire\Profile\ProfilePage;
-@endphp
-<div class="max-w-3xl space-y-4">
+{{-- The employee record is shared with management; personal changes remain proposals until approved. --}}
+<div class="space-y-6">
     <div>
         <h1 class="text-2xl font-bold tracking-tight">My Profile</h1>
-        <p class="text-sm text-muted-foreground">
-            The details you maintain about yourself. Your position, employment status and rate stay
-            with HR in Employee Records.
-        </p>
+        <p class="text-sm text-muted-foreground">View your employee record and submit corrections for approval.</p>
     </div>
 
-    {{-- ──────────────────────────────────────────────────────── Account --}}
-    <section class="hris-card overflow-hidden">
-        <header class="border-b border-border px-4 py-3">
+    <div class="inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1 text-sm text-muted-foreground" role="tablist" aria-label="My Profile views">
+        @foreach (['record' => 'My record', 'requests' => 'My change requests', 'account' => 'Account & security'] as $key => $label)
+            <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}"
+                wire:click="$set('tab', '{{ $key }}')"
+                class="rounded-md px-3 py-1.5 font-medium {{ $tab === $key ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">{{ $label }}</button>
+        @endforeach
+    </div>
+
+    @if ($tab === 'record')
+        @if ($employee === null)
+            <section class="hris-card space-y-2 p-6">
+                <h2 class="text-base font-bold">Employee record not linked</h2>
+                <p class="text-sm text-muted-foreground">Your information will appear here once management links this account to your employee record.</p>
+            </section>
+        @else
+            <livewire:employees.show :own="true" :key="'own-record-'.$employee->id" />
+        @endif
+    @elseif ($tab === 'requests')
+        <livewire:employees.change-requests :own="true" />
+    @else
+        <section class="hris-card space-y-3 p-4">
             <h2 class="text-base font-bold">Account</h2>
-            <p class="text-sm text-muted-foreground">How you appear across the system, and the address you sign in with.</p>
-        </header>
-        <form class="grid gap-3 p-4 sm:grid-cols-2" wire:submit="saveAccount">
-            @if ($employee !== null)
-                <div class="flex flex-wrap items-center gap-4 sm:col-span-2">
-                    <span class="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted">
-                        @if ($photoUrl)
-                            {{-- Portraits are rarely square — without object-cover a tall
-                                 photo comes out squashed (profile-page.tsx:395-399). --}}
-                            <img src="{{ $photoUrl }}" alt="{{ $employeeName }}" class="h-full w-full object-cover" />
-                        @else
-                            <span class="num text-lg font-semibold">{{ $initials }}</span>
-                        @endif
-                    </span>
-                    <div class="space-y-2">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <flux:button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                icon="arrow-up-tray"
-                                x-data
-                                x-on:click="document.getElementById('profile-photo-input').click()"
-                                wire:loading.attr="disabled"
-                                wire:target="photo, saveAccount"
-                            >
-                                Upload photo
-                            </flux:button>
-                            @if ($photoUrl)
-                                <flux:button
-                                    type="button"
-                                    variant="ghost"
-                                    size="sm"
-                                    wire:click="removeStagedPhoto"
-                                    wire:loading.attr="disabled"
-                                    wire:target="photo, saveAccount"
-                                >
-                                    Remove photo
-                                </flux:button>
-                            @endif
-                        </div>
-                        <p class="text-xs text-muted-foreground">
-                            An image up to {{ EmployeeFields::humanSize(EmployeeFields::MAX_PHOTO_BYTES) }}.
-                            It is resized to a small portrait and stored with the rest of your record when you save.
-                        </p>
-                    </div>
-                    <input
-                        type="file"
-                        id="profile-photo-input"
-                        accept="image/*"
-                        class="hidden"
-                        wire:model="photo"
-                    />
+            <dl class="grid gap-3 sm:grid-cols-2">
+                <div><dt class="text-xs text-muted-foreground">Account name</dt><dd class="break-words text-sm">{{ $accountName }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Sign-in email</dt><dd class="break-words text-sm">{{ $email }}</dd></div>
+            </dl>
+            <p class="text-xs text-muted-foreground">Your name comes from the linked employee record. You can update your sign-in email in Account settings. Management maintains your employee link.</p>
+        </section>
+        @if ($employee !== null)
+            <livewire:social.privacy-card />
+        @endif
+        <section class="hris-card overflow-hidden" aria-labelledby="profile-security-heading">
+            <header class="border-b border-border px-4 py-3">
+                <h2 class="text-base font-bold" id="profile-security-heading">Security</h2>
+                <p class="text-sm text-muted-foreground">Protect access to your account.</p>
+            </header>
+            <div class="flex flex-wrap items-center gap-4 p-4">
+                <span class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary" aria-hidden="true">
+                    <flux:icon.lock-closed class="size-5" />
+                </span>
+                <div class="min-w-0 flex-1">
+                    <h3 class="text-sm font-semibold">Password</h3>
+                    <p class="mt-1 text-sm text-muted-foreground">Use a unique password for this account.</p>
                 </div>
+                <flux:button variant="outline" wire:click="openPasswordChange">Change password</flux:button>
+            </div>
+            @if ($passwordChanged)
+                <p class="border-t border-border px-4 py-3 text-sm text-success" role="status">Password changed. Your other sessions have been signed out. You are still signed in here.</p>
             @endif
-
-            <div class="space-y-2">
-                <flux:label for="profile-full-name">Full name</flux:label>
-                <flux:input id="profile-full-name" required wire:model="fullName" />
-            </div>
-
-            <div class="space-y-2">
-                <flux:label for="profile-email">Email</flux:label>
-                <flux:input id="profile-email" type="email" disabled value="{{ $email }}" />
-                <p class="text-xs text-muted-foreground">
-                    Your email is your sign-in and is changed by an administrator.
-                </p>
-            </div>
-
-            <div class="flex justify-end sm:col-span-2">
-                <flux:button type="submit" variant="primary">Save account</flux:button>
-            </div>
-        </form>
-    </section>
-
-    @if ($employee === null)
-        {{-- profile-page.tsx:463-468 — the server has no isPending window. --}}
-        <p class="hris-card p-4 text-sm text-muted-foreground">
-            Your personal, emergency contact and employment details appear here once an administrator
-            links this account to an employee record.
-        </p>
-    @endif
-
-    @if ($employee !== null)
-        {{-- ─────────────────────────────────────────────────── Personal --}}
-        <section class="hris-card overflow-hidden">
-            <header class="border-b border-border px-4 py-3">
-                <h2 class="text-base font-bold">Personal</h2>
-                <p class="text-sm text-muted-foreground">Where we reach you, and the details that belong to you rather than to the job.</p>
-            </header>
-            <form class="grid gap-3 p-4 sm:grid-cols-2" wire:submit="savePersonal">
-                <div class="space-y-2">
-                    <flux:label for="profile-phone">Contact number</flux:label>
-                    <flux:input id="profile-phone" type="tel" wire:model="personal.phone" />
-                </div>
-
-                <div class="space-y-2">
-                    <flux:label for="profile-birth-date">Birth date</flux:label>
-                    <x-kit.date-field id="profile-birth-date" wire:model="personal.birthDate" aria-label="Birth date" />
-                </div>
-
-                <div class="space-y-2 sm:col-span-2">
-                    <flux:label for="profile-address">Address</flux:label>
-                    <flux:textarea id="profile-address" rows="2" wire:model="personal.address" />
-                </div>
-
-                <div class="space-y-2">
-                    <flux:label for="profile-sex">Sex</flux:label>
-                    <flux:select id="profile-sex" wire:model="personal.sex" aria-label="Sex">
-                        <flux:select.option value="" disabled hidden>Not set</flux:select.option>
-                        @foreach (ProfilePage::SEXES as $s)
-                            <flux:select.option value="{{ $s }}">{{ $s }}</flux:select.option>
-                        @endforeach
-                    </flux:select>
-                </div>
-
-                <div class="space-y-2">
-                    <flux:label for="profile-civil-status">Civil status</flux:label>
-                    <flux:select id="profile-civil-status" wire:model="personal.civilStatus" aria-label="Civil status">
-                        <flux:select.option value="" disabled hidden>Not set</flux:select.option>
-                        @foreach (ProfilePage::CIVIL_STATUSES as $s)
-                            <flux:select.option value="{{ $s }}">{{ $s }}</flux:select.option>
-                        @endforeach
-                    </flux:select>
-                </div>
-
-                <div class="flex justify-end sm:col-span-2">
-                    <flux:button type="submit" variant="primary">Save personal details</flux:button>
-                </div>
-            </form>
         </section>
 
-        {{-- ────────────────────────────────────────── Emergency contact --}}
-        <section class="hris-card overflow-hidden">
-            <header class="border-b border-border px-4 py-3">
-                <h2 class="text-base font-bold">Emergency contact</h2>
-                <p class="text-sm text-muted-foreground">Who to call for you, and how they are related to you.</p>
-            </header>
-            <form class="grid gap-3 p-4 sm:grid-cols-2" wire:submit="saveEmergency">
-                <div class="space-y-2 sm:col-span-2">
-                    <flux:label for="profile-emergency-name">Full name</flux:label>
-                    <flux:input id="profile-emergency-name" wire:model="emergency.name" />
-                </div>
-
+        <flux:modal wire:model.self="passwordDialogOpen" @close="cancelPasswordChange" class="w-full max-w-lg">
+            <form
+                wire:submit="changePassword"
+                class="space-y-5"
+                x-data="{
+                    policy: @js($passwordPolicy),
+                    get next() { return $wire.newPassword; },
+                    get byteLength() { return new TextEncoder().encode(this.next).length; },
+                    get requirements() {
+                        return [
+                            { label: 'At least ' + this.policy.minLength + ' characters', met: Array.from(this.next).length >= this.policy.minLength },
+                            { label: 'An uppercase letter', met: /\p{Lu}/u.test(this.next) },
+                            { label: 'A lowercase letter', met: /\p{Ll}/u.test(this.next) },
+                            { label: 'A number', met: /\p{N}/u.test(this.next) },
+                            { label: 'A symbol', met: /[\p{S}\p{P}]/u.test(this.next) },
+                            { label: 'Fits the password length limit', met: this.next.length > 0 && this.byteLength <= this.policy.maxBytes },
+                        ];
+                    },
+                    get completed() { return this.requirements.filter(item => item.met).length; },
+                    get matches() { return $wire.confirmPassword.length > 0 && this.next === $wire.confirmPassword; },
+                    get differs() { return $wire.currentPassword.length > 0 && this.next.length > 0 && this.next !== $wire.currentPassword; },
+                    get ready() { return this.completed === this.requirements.length && this.matches && this.differs; },
+                }"
+                x-init="$el.closest('dialog')?.setAttribute('aria-labelledby', 'profile-password-heading')"
+            >
                 <div class="space-y-2">
-                    <flux:label for="profile-emergency-relation">Relationship</flux:label>
-                    <flux:input id="profile-emergency-relation" wire:model="emergency.relation" />
+                    <flux:heading size="lg" id="profile-password-heading">Change password</flux:heading>
+                    <p class="text-sm text-muted-foreground">Choose a password you have never used for this account.</p>
+                    <p class="text-sm text-muted-foreground">Try several unrelated words with a number and symbol.</p>
                 </div>
-
-                <div class="space-y-2">
-                    <flux:label for="profile-emergency-phone">Contact number</flux:label>
-                    <flux:input id="profile-emergency-phone" type="tel" wire:model="emergency.phone" />
-                </div>
-
-                <div class="flex justify-end sm:col-span-2">
-                    <flux:button type="submit" variant="primary">Save emergency contact</flux:button>
-                </div>
-            </form>
-        </section>
-    @endif
-
-    {{-- ─────────────────────────────────────────────────────── Security --}}
-    <section class="hris-card overflow-hidden">
-        <header class="border-b border-border px-4 py-3">
-            <h2 class="text-base font-bold">Security</h2>
-            <p class="text-sm text-muted-foreground">Change the password you sign in with.</p>
-        </header>
-        <form class="grid gap-3 p-4 sm:grid-cols-2" wire:submit="changePassword">
-            <div class="space-y-2 sm:col-span-2">
-                <flux:label for="profile-current-password">Current password</flux:label>
+                <flux:error name="passwordChange" />
                 <flux:input
                     id="profile-current-password"
+                    label="Current password"
                     type="password"
                     autocomplete="current-password"
                     wire:model="currentPassword"
+                    required
+                    viewable
                 />
-            </div>
+                <div class="space-y-3">
+                    <flux:input
+                        id="profile-new-password"
+                        label="New password"
+                        type="password"
+                        autocomplete="new-password"
+                        wire:model="newPassword"
+                        aria-describedby="profile-password-requirements"
+                        required
+                        viewable
+                    />
+                    <div class="rounded-lg bg-muted/50 p-3" id="profile-password-requirements">
+                        <h3 class="text-xs font-semibold">Requirements</h3>
+                        <ul class="mt-2 grid gap-1.5 text-xs sm:grid-cols-2">
+                            <template x-for="requirement in requirements" :key="requirement.label">
+                                <li class="flex items-start gap-1.5" :class="requirement.met ? 'text-success' : 'text-muted-foreground'">
+                                    <span class="mt-px shrink-0" aria-hidden="true">
+                                        <flux:icon.check-circle variant="micro" class="size-3.5" x-show="requirement.met" />
+                                        <flux:icon.minus-circle variant="micro" class="size-3.5" x-show="!requirement.met" />
+                                    </span>
+                                    <span x-text="requirement.label"></span>
+                                    <span class="sr-only" x-text="requirement.met ? ' — met' : ' — not met'"></span>
+                                </li>
+                            </template>
+                        </ul>
+                        <p class="sr-only" role="status" aria-live="polite" x-text="next.length ? completed + ' of ' + requirements.length + ' password requirements met.' : 'Enter a new password to check the requirements.'"></p>
+                    </div>
+                    <p class="text-xs text-danger" x-cloak x-show="byteLength > policy.maxBytes">This password is too long. Try a shorter passphrase.</p>
+                    <p class="text-xs text-danger" x-cloak x-show="next.length > 0 && $wire.currentPassword.length > 0 && !differs">Choose a password different from your current password.</p>
+                </div>
+                <div class="space-y-2">
+                    <flux:input
+                        id="profile-confirm-password"
+                        label="Confirm new password"
+                        type="password"
+                        autocomplete="new-password"
+                        wire:model="confirmPassword"
+                        aria-describedby="profile-password-match"
+                        required
+                        viewable
+                    />
+                    <p id="profile-password-match" class="text-xs" :class="matches ? 'text-success' : 'text-muted-foreground'" role="status" aria-live="polite"
+                        x-text="$wire.confirmPassword.length ? (matches ? 'Passwords match.' : 'The passwords do not match yet.') : 'Enter your new password again to confirm it.'">Enter your new password again to confirm it.</p>
+                </div>
+                <p class="text-xs text-muted-foreground">After changing your password, your other sessions will be signed out. This session will stay signed in.</p>
+                <div class="flex flex-wrap justify-end gap-2">
+                    <flux:button variant="outline" wire:click="cancelPasswordChange">Cancel</flux:button>
+                    <flux:button type="submit" variant="primary" :loading="false" x-bind:disabled="!ready" wire:loading.attr="disabled" wire:target="changePassword">
+                        <span wire:loading.remove wire:target="changePassword">Update password</span>
+                        <span wire:loading wire:target="changePassword">Updating password…</span>
+                    </flux:button>
+                </div>
+            </form>
+        </flux:modal>
 
-            <div class="space-y-2">
-                <flux:label for="profile-new-password">New password</flux:label>
-                <flux:input
-                    id="profile-new-password"
-                    type="password"
-                    autocomplete="new-password"
-                    wire:model="newPassword"
-                />
-                <p class="text-xs text-muted-foreground">At least 8 characters.</p>
-            </div>
-
-            <div class="space-y-2">
-                <flux:label for="profile-confirm-password">Confirm new password</flux:label>
-                <flux:input
-                    id="profile-confirm-password"
-                    type="password"
-                    autocomplete="new-password"
-                    wire:model="confirmPassword"
-                />
-            </div>
-
-            <div class="flex justify-end sm:col-span-2">
-                <flux:button type="submit" variant="primary">Change password</flux:button>
-            </div>
-        </form>
-    </section>
-
-    @if ($employee !== null)
-        {{-- ───────────────────────────────────────────────── Employment --}}
-        <section class="hris-card overflow-hidden">
-            <header class="border-b border-border px-4 py-3">
-                <h2 class="text-base font-bold">Employment</h2>
-                <p class="text-sm text-muted-foreground">What the 201 file holds about your engagement — read-only here.</p>
-            </header>
-            <dl class="grid gap-3 px-4 pt-4 sm:grid-cols-2">
-                <div class="min-w-0">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee code</dt>
-                    <dd class="mt-1 break-words text-sm"><span class="num">{{ $employee->employee_code !== '' ? $employee->employee_code : '—' }}</span></dd>
-                </div>
-                {{-- `?:`, not `??`: an unset position is stored as "" as often as null. --}}
-                <div class="min-w-0">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Position</dt>
-                    <dd class="mt-1 break-words text-sm">{{ $employee->position ?: '—' }}</dd>
-                </div>
-                <div class="min-w-0">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employment status</dt>
-                    <dd class="mt-1 break-words text-sm">
-                        <span class="pill pill-info">{{ EmployeeFields::employmentStatusLabel($employee->employment_status) }}</span>
-                    </dd>
-                </div>
-                <div class="min-w-0">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date hired</dt>
-                    <dd class="mt-1 break-words text-sm">
-                        <span class="num">{{ $employee->date_hired !== null ? $employee->date_hired->format('M d, Y') : '—' }}</span>
-                    </dd>
-                </div>
-                <div class="min-w-0">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Monthly rate</dt>
-                    <dd class="mt-1 break-words text-sm"><span class="num">{{ EmployeeFields::peso($employee->monthly_rate) }}</span></dd>
-                </div>
-            </dl>
-            {{-- Outside the <dl>: its content model is dt/dd pairs only. --}}
-            <p class="px-4 pb-4 pt-3 text-xs text-muted-foreground">
-                Maintained by HR in Employee Records.
-            </p>
-        </section>
     @endif
 </div>

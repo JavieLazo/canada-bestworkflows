@@ -4,34 +4,37 @@ declare(strict_types=1);
 
 namespace App\Livewire\Tasks;
 
-use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
+use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
-use App\Models\EmployeeDocument;
-use App\Models\EmployeeProfile;
-use App\Models\Notification;
-use App\Models\ProjectTask;
-use App\Models\ProjectTaskFile;
-use App\Models\TaskComment;
-use App\Models\User;
+use App\Livewire\Projects\ProjectsData;
+use App\Modules\Workforce\Contracts\OperationalDirectory;
+use App\Modules\WorkManagement\Application\Commands\AttachSubmission;
+use App\Modules\WorkManagement\Application\Commands\CommentOnOwnTask;
+use App\Modules\WorkManagement\Application\Commands\DeleteSubmission;
+use App\Modules\WorkManagement\Application\Commands\StartTask;
+use App\Modules\WorkManagement\Application\Commands\SubmitTask;
+use App\Modules\WorkManagement\Application\Queries\WorkRecords;
+use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView as ProjectTask;
+use App\Modules\WorkManagement\Contracts\Views\TaskResponseView;
 use App\Support\Access;
-use App\Support\AuditService;
 use App\Support\EmployeeName;
+use App\Support\HrisFormat;
 use App\Support\ManilaClock;
+use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\WithFileUploads;
-use Throwable;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * My Tasks — the assignee's queue.
@@ -59,19 +62,40 @@ use Throwable;
  * an `IS NULL` uncompilable, behind a {@see Access::hasEmployeeLink()} guard
  * whose false arm compiles to `1 = 0` (the unlinked card, and no rows).
  *
- * MULTI-ASSIGNEE. Since 2026-09-10 a task is one SHARED unit of work with
- * 0..N assignees (the pivot, {@see ProjectTask::assignees()}). Status, remarks
- * and submitted_at stay one-per-task: any assignee may start or submit for
- * everyone, and `submitted_by` records who did. Co-assignees are told about a
- * peer's submission and a peer's comment; a management-side comment reaches
- * every other assignee. Each fan-out is resolved to ACCOUNTS and written once
- * per account, never to the actor's own (the fan-out helpers below). An
- * uploaded SUBMISSION file may be deleted only by the account that uploaded
- * it ({@see self::deleteFile()}).
+ * MULTI-ASSIGNEE. A task has 0..N assignees (the pivot,
+ * {@see ProjectTask::assignees()}), and its crew hands work in one of two
+ * ways (DELIBERATE DIVERGENCE: the reference has one assignee and no mode):
  *
- * Statuses move through {@see TaskPolicy} only, and stamps (`submitted_at`,
- * `submitted_by`, actor columns) come from the session and the clock, never
- * from the client.
+ *   GROUP — one SHARED unit of work. Status, remarks and submitted_at stay
+ *   one-per-task: any assignee may start or submit for everyone, and
+ *   `submitted_by` records who did. Co-assignees are told about a peer's
+ *   submission.
+ *
+ *   INDIVIDUAL — any assignee still starts the task for everyone, but each
+ *   then submits, and is reviewed on, their OWN response
+ *   (WorkRecords::responses(), read with `own: true`). The task stays in
+ *   progress until management completes it; what this screen shows the actor
+ *   is their response's state ($myState, the same rule as the list's
+ *   `my_status`). Their note, their files and the review of them are theirs
+ *   and the reviewer's alone: a co-assignee appears here by name and STATE,
+ *   never by what they wrote or attached, and only the assigner hears of a
+ *   member's submission.
+ *
+ * Either way a peer's comment and a management-side comment reach every other
+ * assignee. Each fan-out is resolved to ACCOUNTS and written once per account,
+ * never to the actor's own — {@see Notifier::employees()} with the actor's and
+ * the assigner's accounts as its except-list, the assigner told separately
+ * through {@see Notifier::account()} when they are not the actor. An uploaded
+ * SUBMISSION file may be deleted only by the account that uploaded it
+ * ({@see self::deleteFile()}).
+ *
+ * A task's status moves only through {@see TaskPolicy}'s mode-aware
+ * transition maps, and an INDIVIDUAL member's own response only through
+ * TaskSubmissionPolicy's member map (memberCanMove(), which SubmitTask
+ * applies); what this page offers — submit, attach — is derived from those
+ * rules and TaskFilePolicy, and every command re-checks them. Stamps
+ * (`submitted_at`, `submitted_by`, actor columns) come from the session and
+ * the clock, never from the client.
  */
 #[Title('My Tasks')]
 class MyTasksPage extends Component
@@ -79,24 +103,6 @@ class MyTasksPage extends Component
     use WithFileUploads;
     use WithSorting;
     use WithTableFilters;
-
-    /**
-     * Per-file upload cap — 2 MB in the reference's API mode
-     * (`MAX_FILE_BYTES`, src/lib/attachments.ts:19). Overridable through
-     * BESTWORKFLOWS_MAX_UPLOAD_BYTES / config('bestworkflows.uploads.max_file_bytes').
-     */
-    private const int DEFAULT_MAX_FILE_BYTES = 2_000_000;
-
-    /**
-     * The organisation-wide ceiling across EVERY attachment — employee
-     * documents and task files share one budget (`STORAGE_CEILING_BYTES`,
-     * src/lib/api/storage.ts:15). Overridable through
-     * BESTWORKFLOWS_STORAGE_CEILING_BYTES / config('bestworkflows.uploads.storage_ceiling_bytes').
-     */
-    private const int DEFAULT_STORAGE_CEILING_BYTES = 1_000_000_000;
-
-    /** SUBMISSION evidence may change only while the assignee is being waited on. */
-    private const array SUBMISSION_EDITABLE_STATUSES = ['IN_PROGRESS', 'RETURNED'];
 
     /** Status filter — plain filter state, deliberately unlocked. */
     public string $status = 'ALL';
@@ -132,7 +138,7 @@ class MyTasksPage extends Component
     /** @return list<string> */
     protected function sortableKeys(): array
     {
-        return ['code', 'task', 'priority', 'due', 'status'];
+        return ['code', 'task', 'priority', 'start', 'due', 'status'];
     }
 
     /** Filter changes restart from page 1 (my-tasks-page.tsx:215, 231). */
@@ -158,7 +164,7 @@ class MyTasksPage extends Component
             return;
         }
 
-        $task = $this->ownTasks($access)->whereKey($id)->first();
+        $task = app(WorkRecords::class)->task($access, $id, own: true);
 
         if ($task === null) {
             return;
@@ -193,156 +199,67 @@ class MyTasksPage extends Component
      * PENDING → IN_PROGRESS and RETURNED → IN_PROGRESS, per
      * TaskPolicy::EMPLOYEE_TRANSITIONS. Taking the work back on drops any
      * submission stamp: PENDING never had one, and a returned task must not
-     * keep reading as waiting on the reviewer.
+     * keep reading as waiting on the reviewer. An INDIVIDUAL task is only
+     * ever started (INDIVIDUAL_EMPLOYEE_TRANSITIONS): a returned response is
+     * resubmitted, the task itself is never returned.
      */
     public function startTask(): void
     {
         $access = $this->actor();
-        $this->authorizeModule($access);
-
-        $task = $this->ownOpenTask($access);
-        if ($task === null) {
-            return;
-        }
-
-        if (! TaskPolicy::employeeCanMove($task->status, 'IN_PROGRESS')) {
-            Flux::toast(variant: 'danger', text: TaskPolicy::transitionError());
+        try {
+            $done = app(StartTask::class)->handle($access, $this->openId);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The task could not be updated. Please try again.');
 
             return;
-        }
-
-        // Optimistic concurrency, as the reference route's
-        // `updateMany({ where: { id, status } })` — a task that moved under us
-        // conflicts instead of being clobbered.
-        $updated = ProjectTask::query()
-            ->whereKey($task->id)
-            ->where('status', $task->status)
-            ->update(['status' => 'IN_PROGRESS', 'submitted_at' => null]);
-
-        if ($updated === 0) {
-            Flux::toast(variant: 'danger', text: 'That task changed before this action completed.');
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        AuditService::record(
-            $access,
-            AuditEvent::taskStatus('IN_PROGRESS'),
-            'project_tasks',
-            $task->id,
-            sprintf('%s "%s" → in_progress', $task->code, $task->title),
-        );
-
+        if (! $done) {
+            return;
+        }
         Flux::toast(variant: 'success', text: 'Task started.');
         $this->closeDialog();
     }
 
     /**
-     * "Submit for review" — IN_PROGRESS → SUBMITTED with the note the reviewer
+     * "Submit for review" / "Submit my response". SubmitTask branches on the
+     * task's mode:
+     *
+     * On a GROUP task — IN_PROGRESS → SUBMITTED with the note the reviewer
      * reads. `remarks` only ever holds the latest note, so the thread comment
      * is what keeps a resubmission from erasing what was said the first time
-     * round (task-detail-dialog.tsx:213-231).
+     * round (task-detail-dialog.tsx:213-231). The task is shared, so this
+     * submits it for every assignee: the status moves once, `submitted_by`
+     * names the assignee who pressed the button, and the co-assignees are
+     * told alongside the assigner.
      *
-     * The task is shared, so this submits it for every assignee: the status
-     * moves once, `submitted_by` names the assignee who pressed the button,
-     * and the co-assignees are told alongside the assigner.
+     * On an INDIVIDUAL task — the actor's OWN response goes to SUBMITTED (a
+     * first hand-in, or a resubmission after a return) while the task stays in
+     * progress. The note is private to the actor and the reviewer, so it goes
+     * to no thread, and only the assigner is told.
      */
     public function submitTask(): void
     {
         $access = $this->actor();
-        $this->authorizeModule($access);
-
-        $note = trim($this->remarks);
-        if ($note === '') {
-            Flux::toast(variant: 'danger', text: 'Say what you did before submitting.');
-
-            return;
-        }
-        if (mb_strlen($note) > 8000) {
-            // Patch schema: remarks max 8000 (api/tasks/[id]/route.ts:44).
-            Flux::toast(variant: 'danger', text: 'remarks: must be at most 8000 characters.');
-
-            return;
-        }
-
-        $task = $this->ownOpenTask($access);
-        if ($task === null) {
-            return;
-        }
-
-        if (! TaskPolicy::employeeCanMove($task->status, 'SUBMITTED')) {
-            Flux::toast(variant: 'danger', text: TaskPolicy::transitionError());
-
-            return;
-        }
-
-        $updated = ProjectTask::query()
-            ->whereKey($task->id)
-            ->where('status', $task->status)
-            ->update([
-                'status' => 'SUBMITTED',
-                // Pre-formatted so the DATETIME(3) column keeps its
-                // milliseconds — a raw builder update bypasses the model's
-                // $dateFormat and the base grammar would write whole seconds.
-                'submitted_at' => now()->format('Y-m-d H:i:s.v'),
-                // Which ASSIGNEE submitted — resolved from the session, and
-                // ownOpenTask() has already proven the actor is on the pivot.
-                'submitted_by' => $access->ownEmployeeId(),
-                'remarks' => $note,
-            ]);
-
-        if ($updated === 0) {
-            Flux::toast(variant: 'danger', text: 'That task changed before this action completed.');
-
-            return;
-        }
-
-        AuditService::record(
-            $access,
-            AuditEvent::taskStatus('SUBMITTED'),
-            'project_tasks',
-            $task->id,
-            sprintf('%s "%s" → submitted', $task->code, $task->title),
-        );
-
-        // The thread copy of the note — fail-soft, exactly as the dialog's
-        // try/catch around createTaskComment (task-detail-dialog.tsx:214-231).
         try {
-            $comment = $this->writeComment($access, $task, $note, 'SUBMITTED');
-            AuditService::record(
-                $access,
-                AuditEvent::TASK_COMMENTED,
-                'task_comments',
-                $comment->id,
-                'Comment added to '.$this->taskName($task),
-            );
-        } catch (Throwable $e) {
-            Log::error('submission comment write failed', ['task' => $task->id, 'error' => $e->getMessage()]);
+            $done = app(SubmitTask::class)->handle($access, $this->openId, $this->remarks);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The task could not be updated. Please try again.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
         }
-
-        // A submission is news to whoever handed the task out
-        // (api/tasks/[id]/route.ts:210-216) — told first, so an assigner whose
-        // login is also on the crew hears it once, as the reviewer.
-        $told = $this->alreadyTold($access);
-        $this->notifyAccount(
-            $told,
-            $task->assigned_by,
-            'TASK_SUBMITTED',
-            $this->taskName($task).' submitted for review',
-            $note,
-            '/projects',
-        );
-
-        // ...and to the co-assignees, whose task just moved under them.
-        $this->notifyEmployees(
-            $told,
-            $this->peerAssigneeIds($task, $access),
-            'TASK_SUBMITTED',
-            $this->actorEmployeeName($task, $access).' submitted '.$this->taskName($task).' for review',
-            $note,
-            '/my-tasks',
-        );
-
+        if (! $done) {
+            return;
+        }
         Flux::toast(variant: 'success', text: 'Submitted for review.');
         $this->closeDialog();
     }
@@ -358,55 +275,21 @@ class MyTasksPage extends Component
     public function postComment(): void
     {
         $access = $this->actor();
-        $this->authorizeModule($access);
+        try {
+            $done = app(CommentOnOwnTask::class)->handle($access, $this->openId, $this->commentBody);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The task could not be updated. Please try again.');
 
-        $text = trim($this->commentBody);
-        if ($text === '') {
-            Flux::toast(variant: 'danger', text: 'Write something before posting.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-        if (mb_strlen($text) > 8000) {
-            Flux::toast(variant: 'danger', text: 'body: must be at most 8000 characters.');
-
+        if (! $done) {
             return;
         }
-
-        $task = $this->ownOpenTask($access);
-        if ($task === null) {
-            return;
-        }
-
-        $comment = $this->writeComment($access, $task, $text, null);
-
-        AuditService::record(
-            $access,
-            AuditEvent::TASK_COMMENTED,
-            'task_comments',
-            $comment->id,
-            'Comment added to '.$this->taskName($task),
-        );
-
-        // The bell clamps the body to one line, so only the opening of the
-        // note is stored — the thread keeps it whole.
-        $preview = mb_strlen($text) > 120 ? mb_substr($text, 0, 117).'…' : $text;
-
-        $title = 'New note on '.$this->taskName($task);
-
-        $told = $this->alreadyTold($access);
-
-        if ($comment->side === 'MANAGEMENT') {
-            // Management speaks to the whole task: every OTHER assignee is
-            // told — this is the actor's own queue, so they are on the crew
-            // too, and need no news of their own note.
-            $this->notifyEmployees($told, $this->peerAssigneeIds($task, $access), 'TASK_COMMENT', $title, $preview, '/my-tasks');
-        } else {
-            // An assignee speaks to the assigner — and to the peers sharing
-            // the task, who would otherwise find the thread moved without them.
-            $this->notifyAccount($told, $task->assigned_by, 'TASK_COMMENT', $title, $preview, '/projects');
-            $this->notifyEmployees($told, $this->peerAssigneeIds($task, $access), 'TASK_COMMENT', $title, $preview, '/my-tasks');
-        }
-
         $this->commentBody = '';
         Flux::toast(variant: 'success', text: 'Comment posted.');
     }
@@ -418,96 +301,32 @@ class MyTasksPage extends Component
      * input receives a file, matching the reference's upload-on-pick
      * (TaskAttachments.tsx:52-88).
      *
-     * Once a task is submitted the files are evidence under review, so they
-     * must stop changing under the reviewer — the server locks SUBMISSION
-     * evidence to IN_PROGRESS / RETURNED (api/tasks/[id]/files/route.ts:47-51).
+     * Once work is handed in the files are evidence under review, so they
+     * must stop changing under the reviewer. On a GROUP task the server locks
+     * SUBMISSION evidence to IN_PROGRESS / RETURNED
+     * (api/tasks/[id]/files/route.ts:47-51); on an INDIVIDUAL task the lock is
+     * the member's OWN response — open while it can still be handed in, shut
+     * while it is submitted or approved (TaskFilePolicy::submissionEditable(),
+     * which AttachSubmission re-checks under the task lock).
      */
     public function updatedUpload(): void
     {
         if ($this->upload === null) {
             return;
         }
-
         $access = $this->actor();
         $this->authorizeModule($access);
-
-        $file = $this->upload;
-        $name = (string) $file->getClientOriginalName();
-        $size = (int) $file->getSize();
-
-        $task = $this->ownOpenTask($access);
-        if ($task === null) {
-            $this->clearUpload();
-
-            return;
-        }
-
-        // The client-side rejection every upload point shares
-        // (attachmentRejection, src/lib/attachments.ts:50-66; API mode has no
-        // client-side total, so no "browser-only" suffix).
-        if ($size > $this->maxFileBytes()) {
-            Flux::toast(variant: 'danger', text: sprintf(
-                '%s is %s — the limit is %s per file.',
-                $name,
-                self::humanSize($size),
-                self::humanSize($this->maxFileBytes()),
-            ));
-            $this->clearUpload();
-
-            return;
-        }
-
-        if (! in_array($task->status, self::SUBMISSION_EDITABLE_STATUSES, true)) {
-            Flux::toast(variant: 'danger', text: 'Task evidence is locked in this status.');
-            $this->clearUpload();
-
-            return;
-        }
-
-        // The server's own ceiling: documents and task files share one budget.
-        $used = (int) EmployeeDocument::query()->sum('size') + (int) ProjectTaskFile::query()->sum('size');
-        if ($used + $size > $this->storageCeilingBytes()) {
-            Flux::toast(variant: 'danger', text: 'The file store is full. Delete old attachments before uploading more.');
-            $this->clearUpload();
-
-            return;
-        }
-
         try {
-            $path = $file->store('task-files', 'local');
-            if ($path === false) {
-                throw new \RuntimeException('The file could not be stored.');
+            $name = app(AttachSubmission::class)->handle($access, $this->openId, $this->upload);
+            if ($name !== null) {
+                Flux::toast(variant: 'success', text: $name.' attached.');
             }
-
-            $row = new ProjectTaskFile;
-            $row->fill([
-                'task_id' => $task->id,
-                'kind' => 'SUBMISSION',
-                'file_name' => mb_substr($name, 0, 300),
-                'mime' => mb_substr((string) ($file->getClientMimeType() ?: 'application/octet-stream'), 0, 120),
-                'size' => $size,
-                'path' => $path,
-            ]);
-            // Actor column — session-supplied, never mass-assigned.
-            $row->uploaded_by = $access->userId === null ? null : (int) $access->userId;
-            $row->save();
-        } catch (Throwable $e) {
-            Log::error('task file upload failed', ['task' => $task->id, 'error' => $e->getMessage()]);
+        } catch (QueryException $e) {
+            report($e);
             Flux::toast(variant: 'danger', text: 'Upload failed');
-            $this->clearUpload();
-
-            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
         }
-
-        AuditService::record(
-            $access,
-            AuditEvent::taskFile('SUBMISSION'),
-            'project_task_files',
-            $row->id,
-            sprintf('%s attached to %s', $row->file_name, $task->code),
-        );
-
-        Flux::toast(variant: 'success', text: $name.' attached.');
         $this->clearUpload();
     }
 
@@ -516,56 +335,33 @@ class MyTasksPage extends Component
      * reviewer's spec — deleting it is not the assignee's to do
      * (api/tasks/files/[id]/route.ts:41-45).
      *
-     * "Own" is tighter than "on my task" now that a task is shared: a
-     * co-assignee may download a peer's evidence (it is the task's), but only
-     * the account that uploaded a file may withdraw it — `uploaded_by` is the
-     * session-stamped actor column written by updatedUpload(). Being an
-     * assignee is still required on top, so a reviewer who once uploaded
-     * nothing and an ex-assignee who once did are both refused here.
+     * "Own" is tighter than "on my task" because a task is shared. On a
+     * GROUP task a co-assignee may download a peer's evidence (it is the
+     * task's); on an INDIVIDUAL task a member's evidence is theirs and the
+     * reviewer's alone (WorkRecords::download()). Either way only the account
+     * that uploaded a file may withdraw it — `uploaded_by` is the
+     * session-stamped actor column written by updatedUpload() — and only
+     * while the evidence is still editable (the rule updatedUpload() follows).
+     * Being an assignee is still required on top, so a reviewer who once
+     * uploaded nothing and an ex-assignee who once did are both refused here.
      */
     public function deleteFile(string $fileId): void
     {
         $access = $this->actor();
         $this->authorizeModule($access);
-
-        $file = ProjectTaskFile::query()->with('task')->whereKey($fileId)->first();
-        if ($file === null || $file->task === null) {
-            return;
-        }
-
-        $mine = $access->hasEmployeeLink()
-            && $file->task->hasAssignee($access->ownEmployeeId())
-            && $this->uploadedByActor($file, $access);
-
-        if ($file->kind === 'BRIEF' || ! $mine) {
-            abort(403);
-        }
-
-        if (! in_array($file->task->status, self::SUBMISSION_EDITABLE_STATUSES, true)) {
-            Flux::toast(variant: 'danger', text: 'Task evidence is locked in this status.');
-
-            return;
-        }
-
         try {
-            Storage::disk('local')->delete($file->path);
-            $file->delete();
-        } catch (Throwable $e) {
-            Log::error('task file delete failed', ['file' => $fileId, 'error' => $e->getMessage()]);
+            $name = app(DeleteSubmission::class)->handle($access, $fileId);
+            if ($name !== null) {
+                Flux::toast(variant: 'success', text: $name.' removed.');
+            }
+        } catch (HttpException $e) {
+            throw $e;
+        } catch (QueryException $e) {
+            report($e);
             Flux::toast(variant: 'danger', text: 'That file could not be removed.');
-
-            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
         }
-
-        AuditService::record(
-            $access,
-            AuditEvent::TASK_FILE_REMOVED,
-            'project_task_files',
-            $file->id,
-            sprintf('%s removed from %s', $file->file_name, $file->task->code),
-        );
-
-        Flux::toast(variant: 'success', text: $file->file_name.' removed.');
     }
 
     /* ---------------------------------- render --------------------------------- */
@@ -577,101 +373,70 @@ class MyTasksPage extends Component
         $today = ManilaClock::dayKey(CarbonImmutable::now());
 
         $employee = $linked
-            ? EmployeeProfile::query()->find($access->ownEmployeeId())
+            ? app(OperationalDirectory::class)->find($access, $access->ownEmployeeId())
             : null;
 
-        // The actor's whole queue — tile counts and the project filter read it
-        // unfiltered, exactly as `mine` did (my-tasks-page.tsx:63-66).
-        // ownTasks() compiles to `1 = 0` for an unlinked account, so the
-        // guard here only spares the query.
-        $mine = $linked
-            ? $this->ownTasks($access)
-                ->with(['project', 'assignees'])
-                ->orderBy('code')
-                ->get()
-            : ProjectTask::query()->whereRaw('1 = 0')->get();
+        // Tiles/filter choices describe the whole own queue; only table rows
+        // and their attachment/comment counts are loaded for the current page.
+        $summary = app(WorkRecords::class)->ownSummary($access);
+        $rows = $this->acceptPage($this->ownTasks($access));
+        $countsForTasks = app(WorkRecords::class)->counts($access, array_values($rows->getCollection()->map(static fn (ProjectTask $task): string => $task->id)->all()));
+        $fileCounts = $countsForTasks['files'];
+        $commentCounts = $countsForTasks['comments'];
 
-        $counts = [
-            'todo' => $mine->whereIn('status', ['PENDING', 'IN_PROGRESS'])->count(),
-            'awaiting' => $mine->where('status', 'SUBMITTED')->count(),
-            'returned' => $mine->where('status', 'RETURNED')->count(),
-            'completed' => $mine->where('status', 'COMPLETED')->count(),
-        ];
-
-        // Only the projects that actually hold one of my tasks are worth
-        // filtering by (my-tasks-page.tsx:74-77), in project-code order.
-        $myProjects = $mine->pluck('project')->filter()->unique('id')->sortBy('code')->values();
-
-        $taskIds = $mine->pluck('id');
-        $fileCounts = ProjectTaskFile::query()
-            ->whereIn('task_id', $taskIds)
-            ->selectRaw('task_id, count(*) as n')
-            ->groupBy('task_id')
-            ->pluck('n', 'task_id');
-        $commentCounts = TaskComment::query()
-            ->whereIn('task_id', $taskIds)
-            ->selectRaw('task_id, count(*) as n')
-            ->groupBy('task_id')
-            ->pluck('n', 'task_id');
-
-        $needle = mb_strtolower(trim($this->search));
-        $filtered = $mine
-            ->filter(function (ProjectTask $t) use ($needle): bool {
-                if ($this->status !== 'ALL' && $t->status !== $this->status) {
-                    return false;
-                }
-                if ($this->projectId !== 'ALL' && $t->project_id !== $this->projectId) {
-                    return false;
-                }
-                if ($needle === '') {
-                    return true;
-                }
-
-                return str_contains(
-                    mb_strtolower($t->code.' '.$t->title.' '.($t->project->name ?? '')),
-                    $needle,
-                );
-            })
-            ->values()
-            ->all();
-
-        usort($filtered, $this->comparator());
-        if ($this->sortDir === 'desc') {
-            // The reference reverses the WHOLE sorted list (my-tasks-page.tsx:107),
-            // blanks-last ordering included — ported as written.
-            $filtered = array_reverse($filtered);
-        }
-
-        $rows = $this->paginateClamped(new Collection($filtered));
-
-        $open = $this->openId !== null ? $mine->firstWhere('id', $this->openId) : null;
+        $open = $this->openId !== null ? app(WorkRecords::class)->task($access, $this->openId, own: true) : null;
         // The uploader rides along, with their employee record for the
         // spelling the rest of the dialog uses: on a shared task the
         // attachments partial names who attached each peer's file.
         $openFiles = $open
-            ? ProjectTaskFile::query()->with('uploader.employee')->where('task_id', $open->id)->orderBy('created_at')->get()
+            ? app(WorkRecords::class)->files($access, [$open->id])
             : new Collection;
         $openComments = $open
-            ? TaskComment::query()->where('task_id', $open->id)->orderBy('created_at')->get()
+            ? app(WorkRecords::class)->comments($access, [$open->id])
             : new Collection;
 
+        // On an INDIVIDUAL task, every member's STATE and the actor's own
+        // response in full — responses() hands a peer's entry over without
+        // its content, so nothing below can print a peer's note. The actor's
+        // own state is null for "no row"; every rule fed it (myState,
+        // memberCanRespond, evidenceEditable) reads null and NONE alike.
+        $individual = $open?->isIndividual() ?? false;
+        $responses = $open !== null && $individual
+            ? app(WorkRecords::class)->responses($access, $open->id, own: true)
+            : new Collection;
+        $mine = $linked ? $responses->get($access->ownEmployeeId()) : null;
+        $memberStatus = $mine?->status;
+        // What the actor sees as their status: on a GROUP task, the task's.
+        $myState = $open ? ProjectsData::myState($open->submission_mode, $open->status, $memberStatus) : null;
+
         $assigner = $open?->assigner;
-        $nexts = $open ? TaskPolicy::employeeCanMoveTo($open->status) : [];
+        $nexts = $open ? TaskPolicy::employeeCanMoveTo($open->status, $open->submission_mode) : [];
 
         // The peers sharing the open task, and who last submitted it — a
         // shared task must not read "your submission" when it was a peer's.
-        $coAssignees = $open ? $this->peerAssigneeNames($open, $access) : '';
-        $submitter = $open?->submitted_by !== null
+        // An INDIVIDUAL response is only ever the actor's own, so there is no
+        // submitter to name.
+        $coAssignees = $open ? $this->peerAssigneeNames($open, $access, $responses) : '';
+        $submitter = ! $individual && $open?->submitted_by !== null
             ? $open->assignees->firstWhere('id', $open->submitted_by) ?? $open->submitter
             : null;
         $submittedByPeer = $submitter !== null && $linked && $submitter->getKey() !== $access->ownEmployeeId();
 
+        // An INDIVIDUAL task's row carries a review note only once management
+        // closed it with one (complete or cancel, meant for the whole crew),
+        // and a reopen by hand clears it again (ManualTaskStatus::writes());
+        // until then the review that matters is of the actor's own response.
+        $reviewNote = $open?->review_remarks;
+        if ($individual && trim((string) $reviewNote) === '') {
+            $reviewNote = $mine?->review_remarks;
+        }
+
         return view('livewire.tasks.my-tasks-page', [
             'linked' => $linked,
             'employee' => $employee,
-            'mine' => $mine,
-            'counts' => $counts,
-            'myProjects' => $myProjects,
+            'mineEmpty' => $summary['total'] === 0,
+            'counts' => $summary['counts'],
+            'myProjects' => $summary['projects'],
             'fileCounts' => $fileCounts,
             'commentCounts' => $commentCounts,
             'rows' => $rows,
@@ -686,18 +451,34 @@ class MyTasksPage extends Component
             // partial needs to know who is looking.
             'actorUserId' => $access->userId === null ? null : (int) $access->userId,
             'canStart' => in_array('IN_PROGRESS', $nexts, true),
-            'canSubmit' => in_array('SUBMITTED', $nexts, true),
+            // An INDIVIDUAL task never moves to SUBMITTED itself: the member
+            // hands in their own response, from its own state.
+            'canSubmit' => $open !== null && ($individual
+                ? ProjectsData::memberCanRespond($open->status, $memberStatus)
+                : in_array('SUBMITTED', $nexts, true)),
             'nexts' => $nexts,
+            'individual' => $individual,
+            'myResponse' => $mine,
+            'myState' => $myState,
+            // The note handed in and the review of it — on an INDIVIDUAL task
+            // the actor's own response, never the task row's.
+            'submissionNote' => $individual ? $mine?->remarks : $open?->remarks,
+            'reviewNote' => $reviewNote,
             'openOverdue' => $open ? TaskPolicy::isOverdue(
                 ['status' => $open->status, 'due_date' => $open->due_date?->format('Y-m-d')],
                 $today,
             ) : false,
-            // Files may change only while the assignee is being waited on
-            // (task-detail-dialog.tsx:115-117).
-            'canAttach' => $open
-                ? (! TaskPolicy::isClosed($open->status) && ! TaskPolicy::isAwaitingReview($open->status))
-                : false,
-            'commentSide' => $this->commentSide($access),
+            // DELIBERATE DIVERGENCE: the reference offers Attach whenever the
+            // task is neither closed nor under review
+            // (task-detail-dialog.tsx:115-117), PENDING included, while its own
+            // files route refuses a PENDING upload. Here the button follows the
+            // server's rule (TaskFilePolicy::submissionEditable(), through
+            // ProjectsData::evidenceEditable()), so it never offers what
+            // AttachSubmission refuses: on a GROUP task that also hides it on
+            // PENDING, and on an INDIVIDUAL task it follows the member's own
+            // response.
+            'canAttach' => $open !== null && ProjectsData::evidenceEditable($open->submission_mode, $open->status, $memberStatus),
+            'commentSide' => $this->commentSide($access, $open),
         ]);
     }
 
@@ -720,46 +501,37 @@ class MyTasksPage extends Component
     }
 
     /**
-     * The actor's own queue — every task whose pivot names their employee.
+     * The actor's own queue, one page of it — every task whose pivot names
+     * their employee, through WorkRecords::ownPage() and its own-task scope
+     * (WorkScope::tasks(own: true)).
      *
-     * The guard comes BEFORE the comparison on purpose, and the two must stay
-     * in this order: `ownEmployeeId()` is non-nullable and throws for an
+     * That scope proves the link BEFORE it compares, and the two must stay in
+     * this order: `ownEmployeeId()` is non-nullable and throws for an
      * unlinked account, so the only way to build the predicate at all is to
      * have proven the link first. That is what makes `employee_id IS NULL`
-     * — the leak ScopesToActor's docblock is built around, which would hand
-     * an unlinked account nothing today but every row of a pivot that ever
-     * allowed a null — uncompilable here rather than merely avoided. The
-     * false arm is an explicit impossible predicate, never an unfiltered
-     * query: the unlinked card shows, and the count is zero, by construction.
+     * — the leak ScopesToActor's docblock is built around — uncompilable
+     * rather than merely avoided. The false arm is an explicit impossible
+     * predicate, never an unfiltered query: the unlinked card shows, and the
+     * count is zero, by construction.
      *
      * Not `toEmployeeVia()`: its ROWS_ALL arm would widen an all_data +
      * PROJECTS holder's queue to everyone's tasks (class docblock, SCOPING).
+     * Each row carries `my_status` — the actor's own response state on an
+     * INDIVIDUAL task in progress, else the task's — and the status filter
+     * and sort read that, not the task's status.
      *
-     * @return Builder<ProjectTask>
+     * @return LengthAwarePaginator<int, ProjectTask>
      */
-    private function ownTasks(Access $access): Builder
+    private function ownTasks(Access $access): LengthAwarePaginator
     {
-        if (! $access->hasEmployeeLink()) {
-            return ProjectTask::query()->whereRaw('1 = 0');
-        }
-
-        $employeeId = $access->ownEmployeeId();
-
-        return ProjectTask::query()
-            ->whereHas('assignments', static fn (Builder $q) => $q->where('employee_id', '=', $employeeId));
-    }
-
-    /** The open task, and only if the actor is one of its assignees. */
-    private function ownOpenTask(Access $access): ?ProjectTask
-    {
-        if ($this->openId === null || ! $access->hasEmployeeLink()) {
-            return null;
-        }
-
-        return $this->ownTasks($access)
-            ->with('assignees')
-            ->whereKey($this->openId)
-            ->first();
+        return app(WorkRecords::class)->ownPage(
+            $access,
+            ['q' => $this->search, 'status' => $this->status, 'project' => $this->projectId],
+            $this->sortKey,
+            $this->sortDir,
+            (int) $this->getPage(),
+            $this->perPage,
+        );
     }
 
     /**
@@ -771,193 +543,50 @@ class MyTasksPage extends Component
      */
     private function peerAssigneeIds(ProjectTask $task, Access $access): array
     {
-        $self = $access->hasEmployeeLink() ? $access->ownEmployeeId() : null;
-
-        return array_values(array_filter(
-            $task->assigneeIds(),
-            static fn (string $id): bool => $id !== $self,
-        ));
+        // The same rule Projects\Show applies, in its one home.
+        return ProjectsData::crewExcept($task, $access);
     }
 
     /**
      * The peers' names for the dialog's "Working with" line, in the same
      * surname-first order the Projects screen prints assignees; '' when the
-     * actor works alone.
+     * actor works alone. On an INDIVIDUAL task each name carries that peer's
+     * response STATE — "Ana Cruz (Approved), Ben Reyes (Not submitted)" — and
+     * nothing more: a label is all a peer's entry in `$responses` holds.
+     *
+     * @param  Collection<string, TaskResponseView>  $responses
      */
-    private function peerAssigneeNames(ProjectTask $task, Access $access): string
+    private function peerAssigneeNames(ProjectTask $task, Access $access, Collection $responses): string
     {
         $peers = $this->peerAssigneeIds($task, $access);
-
         if ($peers === []) {
             return '';
         }
+        if (! $task->isIndividual()) {
+            return ProjectsData::assigneeNames($task, $peers);
+        }
 
-        $employees = $task->assignees
-            ->filter(static fn (EmployeeProfile $e): bool => in_array((string) $e->getKey(), $peers, true))
-            ->sort(static fn (EmployeeProfile $a, EmployeeProfile $b): int => self::compareText($a->last_name, $b->last_name)
-                ?: self::compareText($a->first_name, $b->first_name));
+        $names = [];
+        foreach (ProjectsData::sortedAssignees($task, $peers) as $peer) {
+            $state = $responses->get((string) $peer->getKey());
+            $names[] = ProjectsData::employeeName($peer).($state === null ? '' : ' ('.$state->label().')');
+        }
 
-        return $employees->map(static fn (EmployeeProfile $e): string => EmployeeName::display($e))->implode(', ');
+        return implode(', ', $names);
     }
 
     /**
-     * How the actor is named to their peers — the employee record's spelling
-     * (already loaded on the task's pivot), falling back to the account name.
-     */
-    private function actorEmployeeName(ProjectTask $task, Access $access): string
-    {
-        $self = $access->hasEmployeeLink()
-            ? $task->assignees->firstWhere('id', $access->ownEmployeeId())
-            : null;
-
-        return $self instanceof EmployeeProfile ? EmployeeName::display($self) : $access->fullName;
-    }
-
-    /** Whether the signed-in account is the one that uploaded the file. */
-    private function uploadedByActor(ProjectTaskFile $file, Access $access): bool
-    {
-        return $file->uploaded_by !== null
-            && $access->userId !== null
-            && (int) $file->uploaded_by === (int) $access->userId;
-    }
-
-    /**
-     * Which side of the task the actor speaks from — a fact about the actor,
-     * not a choice (api/tasks/[id]/comments/route.ts:39-47).
+     * Which side of the task the actor speaks from — a fact about the actor
+     * and the task's project, not a choice (api/tasks/[id]/comments/route.ts:39-47).
      *
      * @return 'MANAGEMENT'|'ASSIGNEE'
      */
-    private function commentSide(Access $access): string
+    private function commentSide(Access $access, ?ProjectTask $task): string
     {
-        return $access->mayReadAllData(ModuleCode::PROJECTS) ? 'MANAGEMENT' : 'ASSIGNEE';
+        return ProjectsData::commentSide($access, $task);
     }
 
-    /** One append-only thread row, author columns from the session. */
-    private function writeComment(Access $access, ProjectTask $task, string $body, ?string $event): TaskComment
-    {
-        $comment = new TaskComment;
-        $comment->fill([
-            'task_id' => $task->id,
-            'side' => $this->commentSide($access),
-            'body' => $body,
-            'event' => $event,
-        ]);
-        // Actor columns — session-supplied, never mass-assigned.
-        $comment->author_id = $access->userId === null ? null : (int) $access->userId;
-        $comment->author_name = mb_substr($access->fullName, 0, 200);
-        $comment->save();
-
-        return $comment;
-    }
-
-    /** `task.code || task.title` — a task without a code is announced by name. */
-    private function taskName(ProjectTask $task): string
-    {
-        return trim($task->code) !== '' ? $task->code : $task->title;
-    }
-
-    /* --------------------------------- fan-out --------------------------------- */
-
-    /**
-     * Notifications are addressed to ACCOUNTS, and one person can qualify for
-     * the same event twice in one action: as the assigner (`assigned_by`, a
-     * users id) and as an assignee (an employee id on the pivot, resolved to
-     * its logins). Every fan-out therefore runs against a ledger of the
-     * accounts already told, seeded with the actor's own login: the first
-     * message a person qualifies for is the one they get, nobody gets one
-     * event twice, and nobody is told about their own action.
-     *
-     * This is the ledger an action starts with.
-     *
-     * @return list<int>
-     */
-    private function alreadyTold(Access $access): array
-    {
-        return $access->userId === null ? [] : [(int) $access->userId];
-    }
-
-    /**
-     * Tells one account — unless it is on the ledger already — and records
-     * it. Does nothing when there is nobody to tell, and never breaks the
-     * action that caused it (src/lib/api/notify.ts:23-38).
-     *
-     * @param  list<int>  $told
-     */
-    private function notifyAccount(array &$told, ?int $userId, string $kind, string $title, ?string $body, ?string $href): void
-    {
-        if ($userId === null || in_array($userId, $told, true)) {
-            return;
-        }
-
-        $told[] = $userId;
-
-        try {
-            $n = new Notification;
-            $n->fill([
-                'kind' => $kind,
-                'title' => mb_substr($title, 0, 300),
-                'body' => $body,
-                'href' => $href,
-                'dedupe_key' => null,
-            ]);
-            // The addressee is server-assigned by the fan-out, never mass-assigned.
-            $n->user_id = $userId;
-            $n->save();
-        } catch (Throwable $e) {
-            Log::error('[notify] write failed', ['kind' => $kind, 'error' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * Tells every active login attached to the given employees, each account
-     * once (src/lib/api/notify.ts:40-58). An employee with no login is simply
-     * not told, and the actor's own login is on the ledger before this runs.
-     *
-     * @param  list<int>  $told
-     * @param  iterable<array-key, string|null>  $employeeIds
-     */
-    private function notifyEmployees(array &$told, iterable $employeeIds, string $kind, string $title, ?string $body, ?string $href): void
-    {
-        foreach ($this->accountIdsOf($employeeIds) as $userId) {
-            $this->notifyAccount($told, $userId, $kind, $title, $body, $href);
-        }
-    }
-
-    /**
-     * The active logins behind a set of employees — distinct account ids in
-     * id order, one query for the whole set, blanks skipped. Empty when the
-     * lookup fails, which is logged rather than allowed to break the action.
-     *
-     * @param  iterable<array-key, string|null>  $employeeIds
-     * @return list<int>
-     */
-    private function accountIdsOf(iterable $employeeIds): array
-    {
-        $ids = [];
-        foreach ($employeeIds as $employeeId) {
-            if ($employeeId !== null && $employeeId !== '' && ! in_array($employeeId, $ids, true)) {
-                $ids[] = $employeeId;
-            }
-        }
-
-        if ($ids === []) {
-            return [];
-        }
-
-        try {
-            return array_values(User::query()
-                ->whereIn('employee_id', $ids)
-                ->where('is_active', true)
-                ->orderBy('id')
-                ->pluck('id')
-                ->map(static fn ($id): int => (int) $id)
-                ->all());
-        } catch (Throwable $e) {
-            Log::error('[notify] lookup failed', ['error' => $e->getMessage()]);
-
-            return [];
-        }
-    }
+    /* --------------------------------- uploads --------------------------------- */
 
     private function clearUpload(): void
     {
@@ -967,72 +596,18 @@ class MyTasksPage extends Component
         $this->dispatch('task-upload-finished');
     }
 
-    private function maxFileBytes(): int
-    {
-        return (int) config('bestworkflows.uploads.max_file_bytes', self::DEFAULT_MAX_FILE_BYTES);
-    }
-
-    private function storageCeilingBytes(): int
-    {
-        return (int) config('bestworkflows.uploads.storage_ceiling_bytes', self::DEFAULT_STORAGE_CEILING_BYTES);
-    }
-
-    /** Port of humanSize (src/lib/attachments.ts:26-29). */
+    /** Port of humanSize (src/lib/attachments.ts:25-28), shared through HrisFormat. */
     public static function humanSize(int $bytes): string
     {
-        return $bytes >= 1_000_000
-            ? number_format($bytes / 1_000_000, 1).' MB'
-            : max(1, (int) round($bytes / 1000)).' KB';
-    }
-
-    /**
-     * The active sort, ported comparator for comparator
-     * (my-tasks-page.tsx:88-106). Always compares ascending — the direction
-     * is applied by reversing the whole list, exactly as the source did.
-     */
-    private function comparator(): callable
-    {
-        return match ($this->sortKey) {
-            'task' => static fn (ProjectTask $a, ProjectTask $b): int => self::compareText($a->title, $b->title),
-            'priority' => static function (ProjectTask $a, ProjectTask $b): int {
-                // Urgent first, and within a priority the soonest deadline —
-                // that is the order the work actually has to be picked up in.
-                $rank = TaskPolicy::priorityRank($a->priority) <=> TaskPolicy::priorityRank($b->priority);
-
-                return $rank !== 0
-                    ? $rank
-                    : self::compareText($a->due_date?->format('Y-m-d'), $b->due_date?->format('Y-m-d'));
-            },
-            'due' => static fn (ProjectTask $a, ProjectTask $b): int => self::compareText(
-                $a->due_date?->format('Y-m-d'),
-                $b->due_date?->format('Y-m-d'),
-            ),
-            'status' => static fn (ProjectTask $a, ProjectTask $b): int => self::compareText(
-                TaskPolicy::statusLabel($a->status),
-                TaskPolicy::statusLabel($b->status),
-            ),
-            default => static fn (ProjectTask $a, ProjectTask $b): int => self::compareText($a->code, $b->code),
-        };
+        return HrisFormat::bytes($bytes);
     }
 
     /** Port of compareText (useSort.ts:33-40): blanks always sort last. */
-    private static function compareText(?string $a, ?string $b): int
+    protected static function compareText(?string $a, ?string $b): int
     {
-        $left = trim($a ?? '');
-        $right = trim($b ?? '');
-
-        if ($left === '' && $right === '') {
-            return 0;
-        }
-        if ($left === '') {
-            return 1;
-        }
-        if ($right === '') {
-            return -1;
-        }
-
-        $folded = strcasecmp($left, $right);
-
-        return $folded !== 0 ? $folded : strcmp($left, $right);
+        // One comparator for every sorted list, so no screen's order drifts
+        // from another's. It stays a wrapper so call sites and Blade imports
+        // keep calling it here; TextSortTest pins it.
+        return TextSort::compare($a, $b);
     }
 }

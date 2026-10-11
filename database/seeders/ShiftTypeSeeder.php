@@ -31,7 +31,7 @@ final class ShiftTypeSeeder extends PortSeeder
     public function run(): void
     {
         foreach (self::TYPES as $i => [$id, $name, $mode, $start, $end, $grace, $required, $breakStart, $breakEnd, $breakMinutes, $punchBreak, $week]) {
-            $this->upsert(ShiftType::class, ['code' => sprintf('SFT-%03d', $i + 1)], [
+            $this->upsert(ShiftType::class, $this->codeMatch(ShiftType::class, 'code', $i + 1, 'SFT'), [
                 'id' => $id,
                 'name' => $name,
                 'mode' => $mode,

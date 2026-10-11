@@ -6,26 +6,28 @@ use App\Livewire\Users\Index;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\Notification;
+use App\Models\OvertimeApproval;
 use App\Models\Project;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskAssignee;
+use App\Models\ProjectTaskSubmission;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Support\Access;
-use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 /**
  * The Users module: /users gates on the USERS grant, every write re-gates on
- * all_data + USERS inside the action, grant edits are visible to the very
- * next Access build (nothing caches grants), and the self-protection rules
- * (own role, own account) hold.
+ * all_data + USERS inside the action, a ticked grant is only staged until the
+ * confirm dialog's button writes it, grant edits are visible to the very next
+ * Access build (nothing caches grants), and the self-protection rules (own
+ * role, own account) hold.
  */
+/** @param list<string> $modules ModuleCode values to grant */
 function usersRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -39,6 +41,7 @@ function usersRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/** @param list<string> $modules ModuleCode values to grant */
 function usersActor(array $modules, bool $allData, ?string $employeeId = null): User
 {
     $user = User::factory()->create([
@@ -118,9 +121,8 @@ it('refuses account creation to a USERS holder without all_data', function () {
     $before = User::query()->count();
 
     Livewire::test(Index::class)
-        ->set('createFullName', 'Blocked Person')
         ->set('createEmail', 'blocked@example.com')
-        ->set('createPassword', 'secret-pass-1')
+        ->set('createPassword', 'Secret-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createAccount');
 
@@ -133,7 +135,11 @@ it('refuses grant toggles to a USERS holder without all_data', function () {
     $role = usersRole([], false);
 
     Livewire::test(Index::class)
-        ->call('toggleGrant', (string) $role->getKey(), 'LEAVES');
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->assertSet('grantConfirmOpen', false)
+        // The refused tick still re-keys the box back to the stored state.
+        ->assertSet('grantNonce', 1)
+        ->call('confirmGrant');
 
     expect(
         RoleModuleGrant::query()->where('role_id', $role->getKey())->where('module', 'LEAVES')->exists()
@@ -149,13 +155,12 @@ it('refuses grant toggles to a USERS holder without all_data', function () {
 it('creates an account with a bcrypt password, a role and an audit row', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
-    $employee = usersEmployee('BWF-00021', 'Liza', 'Domingo');
+    $employee = usersEmployee('COP-00021', 'Liza', 'Domingo');
 
     Livewire::test(Index::class)
         ->set('adding', true)
-        ->set('createFullName', 'Liza Domingo')
         ->set('createEmail', 'liza@example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createEmployeeChanged', (string) $employee->getKey())
         ->call('createAccount')
@@ -169,7 +174,7 @@ it('creates an account with a bcrypt password, a role and an audit row', functio
     expect((string) $created->employee_id)->toBe((string) $employee->getKey());
     expect((bool) $created->is_active)->toBeTrue();
     // Fortify-compatible: the stored hash verifies through the app hasher.
-    expect(Hash::check('temporary-99', $created->password))->toBeTrue();
+    expect(Hash::check('Temporary-Password#2026', $created->password))->toBeTrue();
 
     expect(
         AuditLog::query()
@@ -187,24 +192,22 @@ it('refuses a case-insensitive duplicate email', function () {
     User::factory()->create(['email' => 'admin@example.com']);
 
     Livewire::test(Index::class)
-        ->set('createFullName', 'Copy Cat')
         ->set('createEmail', 'Admin@Example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createAccount');
 
-    expect(User::query()->where('name', 'Copy Cat')->exists())->toBeFalse();
+    expect(User::query()->whereRaw('LOWER(email) = ?', ['admin@example.com'])->count())->toBe(1);
 });
 
 it('refuses linking an inactive employee record', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
-    $employee = usersEmployee('BWF-00099', 'Gone', 'Person', active: false);
+    $employee = usersEmployee('COP-00099', 'Gone', 'Person', active: false);
 
     Livewire::test(Index::class)
-        ->set('createFullName', 'New Hire')
         ->set('createEmail', 'newhire@example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createEmployeeChanged', (string) $employee->getKey())
         ->call('createAccount');
@@ -214,26 +217,26 @@ it('refuses linking an inactive employee record', function () {
 
 /*
 |--------------------------------------------------------------------------
-| The create dialog opens empty — no state from an abandoned attempt
+| The create dialog opens fresh — no state from an abandoned attempt
 |--------------------------------------------------------------------------
 |
 | Dismissing a <flux:modal> with its × (or Escape, or the backdrop) closes it
 | client-side without writing `adding` back, so updatedAdding() — and the
 | resetCreateForm() hanging off it — never runs. openCreate() resets on the way
 | IN so the dialog cannot carry a previous attempt's employee link into the
-| next account.
+| next account. The one thing the form opens holding is a newly generated
+| temporary password.
 */
 
 it('opens the create dialog on a form emptied of the last attempt', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
-    $employee = usersEmployee('BWF-00031', 'Abandoned', 'Pick');
+    $employee = usersEmployee('COP-00031', 'Abandoned', 'Pick');
 
     Livewire::test(Index::class)
         ->call('openCreate')
-        ->set('createFullName', 'Half Typed')
         ->set('createEmail', 'half@example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createEmployeeChanged', (string) $employee->getKey())
         // The operator gives up and dismisses the dialog with the × — which
@@ -242,24 +245,23 @@ it('opens the create dialog on a form emptied of the last attempt', function () 
         ->assertSet('adding', true)
         ->assertSet('createEmployeeId', '')
         ->assertSet('createRoleId', '')
-        ->assertSet('createFullName', '')
         ->assertSet('createEmail', '')
-        ->assertSet('createPassword', '');
+        // The form opens on a newly generated password, never the last attempt's.
+        ->assertSet('createPassword', fn (string $password): bool => $password !== '' && $password !== 'Temporary-Password#2026');
 });
 
 it('does not link an abandoned attempt’s employee to the next account created', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
-    $stale = usersEmployee('BWF-00032', 'Nathaniel', 'Cruz');
+    $stale = usersEmployee('COP-00032', 'Nathaniel', 'Cruz');
 
     Livewire::test(Index::class)
         ->call('openCreate')
         ->call('createEmployeeChanged', (string) $stale->getKey())
         // Dismissed with the ×: no `adding` round-trip, so no reset here.
         ->call('openCreate')
-        ->set('createFullName', 'Second Person')
         ->set('createEmail', 'second@example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         // The employee picker is never touched for THIS account.
         ->call('createAccount');
@@ -272,11 +274,16 @@ it('does not link an abandoned attempt’s employee to the next account created'
 
 it('offers a selectable "no linked employee" option on the create picker', function () {
     usersActor(['USERS'], true);
-    usersEmployee('BWF-00033', 'Someone', 'Else');
+    usersEmployee('COP-00033', 'Someone', 'Else');
 
     $html = Livewire::test(Index::class)->call('openCreate')->html();
 
     $open = strpos($html, 'aria-label="Link to employee record (optional)"');
+
+    if ($open === false) {
+        throw new RuntimeException('The create dialog did not render the employee picker.');
+    }
+
     $select = substr($html, (int) strrpos(substr($html, 0, $open), '<select'), 4000);
     $select = substr($select, 0, (int) strpos($select, '</select>'));
 
@@ -286,7 +293,12 @@ it('offers a selectable "no linked employee" option on the create picker', funct
     // the select but can never be re-chosen — the link is optional, so the
     // empty option has to stay reachable.
     expect($empty)->not->toBeEmpty();
-    expect($empty[0])->not->toContain('disabled');
+
+    // The expectation above already proves the match exists; the throw only
+    // states that for static analysis and can never run.
+    $emptyOption = $empty[0] ?? throw new RuntimeException('unreachable: the match was asserted above');
+
+    expect($emptyOption)->not->toContain('disabled');
 });
 
 /*
@@ -299,37 +311,10 @@ it('offers a selectable "no linked employee" option on the create picker', funct
 | record. Scoping still treats them as the same employee.
 */
 
-it('removes a previously applied employee-link constraint without losing account links', function (string $migrationFile) {
-    $employee = usersEmployee('BWF-LINK-UPGRADE', 'Shared', 'Employee');
-    $first = User::factory()->create(['employee_id' => $employee->id, 'is_active' => true]);
-    $disabled = User::factory()->create(['employee_id' => $employee->id, 'is_active' => false]);
-
-    DB::statement('CREATE UNIQUE INDEX "users_active_employee_unq" ON "users" ("employee_id") WHERE "is_active" = 1 AND "employee_id" IS NOT NULL');
-    expect(fn () => $disabled->forceFill(['is_active' => true])->save())->toThrow(QueryException::class);
-
-    $migration = require database_path('migrations/'.$migrationFile);
-    $migration->up();
-
-    expect(Schema::hasIndex('users', 'users_active_employee_unq'))->toBeFalse();
-    $disabled->refresh()->forceFill(['is_active' => true])->save();
-    $second = User::factory()->create(['employee_id' => $employee->id, 'is_active' => true]);
-
-    // A retry and a rollback must preserve the links created under the new rule.
-    $migration->up();
-    $migration->down();
-
-    expect($employee->accounts()->where('is_active', true)->pluck('id')->sort()->values()->all())
-        ->toBe(collect([$first->id, $disabled->id, $second->id])->sort()->values()->all());
-    expect(Schema::hasIndex('users', 'users_active_employee_unq'))->toBeFalse();
-})->with([
-    'pending migration' => '2026_09_08_0001_add_unique_active_employee_link_to_users_table.php',
-    'upgrade migration' => '2026_09_10_0003_drop_unique_active_employee_link_from_users_table.php',
-]);
-
 it('allows linking a new active account to an employee record another active account already holds', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
-    $employee = usersEmployee('BWF-00041', 'Nathaniel', 'Cruz');
+    $employee = usersEmployee('COP-00041', 'Nathaniel', 'Cruz');
 
     $holder = User::factory()->create([
         'email' => 'holder@example.com',
@@ -339,9 +324,8 @@ it('allows linking a new active account to an employee record another active acc
 
     Livewire::test(Index::class)
         ->call('openCreate')
-        ->set('createFullName', 'Second Claim')
         ->set('createEmail', 'secondclaim@example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createEmployeeChanged', (string) $employee->getKey())
         ->call('createAccount');
@@ -357,7 +341,7 @@ it('allows linking a new active account to an employee record another active acc
 it('allows a new account on an employee whose other login is deactivated', function () {
     usersActor(['USERS'], true);
     $role = usersRole(['PORTAL'], false);
-    $employee = usersEmployee('BWF-00042', 'Rehired', 'Person');
+    $employee = usersEmployee('COP-00042', 'Rehired', 'Person');
 
     // The old login, disabled but still attached to the employee record.
     User::factory()->create([
@@ -368,9 +352,8 @@ it('allows a new account on an employee whose other login is deactivated', funct
 
     Livewire::test(Index::class)
         ->call('openCreate')
-        ->set('createFullName', 'Rehired Person')
         ->set('createEmail', 'rehired@example.com')
-        ->set('createPassword', 'temporary-99')
+        ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createEmployeeChanged', (string) $employee->getKey())
         ->call('createAccount');
@@ -385,7 +368,7 @@ it('allows a new account on an employee whose other login is deactivated', funct
 
 it('allows moving an account onto an employee another active account holds', function () {
     usersActor(['USERS'], true);
-    $employee = usersEmployee('BWF-00043', 'Taken', 'Record');
+    $employee = usersEmployee('COP-00043', 'Taken', 'Record');
 
     $incumbent = User::factory()->create([
         'email' => 'incumbent@example.com',
@@ -412,7 +395,7 @@ it('allows moving an account onto an employee another active account holds', fun
 
 it('lets an account keep the employee record it already holds', function () {
     usersActor(['USERS'], true);
-    $employee = usersEmployee('BWF-00044', 'Kept', 'Record');
+    $employee = usersEmployee('COP-00044', 'Kept', 'Record');
 
     $subject = User::factory()->create([
         'email' => 'keeper@example.com',
@@ -423,18 +406,17 @@ it('lets an account keep the employee record it already holds', function () {
 
     Livewire::test(Index::class)
         ->call('openAccount', (string) $subject->getKey())
-        ->set('accountFullName', 'Keeper Renamed')
         ->call('saveAccount');
 
     $subject->refresh();
 
-    expect($subject->name)->toBe('Keeper Renamed');
+    expect($subject->name)->toBe('Kept Record');
     expect((string) $subject->employee_id)->toBe((string) $employee->getKey());
 });
 
 it('allows reactivating a disabled account whose employee is linked to another active account', function () {
     usersActor(['USERS'], true);
-    $employee = usersEmployee('BWF-00045', 'Contested', 'Record');
+    $employee = usersEmployee('COP-00045', 'Contested', 'Record');
 
     User::factory()->create([
         'email' => 'current@example.com',
@@ -471,14 +453,13 @@ it('edits another account — role and status included — and audits USER_UPDAT
     Livewire::test(Index::class)
         ->call('openAccount', (string) $target->getKey())
         ->assertSet('accountDialogOpen', true)
-        ->assertSet('accountFullName', 'Old Name')
-        ->set('accountFullName', 'New Name')
+
         ->call('accountRoleChanged', (string) $newRole->getKey())
         ->set('accountIsActive', false)
         ->call('saveAccount');
 
     $fresh = $target->fresh();
-    expect($fresh->name)->toBe('New Name');
+    expect($fresh->name)->toBe('Account #'.$fresh->id);
     expect((string) $fresh->role_id)->toBe((string) $newRole->getKey());
     expect((bool) $fresh->is_active)->toBeFalse();
 
@@ -487,7 +468,7 @@ it('edits another account — role and status included — and audits USER_UPDAT
             ->where('action', 'USER_UPDATED')
             ->where('entity', 'user_accounts')
             ->where('entity_id', (string) $target->getKey())
-            ->where('details', 'New Name updated')
+            ->where('details', 'Account #'.$target->id.' updated')
             ->exists()
     )->toBeTrue();
 });
@@ -521,20 +502,20 @@ it('resets another account password and audits it', function () {
 
     Livewire::test(Index::class)
         ->call('openAccount', (string) $target->getKey())
-        ->set('resetPassword', 'brand-new-pass')
-        ->set('resetPasswordConfirm', 'brand-new-pass')
+        ->set('resetPassword', 'Brand-New-Password#2026')
+        ->set('resetPasswordConfirm', 'Brand-New-Password#2026')
         ->call('resetAccountPassword')
         ->assertSet('resetPassword', '')
         ->assertSet('resetPasswordConfirm', '');
 
-    expect(Hash::check('brand-new-pass', $target->fresh()->password))->toBeTrue();
+    expect(Hash::check('Brand-New-Password#2026', $target->fresh()->password))->toBeTrue();
 
     expect(
         AuditLog::query()
             ->where('action', 'USER_PASSWORD_RESET')
             ->where('entity', 'user_accounts')
             ->where('entity_id', (string) $target->getKey())
-            ->where('details', 'Reset Me password reset')
+            ->where('details', 'Account #'.$target->id.' password reset')
             ->exists()
     )->toBeTrue();
 });
@@ -546,7 +527,7 @@ it('refuses a password reset when the confirmation does not match', function () 
 
     Livewire::test(Index::class)
         ->call('openAccount', (string) $target->getKey())
-        ->set('resetPassword', 'brand-new-pass')
+        ->set('resetPassword', 'Brand-New-Password#2026')
         ->set('resetPasswordConfirm', 'different-pass')
         ->call('resetAccountPassword');
 
@@ -575,7 +556,7 @@ it('deletes a clean deactivated account and audits USER_DELETED', function () {
         AuditLog::query()
             ->where('action', 'USER_DELETED')
             ->where('entity', 'user_accounts')
-            ->where('details', 'Test Account account deleted')
+            ->where('details', 'Account #'.$target->id.' account deleted')
             ->exists()
     )->toBeTrue();
 });
@@ -630,6 +611,56 @@ it('refuses to delete an account that handed out a task assignment, keeping the 
     expect(ProjectTaskAssignee::query()->where('task_id', $task->getKey())->firstOrFail()->assigned_by)->toBe((int) $target->getKey());
 });
 
+it('refuses to delete an account that decided a member\'s task response, keeping the attribution', function () {
+    usersActor(['USERS'], true);
+    $target = User::factory()->create(['is_active' => false]);
+    $employee = usersEmployee('EMP-902', 'Ana', 'Garcia');
+
+    $project = new Project;
+    $project->forceFill(['code' => 'PRJ-902', 'name' => 'Project 902', 'status' => 'ACTIVE', 'start_date' => '2026-01-01'])->save();
+    $task = new ProjectTask;
+    $task->forceFill(['code' => 'TSK-902', 'project_id' => $project->getKey(), 'title' => 'Task 902', 'status' => 'IN_PROGRESS', 'priority' => 'NORMAL', 'submission_mode' => 'INDIVIDUAL'])->save();
+    $task->syncAssignees([$employee->getKey()], null);
+
+    // The account's only trace anywhere: it approved Ana's response. The
+    // reviewed_by FK nulls on delete, which is exactly what must not happen.
+    $response = new ProjectTaskSubmission;
+    $response->fill(['task_id' => $task->getKey(), 'employee_id' => $employee->getKey(), 'status' => 'APPROVED', 'submitted_at' => '2026-09-24 01:00:00.000', 'reviewed_at' => '2026-09-24 02:00:00.000', 'revision' => 1]);
+    // Actor column — set by property, never mass-assigned.
+    $response->reviewed_by = (int) $target->getKey();
+    $response->save();
+
+    Livewire::test(Index::class)
+        ->call('openAccount', (string) $target->getKey())
+        ->call('deleteAccount');
+
+    expect(User::query()->whereKey($target->getKey())->exists())->toBeTrue();
+    expect($response->fresh()?->reviewed_by)->toBe((int) $target->getKey());
+});
+
+it('refuses to delete an account that decided an employee\'s overtime, keeping the attribution', function () {
+    usersActor(['USERS'], true);
+    $target = User::factory()->create(['is_active' => false]);
+    $employee = usersEmployee('EMP-903', 'Ana', 'Garcia');
+
+    // The account's only trace anywhere: it approved Ana's overtime, which
+    // authorised pay. overtime_approvals.reviewed_by has NO foreign key, so
+    // Timekeeping's AccountReferences is the only thing keeping the account.
+    $approval = new OvertimeApproval;
+    $approval->fill(['employee_id' => $employee->getKey(), 'date' => '2026-09-08', 'decision' => 'APPROVED',
+        'computed_minutes' => 90, 'approved_minutes' => 90]);
+    // Actor column — set by property, never mass-assigned.
+    $approval->reviewed_by = (int) $target->getKey();
+    $approval->save();
+
+    Livewire::test(Index::class)
+        ->call('openAccount', (string) $target->getKey())
+        ->call('deleteAccount');
+
+    expect(User::query()->whereKey($target->getKey())->exists())->toBeTrue();
+    expect($approval->fresh()?->reviewed_by)->toBe((int) $target->getKey());
+});
+
 it('refuses to delete your own account', function () {
     $admin = usersActor(['USERS'], true);
 
@@ -679,10 +710,11 @@ it('grant edits take effect on the NEXT Access build — nothing caches grants',
     expect(Access::forActor($member->fresh())->hasModule('LEAVES'))->toBeFalse();
 
     Livewire::test(Index::class)
-        ->call('toggleGrant', (string) $role->getKey(), 'LEAVES');
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->call('confirmGrant');
 
     // The very next build — re-read from roles + role_module_grants — sees it.
-    expect(Access::forActor(User::query()->find($member->getKey()))->hasModule('LEAVES'))->toBeTrue();
+    expect(Access::forActor(User::query()->whereKey($member->getKey())->firstOrFail())->hasModule('LEAVES'))->toBeTrue();
 
     expect(
         AuditLog::query()
@@ -695,9 +727,10 @@ it('grant edits take effect on the NEXT Access build — nothing caches grants',
 
     // And a revoke disappears just as immediately.
     Livewire::test(Index::class)
-        ->call('toggleGrant', (string) $role->getKey(), 'LEAVES');
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', false, 0)
+        ->call('confirmGrant');
 
-    expect(Access::forActor(User::query()->find($member->getKey()))->hasModule('LEAVES'))->toBeFalse();
+    expect(Access::forActor(User::query()->whereKey($member->getKey())->firstOrFail())->hasModule('LEAVES'))->toBeFalse();
 
     expect(
         AuditLog::query()
@@ -712,11 +745,250 @@ it('refuses to remove User Management from your own role', function () {
     $ownRoleId = (string) $admin->role_id;
 
     Livewire::test(Index::class)
-        ->call('toggleGrant', $ownRoleId, 'USERS');
+        ->call('askGrant', $ownRoleId, 'USERS', false, 0)
+        ->assertSet('grantConfirmOpen', false)
+        ->assertSet('grantNonce', 1)
+        ->call('confirmGrant');
 
     expect(
         RoleModuleGrant::query()->where('role_id', $ownRoleId)->where('module', 'USERS')->exists()
     )->toBeTrue();
+});
+
+it('asks before a grant changes — a tick alone writes nothing', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+    $audits = AuditLog::query()->count();
+
+    Livewire::test(Index::class)
+        ->set('tab', 'roles')
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->assertSet('grantConfirmOpen', true)
+        ->assertSet('grantRoleId', (string) $role->getKey())
+        // The ticked box re-keys, so it shows the stored state while asked.
+        ->assertSet('grantNonce', 1)
+        ->assertSee('Give '.$role->name.' access to Leave Management?')
+        ->assertSee('Nothing has been saved yet.');
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->exists())->toBeFalse();
+    expect(AuditLog::query()->count())->toBe($audits);
+});
+
+it('names a removal in the confirmation and writes it only once', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole(['LEAVES'], false);
+
+    $page = Livewire::test(Index::class)
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', false, 0)
+        ->assertSee('Remove Leave Management from '.$role->name.'?');
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->where('module', 'LEAVES')->exists())->toBeTrue();
+
+    $page->call('confirmGrant')
+        ->assertSet('grantConfirmOpen', false)
+        ->assertSet('grantRoleId', null)
+        ->assertSet('grantNonce', 2);
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->where('module', 'LEAVES')->exists())->toBeFalse();
+
+    // A second click on the dialog's button finds nothing staged.
+    $page->call('confirmGrant');
+
+    expect(
+        AuditLog::query()->where('entity', 'role_module_grants')->where('entity_id', (string) $role->getKey())->count()
+    )->toBe(1);
+});
+
+it('stages nothing for a role or a module that does not exist', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+
+    Livewire::test(Index::class)
+        ->call('askGrant', 'no-such-role', 'LEAVES', true, 0)
+        ->assertSet('grantConfirmOpen', false)
+        ->assertSet('grantNonce', 1)
+        ->call('askGrant', (string) $role->getKey(), 'NOT_A_MODULE', true, 1)
+        ->assertSet('grantConfirmOpen', false)
+        ->assertSet('grantRoleId', null)
+        ->assertSet('grantNonce', 2);
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->exists())->toBeFalse();
+});
+
+it('forgets the staged grant when the confirmation is cancelled', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+
+    Livewire::test(Index::class)
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->set('grantConfirmOpen', false)
+        ->assertSet('grantRoleId', null)
+        ->call('confirmGrant');
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->exists())->toBeFalse();
+});
+
+it('re-checks the actor when the confirmation is answered', function () {
+    $admin = usersActor(['USERS'], true);
+    $role = usersRole([], false);
+
+    $page = Livewire::test(Index::class)
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->assertSet('grantConfirmOpen', true);
+
+    // The organization-wide scope is taken away while the dialog is open.
+    // The next request reads the role afresh; here the signed-in model
+    // must drop the role it has loaded.
+    Role::query()->whereKey($admin->role_id)->update(['all_data' => false]);
+    $admin->unsetRelation('role');
+    app()->forgetInstance(Access::class);
+
+    // The refused confirm still closes the dialog and forgets the grant.
+    $page->call('confirmGrant')
+        ->assertSet('grantConfirmOpen', false)
+        ->assertSet('grantRoleId', null);
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->exists())->toBeFalse();
+});
+
+it('keeps the confirmation on the first box when a second is ticked before it arrives', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+
+    // Both ticks were made on the same drawing of the matrix: the second was
+    // clicked while the first request was in flight, so it carries nonce 0.
+    $page = Livewire::test(Index::class)
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->call('askGrant', (string) $role->getKey(), 'PAYROLL', true, 0)
+        ->assertSet('grantConfirmOpen', true)
+        ->assertSet('grantModule', 'LEAVES')
+        ->assertSet('grantNonce', 2)
+        ->assertSee('Give '.$role->name.' access to Leave Management?');
+
+    $page->call('confirmGrant');
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->pluck('module')->all())->toBe(['LEAVES']);
+    expect(
+        AuditLog::query()->where('entity', 'role_module_grants')->where('entity_id', (string) $role->getKey())->count()
+    )->toBe(1);
+});
+
+it('asks about the new box when one is ticked after the dialog was dismissed in the browser', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+
+    // Escape closes the dialog without telling the server; the matrix it
+    // returns to was drawn with nonce 1, so its next tick counts.
+    $page = Livewire::test(Index::class)
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', true, 0)
+        ->call('askGrant', (string) $role->getKey(), 'PAYROLL', true, 1)
+        ->assertSet('grantConfirmOpen', true)
+        ->assertSet('grantModule', 'PAYROLL')
+        ->assertSee('Give '.$role->name.' access to Payroll?');
+
+    $page->call('confirmGrant');
+
+    expect(RoleModuleGrant::query()->where('role_id', $role->getKey())->pluck('module')->all())->toBe(['PAYROLL']);
+});
+
+it('writes the state the confirmation named when the grant changed meanwhile', function (bool $asked) {
+    usersActor(['USERS'], true);
+    $role = usersRole($asked ? [] : ['LEAVES'], false);
+    $stored = RoleModuleGrant::query()->where('role_id', $role->getKey())->where('module', 'LEAVES');
+
+    $page = Livewire::test(Index::class)
+        ->call('askGrant', (string) $role->getKey(), 'LEAVES', $asked, 0);
+
+    // Someone else makes the same change while the dialog is open.
+    if ($asked) {
+        (new RoleModuleGrant)->forceFill(['role_id' => $role->getKey(), 'module' => 'LEAVES'])->save();
+    } else {
+        (clone $stored)->delete();
+    }
+
+    $page->call('confirmGrant');
+
+    // The confirm sets the named state; it never toggles what it finds.
+    expect((clone $stored)->exists())->toBe($asked);
+    expect(
+        AuditLog::query()->where('entity', 'role_module_grants')->where('entity_id', (string) $role->getKey())->count()
+    )->toBe(0);
+})->with(['a grant' => [true], 'a removal' => [false]]);
+
+it('shows a confirmed change on the matrix at once', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+    $id = (string) $role->getKey();
+
+    $html = html_entity_decode(
+        Livewire::test(Index::class)
+            ->set('tab', 'roles')
+            ->call('askGrant', $id, 'LEAVES', true, 0)
+            ->call('confirmGrant')
+            ->assertNoRedirect()
+            ->html(),
+        ENT_QUOTES,
+    );
+
+    // The box is drawn granted in the same response: its next tick asks to remove.
+    expect($html)->toContain("askGrant('{$id}', 'LEAVES', false, 2)");
+});
+
+it('redraws the page after a change to your own role, so the sidebar follows', function (bool $asked) {
+    $admin = usersActor($asked ? ['USERS'] : ['USERS', 'LEAVES'], true);
+    $ownRoleId = (string) $admin->role_id;
+
+    Livewire::test(Index::class)
+        ->call('askGrant', $ownRoleId, 'LEAVES', $asked, 0)
+        ->call('confirmGrant')
+        ->assertRedirect(route('users.index', ['tab' => 'roles']));
+
+    expect(
+        RoleModuleGrant::query()->where('role_id', $ownRoleId)->where('module', 'LEAVES')->exists()
+    )->toBe($asked);
+})->with(['a grant' => [true], 'a removal' => [false]]);
+
+it('opens on the tab the address names, and on Accounts for anything else', function (string $named, string $shown) {
+    usersActor(['USERS'], true);
+
+    Livewire::withQueryParams(['tab' => $named]);
+
+    Livewire::test(Index::class)->assertSet('tab', $shown);
+})->with([
+    'roles' => ['roles', 'roles'],
+    'accounts' => ['accounts', 'accounts'],
+    'unknown' => ['payroll', 'accounts'],
+]);
+
+it('wires each box to the ask and only the dialog button to the write', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole(['LEAVES'], false);
+    $id = (string) $role->getKey();
+
+    // Blade encodes the quotes inside a component attribute.
+    $html = html_entity_decode(Livewire::test(Index::class)->set('tab', 'roles')->html(), ENT_QUOTES);
+
+    // Each box asks for the opposite of what is stored, with the nonce it was drawn with.
+    expect($html)->toContain("askGrant('{$id}', 'LEAVES', false, 0)");
+    expect($html)->toContain("askGrant('{$id}', 'PAYROLL', true, 0)");
+    expect($html)->toContain('wire:click="confirmGrant"');
+    expect($html)->not->toContain('toggleGrant(');
+});
+
+it('leaves no one-click grant action and no client-writable staged grant', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole([], false);
+
+    // The screen has no one-click grant action…
+    expect(method_exists(Index::class, 'toggleGrant'))->toBeFalse();
+
+    // …and the staged grant cannot be planted from the browser.
+    expect(fn () => Livewire::test(Index::class)->set('grantRoleId', (string) $role->getKey()))
+        ->toThrow(CannotUpdateLockedPropertyException::class);
+    expect(fn () => Livewire::test(Index::class)->set('grantModule', 'LEAVES'))
+        ->toThrow(CannotUpdateLockedPropertyException::class);
+    expect(fn () => Livewire::test(Index::class)->set('grantOn', true))
+        ->toThrow(CannotUpdateLockedPropertyException::class);
 });
 
 it('refuses to remove organization-wide scope from your own role', function () {

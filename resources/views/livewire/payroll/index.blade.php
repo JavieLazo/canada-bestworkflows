@@ -1,16 +1,21 @@
 {{--
     Payroll — the run list, the port of payroll/payroll-page.tsx.
 
-    Same columns in the same order (Payroll name, Date from, Date to, No. of
-    employee, Status, Action), same search + status filter, same default sort
-    (Date from, descending), same status pills, same empty-state copy, same
-    delete confirmation. The AlertDialog is <flux:modal>; its header and footer
-    carry shadcn's classes by hand.
+    Same search + status filter, same default sort (Date from, descending), same
+    status pills, same empty-state copy, same delete confirmation. The
+    AlertDialog is <flux:modal>; its header and footer carry shadcn's classes by
+    hand.
+
+    DIVERGENCE — columns. The reference has six (Payroll name, Date from, Date
+    to, No. of employee, Status, Action) and prints the minted run code as a
+    second line under the payroll name. This list gives the code its own
+    sortable ID column in front, the way every other list in the app labels and
+    sorts its row id, so the name cell carries only the name.
 
     DIVERGENCE (mandated): a FINALIZED run's delete button is disabled and the
     action refuses it — the reference hard-deletes posted payslips, which is a
-    documented bug. Only the DRAFT dialog copy survives, since only drafts can
-    reach the dialog.
+    documented bug. Only the reference's DRAFT dialog copy is ported, since
+    only drafts can reach the dialog.
 --}}
 @php
     use App\Livewire\Payroll\Index as PayrollIndex;
@@ -19,9 +24,11 @@
 
 <div class="space-y-6">
     <div>
-        <h1 class="text-2xl font-bold tracking-tight">Payroll</h1>
+        <h1 class="text-2xl font-bold tracking-tight">{{ $heading }}</h1>
         <p class="text-sm text-muted-foreground">
-            Every payroll, draft or finalized. Open one to work on it, or create a new cut-off.
+            {{ $yearly
+                ? 'Every 13th month run, draft or finalized. Each pays one twelfth of the basic pay earned in its year.'
+                : 'Every payroll, draft or finalized. Open one to work on it, or create a new cut-off.' }}
         </p>
     </div>
 
@@ -31,7 +38,7 @@
 
             <flux:input
                 aria-label="Search payroll"
-                placeholder="Search payroll name"
+                placeholder="Search ID or payroll name"
                 class="w-full min-w-[12rem] max-w-xs"
                 wire:model.live="search"
             />
@@ -43,8 +50,10 @@
                 @endforeach
             </x-kit.filter-select>
 
-            <flux:button variant="primary" icon="plus" :href="route('payroll.new')" wire:navigate>
-                Create Payroll
+            <x-kit.export-button :href="route($yearly ? 'payroll.thirteenth.export' : 'payroll.export', array_filter(['q' => $search, 'status' => $status, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+
+            <flux:button variant="primary" icon="plus" :href="route($createRoute)" wire:navigate>
+                {{ $yearly ? 'Create 13th Month Payroll' : 'Create Payroll' }}
             </flux:button>
         </header>
 
@@ -52,6 +61,7 @@
             <table class="hris-table">
                 <thead>
                     <tr>
+                        <x-kit.sort-header field="id" label="ID" />
                         <x-kit.sort-header field="name" label="Payroll name" />
                         <x-kit.sort-header field="from" label="Date from" />
                         <x-kit.sort-header field="to" label="Date to" />
@@ -63,7 +73,7 @@
                 <tbody>
                     @if ($total === 0)
                         <tr wire:key="empty">
-                            <x-kit.empty-state :colspan="6" title="No payroll yet. Create one to get started." />
+                            <x-kit.empty-state :colspan="7" title="No payroll yet. Create one to get started." />
                         </tr>
                     @endif
                     @foreach ($rows as $r)
@@ -72,14 +82,12 @@
                             tabindex="0"
                             aria-label="Open {{ $r->name }}"
                             class="cursor-pointer focus:outline-none focus-visible:bg-accent"
-                            x-on:click="Livewire.navigate('{{ route('payroll.show', ['id' => $r->id]) }}')"
-                            x-on:keydown.enter.prevent="Livewire.navigate('{{ route('payroll.show', ['id' => $r->id]) }}')"
-                            x-on:keydown.space.prevent="Livewire.navigate('{{ route('payroll.show', ['id' => $r->id]) }}')"
+                            x-on:click="Livewire.navigate('{{ route($showRoute, ['id' => $r->id]) }}')"
+                            x-on:keydown.enter.prevent="Livewire.navigate('{{ route($showRoute, ['id' => $r->id]) }}')"
+                            x-on:keydown.space.prevent="Livewire.navigate('{{ route($showRoute, ['id' => $r->id]) }}')"
                         >
-                            <td>
-                                <p class="font-medium">{{ $r->name }}</p>
-                                <p class="num text-xs text-muted-foreground">{{ $r->code }}</p>
-                            </td>
+                            <td class="num whitespace-nowrap align-middle">{{ $r->code }}</td>
+                            <td class="font-medium">{{ $r->name }}</td>
                             <td class="num whitespace-nowrap">{{ PayrollData::fmtDate($r->period_start) }}</td>
                             <td class="num whitespace-nowrap">{{ PayrollData::fmtDate($r->period_end) }}</td>
                             <td class="num">{{ $r->members_count }}</td>
@@ -121,14 +129,14 @@
                     </p>
                 </div>
                 <div class="flex justify-end gap-2 pt-2">
-                    <flux:button variant="outline" wire:click="$set('confirmingDelete', false)" wire:loading.attr="disabled" wire:target="delete">
+                    <flux:button variant="outline" wire:click="$set('confirmingDelete', false)" wire:loading.attr="disabled" wire:target="deleteConfirmed">
                         Cancel
                     </flux:button>
                     <flux:button
                         variant="danger"
-                        wire:click="delete"
+                        wire:click="deleteConfirmed"
                         wire:loading.attr="disabled"
-                        wire:target="delete"
+                        wire:target="deleteConfirmed"
                     >
                         Delete
                     </flux:button>

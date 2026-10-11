@@ -19,7 +19,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * `manager_id` points at a `user_accounts` row, NOT an employee, and is NOT an
  * actor column: `ProjectInput` (src/lib/api/schemas.ts:84-95) accepts it from
  * the request body, because it names who is accountable rather than who wrote
- * the row.
+ * the row. It also carries authority (DELIBERATE DIVERGENCE): the named
+ * account — the "Task Leader" — sees the whole project and runs it
+ * beside the Projects managers (WorkRules::runsProject()), which is why only
+ * an account whose role can open Project Management may be named
+ * (ProjectAccounts::canLead()).
  *
  * `code` and `name` are both unique — never write this table with `upsert()`.
  *

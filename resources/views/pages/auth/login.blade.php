@@ -3,8 +3,8 @@
     copy and button label, inside the hris-card. Still Fortify underneath —
     POST route('login.store') with `email` / `password` untouched.
 
-    Not ported: the reference's first-time-setup mode (bootstrapAdmin) — account
-    provisioning is the USERS module's concern, not the sign-in screen's.
+    A fresh database exposes the first-administrator setup. Once any account
+    exists, subsequent provisioning belongs to User Management.
 --}}
 <x-layouts::auth :title="__('Sign in')">
     <div class="hris-card p-6 sm:p-8">
@@ -39,5 +39,11 @@
                 {{ __('Sign in') }}
             </flux:button>
         </form>
+
+        @if (\App\Support\FirstAdmin::needed())
+            <p class="mt-5 text-center text-sm text-muted-foreground">
+                <flux:link :href="route('register')" wire:navigate>Set up first administrator</flux:link>
+            </p>
+        @endif
     </div>
 </x-layouts::auth>

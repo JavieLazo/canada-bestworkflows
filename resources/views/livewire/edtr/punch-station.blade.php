@@ -13,7 +13,7 @@
         <div>
             <h2 class="text-lg font-bold">Punch Station</h2>
             <p class="text-sm text-muted-foreground">
-                Geofence-validated attendance. Time In is blocked outside the site geofence.
+                Geofence-validated attendance. Your location is read as you punch; Time In is blocked outside the site geofence.
             </p>
         </div>
         @if ($showClock)
@@ -41,37 +41,44 @@
 
         <div class="space-y-2">
             <div class="flex min-h-5 items-center">
-                <flux:label for="punch-site">Work site</flux:label>
+                <flux:label for="punch-site">{{ $wfhToday ? 'Location today' : 'Work site' }}</flux:label>
             </div>
-            @if ($selfService || $assignedSiteId !== null)
+            {{-- Today's place, resolved by the roster (RosterLocations::forStation):
+                 a Work from home day has no site to pick or check; an onsite day
+                 pins that weekday's site, or the Assigned Worksite when no row
+                 exists — the reference's one-site behaviour. The kiosk select is
+                 only offered while no employee's day has resolved. --}}
+            @if ($wfhToday)
+                <flux:input id="punch-site" readonly value="Work from home" />
+            @elseif ($selfService || $todayLocation !== null)
                 <flux:input
                     id="punch-site"
                     readonly
-                    value="{{ $assignedSite !== null ? $assignedSite->name : ($assignedSiteId !== null ? 'Assigned worksite unavailable' : 'No worksite assigned yet') }}"
+                    value="{{ $todaySite !== null ? $todaySite->name : ($todayLocation?->site_id !== null ? 'Assigned worksite unavailable' : 'No worksite assigned yet') }}"
                 />
             @elseif ($sites->isEmpty())
                 {{-- Nothing to punch against: saying so beats a dropdown that
                      opens onto nothing. --}}
                 <flux:input id="punch-site" readonly value="No site set up yet" />
             @else
-                <flux:select id="punch-site" wire:change="selectSite($event.target.value)" aria-label="Work site">
+                <x-kit.select id="punch-site" wire:change="selectSite($event.target.value)" aria-label="Work site">
                     @foreach ($sites as $s)
                         <flux:select.option value="{{ $s->id }}" :selected="$siteId === (string) $s->id">
-                            {{ $s->name }}{{ $s->geofence_exempt ? ' (exempt)' : ' · '.$s->radius_meters.' m' }}
+                            {{ $s->name }}{{ $s->geofence_exempt ? ' (exempt)' : ' · '.$s->radius_meters.' m' }}{{ $s->is_active ? '' : ' · inactive' }}
                         </flux:select.option>
                     @endforeach
-                </flux:select>
+                </x-kit.select>
             @endif
         </div>
 
         @if (! $selfService)
             <div class="space-y-2">
                 <flux:label>Punch source</flux:label>
-                <flux:select wire:model.live="source" aria-label="Punch source">
+                <x-kit.select wire:model.live="source" aria-label="Punch source">
                     @foreach (Hris::SOURCES as $s)
                         <flux:select.option value="{{ $s['value'] }}">{{ $s['label'] }}</flux:select.option>
                     @endforeach
-                </flux:select>
+                </x-kit.select>
             </div>
 
             <div class="space-y-2">
@@ -133,7 +140,11 @@
         <div class="mt-5 flex items-center gap-3 rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
             <flux:icon.map-pin class="size-4 shrink-0" />
             <span>
-                @if ($site !== null && $site->geofence_exempt)
+                @if ($wfhToday)
+                    {{-- No fence on a Work from home day; the fix is still
+                         captured and stored with the punch, so say both. --}}
+                    Work from home today — no geofence. Your location is still recorded with the punch.
+                @elseif ($site !== null && $site->geofence_exempt)
                     {{-- Saying a check happens where none does is worse than
                          saying nothing — this is field work, and the punch
                          always passes. --}}
@@ -153,7 +164,9 @@
         >
             <flux:icon.map-pin class="size-4 shrink-0" />
             @if ($verdict === null)
-                <span>Capture or enter coordinates to preview the geofence verdict.</span>
+                <span>Capture or enter coordinates to preview the verdict — left empty, the browser's fix is used when you punch.</span>
+            @elseif ($verdict['wfh'] ?? false)
+                <span class="font-medium">Work from home today — no geofence; the punch is accepted from anywhere.</span>
             @elseif ($verdict['exempt'])
                 <span class="font-medium">Geofence-exempt site — this punch always passes.</span>
             @else
@@ -167,69 +180,99 @@
     @endif
 
     <div class="mt-5 grid gap-3 @xs:grid-cols-2">
-        @if ($selfService)
-            {{-- The portal asks the browser for a fix as the punch happens; a
-                 refused or absent fix punches with no reading, exactly as
-                 `currentCoords()` resolved null (PunchStation.tsx:117-141). --}}
-            <div
-                class="contents"
-                x-data="{
-                    busy: false,
-                    coords() {
-                        return new Promise((resolve) => {
-                            if (! navigator.geolocation) return resolve(null);
-                            let settled = false;
-                            const finish = (v) => { if (! settled) { settled = true; resolve(v); } };
-                            const timer = setTimeout(() => finish(null), 5000);
-                            navigator.geolocation.getCurrentPosition(
-                                (pos) => { clearTimeout(timer); finish({ lat: pos.coords.latitude, lng: pos.coords.longitude }); },
-                                () => { clearTimeout(timer); finish(null); },
-                                { enableHighAccuracy: true, timeout: 5000 },
-                            );
-                        });
-                    },
-                    async go(type) {
-                        this.busy = true;
-                        const fix = await this.coords();
-                        await $wire.punch(type, fix ? fix.lat : null, fix ? fix.lng : null);
+        {{--
+            Every punch first asks the browser for a fix (PunchStation.tsx:117-141
+            does this in self-service only) and sends lat/lng/accuracy to punch();
+            the server decides what counts — typed kiosk boxes win when filled,
+            an exempt site passes with no fix, a fenced site refuses one it
+            cannot verify. A refused or timed-out fix still punches, with a
+            client toast saying why, unless both kiosk boxes are typed and the
+            fix would not have been used anyway. The settled/timer guard is
+            needed: Safari never calls either callback when the prompt is
+            dismissed. Eight seconds bounds the wait — a cold mobile GPS
+            routinely needs more than the five PunchStation.tsx:127-138 allows.
+        --}}
+        <div
+            class="contents"
+            x-data="{
+                busy: false,
+                pending: null,
+                phase: 'idle',
+                typed() {
+                    return {{ $selfService ? 'false' : 'true' }} && String($wire.lat ?? '').trim() !== '' && String($wire.lng ?? '').trim() !== '';
+                },
+                label(type, text) {
+                    return this.pending === type && this.phase === 'locating' ? 'Getting location…' : text;
+                },
+                capture() {
+                    return new Promise((resolve) => {
+                        if (! navigator.geolocation) return resolve({ fix: null, reason: 'unsupported' });
+                        let settled = false;
+                        const finish = (v) => { if (! settled) { settled = true; resolve(v); } };
+                        const timer = setTimeout(() => finish({ fix: null, reason: 'timeout' }), 8000);
+                        navigator.geolocation.getCurrentPosition(
+                            (pos) => {
+                                clearTimeout(timer);
+                                const c = pos.coords;
+                                finish({ fix: { lat: c.latitude, lng: c.longitude, accuracy: Number.isFinite(c.accuracy) ? c.accuracy : null }, reason: null });
+                            },
+                            (err) => {
+                                clearTimeout(timer);
+                                finish({ fix: null, reason: err.code === err.PERMISSION_DENIED ? 'denied' : (err.code === err.TIMEOUT ? 'timeout' : 'unavailable') });
+                            },
+                            { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 },
+                        );
+                    });
+                },
+                refusal(reason) {
+                    return {
+                        denied: 'Location access was refused — punching without a location.',
+                        timeout: 'Location took too long — punching without a location.',
+                        unsupported: 'This browser can\'t share a location — punching without one.',
+                    }[reason] ?? 'Location unavailable — punching without a location.';
+                },
+                async go(type) {
+                    if (this.busy) return;
+                    this.busy = true;
+                    this.pending = type;
+                    this.phase = 'locating';
+                    try {
+                        const { fix, reason } = await this.capture();
+                        if (fix === null && ! this.typed()) {
+                            window.Flux?.toast({ text: this.refusal(reason), variant: 'warning' });
+                        }
+                        this.phase = 'sending';
+                        await $wire.punch(type, fix?.lat ?? null, fix?.lng ?? null, fix?.accuracy ?? null);
+                    } finally {
                         this.busy = false;
-                    },
-                }"
-            >
-                <flux:button variant="primary" x-bind:disabled="busy || {{ $punchDisabled ? 'true' : 'false' }}" x-on:click="go('TIME_IN')">
-                    <flux:icon.loading x-show="busy" class="mr-2 size-4" />
-                    <flux:icon.arrow-left-end-on-rectangle x-show="! busy" class="mr-2 size-4" />
-                    Time In
-                </flux:button>
-                <flux:button variant="filled" x-bind:disabled="busy || {{ $punchDisabled ? 'true' : 'false' }}" x-on:click="go('TIME_OUT')">
-                    <flux:icon.loading x-show="busy" class="mr-2 size-4" />
-                    <flux:icon.arrow-right-start-on-rectangle x-show="! busy" class="mr-2 size-4" />
-                    Time Out
-                </flux:button>
-            </div>
-        @else
+                        this.pending = null;
+                        this.phase = 'idle';
+                    }
+                },
+            }"
+        >
+            {{-- The server-rendered disabled state covers the frame before Alpine
+                 boots on a slow connection; the x-bind takes over from there. --}}
             <flux:button
                 variant="primary"
                 :disabled="$punchDisabled"
-                wire:click="punch('TIME_IN')"
-                wire:loading.attr="disabled"
-                wire:target="punch"
+                x-bind:disabled="busy || {{ $punchDisabled ? 'true' : 'false' }}"
+                x-on:click="go('TIME_IN')"
             >
-                <span wire:loading wire:target="punch" class="mr-2 inline-flex"><flux:icon.loading class="size-4" /></span>
-                <span wire:loading.remove wire:target="punch" class="mr-2 inline-flex"><flux:icon.arrow-left-end-on-rectangle class="size-4" /></span>
-                Time In
+                <flux:icon.loading x-show="busy && pending === 'TIME_IN'" x-cloak class="mr-2 size-4" />
+                <flux:icon.arrow-left-end-on-rectangle x-show="! (busy && pending === 'TIME_IN')" class="mr-2 size-4" />
+                <span x-text="label('TIME_IN', 'Time In')">Time In</span>
             </flux:button>
             <flux:button
                 variant="filled"
                 :disabled="$punchDisabled"
-                wire:click="punch('TIME_OUT')"
-                wire:loading.attr="disabled"
-                wire:target="punch"
+                x-bind:disabled="busy || {{ $punchDisabled ? 'true' : 'false' }}"
+                x-on:click="go('TIME_OUT')"
             >
-                <span wire:loading wire:target="punch" class="mr-2 inline-flex"><flux:icon.loading class="size-4" /></span>
-                <span wire:loading.remove wire:target="punch" class="mr-2 inline-flex"><flux:icon.arrow-right-start-on-rectangle class="size-4" /></span>
-                Time Out
+                <flux:icon.loading x-show="busy && pending === 'TIME_OUT'" x-cloak class="mr-2 size-4" />
+                <flux:icon.arrow-right-start-on-rectangle x-show="! (busy && pending === 'TIME_OUT')" class="mr-2 size-4" />
+                <span x-text="label('TIME_OUT', 'Time Out')">Time Out</span>
             </flux:button>
-        @endif
+        </div>
     </div>
 </section>

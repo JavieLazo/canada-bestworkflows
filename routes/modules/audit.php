@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\TableExportController;
 use App\Livewire\Audit\Index;
 use Illuminate\Support\Facades\Route;
 
@@ -21,4 +22,9 @@ use Illuminate\Support\Facades\Route;
  */
 Route::middleware(['web', 'auth', 'module:AUDIT'])->group(static function (): void {
     Route::get('/audit', Index::class)->name('audit.index');
+    // The trail's CSV (TableExportController) — the same all-data read, so
+    // a module-only actor downloads the empty table they see.
+    Route::get('/audit/export', TableExportController::class)
+        ->defaults('table', 'audit')
+        ->name('audit.export');
 });

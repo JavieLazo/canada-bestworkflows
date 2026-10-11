@@ -4,21 +4,21 @@ declare(strict_types=1);
 
 namespace App\Livewire\Projects;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Projects\ProjectPolicy;
-use App\Domain\Projects\TaskPolicy;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
-use App\Models\Project;
-use App\Models\ProjectTask;
-use App\Models\User;
-use App\Models\WorkSite;
+use App\Modules\IdentityAccess\Contracts\AccountLabel as User;
+use App\Modules\IdentityAccess\Contracts\AccountNames;
+use App\Modules\IdentityAccess\Contracts\ProjectAccounts;
+use App\Modules\Organization\Contracts\OrganizationDirectory;
+use App\Modules\WorkManagement\Application\Commands\CreateProject;
+use App\Modules\WorkManagement\Application\ProjectDraft;
+use App\Modules\WorkManagement\Application\Queries\WorkLists;
+use App\Modules\WorkManagement\Application\Queries\WorkSummary;
+use App\Modules\WorkManagement\Contracts\Views\ProjectView as Project;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
@@ -53,13 +53,17 @@ class Index extends Component
        the form legitimately picks — the reference API accepts both from the
        request body ("manager_id … names who is accountable rather than who
        wrote the row", Project model docblock) — and both are re-validated
-       against the database on save, so they carry no authorization weight. */
+       against the database on save (the leader through
+       ProjectAccounts::canLead(), since being named one grants the
+       project's run of the place), so the DRAFT carries no authorization
+       weight. */
     public bool $adding = false;
 
     public string $draftName = '';
 
     public string $draftDescription = '';
 
+    /** Dialog draft — re-validated against the database in createProject(), so not #[Locked] (see the note above $adding). */
     public string $draftSiteId = 'NONE';
 
     public string $draftStatus = 'PLANNING';
@@ -68,6 +72,7 @@ class Index extends Component
 
     public string $draftDueDate = '';
 
+    /** Dialog draft — re-validated as an active account in createProject(), so not #[Locked] (see the note above $adding). */
     public string $draftManagerId = 'NONE';
 
     public function mount(): void
@@ -130,107 +135,20 @@ class Index extends Component
     public function createProject(): void
     {
         $actor = $this->access();
-
-        if (! ProjectsData::managesProjects($actor)) {
-            Flux::toast(variant: 'danger', text: ProjectsData::forbiddenMessage());
-
-            return;
-        }
-
-        $name = trim($this->draftName);
-        if ($name === '' || $this->draftStartDate === '') {
-            Flux::toast(variant: 'danger', text: 'A project needs a name and a start date.');
-
-            return;
-        }
-        if (mb_strlen($name) > 200) {
-            Flux::toast(variant: 'danger', text: 'name: must be at most 200 characters');
-
-            return;
-        }
-        $description = trim($this->draftDescription);
-        if (mb_strlen($description) > 4000) {
-            Flux::toast(variant: 'danger', text: 'description: must be at most 4000 characters');
-
-            return;
-        }
-
-        $dueDate = $this->draftDueDate === '' ? null : $this->draftDueDate;
-        $dateError = ProjectPolicy::dateError($this->draftStartDate, $dueDate);
-        if ($dateError !== null) {
-            Flux::toast(variant: 'danger', text: $dateError);
-
-            return;
-        }
-
-        $managerId = $this->draftManagerId === 'NONE' ? null : $this->draftManagerId;
-        $statusError = ProjectPolicy::statusError(
-            ['status' => 'PLANNING', 'manager_id' => $managerId],
-            [],
-            $this->draftStatus,
-        );
-        if ($statusError !== null) {
-            Flux::toast(variant: 'danger', text: $statusError);
-
-            return;
-        }
-
-        $siteId = $this->draftSiteId === 'NONE' ? null : $this->draftSiteId;
-        if ($siteId !== null && WorkSite::query()->whereKey($siteId)->doesntExist()) {
-            Flux::toast(variant: 'danger', text: 'Choose an existing work site for the project.');
-
-            return;
-        }
-        if ($managerId !== null) {
-            $managerRow = User::query()->whereKey($managerId)->first();
-            if ($managerRow === null || ! (bool) $managerRow->getAttribute('is_active')) {
-                Flux::toast(variant: 'danger', text: 'Choose an active account as task leader.');
-
-                return;
-            }
-        }
-
         try {
-            /** @var Project $created */
-            $created = DB::transaction(function () use ($name, $description, $siteId, $managerId, $dueDate): Project {
-                // The port of the reference's advisory lock around the code
-                // mint (POST /api/projects) — FOR UPDATE serialises two
-                // concurrent creators on the rows being counted past.
-                $codes = DB::table('projects')->lockForUpdate()->pluck('code')->all();
-
-                $project = new Project;
-                $project->fill([
-                    'code' => ProjectsData::nextCode('PRJ', $codes),
-                    'name' => $name,
-                    'description' => $description === '' ? null : $description,
-                    'site_id' => $siteId,
-                    'status' => $this->draftStatus,
-                    'start_date' => $this->draftStartDate,
-                    'due_date' => $dueDate,
-                ]);
-                // Not an actor column, but not mass-assignable either — set the
-                // validated value directly, as the compact() insert did.
-                $project->setAttribute('manager_id', $managerId === null ? null : (int) $managerId);
-                $project->save();
-
-                return $project;
-            });
-        } catch (QueryException) {
-            // The port of respond.ts P2002 — `code` and `name` are both unique.
+            $created = app(CreateProject::class)->handle($actor, new ProjectDraft($this->draftName, $this->draftDescription, $this->draftSiteId, $this->draftStatus, $this->draftStartDate, $this->draftDueDate, $this->draftManagerId));
+        } catch (QueryException $e) {
+            report($e);
             Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
 
             return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
         }
 
-        AuditService::record(
-            $actor,
-            AuditEvent::PROJECT_CREATED,
-            'projects',
-            $created->id,
-            "{$created->code} {$name} opened",
-        );
-
-        Flux::toast(variant: 'success', text: "{$name} created as {$created->code}.");
+        Flux::toast(variant: 'success', text: "{$created->name} created as project {$created->code}.");
         $this->resetDraft();
         $this->adding = false;
     }
@@ -242,7 +160,10 @@ class Index extends Component
         $this->draftDescription = '';
         $this->draftSiteId = 'NONE';
         $this->draftStatus = 'PLANNING';
-        $this->draftStartDate = '';
+        // Today, as the reference resets it (new-project-dialog.tsx:73) and
+        // as mount() seeds it: the start date is required, so a blank one
+        // would refuse every later create in the session until retyped.
+        $this->draftStartDate = ProjectsData::todayKey();
         $this->draftDueDate = '';
         $this->draftManagerId = 'NONE';
     }
@@ -250,16 +171,9 @@ class Index extends Component
     public function render(): View
     {
         $actor = $this->access();
-        $data = ProjectsData::projectsDataset($actor);
         $today = ProjectsData::todayKey();
-
-        /** @var array<string, list<ProjectTask>> $tasksByProject */
-        $tasksByProject = $data['tasksByProject'];
-
-        $visible = ProjectsData::visibleProjects(
-            $data['projects'],
-            $tasksByProject,
-            $data['accounts'],
+        $rows = $this->acceptPage(app(WorkLists::class)->projectPage(
+            $actor,
             [
                 'q' => $this->search,
                 'status' => $this->status,
@@ -270,34 +184,32 @@ class Index extends Component
             $this->sortKey,
             $this->sortDir,
             $today,
-        );
+            (int) $this->getPage(),
+            $this->perPage,
+        ));
 
         // The stat cards read the WHOLE scoped dataset, not the filtered list
         // (projects-page.tsx:70-77).
-        $activeProjects = $data['projects']->where('status', 'ACTIVE')->count();
-        $reviewCount = $data['tasks']->filter(fn ($t): bool => TaskPolicy::isAwaitingReview($t->status))->count();
-        $overdueCount = $data['tasks']->filter(fn ($t): bool => TaskPolicy::isOverdue(ProjectsData::taskShape($t), $today))->count();
-        $dueSoonCount = $data['projects']->filter(
-            fn ($p): bool => ProjectPolicy::health(
-                ProjectsData::projectShape($p),
-                ProjectsData::taskShapes($tasksByProject[$p->id] ?? []),
-                $today,
-            ) === 'DUE_SOON',
-        )->count();
-        $unassignedCount = $data['tasks']->filter(fn ($t): bool => $t->assigneeIds() === [])->count();
+        $summary = app(WorkSummary::class);
+        $counters = $summary->counters($actor, $today);
+        $ids = $rows->getCollection()->map(static fn (Project $project): string => $project->id)->values()->all();
 
         return view('livewire.projects.index', [
-            'rows' => $this->paginateClamped($visible),
-            'visibleCount' => count($visible),
-            'tasksByProject' => $tasksByProject,
-            'sites' => $data['sites'],
-            'accounts' => $data['accounts'],
+            'rows' => $rows,
+            'visibleCount' => $rows->total(),
+            'totalsByProject' => $summary->projects($actor, array_values($ids), $today),
+            'sites' => app(OrganizationDirectory::class)->sites($actor),
+            'accounts' => app(AccountNames::class)->list($actor),
+            // Who the Task Leader picker offers: accounts whose role can open
+            // Project Management (CreateProject re-checks). Only a manager
+            // names leaders, so nobody else is asked for the list.
+            'leaderIds' => ProjectsData::managesProjects($actor) ? app(ProjectAccounts::class)->leaderIds($actor) : [],
             'today' => $today,
-            'activeProjects' => $activeProjects,
-            'reviewCount' => $reviewCount,
-            'overdueCount' => $overdueCount,
-            'dueSoonCount' => $dueSoonCount,
-            'unassignedCount' => $unassignedCount,
+            'activeProjects' => $counters['active'],
+            'reviewCount' => $counters['review'],
+            'overdueCount' => $counters['overdue'],
+            'dueSoonCount' => $counters['dueSoon'],
+            'unassignedCount' => $counters['unassigned'],
             'exportUrl' => route('projects.export', array_filter([
                 'q' => $this->search,
                 'status' => $this->status,

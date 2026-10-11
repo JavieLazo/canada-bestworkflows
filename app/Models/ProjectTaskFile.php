@@ -14,13 +14,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * assignee), free text like every other pseudo-enum here.
  *
  * Stored exactly like `employee_documents` and drawing on the same storage
- * budget — which now means bytes on disk and a `path` column, not the source's
+ * budget — which here means bytes on disk and a `path` column, not the source's
  * inline data: URL in a TEXT column.
  *
  * `uploaded_by` is an ACTOR column: session-supplied, never mass-assigned.
  *
+ * `employee_id` names the MEMBER a SUBMISSION file belongs to, which is how
+ * an INDIVIDUAL task tells one assignee's evidence from another's. The upload
+ * writer sets it by property from the signed-in actor's own employee link,
+ * never from input, so it is not in $fillable either. It is null on BRIEF
+ * files and on any SUBMISSION file that names no member (2026_09_24_0003
+ * has no backfill), and it outlives the member's place on the crew: a
+ * removed assignee's files stay with the task.
+ *
  * @property string $id
  * @property string $task_id
+ * @property string|null $employee_id
  * @property string $kind
  * @property string $file_name
  * @property string $mime

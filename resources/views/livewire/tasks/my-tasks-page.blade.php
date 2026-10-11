@@ -4,9 +4,18 @@
     Same tiles, same filters, same five columns in the same order, same
     priority-first default sort, same empty-state copy. Rows open the detail
     dialog (partials/task-detail-dialog.blade.php).
+
+    DELIBERATE DIVERGENCE: the Status column, its sort, the status filter
+    and the tiles all read the member's OWN status (`my_status`,
+    WorkRecords::ownPage()/ownSummary()), not the task's. They differ only on
+    an INDIVIDUAL task in progress, where it is the member's response state —
+    so the filter offers Approved (ProjectsData::myStatuses()), which the
+    reference's task statuses do not have. On a GROUP task the two are the
+    same, and the page reads as the reference's does.
 --}}
 @php
     use App\Domain\Projects\TaskPolicy;
+    use App\Livewire\Projects\ProjectsData;
     use App\Support\ManilaClock;
 @endphp
 <div class="space-y-6">
@@ -58,7 +67,7 @@
                     label="Filter by status"
                     class="w-[13rem]"
                     wire:model.live="status"
-                    :options="['ALL' => 'All statuses'] + TaskPolicy::STATUSES"
+                    :options="['ALL' => 'All statuses'] + ProjectsData::myStatuses()"
                 />
 
                 <x-kit.filter-select
@@ -67,6 +76,10 @@
                     wire:model.live="projectId"
                     :options="['ALL' => 'All projects'] + $myProjects->pluck('name', 'id')->all()"
                 />
+
+                <div class="ml-auto">
+                    <x-kit.export-button :href="route('tasks.export', array_filter(['q' => $search, 'status' => $status, 'project' => $projectId, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+                </div>
             </header>
 
             <div class="hris-table-wrap hris-table-scroll">
@@ -76,6 +89,7 @@
                             <x-kit.sort-header field="code" label="Code" />
                             <x-kit.sort-header field="task" label="Task" />
                             <x-kit.sort-header field="priority" label="Priority" />
+                            <x-kit.sort-header field="start" label="Start" />
                             <x-kit.sort-header field="due" label="Due" />
                             <x-kit.sort-header field="status" label="Status" />
                         </tr>
@@ -84,8 +98,8 @@
                         @if ($rows->total() === 0)
                             <tr wire:key="empty">
                                 <x-kit.empty-state
-                                    :colspan="5"
-                                    :title="$mine->isEmpty()
+                                    :colspan="6"
+                                    :title="$mineEmpty
                                         ? 'No tasks are assigned to you yet.'
                                         : 'No task matches those filters.'"
                                 />
@@ -142,6 +156,9 @@
                                 <td class="whitespace-nowrap">
                                     <span class="{{ TaskPolicy::priorityPill($t->priority) }}">{{ TaskPolicy::priorityLabel($t->priority) }}</span>
                                 </td>
+                                <td class="num whitespace-nowrap">
+                                    {{ $t->start_date !== null ? $t->start_date->format('M d, Y') : '—' }}
+                                </td>
                                 <td class="whitespace-nowrap">
                                     @if ($t->due_date !== null)
                                         <span class="{{ $overdue ? 'num text-danger font-medium' : 'num' }}">
@@ -152,7 +169,7 @@
                                     @endif
                                 </td>
                                 <td class="whitespace-nowrap">
-                                    <span class="{{ TaskPolicy::statusPill($t->status) }}">{{ TaskPolicy::statusLabel($t->status) }}</span>
+                                    <span class="{{ $t->myStatusPill() }}">{{ $t->myStatusLabel() }}</span>
                                 </td>
                             </tr>
                         @endforeach

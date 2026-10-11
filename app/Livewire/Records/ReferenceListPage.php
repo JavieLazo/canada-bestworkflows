@@ -4,24 +4,19 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Records\Support\Hris;
-use App\Models\DocumentType;
-use App\Models\EmployeeDocument;
-use App\Models\EmployeeProfile;
-use App\Models\EmploymentStatusOption;
-use App\Models\LeaveTravelRequest;
-use App\Models\LeaveType;
-use App\Models\PayrollDeduction;
-use App\Models\Position;
+use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\Queries\PayrollRecords;
+use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
+use App\Modules\Timekeeping\Application\Queries\ReferenceData;
+use App\Modules\Workforce\Application\Queries\ReferenceUsage;
+use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
@@ -30,9 +25,11 @@ use Livewire\Component;
 /**
  * One managed option list — the port of
  * src/app/(protected)/records/reference-list.tsx, instantiated per list by
- * route instead of hand-copied per page. Positions, document types, employment
+ * route instead of hand-copied per page. Document types, employment
  * statuses, leave types and payroll deductions differ only in their table,
  * prefix and wording, so they share this screen (and its dialogs) verbatim.
+ * Positions are placed in departments and units, so they have a page of
+ * their own ({@see PositionsPage}).
  *
  * Permissions, exactly as the reference:
  *  - the PAGE needs RECORDS (records/layout.tsx) — route middleware;
@@ -50,28 +47,27 @@ class ReferenceListPage extends Component
     use WithTableFilters;
 
     /**
-     * The five lists sharing this screen — the props each `page.tsx` passed to
-     * `<ReferenceList>` (positions/page.tsx, documents/page.tsx,
-     * employment/page.tsx, leave-types/page.tsx, payroll-deductions/page.tsx).
+     * The four lists sharing this screen — the props each `page.tsx` passed to
+     * `<ReferenceList>` (documents/page.tsx, employment/page.tsx,
+     * leave-types/page.tsx, payroll-deductions/page.tsx).
      *
-     * @var array<string, array{model: class-string<Model>, table: string, prefix: string,
+     * The Payroll Deductions list is also the Basic Payroll grid's
+     * Deductions columns, one per row. Which rows payroll computes
+     * (`payroll_deductions.calculation`) is system data the migration and
+     * seeder set; this screen only names them, and cannot delete one.
+     *
+     * `csv` says whether the list has an Export CSV and an Import CSV. THE
+     * TWO GENERAL RECORDS LISTS HERE — Document and Employment — HAVE
+     * NEITHER: no button, no export route, no entry in the transfer
+     * registry. Leave Settings and Payroll Deductions carry both.
+     *
+     * @var array<string, array{table: string, prefix: string,
      *     title: string, description: string, noun: string, plural: string,
-     *     nameLabel: string, showDescription: bool}>
+     *     nameLabel: string, showDescription: bool, csv: bool}>
      */
     public const array LISTS = [
-        'positions' => [
-            'model' => Position::class,
-            'table' => 'positions',
-            'prefix' => 'POS',
-            'title' => 'Position',
-            'description' => 'Job positions offered when hiring or editing an employee record.',
-            'noun' => 'position',
-            'plural' => 'positions',
-            'nameLabel' => 'Name',
-            'showDescription' => true,
-        ],
         'documents' => [
-            'model' => DocumentType::class,
+
             'table' => 'document_types',
             'prefix' => 'DOC',
             'title' => 'Document',
@@ -80,9 +76,10 @@ class ReferenceListPage extends Component
             'plural' => 'document types',
             'nameLabel' => 'Name',
             'showDescription' => true,
+            'csv' => false,
         ],
         'employment' => [
-            'model' => EmploymentStatusOption::class,
+
             'table' => 'employment_statuses',
             'prefix' => 'EMP',
             'title' => 'Employment',
@@ -91,9 +88,10 @@ class ReferenceListPage extends Component
             'plural' => 'employment statuses',
             'nameLabel' => 'Name',
             'showDescription' => true,
+            'csv' => false,
         ],
         'leave-types' => [
-            'model' => LeaveType::class,
+
             'table' => 'leave_types',
             'prefix' => 'LVE',
             'title' => 'Leave Settings',
@@ -102,19 +100,35 @@ class ReferenceListPage extends Component
             'plural' => 'leave types',
             'nameLabel' => 'Leave',
             'showDescription' => false,
+            'csv' => true,
         ],
         'payroll-deductions' => [
-            'model' => PayrollDeduction::class,
+
             'table' => 'payroll_deductions',
             'prefix' => 'DED',
             'title' => 'Payroll Deductions',
-            'description' => 'Deductions kept on file — statutory contributions, loans and adjustments.',
+            'description' => 'Every deduction here is a column of the Basic Payroll.',
             'noun' => 'deduction',
             'plural' => 'deductions',
             'nameLabel' => 'Name',
             'showDescription' => false,
+            'csv' => true,
         ],
     ];
+
+    /**
+     * The lists that carry a CSV, keyed by slug — what the export routes and
+     * the transfer registry are built from, so a list without one has no
+     * route to download from and no key to import under.
+     *
+     * @return array<string, array{table: string, prefix: string,
+     *     title: string, description: string, noun: string, plural: string,
+     *     nameLabel: string, showDescription: bool, csv: bool}>
+     */
+    public static function csvLists(): array
+    {
+        return array_filter(self::LISTS, static fn (array $list): bool => $list['csv']);
+    }
 
     /** Which list this page is. Route-supplied and authorization-relevant → #[Locked]. */
     #[Locked]
@@ -130,6 +144,26 @@ class ReferenceListPage extends Component
     public string $formName = '';
 
     public string $formDescription = '';
+
+    /* ---- Payroll Deductions only: how the row is priced ---- */
+
+    /** TYPED (an amount per employee) or PERCENT (a percentage of salary). */
+    public string $formComputation = 'TYPED';
+
+    public string $formPercentEmployee = '';
+
+    public string $formPercentEmployer = '';
+
+    public string $formBase = PercentDeduction::BASE_MONTHLY;
+
+    public string $formFrequency = PercentDeduction::FREQUENCY_EVERY;
+
+    public string $formCap = '';
+
+    public bool $formBeforeTax = false;
+
+    /** A refusal of the percentage rule, shown under its section (the Name field keeps its own). */
+    public ?string $ruleError = null;
 
     /** The dialog's inline error — "Name is required." (reference-list.tsx:335-338). */
     public ?string $formError = null;
@@ -157,25 +191,36 @@ class ReferenceListPage extends Component
         return ['id', 'name'];
     }
 
-    /** @return array{model: class-string<Model>, table: string, prefix: string, title: string, description: string, noun: string, plural: string, nameLabel: string, showDescription: bool} */
+    /** @return array{table: string, prefix: string, title: string, description: string, noun: string, plural: string, nameLabel: string, showDescription: bool, csv: bool} */
     public function config(): array
     {
         return self::LISTS[$this->slug];
     }
 
     /** Open the Add dialog clean (the source keys the dialog off `editing?.id ?? "new"`). */
+    /** Any edit clears the last refusal. */
+    public function updated(string $name): void
+    {
+        if (str_starts_with($name, 'form')) {
+            $this->formError = null;
+            $this->ruleError = null;
+        }
+    }
+
     public function openAdd(): void
     {
         $this->editingId = null;
         $this->formName = '';
         $this->formDescription = '';
+        $this->fillPercent(null);
         $this->formError = null;
+        $this->ruleError = null;
         $this->dialogOpen = true;
     }
 
     public function startEdit(string $id): void
     {
-        $row = $this->config()['model']::query()->find($id);
+        $row = app(ReferenceCatalogs::class)->for($this->slug)->find(app(Access::class), $id);
 
         if ($row === null) {
             Flux::toast(variant: 'danger', text: "That {$this->config()['noun']} no longer exists.");
@@ -186,8 +231,106 @@ class ReferenceListPage extends Component
         $this->editingId = (string) $row->getKey();
         $this->formName = (string) $row->getAttribute('name');
         $this->formDescription = (string) ($row->getAttribute('description') ?? '');
+        $percent = $row->getAttribute('percent');
+        $this->fillPercent(is_array($percent) ? $percent : null);
         $this->formError = null;
+        $this->ruleError = null;
         $this->dialogOpen = true;
+    }
+
+    /**
+     * The percentage fields from a row's rule, in display terms; the typed
+     * shape when it has none.
+     *
+     * @param  array<string, mixed>|null  $percent
+     */
+    private function fillPercent(?array $percent): void
+    {
+        $this->formComputation = $percent === null ? 'TYPED' : 'PERCENT';
+        $this->formPercentEmployee = $percent === null ? '' : Hris::moneyText($percent['employee'] ?? 0);
+        $this->formPercentEmployer = $percent === null ? '' : Hris::moneyText($percent['employer'] ?? 0);
+        $this->formBase = is_string($percent['base'] ?? null) ? $percent['base'] : PercentDeduction::BASE_MONTHLY;
+        $this->formFrequency = is_string($percent['frequency'] ?? null) ? $percent['frequency'] : PercentDeduction::FREQUENCY_EVERY;
+        $this->formCap = is_numeric($percent['cap'] ?? null) ? Hris::moneyText($percent['cap']) : '';
+        $this->formBeforeTax = (bool) ($percent['before_tax'] ?? false);
+    }
+
+    /**
+     * The percentage rule being typed, in PercentDeduction's shape; null for
+     * a typed row; a sentence when a figure is unreadable.
+     *
+     * @return array<string, mixed>|string|null
+     */
+    private function percentFigures(): array|string|null
+    {
+        if ($this->slug !== 'payroll-deductions' || $this->formComputation !== 'PERCENT') {
+            return null;
+        }
+        $employee = self::percentNumber($this->formPercentEmployee);
+        $employer = self::percentNumber($this->formPercentEmployer);
+        if ($employee === null || $employer === null) {
+            return 'Enter the employee and employer shares as percents, 0 for none.';
+        }
+        $cap = null;
+        if (trim($this->formCap) !== '') {
+            $cap = self::percentNumber($this->formCap);
+            if ($cap === null) {
+                return 'Enter the monthly cap, or leave it blank.';
+            }
+        }
+
+        return ['employee' => $employee, 'employer' => $employer, 'base' => $this->formBase, 'frequency' => $this->formFrequency, 'cap' => $cap, 'before_tax' => $this->formBeforeTax];
+    }
+
+    /**
+     * What the rule being typed takes at a sample figure, worked out by
+     * the rule itself — or, while a figure is unreadable, what is wrong.
+     *
+     * @return array{text: string, valid: bool}|null
+     */
+    private function percentSample(): ?array
+    {
+        $figures = $this->percentFigures();
+        if ($figures === null) {
+            return null;
+        }
+        if (is_string($figures)) {
+            return ['text' => $figures, 'valid' => false];
+        }
+        $error = PercentDeduction::error($figures);
+        if ($error !== null) {
+            return ['text' => $error, 'valid' => false];
+        }
+        $rule = PercentDeduction::fromArray($figures);
+        $shares = $rule->sharesFor(30000.0, '2026-01-16');
+        $base = match ($rule->base) {
+            PercentDeduction::BASE_MONTHLY => 'a month',
+            PercentDeduction::BASE_BASIC => 'of basic pay this payroll',
+            default => 'of gross pay this payroll',
+        };
+        $when = $rule->frequency === PercentDeduction::FREQUENCY_SECOND ? 'On the 2nd cut-off only, at' : 'At';
+        $each = $rule->frequency === PercentDeduction::FREQUENCY_EVERY
+            ? ($rule->base === PercentDeduction::BASE_MONTHLY ? ' each payroll (half of the monthly figure)' : ' each payroll')
+            : '';
+        $fraction = $rule->frequency === PercentDeduction::FREQUENCY_EVERY ? 0.5 : 1.0;
+        $capped = $rule->cap !== null && max($shares['employee'], $shares['employer']) >= $rule->cap * $fraction
+            ? ' — capped at '.Hris::peso($rule->cap).' a month per share'
+            : '';
+
+        return ['text' => "{$when} ₱30,000 {$base}: employee ".Hris::peso($shares['employee']).', employer '.Hris::peso($shares['employer']).$each.$capped.'.', 'valid' => true];
+    }
+
+    private static function percentNumber(string $text): ?float
+    {
+        $text = str_replace(',', '', trim($text));
+        if ($text === '') {
+            return 0.0;
+        }
+        if (! is_numeric($text) || ! is_finite((float) $text)) {
+            return null;
+        }
+
+        return (float) $text;
     }
 
     /**
@@ -196,85 +339,50 @@ class ReferenceListPage extends Component
      */
     public function save(): void
     {
-        $config = $this->config();
         $name = trim($this->formName);
-        $description = trim($this->formDescription);
-
-        // reference-list.tsx:334-338 — inline, not a toast.
         if ($name === '') {
             $this->formError = 'Name is required.';
 
             return;
         }
-
         $this->formError = null;
-
-        if (mb_strlen($name) > 160) {
-            Flux::toast(variant: 'danger', text: 'name: must be at most 160 characters.');
-
-            return;
-        }
-
-        if (mb_strlen($description) > 2000) {
-            Flux::toast(variant: 'danger', text: 'description: must be at most 2000 characters.');
-
-            return;
-        }
-
+        $this->ruleError = null;
         $access = app(Access::class);
-
-        // requireAllDataModule("RECORDS") — re-checked in the action itself.
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+        $percent = $this->percentFigures();
+        if (is_string($percent)) {
+            $this->ruleError = $percent;
 
             return;
         }
-
-        $payload = ['name' => $name, 'description' => $description === '' ? null : $description];
-
-        try {
-            if ($this->editingId !== null) {
-                $row = $config['model']::query()->find($this->editingId);
-
-                if ($row === null) {
-                    Flux::toast(variant: 'danger', text: "That {$config['noun']} no longer exists.");
-
-                    return;
-                }
-
-                $row->fill($payload)->save();
-
-                AuditService::record(
-                    $access,
-                    AuditEvent::REFERENCE_UPDATED,
-                    $config['table'],
-                    (string) $row->getKey(),
-                    "{$row->getAttribute('code')} updated to \"{$name}\"",
-                );
-
-                Flux::toast(variant: 'success', text: "{$name} updated.");
-            } else {
-                $code = $this->nextCode();
-                $row = $config['model']::query()->create($payload + ['code' => $code]);
-
-                AuditService::record(
-                    $access,
-                    AuditEvent::REFERENCE_CREATED,
-                    $config['table'],
-                    (string) $row->getKey(),
-                    "\"{$name}\" added as {$code}",
-                );
-
-                Flux::toast(variant: 'success', text: "{$name} added.");
+        if (is_array($percent)) {
+            $this->ruleError = PercentDeduction::error($percent);
+            if ($this->ruleError !== null) {
+                return;
             }
+        }
+        $extra = $this->slug === 'payroll-deductions' && PayrollData::percentDeductionsReady() ? ['percent' => $percent] : [];
+        try {
+            $message = app(ReferenceCatalogs::class)->for($this->slug)->save($access, $this->editingId, $name, $this->formDescription, $extra);
         } catch (UniqueConstraintViolationException) {
-            // `code` and `name` are both unique; a collision surfaces as the
-            // save failing with a toast, exactly as errorMessage(e) did.
-            Flux::toast(variant: 'danger', text: "\"{$name}\" is already on the list.");
+            $this->formError = "\"{$name}\" is already on the list.";
+
+            return;
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The record could not be saved. Please try again.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            // The catalog's own refusals: a name problem stays with the Name field, the rest with the rule.
+            if (str_contains($e->getMessage(), 'computed deduction') || str_contains($e->getMessage(), 'percent') || str_contains($e->getMessage(), 'share')) {
+                $this->ruleError = $e->getMessage();
+            } else {
+                $this->formError = $e->getMessage();
+            }
 
             return;
         }
-
+        Flux::toast(variant: 'success', text: $message);
         $this->dialogOpen = false;
         $this->editingId = null;
     }
@@ -287,62 +395,26 @@ class ReferenceListPage extends Component
 
     public function deleteConfirmed(): void
     {
-        $config = $this->config();
         $id = $this->deletingId;
         $this->confirmOpen = false;
         $this->deletingId = null;
-
         if ($id === null) {
             return;
         }
-
         $access = app(Access::class);
+        try {
+            $message = app(ReferenceCatalogs::class)->for($this->slug)->delete($access, $id);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The record could not be deleted. Please try again.');
 
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        $row = $config['model']::query()->find($id);
-
-        if ($row === null) {
-            Flux::toast(variant: 'danger', text: "That {$config['noun']} no longer exists.");
-
-            return;
-        }
-
-        $code = (string) $row->getAttribute('code');
-        $name = (string) $row->getAttribute('name');
-        $row->delete();
-
-        AuditService::record(
-            $access,
-            AuditEvent::REFERENCE_DELETED,
-            $config['table'],
-            $id,
-            "{$code} \"{$name}\" deleted",
-        );
-
-        Flux::toast(variant: 'success', text: "{$name} deleted.");
-    }
-
-    /**
-     * Next `PREFIX-000` code, read from the rows rather than counting them
-     * (reference-list.tsx:60-67).
-     */
-    private function nextCode(): string
-    {
-        $config = $this->config();
-        $highest = 0;
-
-        foreach ($config['model']::query()->pluck('code') as $code) {
-            if (preg_match('/^'.preg_quote($config['prefix'], '/').'-(\d+)$/i', (string) $code, $m) === 1) {
-                $highest = max($highest, (int) $m[1]);
-            }
-        }
-
-        return sprintf('%s-%03d', $config['prefix'], $highest + 1);
+        Flux::toast(variant: 'success', text: $message);
     }
 
     /**
@@ -367,25 +439,21 @@ class ReferenceListPage extends Component
             }
         };
 
-        if ($this->slug === 'positions' || $this->slug === 'employment') {
-            $column = $this->slug === 'positions' ? 'position' : 'employment_status';
-
-            foreach ($this->visibleEmployeeValues($access, $column) as $value) {
+        if ($this->slug === 'employment') {
+            foreach ($this->visibleEmployeeValues($access) as $value) {
                 $bump($value);
             }
         }
 
         if ($this->slug === 'documents') {
-            $values = EmployeeDocument::query()
-                ->toEmployee($access, 'employee_id', ModuleCode::EMPLOYEES, ModuleCode::RECORDS)
-                ->pluck('category');
+            $values = app(ReferenceUsage::class)->documents($access);
 
             foreach ($values as $value) {
                 $bump($value);
             }
         }
 
-        // Deductions are not yet referenced by a payroll run, so nothing to count.
+        // Payroll member references are counted by deduction id in render().
 
         return $counts;
     }
@@ -399,28 +467,9 @@ class ReferenceListPage extends Component
      *
      * @return list<string|null>
      */
-    private function visibleEmployeeValues(Access $access, string $column): array
+    private function visibleEmployeeValues(Access $access): array
     {
-        $query = EmployeeProfile::query();
-
-        $widened = $access->mayReadAllData(ModuleCode::EMPLOYEES, ModuleCode::PAYROLL)
-            || $access->mayReadAllData(
-                ModuleCode::EDTR,
-                ModuleCode::ROSTER,
-                ModuleCode::LEAVES,
-                ModuleCode::PROJECTS,
-                ModuleCode::TASKS,
-            );
-
-        if (! $widened) {
-            if ($access->employeeId === null) {
-                return [];
-            }
-
-            $query->whereKey($access->ownEmployeeId());
-        }
-
-        return array_values($query->pluck($column)->map(static fn ($v): ?string => $v === null ? null : (string) $v)->all());
+        return app(ReferenceUsage::class)->employmentStatuses($access);
     }
 
     /**
@@ -435,9 +484,7 @@ class ReferenceListPage extends Component
     {
         $access = app(Access::class);
 
-        $requestTypes = LeaveTravelRequest::query()
-            ->toEmployee($access, 'employee_id', ModuleCode::LEAVES)
-            ->pluck('request_type');
+        $requestTypes = app(ReferenceData::class)->requestTypes($access);
 
         $counts = [];
 
@@ -453,33 +500,15 @@ class ReferenceListPage extends Component
     {
         $config = $this->config();
 
-        $query = $config['model']::query();
-
-        $needle = trim($this->search);
-
-        if ($needle !== '') {
-            // `${r.code} ${r.name} ${r.description ?? ""}`.includes(needle) —
-            // reference-list.tsx:110-113.
-            $query->where(function ($q) use ($needle): void {
-                $like = '%'.addcslashes($needle, '%_\\').'%';
-                $q->where('code', 'like', $like)
-                    ->orWhere('name', 'like', $like)
-                    ->orWhere('description', 'like', $like);
-            });
-        }
-
-        $this->applySort($query, [
-            'id' => 'code',
-            'name' => 'name',
-        ]);
-
-        $rows = $this->paginateClamped($query);
+        $catalog = app(ReferenceCatalogs::class)->for($this->slug);
+        $rows = $this->acceptPage($catalog->page(app(Access::class), $this->search, $this->sortKey, $this->sortDir, (int) $this->getPage(), $this->perPage));
 
         // Per-row usage, resolved the way each list's records reference it.
+        $draftUsage = [];
         if ($this->slug === 'leave-types') {
             // In list order (name asc), the order listReference serves rows in —
             // it decides which row wins when two names normalise alike.
-            $allNames = array_values($config['model']::query()->orderBy('name')->pluck('name')->map(static fn ($n): string => (string) $n)->all());
+            $allNames = $catalog->names(app(Access::class));
             $byName = $this->leaveUsage($allNames);
             $usage = [];
 
@@ -487,10 +516,16 @@ class ReferenceListPage extends Component
                 $usage[$row->getKey()] = $byName[$row->getAttribute('name')] ?? 0;
             }
         } elseif ($this->slug === 'payroll-deductions') {
-            $usage = [];
-
+            $ids = [];
             foreach ($rows as $row) {
-                $usage[$row->getKey()] = 0;
+                $ids[] = (string) $row->getKey();
+            }
+            // What blocks a delete is a FINALIZED payroll (history); drafts
+            // only warn, since their typed lines leave with the row.
+            $usage = [];
+            foreach (app(PayrollRecords::class)->deductionUsage(app(Access::class), $ids) as $id => $counts) {
+                $usage[$id] = $counts['finalized'];
+                $draftUsage[$id] = $counts['drafts'];
             }
         } else {
             $counts = $this->usageCounts();
@@ -501,15 +536,23 @@ class ReferenceListPage extends Component
             }
         }
 
-        $editing = $this->editingId !== null ? $config['model']::query()->find($this->editingId) : null;
-        $deleting = $this->deletingId !== null ? $config['model']::query()->find($this->deletingId) : null;
+        $editing = $this->editingId !== null ? $catalog->find(app(Access::class), $this->editingId) : null;
+        $deleting = $this->deletingId !== null ? $catalog->find(app(Access::class), $this->deletingId) : null;
 
         return view('livewire.records.reference-list-page', [
+            // Writes need all-data; a viewer gets the list without the buttons.
+            'canManage' => $catalog->mayManage(app(Access::class)),
             'config' => $config,
             'rows' => $rows,
             'usage' => $usage,
+            // Payroll Deductions: the DRAFT payrolls typing each row — a
+            // warning on delete, never a block.
+            'draftUsage' => $draftUsage,
             'editing' => $editing,
             'deleting' => $deleting,
+            // Payroll Deductions: the percentage rule's fields and sample.
+            'percentReady' => $this->slug === 'payroll-deductions' && PayrollData::percentDeductionsReady(),
+            'percentSample' => $this->dialogOpen ? $this->percentSample() : null,
         ])->title($config['title']);
     }
 }

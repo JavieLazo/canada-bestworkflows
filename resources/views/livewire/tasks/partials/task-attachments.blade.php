@@ -7,14 +7,19 @@
     $actorUserId. Uploads bind the page component's $upload property
     (SUBMISSION only on this screen — the BRIEF is read-only for the assignee).
 
-    A task is shared by its assignees, so every SUBMISSION file on it is
-    downloadable by all of them, but the trash button appears only on the
+    On a GROUP task every SUBMISSION file is the whole crew's and
+    downloadable by all of them. On an INDIVIDUAL task a member's evidence is
+    theirs and the reviewer's alone: $files holds only the viewer's own
+    SUBMISSION files (a reviewer off the crew gets everyone's), and
+    WorkRecords::download() refuses a peer's file on both routes — see
+    WorkRecords::files(). Either way the trash button appears only on the
     files THIS account uploaded — MyTasksPage::deleteFile() refuses the rest,
     and a button that always 403s would be a lie. A SUBMISSION file somebody
     else uploaded is named for its uploader instead ("by Ramon Cruz" — the
     employee spelling the dialog uses elsewhere, else the account name), so a
-    peer's evidence never reads as the actor's own. $files carries the
-    `uploader.employee` relation for that (MyTasksPage::render()).
+    peer's evidence never reads as the actor's own. Each file view carries
+    its uploader for that — an AccountLabel with the account's employee —
+    batch-resolved by WorkRecords::files().
 
     Divergence noted: lucide Download/Trash2 icons approximate to heroicons
     arrow-down-tray/trash on the Flux primitives.

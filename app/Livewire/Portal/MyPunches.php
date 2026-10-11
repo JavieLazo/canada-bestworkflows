@@ -4,15 +4,13 @@ declare(strict_types=1);
 
 namespace App\Livewire\Portal;
 
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithChangeStamp;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Edtr\LiveFeed;
-use App\Models\AttendanceLog;
+use App\Modules\Timekeeping\Application\Queries\PunchFeed;
 use App\Support\Access;
 use App\Support\Realtime;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -30,7 +28,7 @@ use Livewire\Component;
  *
  * The dated 500-row window is `useAttendance(500)` (portal-page.tsx:59).
  * Realtime degrades to the same wire:poll as the kiosk feed —
- * BESTWORKFLOWS_POLL_FEED seconds, 15 by default — and a punch recorded on this page
+ * COPEMS_POLL_FEED seconds, 15 by default — and a punch recorded on this page
  * repaints immediately through the `edtr-punch-recorded` event the station
  * dispatches.
  *
@@ -65,18 +63,7 @@ class MyPunches extends Component
 
         $actor = app(Access::class);
 
-        if ($actor->hasEmployeeLink()) {
-            $logs = AttendanceLog::query()
-                ->toEmployee($actor, 'employee_id', ModuleCode::EDTR, ModuleCode::PAYROLL)
-                ->where('employee_id', '=', $actor->ownEmployeeId())
-                ->with(['site:id,name'])
-                ->orderByDesc('logged_at')
-                ->orderByDesc('id')
-                ->limit($this->limit)
-                ->get();
-        } else {
-            $logs = new EloquentCollection;
-        }
+        $logs = app(PunchFeed::class)->list($actor, $this->limit, own: true);
 
         $pollSeconds = LiveFeed::pollSeconds();
 
@@ -113,21 +100,6 @@ class MyPunches extends Component
      */
     protected function changeStamp(): string
     {
-        $actor = app(Access::class);
-
-        if (! $actor->hasEmployeeLink()) {
-            return 'unlinked';
-        }
-
-        $stamp = AttendanceLog::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->where('employee_id', '=', $actor->ownEmployeeId())
-            ->toBase()
-            ->selectRaw('COUNT(*) AS punches, MAX(logged_at) AS newest, MAX(id) AS newest_id')
-            ->first();
-
-        return ((int) ($stamp->punches ?? 0))
-            .':'.((string) ($stamp->newest ?? ''))
-            .':'.((string) ($stamp->newest_id ?? ''));
+        return app(PunchFeed::class)->stamp(app(Access::class), own: true);
     }
 }

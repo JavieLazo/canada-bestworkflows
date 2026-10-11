@@ -7,12 +7,16 @@ namespace App\Domain\Projects;
 /**
  * A literal port of the project half of copems/src/lib/projects.ts.
  *
- * Management creates a project, adds tasks to it and assigns each task to one
- * employee. This class is the ONLY place a project status change is allowed to
+ * Management creates a project, adds tasks and assigns them to employees.
+ * This class is the ONLY place a project status change is allowed to
  * come from — the reference README makes that claim about projects.ts and the
  * reference API layer then failed to honour it (see TaskPolicy's note on the
  * flat-list bug). Controllers, Livewire components and Blade all route through
- * here.
+ * here — with ONE sanctioned exception (DELIBERATE DIVERGENCE): a status set
+ * BY HAND from the project screen goes through the WorkManagement module's
+ * ManualProjectStatus, which reaches every other status, the "terminal" ones
+ * included, and keeps this class's two safeguards. TRANSITIONS below is the
+ * reference's map and governs creation.
  *
  * Pure: no Eloquent, no Carbon, no config(). Calendar days are 'Y-m-d'
  * STRINGS, rows arrive as plain arrays. Nothing here touches money, so
@@ -302,6 +306,12 @@ final class ProjectPolicy
             }
         }
 
+        return self::progressCounts($total, $completed);
+    }
+
+    /** @return array{total: int, completed: int, percent: int} */
+    public static function progressCounts(int $total, int $completed): array
+    {
         return [
             'total' => $total,
             'completed' => $completed,

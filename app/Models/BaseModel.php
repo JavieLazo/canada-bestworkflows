@@ -20,8 +20,8 @@ use Illuminate\Support\Str;
  *     declares — punch pairing orders by `logged_at` and task threads by
  *     `(task_id, created_at)`, so collapsing to whole seconds silently
  *     reorders a punch pair.
- *  3. **Mint an id only when one is absent.** The production seed supplies
- *     literal ids ('role-admin', 'pos-1'), exactly as the TypeScript seed did.
+ *  3. **Mint an id only when one is absent.** New seeded and user-created
+ *     domain rows share this generator; existing identifiers remain stable.
  *
  * Timestamps, across the whole model layer:
  *
@@ -29,8 +29,8 @@ use Illuminate\Support\Str;
  *    `updated_at` on exactly one (`attendance_remarks`). The migrations add a
  *    nullable `updated_at DATETIME(3)` to the mutable tables, and those models
  *    run Eloquent's full timestamp handling.
- *  - The four append-only tables get no `updated_at` column: `payslips`,
- *    `task_comments`, `project_task_files` and `audit_logs`. Those models
+ *  - Append-only tables get no `updated_at` column: `payslips`, `task_comments`,
+ *    `project_task_files`, `audit_logs` and `payroll_finalization_snapshots`. Those models
  *    declare `public const UPDATED_AT = null;` rather than
  *    `$timestamps = false`, which keeps Eloquent filling `created_at` on
  *    insert — the literal port of `@default(now())` — while never emitting an
@@ -58,7 +58,7 @@ abstract class BaseModel extends Model
     protected $dateFormat = 'Y-m-d H:i:s.v';
 
     /**
-     * Seeded rows carry literal ids ('role-admin', 'pos-1'). Only mint when absent.
+     * Generate a ULID for new rows without replacing imported identifiers.
      *
      * A subclass that needs its own model events must call `parent::booted()`.
      */

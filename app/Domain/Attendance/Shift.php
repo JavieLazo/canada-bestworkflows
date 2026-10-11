@@ -41,7 +41,78 @@ final readonly class Shift
         /** Deducted from worked time when the break was never punched. */
         public ?int $breakMinutes = null,
         public ?bool $requiresBreakPunch = null,
+        /** @var array<int, self> Weekly replacements keyed by weekday, 0 Sunday to 6 Saturday. */
+        public array $weekdayShifts = [],
+        /** @var array<string, self> One-date replacements, keyed by Y-m-d, ahead of the weekly roster. */
+        public array $dateShifts = [],
     ) {}
+
+    /** A weekday replacement owns its clock; an omitted weekday keeps the standing shift. */
+    public function forDate(string $date): self
+    {
+        return $this->dateShifts[$date] ?? $this->weekdayShifts[CalendarDays::dayOfWeek($date)] ?? $this;
+    }
+
+    /** @param array<int, self> $weekdayShifts */
+    public function withWeekdayShifts(array $weekdayShifts): self
+    {
+        ksort($weekdayShifts, SORT_NUMERIC);
+
+        return new self(
+            $this->startTime, $this->endTime, $this->graceMinutes, $this->mode,
+            $this->requiredHours, $this->workDays, $this->shiftTypeId,
+            $this->breakStart, $this->breakEnd, $this->breakMinutes, $this->requiresBreakPunch,
+            $weekdayShifts, $this->dateShifts,
+        );
+    }
+
+    /** @param array<string, self> $dateShifts */
+    public function withDateShifts(array $dateShifts): self
+    {
+        ksort($dateShifts, SORT_STRING);
+
+        return new self(
+            $this->startTime, $this->endTime, $this->graceMinutes, $this->mode,
+            $this->requiredHours, $this->workDays, $this->shiftTypeId,
+            $this->breakStart, $this->breakEnd, $this->breakMinutes, $this->requiresBreakPunch,
+            $this->weekdayShifts, $dateShifts,
+        );
+    }
+
+    public function hasScheduleOverrides(): bool
+    {
+        return $this->weekdayShifts !== [] || $this->dateShifts !== [];
+    }
+
+    /**
+     * A rest override keeps a real clock for any work actually done that day.
+     * [-1] is intentionally non-empty: the legacy empty work week means Mon–Fri.
+     */
+    public static function restDay(?self $hours = null): self
+    {
+        $hours ??= self::default();
+
+        return new self(
+            $hours->startTime, $hours->endTime, $hours->graceMinutes, $hours->mode,
+            $hours->requiredHours, [-1], $hours->shiftTypeId,
+            $hours->breakStart, $hours->breakEnd, $hours->breakMinutes, $hours->requiresBreakPunch,
+        );
+    }
+
+    /** @return array<string, mixed> Plain copied facts for roster storage and payroll evidence. */
+    public function toArray(): array
+    {
+        return [
+            'start_time' => $this->startTime, 'end_time' => $this->endTime,
+            'grace_minutes' => $this->graceMinutes, 'mode' => $this->mode,
+            'required_hours' => $this->requiredHours, 'work_days' => $this->workDays,
+            'shift_type_id' => $this->shiftTypeId, 'break_start' => $this->breakStart,
+            'break_end' => $this->breakEnd, 'break_minutes' => $this->breakMinutes,
+            'requires_break_punch' => $this->requiresBreakPunch,
+            'weekday_shifts' => array_map(static fn (self $shift): array => $shift->toArray(), $this->weekdayShifts),
+            'date_shifts' => array_map(static fn (self $shift): array => $shift->toArray(), $this->dateShifts),
+        ];
+    }
 
     /**
      * TS: `DEFAULT_SHIFT` — dtr.ts:106-113. What a shift falls back to when the
@@ -120,6 +191,42 @@ final readonly class Shift
             requiresBreakPunch: isset($row['requires_break_punch'])
                 ? (bool) $row['requires_break_punch']
                 : null,
+            weekdayShifts: self::weekdayShiftsFromArray($row['weekday_shifts'] ?? []),
+            dateShifts: self::dateShiftsFromArray($row['date_shifts'] ?? []),
         );
+    }
+
+    /** @return array<int, self> */
+    private static function weekdayShiftsFromArray(mixed $rows): array
+    {
+        if (! is_array($rows)) {
+            return [];
+        }
+        $shifts = [];
+        foreach ($rows as $weekday => $row) {
+            if (is_int($weekday) && $weekday >= 0 && $weekday <= 6 && is_array($row)) {
+                $shifts[$weekday] = self::fromArray($row);
+            }
+        }
+        ksort($shifts, SORT_NUMERIC);
+
+        return $shifts;
+    }
+
+    /** @return array<string, self> */
+    private static function dateShiftsFromArray(mixed $rows): array
+    {
+        if (! is_array($rows)) {
+            return [];
+        }
+        $shifts = [];
+        foreach ($rows as $date => $row) {
+            if (is_string($date) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) === 1 && is_array($row)) {
+                $shifts[$date] = self::fromArray($row);
+            }
+        }
+        ksort($shifts, SORT_STRING);
+
+        return $shifts;
     }
 }

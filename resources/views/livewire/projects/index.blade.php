@@ -27,11 +27,13 @@
                 review what comes back.
             </p>
         </div>
-        <div class="flex items-center gap-3">
-            <flux:button variant="outline" href="{{ $exportUrl }}">
+        <div class="flex flex-wrap items-center gap-3">
+            {{-- Green like every Export CSV (x-kit.export-button); its own markup only for the projects icon set. --}}
+            <flux:button variant="primary" href="{{ $exportUrl }}" class="hris-button-success">
                 <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-4'])</x-slot:icon>
                 Export CSV
             </flux:button>
+            <livewire:kit.csv-import table="projects" :template="route('projects.export', ['template' => 1])" key="import-projects" />
             <flux:button variant="primary" wire:click="$set('adding', true)">
                 <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
                 New project
@@ -174,14 +176,9 @@
                     @endif
                     @foreach ($rows as $project)
                         @php
-                            $projectTasks = $tasksByProject[$project->id] ?? [];
-                            $progress = ProjectPolicy::progress(ProjectsData::taskShapes($projectTasks));
+                            $progress = $totalsByProject[$project->id]->progress();
                             $siteName = $sites->firstWhere('id', $project->site_id)?->name ?? '—';
-                            $health = ProjectPolicy::health(
-                                ProjectsData::projectShape($project),
-                                ProjectsData::taskShapes($projectTasks),
-                                $today,
-                            );
+                            $health = $totalsByProject[$project->id]->health($project, $today);
                             $managerName = $project->manager_id === null
                                 ? null
                                 : $accounts->firstWhere('id', $project->manager_id)?->name;
@@ -272,21 +269,23 @@
                 <div class="grid gap-4 sm:grid-cols-2">
                     <div class="space-y-2">
                         <flux:label>Site</flux:label>
-                        <flux:select aria-label="Site" wire:model="draftSiteId">
+                        <x-kit.select aria-label="Site" wire:model="draftSiteId">
                             <flux:select.option value="NONE">No site</flux:select.option>
+                            {{-- A new project is a new assignment: active sites only. --}}
                             @foreach ($sites as $siteRow)
+                                @continue(! $siteRow->is_active)
                                 <flux:select.option value="{{ $siteRow->id }}">{{ $siteRow->name }}</flux:select.option>
                             @endforeach
-                        </flux:select>
+                        </x-kit.select>
                     </div>
 
                     <div class="space-y-2">
                         <flux:label>Status</flux:label>
-                        <flux:select aria-label="Status" wire:model="draftStatus">
+                        <x-kit.select aria-label="Status" wire:model="draftStatus">
                             @foreach (ProjectPolicy::STATUSES as $value => $label)
                                 <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                             @endforeach
-                        </flux:select>
+                        </x-kit.select>
                     </div>
 
                     <div class="space-y-2">
@@ -311,16 +310,17 @@
 
                 <div class="space-y-2">
                     <flux:label>Task Leader</flux:label>
-                    <flux:select aria-label="Task Leader" wire:model="draftManagerId">
+                    <x-kit.select aria-label="Task Leader" wire:model="draftManagerId">
                         <flux:select.option value="NONE">No task leader</flux:select.option>
                         @foreach ($accounts as $account)
-                            @if ((bool) $account->getAttribute('is_active'))
-                                {{-- A deactivated account is signed out on sight, so it
-                                     can't be accountable for a project. --}}
+                            @if (in_array((int) $account->id, $leaderIds, true))
+                                {{-- Active accounts whose role can open Project
+                                     Management: a leader acts on the project
+                                     from there (CreateProject re-checks). --}}
                                 <flux:select.option value="{{ $account->id }}">{{ $account->name }}</flux:select.option>
                             @endif
                         @endforeach
-                    </flux:select>
+                    </x-kit.select>
                 </div>
 
                 <flux:button type="submit" variant="primary">

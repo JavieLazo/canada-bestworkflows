@@ -4,8 +4,8 @@
  *
  * GUARDED ON THE KEY, AND THAT GUARD IS THE FEATURE FLAG. With no
  * VITE_PUSHER_APP_KEY in the build, `window.Echo` is never defined, no socket
- * is opened, and every screen stays on the polls it has always used. The
- * server half agrees by way of config/bestworkflows.php `realtime.enabled`, which is
+ * is opened, and every screen stays on its polls alone. The server half
+ * agrees by way of config/copems.php `realtime.enabled`, which is
  * false without PUSHER_* — so it never registers an Echo listener either, and
  * nothing warns into the console about an Echo that was never meant to exist.
  *

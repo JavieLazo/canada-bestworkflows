@@ -6,9 +6,11 @@ use App\Domain\Attendance\AttendanceLog as DomainAttendanceLog;
 use App\Domain\Attendance\HolidaySetting;
 use App\Domain\Attendance\Shift;
 use App\Domain\Attendance\ShiftResolver;
+use App\Domain\Notifications\Notifier;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Domain\Payroll\PayrollReadiness;
 use App\Domain\Payroll\PayslipCalculator;
+use App\Domain\Payroll\Statutory;
 use App\Livewire\Payroll\Index;
 use App\Livewire\Payroll\IndividualPayslip;
 use App\Livewire\Payroll\RunWorkspace;
@@ -16,12 +18,15 @@ use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\Holiday;
+use App\Models\Notification;
+use App\Models\OvertimeApproval;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
 use App\Models\Payslip;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
+use App\Modules\Payroll\Contracts\Views\PayrollRunView;
 use App\Support\Access;
 use App\Support\Money;
 use Carbon\CarbonImmutable;
@@ -35,7 +40,11 @@ use Livewire\Livewire;
  * — the module's one deliberate divergence — a FINALIZED run refuses deletion.
  */
 
-/** Helpers are payroll-prefixed: Pest loads every test file into one process. */
+/**
+ * Helpers are payroll-prefixed: Pest loads every test file into one process.
+ *
+ * @param  list<string>  $modules
+ */
 function payrollRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -49,6 +58,9 @@ function payrollRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/**
+ * @param  list<string>  $modules
+ */
 function payrollActor(array $modules, bool $allData = false, ?string $employeeId = null): User
 {
     $user = User::factory()->create([
@@ -61,6 +73,9 @@ function payrollActor(array $modules, bool $allData = false, ?string $employeeId
     return $user;
 }
 
+/**
+ * @param  array<string, mixed>  $overrides  employee_profiles column values, forceFilled over the defaults
+ */
 function payrollEmployee(string $code, string $first, string $last, array $overrides = []): EmployeeProfile
 {
     $employee = new EmployeeProfile;
@@ -77,6 +92,9 @@ function payrollEmployee(string $code, string $first, string $last, array $overr
     return $employee;
 }
 
+/**
+ * @param  array<EmployeeProfile>  $employees  members; their order (keys dropped) becomes the grid position
+ */
 function payrollDraftRun(string $code, string $name, array $employees = []): PayrollRun
 {
     $run = new PayrollRun;
@@ -243,7 +261,7 @@ it('creates a draft with a full member snapshot, then finalizes it into posted p
     $run = PayrollRun::query()->first();
 
     expect($run)->not->toBeNull()
-        ->and($run->code)->toBe('PR-001')
+        ->and($run->code)->toBe('1')
         ->and($run->name)->toBe('August 2026 — 1st cut-off')
         ->and($run->status)->toBe('DRAFT');
 
@@ -278,7 +296,7 @@ it('creates a draft with a full member snapshot, then finalizes it into posted p
 
 it('finalizes a period that has not ended yet, paying only the days that have', function () {
     // Frozen mid-period: 5 Aug Manila, with a run covering the whole month.
-    // The reference refused this outright. It no longer does — the days after
+    // The reference refuses this outright. Here it finalizes — the days after
     // today carry no attendance, so they simply pay nothing.
     test()->travelTo(new DateTimeImmutable('2026-08-05T12:00:00+08:00'));
 
@@ -303,7 +321,7 @@ it('finalizes a period that has not ended yet, paying only the days that have', 
 it('pays a two-day period and refuses only what cannot be computed', function () {
     payrollFreezeClock();
 
-    // The rule that is gone.
+    // No cut-off shape is enforced.
     expect(PayrollPeriod::cutoffError('2026-08-01', '2026-08-02'))->toBeNull()
         ->and(PayrollPeriod::cutoffError('2026-08-07', '2026-08-07'))->toBeNull()
         ->and(PayrollPeriod::cutoffError('2026-08-09', '2026-08-23'))->toBeNull();
@@ -312,7 +330,7 @@ it('pays a two-day period and refuses only what cannot be computed', function ()
     expect(PayrollPeriod::cutoffError('2026-08-28', '2026-09-03'))->toBeNull()
         ->and(PayrollPeriod::cutoffError('2026-08-01', '2026-10-31'))->toBeNull();
 
-    // The rules that are not, and each for a reason that is not policy.
+    // The refusals that apply, each for a reason that is not policy.
     expect(PayrollPeriod::cutoffError('2026-08-15', '2026-08-01'))
         ->toBe('The end date cannot fall before the start date.')
         ->and(PayrollPeriod::cutoffError('2026-13-01', '2026-13-05'))
@@ -324,17 +342,17 @@ it('pays a two-day period and refuses only what cannot be computed', function ()
 
 /*
 |--------------------------------------------------------------------------
-| Contributions and tax are typed, not computed
+| Contributions and tax are computed, and posted
 |--------------------------------------------------------------------------
+| The engine computes them by the reference rule (PayrollStatutoryTest has
+| the detail); this pins that finalize POSTS them.
 */
 
-it('seeds every hand-entered deduction at zero instead of guessing one', function () {
+it('posts the statutory lines the reference computes when a run is finalized', function () {
     payrollFreezeClock();
 
     // An employee configured for the full statutory treatment: every switch
-    // on, no fixed overrides, the mode the seeder ships. Under the reference
-    // engine this payslip would have carried half a month of SSS, PhilHealth
-    // and Pag-IBIG, and the tax their base implied.
+    // on, no fixed overrides, the mode the seeder ships.
     $employee = payrollEmployee('EMP-030', 'Rosa', 'Ilagan', [
         'monthly_rate' => 30000,
         'allow_sss' => true,
@@ -347,26 +365,48 @@ it('seeds every hand-entered deduction at zero instead of guessing one', functio
     ]);
     payrollActor(['PAYROLL'], allData: true);
 
-    $run = payrollDraftRun('PR-030', 'August 2026 — typed deductions', [$employee]);
+    // Ten ordinary weekdays worked 08:00-17:00 Manila, so gross is above 0.
+    foreach (['03', '04', '05', '06', '07', '10', '11', '12', '13', '14'] as $day) {
+        foreach ([['TIME_IN', '00:00:00'], ['TIME_OUT', '09:00:00']] as [$type, $at]) {
+            AttendanceLog::query()->create([
+                'employee_id' => (string) $employee->getKey(),
+                'log_type' => $type,
+                'source' => 'MANUAL',
+                'is_geofenced' => true,
+                'is_anomaly' => false,
+                'logged_at' => "2026-08-{$day} {$at}",
+            ]);
+        }
+    }
+
+    $run = payrollDraftRun('PR-030', 'August 2026 — computed deductions', [$employee]);
 
     Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
 
+    expect($run->refresh()->status)->toBe('FINALIZED');
     $payslip = Payslip::query()->where('run_id', $run->id)->firstOrFail();
 
-    // The five the payroll manager types, and the employer shares beside them.
-    expect((float) $payslip->sss)->toBe(0.0)
-        ->and((float) $payslip->sss_er)->toBe(0.0)
-        ->and((float) $payslip->philhealth)->toBe(0.0)
-        ->and((float) $payslip->philhealth_er)->toBe(0.0)
-        ->and((float) $payslip->pagibig)->toBe(0.0)
-        ->and((float) $payslip->pagibig_er)->toBe(0.0)
-        ->and((float) $payslip->withholding_tax)->toBe(0.0)
-        ->and((float) $payslip->other_deductions)->toBe(0.0);
+    // Half a month of each table figure for a 30,000 monthly rate (SSS MSC
+    // 30,000 at 5% / 10% + EC 30; PhilHealth 2.5% each; Pag-IBIG 2% of 10,000).
+    expect($payslip->gross_pay)->toBeGreaterThan(0.0)
+        ->and($payslip->sss)->toBe(750.0)
+        ->and($payslip->sss_er)->toBe(1515.0)
+        ->and($payslip->philhealth)->toBe(375.0)
+        ->and($payslip->philhealth_er)->toBe(375.0)
+        ->and($payslip->pagibig)->toBe(100.0)
+        ->and($payslip->pagibig_er)->toBe(100.0)
+        ->and($payslip->other_deductions)->toBe(0.0);
 
-    // Late and undertime are NOT part of that: they come from the DTR, they
-    // are read-only in the workspace, and the total is theirs alone.
-    expect((float) $payslip->total_deductions)
-        ->toBe((float) $payslip->late_deduction + (float) $payslip->undertime_deduction);
+    // Withholding on gross less the employee's three shares, late and undertime.
+    $taxable = max($payslip->gross_pay - (750.0 + 375.0 + 100.0) - $payslip->late_deduction - $payslip->undertime_deduction, 0.0);
+    expect($payslip->withholding_tax)->toBe(Statutory::semiMonthlyWithholdingTax($taxable))
+        ->and($payslip->withholding_tax)->toBeGreaterThan(0.0)
+        ->and($payslip->taxable_compensation)->toBe(Money::round($taxable));
+
+    // The employer shares are reported, never deducted.
+    expect($payslip->total_deductions)->toBe(Money::round(
+        $payslip->late_deduction + $payslip->undertime_deduction + 750.0 + 375.0 + 100.0 + $payslip->withholding_tax
+    ))->and($payslip->net_pay)->toBe(Money::round($payslip->gross_pay - $payslip->total_deductions));
 });
 
 it('keeps one employee on one payroll per cut-off', function () {
@@ -397,6 +437,29 @@ it('keeps one employee on one payroll per cut-off', function () {
 |--------------------------------------------------------------------------
 */
 
+it('gives the run code its own sortable ID column instead of a line under the name', function () {
+    payrollActor(['PAYROLL'], allData: true);
+
+    payrollDraftRun('PR-002', 'August 2026 — second cut-off');
+    payrollDraftRun('PR-001', 'August 2026 — first cut-off');
+
+    $page = Livewire::test(Index::class)
+        ->assertSee('PR-001')
+        ->assertSee('PR-002');
+
+    // The key has to survive sortableKeys() — an unlisted one is dropped and
+    // the list silently keeps its default Date-from order.
+    $rows = $page->call('sortBy', 'id')->viewData('rows')->items();
+
+    // The list hands the view a detached projection, never the model.
+    expect(array_map(static fn (PayrollRunView $run): string => $run->code, $rows))
+        ->toBe(['PR-001', 'PR-002']);
+
+    // Seven headers, so the empty row must span seven or it stops short of the
+    // Action column.
+    $page->set('search', 'zzz-matches-no-payroll')->assertSeeHtml('colspan="7"');
+});
+
 it('deletes a draft run from the list', function () {
     payrollActor(['PAYROLL'], allData: true);
 
@@ -404,7 +467,7 @@ it('deletes a draft run from the list', function () {
 
     Livewire::test(Index::class)
         ->call('confirmDelete', $run->id)
-        ->call('delete');
+        ->call('deleteConfirmed');
 
     expect(PayrollRun::query()->whereKey($run->id)->exists())->toBeFalse()
         ->and(AuditLog::query()->where('action', 'PAYROLL_RUN_DELETED')->exists())->toBeTrue();
@@ -425,7 +488,7 @@ it('refuses to delete a FINALIZED run — posted payslips must stay', function (
         'finalized_at' => CarbonImmutable::now('UTC'),
     ])->save();
 
-    $component->call('delete');
+    $component->call('deleteConfirmed');
 
     expect(PayrollRun::query()->whereKey($run->id)->exists())->toBeTrue()
         ->and(PayrollRun::query()->whereKey($run->id)->value('status'))->toBe('FINALIZED');
@@ -471,8 +534,32 @@ it('draws every employee on the run, with nothing behind a scrollbar', function 
     $table = Str::before(Str::after($html, 'hris-table-wrap'), '</table>');
 
     expect($table)->not->toContain('hris-table-scroll')
-        // The wrap itself stays: 22 columns must not scroll the whole page.
+        // The wrap itself stays: two dozen or more columns must not scroll the whole page.
         ->and($html)->toContain('hris-table-wrap');
+});
+
+it('pins the Employee column while the payroll grid scrolls sideways', function () {
+    payrollFreezeClock();
+    payrollActor(['PAYROLL'], allData: true);
+
+    $run = payrollDraftRun('PR-041', 'August 2026 — pinned', [
+        payrollEmployee('EMP-301', 'Member', 'Villanueva-Santos'),
+    ]);
+
+    $html = Livewire::test(RunWorkspace::class, ['id' => $run->id])->html();
+    $table = Str::before(Str::after($html, 'hris-table-wrap'), '</table>');
+
+    // `hris-table-pin-first` pins whatever comes FIRST in each section, so the
+    // class on its own is not the contract — Employee has to still BE that
+    // first column in thead, tbody and tfoot, or the pin lands on Work days.
+    expect($table)->toContain('class="hris-table hris-table-pin-first"')
+        ->and(Str::before(Str::after($table, '<thead>'), '</thead>'))
+        ->toContain('<th rowspan="2">Employee</th>')
+        ->and(Str::after($table, '<tfoot>'))->toContain('<td>Total</td>')
+        // And the name block stays bounded: an unbounded cell in an auto-layout
+        // table takes 282px of a 341px phone scrollport once a real Filipino
+        // name is in it, which leaves nothing to scroll to.
+        ->and($table)->toContain('max-w-[7.5rem] md:max-w-none');
 });
 
 it('prices a period that spans two months at each month\'s own daily rate', function () {
@@ -507,7 +594,7 @@ it('prices a period that spans two months at each month\'s own daily rate', func
     )->toArray();
 
     // Two days worked, and each one priced by the month it fell in — NOT two
-    // days at August's rate, which is what a single period-wide rate gave.
+    // days at August's rate, which is what a single period-wide rate gives.
     expect($draft['work_days'])->toBe(2.0);
 
     $expected = Money::round(
@@ -517,7 +604,7 @@ it('prices a period that spans two months at each month\'s own daily rate', func
     expect($draft['work_days_pay'])->toBe($expected)
         ->and($draft['work_days_pay'])->not->toBe(Money::round(2 * (30000 / $august)));
 
-    // The reported daily_rate is the period's first month, as it always was.
+    // The reported daily_rate is the period's first month.
     expect($draft['daily_rate'])->toBe(Money::round(30000 / $august));
 });
 
@@ -542,10 +629,12 @@ it('reads a hand-typed amount whether or not it carries separators', function ()
 
     expect($page->get('draftDeductions')[$id]['sss'])->toBe(1350.5);
 
-    // Still refused: a value that is not an amount once separators are gone.
+    // A value that is not an amount once separators are gone CLEARS the
+    // override: the computed figure applies again, where a stored 0 would
+    // have silently exempted the employee.
     $page->call('updateDeduction', $id, 'sss', '1,3x0.50');
 
-    expect($page->get('draftDeductions')[$id]['sss'])->toBe(0.0);
+    expect(array_key_exists($id, $page->get('draftDeductions')))->toBeFalse();
 });
 
 /*
@@ -554,7 +643,12 @@ it('reads a hand-typed amount whether or not it carries separators', function ()
 |--------------------------------------------------------------------------
 */
 
-/** One worked day, on $date, for an employee whose week is Mon-Fri. */
+/**
+ * One worked day, on $date, for an employee whose week is Mon-Fri.
+ *
+ * @param  array{date: string, schedule: string, type: string, percent: int}  $holiday  one HolidaySetting row
+ * @return array<string, mixed> PayslipDraft::toArray(), keyed by payslips column
+ */
 function holidayDayPay(string $date, array $holiday, float $restDayPercentage): array
 {
     return PayslipCalculator::compute(
@@ -635,9 +729,86 @@ it('changes the compounded rate when the Rest Day percentage is saved differentl
         ->and($atZero['holiday_pay'])->toBeGreaterThan(0.0);
 });
 
+/*
+|--------------------------------------------------------------------------
+| Finalize tells each member — the one event this module writes
+|--------------------------------------------------------------------------
+*/
+
+it('tells every active login of each member that their payslip was posted, and nobody else', function () {
+    // Finalize notifies through Notifier and is held to this behaviour: one
+    // PAYSLIP_POSTED row per active account linked to a member, none for a
+    // disabled account, none for the finalizing actor, kind/title/href as the
+    // portal's payslips tab expects.
+    payrollFreezeClock();
+
+    $employee = payrollEmployee('EMP-040', 'Bea', 'Santos');
+    $portalRole = payrollRole(['PORTAL'], false);
+    $phone = User::factory()->create(['role_id' => $portalRole->getKey(), 'employee_id' => $employee->getKey()]);
+    $laptop = User::factory()->create(['role_id' => $portalRole->getKey(), 'employee_id' => $employee->getKey()]);
+    $retired = User::factory()->create(['role_id' => $portalRole->getKey(), 'employee_id' => $employee->getKey(), 'is_active' => false]);
+    $admin = payrollActor(['PAYROLL'], allData: true);
+    $run = payrollDraftRun('PR-001', 'August 2026 — 1st cut-off', [$employee]);
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
+
+    expect($run->fresh()?->status)->toBe('FINALIZED');
+
+    $posted = Notification::query()->where('kind', 'PAYSLIP_POSTED');
+
+    expect($posted->clone()->where('user_id', $phone->getKey())->count())->toBe(1)
+        ->and($posted->clone()->where('user_id', $laptop->getKey())->count())->toBe(1)
+        ->and($posted->clone()->where('user_id', $retired->getKey())->count())->toBe(0)
+        ->and($posted->clone()->where('user_id', $admin->getKey())->count())->toBe(0)
+        ->and($posted->clone()->count())->toBe(2);
+
+    $row = $posted->clone()->where('user_id', $phone->getKey())->first();
+
+    expect($row?->title)->toBe('Payroll PR-001 payslip posted')
+        ->and($row?->href)->toBe('/portal?tab=payslips')
+        ->and($row?->body)->toContain('August 2026 — 1st cut-off')
+        ->and($row?->dedupe_key)->toBeNull();
+});
+
+/*
+|--------------------------------------------------------------------------
+| The CSV export
+|--------------------------------------------------------------------------
+*/
+
+it('exports the run as a CSV with exactly one leading BOM and a quoted header row', function () {
+    // App\Support\Csv puts the BOM inside the builder, so a streamDownload
+    // callback that also echoed one would ship two, and Excel would show a
+    // stray ï»¿ in cell A1.
+    payrollFreezeClock();
+
+    $employee = payrollEmployee('EMP-030', 'Bea', 'Santos');
+    payrollActor(['PAYROLL'], allData: true);
+    $run = payrollDraftRun('PR-001', 'August 2026 — 1st cut-off', [$employee]);
+
+    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->call('exportCsv')
+        ->assertFileDownloaded('cyberonions-payroll-pr-001.csv');
+
+    $bytes = base64_decode((string) data_get($page->effects, 'download.content'), true);
+    $bom = "\u{FEFF}";
+
+    expect($bytes)->not->toBeFalse()
+        ->and(str_starts_with((string) $bytes, $bom))->toBeTrue('The CSV must open with the UTF-8 BOM Excel needs.')
+        ->and(substr_count((string) $bytes, $bom))->toBe(1, 'Exactly one BOM — a second one shows as ï»¿ in cell A1.');
+
+    $lines = explode("\r\n", substr((string) $bytes, strlen($bom)));
+
+    // RFC 4180 as the reference wrote it: every field quoted, CRLF rows, one
+    // header row then one row per member.
+    expect(count($lines))->toBeGreaterThanOrEqual(2)
+        ->and(str_starts_with($lines[0], '"'))->toBeTrue()
+        ->and($lines[1])->toContain('Santos');
+});
+
 it('blocks finalization only on what nobody has configured a rate for', function () {
     // The set is small and explicit on purpose: everything else the readiness
-    // pass detects is now priced from Formulas or Holidays.
+    // pass detects is priced from Formulas or Holidays.
     expect(PayrollReadiness::BLOCKING_CODES)->toBe([
         PayrollReadiness::CODE_UNPAIRED_ATTENDANCE,
         PayrollReadiness::CODE_HOLIDAY_CONFIGURATION,
@@ -654,14 +825,14 @@ it('blocks finalization only on what nobody has configured a rate for', function
     }
 });
 
-it('finalizes a run containing holiday overtime on a rest day', function () {
+it('finalizes holiday overtime on a rest day with pay only when approved', function (bool $approved) {
     payrollFreezeClock();
 
     $employee = payrollEmployee('EMP-060', 'Ramon', 'Aquino');
     payrollActor(['PAYROLL'], allData: true);
 
     // 2026-08-15 is a Saturday. A holiday on it, worked, with overtime — every
-    // one of the four lifted conditions at once.
+    // one of the four non-blocking conditions at once.
     Holiday::query()->create([
         'code' => 'TEST-HOL', 'name' => 'Test Holiday', 'date' => '2026-08-15',
         'schedule' => 'ANNUAL', 'type' => 'REGULAR', 'percent' => 200,
@@ -680,7 +851,111 @@ it('finalizes a run containing holiday overtime on a rest day', function () {
 
     $run = payrollDraftRun('PR-060', 'August 2026 — holiday OT', [$employee]);
 
+    if ($approved) {
+        $approval = new OvertimeApproval;
+        $approval->forceFill(['employee_id' => (string) $employee->getKey(), 'date' => '2026-08-15',
+            'decision' => OvertimeApproval::APPROVED, 'computed_minutes' => 180, 'approved_minutes' => 180]);
+        $approval->save();
+    }
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
+
+    $posted = Payslip::query()->sole();
+    expect($run->refresh()->status)->toBe('FINALIZED')
+        ->and($posted->overtime_acknowledged)->toBe($approved)
+        ->and($posted->overtime_hours)->toBe($approved ? 3.0 : 0.0);
+})->with(['unapproved' => false, 'approved' => true]);
+
+/*
+|--------------------------------------------------------------------------
+| Which identifier the payroll screens show
+|--------------------------------------------------------------------------
+|
+| An identifier printed beside a name is the company's own Employee ID, never
+| the minted row id. Payroll is the one place where that depends on which ROW
+| SHAPE reached the view: a finalized run renders DirectoryEmployee rows read
+| through OperationalDirectory, an unfinalized one renders EmployeePayData
+| built by the calculation. The pair below pins both, because the draft path
+| fails silently — EmployeeIdentity reads a missing property as null, so a
+| forgotten field shows no id at all rather than raising.
+*/
+
+it('names a DRAFT payroll line by the Employee ID, never by the row id', function () {
+    $employee = payrollEmployee('COP-00042', 'Bea', 'Santos', ['employee_id_no' => '2024-118']);
+    payrollActor(['PAYROLL'], allData: true);
+
+    $run = payrollDraftRun('PR-070', 'August 2026 — draft ids', [$employee]);
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSee('Bea Santos')
+        ->assertSee('2024-118')
+        ->assertDontSee('COP-00042');
+});
+
+it('names a FINALIZED payroll line and its payslip the same way', function () {
+    payrollFreezeClock();
+
+    $employee = payrollEmployee('COP-00043', 'Ana', 'Cruz', ['employee_id_no' => '2024-119']);
+    payrollActor(['PAYROLL'], allData: true);
+
+    $run = payrollDraftRun('PR-071', 'August 2026 — finalized ids', [$employee]);
     Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
 
     expect($run->refresh()->status)->toBe('FINALIZED');
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSee('2024-119')
+        ->assertDontSee('COP-00043');
+
+    Livewire::test(IndividualPayslip::class, ['id' => $run->id, 'employeeId' => $employee->getKey()])
+        ->assertSee('2024-119')
+        ->assertDontSee('COP-00043');
+});
+
+it('shows no id at all on a payroll line for an employee with no company number', function () {
+    $employee = payrollEmployee('COP-00044', 'Noel', 'Reyes');
+    payrollActor(['PAYROLL'], allData: true);
+
+    $run = payrollDraftRun('PR-072', 'August 2026 — unnumbered', [$employee]);
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSee('Noel Reyes')
+        ->assertDontSee('COP-00044');
+});
+
+it('drops the picker ID column and puts the Employee ID under the name instead', function () {
+    payrollEmployee('COP-00045', 'Rina', 'Lopez', ['employee_id_no' => '2024-120']);
+    payrollActor(['PAYROLL'], allData: true);
+
+    // The dialog table is checkbox · Employee · Position; the id rides in
+    // the Employee cell, the way the payroll list prints a run code under the
+    // payroll name.
+    Livewire::test(RunWorkspace::class)
+        ->call('openPicker')
+        ->assertSee('Rina Lopez')
+        ->assertSee('2024-120')
+        ->assertDontSee('COP-00045');
+});
+
+it('exports BOTH identifiers, unlike the screen, because a spreadsheet is reconciled elsewhere', function () {
+    payrollFreezeClock();
+
+    $employee = payrollEmployee('COP-00046', 'Ivan', 'Torres', ['employee_id_no' => '2024-121']);
+    payrollActor(['PAYROLL'], allData: true);
+    $run = payrollDraftRun('PR-073', 'August 2026 — export ids', [$employee]);
+
+    // A DRAFT run, deliberately: its rows are EmployeePayData rather than the
+    // directory shape, and that is the path on which the Employee ID column
+    // would empty silently if EmployeePayData did not carry the number.
+    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->call('exportCsv')
+        ->assertFileDownloaded('cyberonions-payroll-pr-073.csv');
+
+    // The file opens with the UTF-8 BOM Excel needs; the sibling test above
+    // pins that, so strip it here rather than assert around it.
+    $bytes = (string) base64_decode((string) data_get($page->effects, 'download.content'), true);
+    $lines = explode("\r\n", (string) preg_replace('/^\x{FEFF}/u', '', $bytes));
+
+    expect($lines[0])->toStartWith('"ID","Employee ID","Employee"')
+        ->and($lines[1] ?? '')->toStartWith('"COP-00046","2024-121","Ivan Torres"');
 });

@@ -6,17 +6,28 @@ declare(strict_types=1);
  * Enforcement for the one money rule: plain PHP floats end-to-end, with a single
  * Money::round() applied at the existing call sites and nowhere else.
  *
- * The plan prescribed four mutually incompatible money strategies across its
- * sections (BigDecimal at scale 2, plain floats, an integer-centavo value object,
- * and Eloquent 'decimal:2' casts). Three of them round half-away-from-zero and
- * would silently change payslips; the fourth returns a string and reproduces the
- * NaN bug. This test is what keeps the surviving one from being quietly replaced.
+ * Four mutually incompatible money strategies are possible (BigDecimal at
+ * scale 2, plain floats, an integer-centavo value object, and Eloquent
+ * 'decimal:2' casts). Three of them round half-away-from-zero and would
+ * silently change payslips; the fourth returns a string and reproduces the
+ * NaN bug. This test is what keeps the chosen one from being quietly replaced.
  */
 $payrollPaths = [
     __DIR__.'/../../app/Domain/Payroll',
     __DIR__.'/../../app/Support',
+    // The Payroll module's own pure rules (the PHP 90,000 exempt-benefit
+    // ceiling among them) move money too, so the same bans apply there.
+    __DIR__.'/../../app/Modules/Payroll/Domain',
 ];
 
+/**
+ * Every PHP file under the given directories, keyed by absolute path, with its
+ * raw source as the value. An unreadable file throws rather than yielding
+ * `false`: a silently skipped file would let a banned call pass the scans.
+ *
+ * @param  list<string>  $roots
+ * @return array<string, string>
+ */
 function payrollSources(array $roots): array
 {
     $files = [];
@@ -27,7 +38,11 @@ function payrollSources(array $roots): array
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root));
         foreach ($it as $file) {
             if ($file->isFile() && $file->getExtension() === 'php') {
-                $files[$file->getPathname()] = file_get_contents($file->getPathname());
+                $src = file_get_contents($file->getPathname());
+                if ($src === false) {
+                    throw new RuntimeException('Unreadable payroll source: '.$file->getPathname());
+                }
+                $files[$file->getPathname()] = $src;
             }
         }
     }

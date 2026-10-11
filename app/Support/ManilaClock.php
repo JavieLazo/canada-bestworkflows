@@ -41,6 +41,15 @@ final class ManilaClock
     }
 
     /**
+     * Today's Manila calendar day, `Y-m-d` (hris.ts:255 `todayKey`). The one
+     * clock read; the module helpers' `todayKey()` methods all forward here.
+     */
+    public static function todayKey(): string
+    {
+        return self::dayKey(CarbonImmutable::now());
+    }
+
+    /**
      * Minute-of-day with SECONDS KEPT and sub-second TRUNCATED.
      *
      * The reference implementation reads an Intl formatter that emits a
@@ -82,11 +91,11 @@ final class ManilaClock
      * JS Math.round to a whole number - half-UP toward +Infinity.
      *
      * DO NOT express this as (int) Money::round($n), which is what
-     * 01-STARTER-PACK.md section 5.5 prescribes and what minutesBetween() did until
-     * now. Money::round() rounds to TWO DECIMALS and the (int) cast then
-     * TRUNCATES, so a pair 480.5 minutes long came back as 480 where JS gives
-     * 481 - an off-by-one on roughly HALF of all in->out pairs, because the
-     * fractional part of ms/60000 is uniformly distributed on real punches.
+     * 01-STARTER-PACK.md section 5.5 prescribes. Money::round() rounds to TWO
+     * DECIMALS and the (int) cast then TRUNCATES, so a pair 480.5 minutes long
+     * comes back as 480 where JS gives 481 - an off-by-one on roughly HALF of
+     * all in->out pairs, because the fractional part of ms/60000 is uniformly
+     * distributed on real punches.
      *
      * Money::round() is the PESO boundary. This is the MINUTE boundary. They
      * round to different scales and must never substitute for one another.

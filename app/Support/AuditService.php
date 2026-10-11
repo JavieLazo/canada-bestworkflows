@@ -29,9 +29,9 @@ use Throwable;
  * or anything reachable from a request body or a Livewire public property. There
  * is no overload that accepts an actor id. Do not add one.
  *
- * The demo's `src/lib/audit.ts` is not ported. It was already inert with a
- * server (`if (!DEMO_MODE) return;` on its first line) and existed only so ~40
- * browser call sites did not each grow a mode check. Its vocabulary IS ported —
+ * The demo's `src/lib/audit.ts` is not ported. It is inert with a server
+ * (`if (!DEMO_MODE) return;` on its first line) and exists only so ~40
+ * browser call sites do not each grow a mode check. Its vocabulary IS ported —
  * {@see AuditEvent} carries the union of both — but its writes are not.
  *
  * ─────────────────────────────────────────────────────────────────────────────
@@ -62,7 +62,7 @@ use Throwable;
  *
  *   - a business transaction that ROLLS BACK writes no audit row, which is
  *     correct — nothing happened to record;
- *   - a long audit write can no longer hold row locks inside a finalize.
+ *   - a long audit write cannot hold row locks inside a finalize.
  *
  * Under `RefreshDatabase` the whole test runs inside a transaction; Laravel's
  * testing transactions manager fires deferred callbacks at level 1 for exactly
@@ -85,9 +85,9 @@ final class AuditService
      * Record something an identified actor did.
      *
      * `actor_name` is read off the session object here rather than passed in, so
-     * that no call site can vary it — the reference had the demo writing an
+     * that no call site can vary it — the reference has the demo writing an
      * email into that column and the server writing a full name into it for
-     * LOGIN_SUCCESS, and the audit screen showed both. Settled: the actor's
+     * LOGIN_SUCCESS, so its audit screen shows both. Here it is the actor's
      * FULL NAME wherever a session exists.
      *
      * An {@see Access::forGuest()} actor is legal and lands as `actor_id = null`
@@ -106,8 +106,8 @@ final class AuditService
         // ULID char(26) — and `Access::userId` carries the id as a string because
         // everything else it holds is one. `audit_logs.actor_id` follows the column
         // it points at, so the string is narrowed back to an int here. Unifying the
-        // two id shapes is an open architectural decision for the owner; do not
-        // migrate either column to settle it from this file.
+        // two id shapes is an open architectural decision; do not migrate either
+        // column to settle it from this file.
         self::write(
             $actor->userId === null ? null : (int) $actor->userId,
             $actor->fullName,

@@ -6,7 +6,9 @@ namespace App\Models;
 
 use App\Models\Concerns\ScopesToActor;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A posted payslip. Append-only: there is no `updated_at`, because "this row
@@ -25,20 +27,32 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *    `holiday_days` only.
  *  - `basic_pay` = work_days_pay + holiday_pay + rest_day_pay;
  *    `total_base_pay` = basic_pay + allowances.
- *  - `overtime_pay` is always the computed amount; it reaches `gross_pay` only
- *    when `overtime_acknowledged` is true.
+ *  - `overtime_pay` reaches `gross_pay` only when `overtime_acknowledged` is
+ *    true. Overtime is approved per day on the Daily Time Record, so
+ *    `overtime_pay` holds the priced APPROVED minutes and the flag means
+ *    "approved overtime reached gross". A payslip posted under the run-level
+ *    acknowledgement carries the computed amount and that acknowledgement
+ *    instead.
  *  - `sss_er`, `philhealth_er` and `pagibig_er` are reported but are NOT part
  *    of `total_deductions`.
  *  - `net_pay` is deliberately UNCLAMPED and can be negative (payroll.ts:510) —
  *    which is also why the rounding has to be half-up toward +Infinity rather
  *    than half-away-from-zero.
- *  - `bonus` and `thirteenth_month` are always 0 on the server path.
+ *  - `bonus` is the TAXED part of the incentives and bonuses: the taxable
+ *    lines plus any excess of the tax-exempt ones over the PHP 90,000 ceiling
+ *    (`taxable_benefits_excess`); the tax-exempt part is `exempt_benefits`,
+ *    added to gross and net after the tax. The lines themselves are itemised
+ *    in `payslip_incentives`. `thirteenth_month` is 0 on every regular
+ *    payslip and holds the amount on a 13th month run's payslip
+ *    (ThirteenthMonthData): there `gross_pay` equals it, no contributions are
+ *    taken, and its tax-exempt part and excess are `exempt_benefits` /
+ *    `taxable_benefits_excess`.
  *  - `absence_deduction`, `unpaid_leave_deduction` and
- *    `late_undertime_deduction` were written by the pre-additive engine, which
- *    charged late and undertime as one line and reduced a monthly base for
- *    absence. Nothing writes them now; they are kept so payslips posted before
- *    the change stay readable, and pinning them to 0 is what stops the
- *    reduction (which now lives inside `basic_pay`) being counted twice.
+ *    `late_undertime_deduction` are the pre-additive engine's lines: late and
+ *    undertime charged as one line, and a monthly base reduced for absence.
+ *    Nothing writes them; they stay so the payslips that carry them stay
+ *    readable, and pinning them to 0 is what stops the reduction (which lives
+ *    inside `basic_pay`) being counted twice.
  *
  * `run_id` is nullable — payslips posted before runs existed — and that
  * nullability is load-bearing for the `(employee_id, period_start, period_end,
@@ -59,6 +73,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $rest_days
  * @property float $absence_days
  * @property float $unpaid_leave_days
+ * @property float $paid_leave_days
  * @property float $work_days_pay
  * @property float $holiday_pay
  * @property float $rest_day_pay
@@ -82,6 +97,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $pagibig_er
  * @property float $withholding_tax
  * @property float $other_deductions
+ * @property float $custom_deductions
  * @property int $late_minutes
  * @property float $late_deduction
  * @property int $undertime_minutes
@@ -91,9 +107,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $late_undertime_deduction
  * @property float $absence_deduction
  * @property float $unpaid_leave_deduction
+ * @property float $exempt_benefits
+ * @property float|null $ceiling_benefits
+ * @property float $taxable_benefits_excess
+ * @property float|null $taxable_compensation
  * @property CarbonImmutable $created_at
  * @property-read PayrollRun|null $run
  * @property-read EmployeeProfile|null $employee
+ * @property-read Collection<int, PayslipDeduction> $deductions
  */
 class Payslip extends BaseModel
 {
@@ -117,6 +138,7 @@ class Payslip extends BaseModel
         'rest_days',
         'absence_days',
         'unpaid_leave_days',
+        'paid_leave_days',
         'work_days_pay',
         'holiday_pay',
         'rest_day_pay',
@@ -140,6 +162,7 @@ class Payslip extends BaseModel
         'pagibig_er',
         'withholding_tax',
         'other_deductions',
+        'custom_deductions',
         'late_minutes',
         'late_deduction',
         'undertime_minutes',
@@ -149,6 +172,14 @@ class Payslip extends BaseModel
         'late_undertime_deduction',
         'absence_deduction',
         'unpaid_leave_deduction',
+        // 2026_09_26_0004. FinalizePayroll fills a payslip from
+        // PayslipDraft::toArray(), and fill() drops an unlisted key without a
+        // word — a missing entry here would post 0 exempt and let the
+        // PHP 90,000 ledger undercount forever (PayslipDraftColumnsTest pins it).
+        'exempt_benefits',
+        'ceiling_benefits',
+        'taxable_benefits_excess',
+        'taxable_compensation',
     ];
 
     /**
@@ -167,6 +198,7 @@ class Payslip extends BaseModel
             'rest_days' => 'float',
             'absence_days' => 'float',
             'unpaid_leave_days' => 'float',
+            'paid_leave_days' => 'float',
             'work_days_pay' => 'float',
             'holiday_pay' => 'float',
             'rest_day_pay' => 'float',
@@ -190,6 +222,7 @@ class Payslip extends BaseModel
             'pagibig_er' => 'float',
             'withholding_tax' => 'float',
             'other_deductions' => 'float',
+            'custom_deductions' => 'float',
             'late_minutes' => 'integer',
             'late_deduction' => 'float',
             'undertime_minutes' => 'integer',
@@ -199,6 +232,10 @@ class Payslip extends BaseModel
             'late_undertime_deduction' => 'float',
             'absence_deduction' => 'float',
             'unpaid_leave_deduction' => 'float',
+            'exempt_benefits' => 'float',
+            'ceiling_benefits' => 'float',
+            'taxable_benefits_excess' => 'float',
+            'taxable_compensation' => 'float',
             'created_at' => 'immutable_datetime',
         ];
     }
@@ -213,5 +250,11 @@ class Payslip extends BaseModel
     public function employee(): BelongsTo
     {
         return $this->belongsTo(EmployeeProfile::class, 'employee_id');
+    }
+
+    /** @return HasMany<PayslipDeduction, $this> */
+    public function deductions(): HasMany
+    {
+        return $this->hasMany(PayslipDeduction::class, 'payslip_id');
     }
 }

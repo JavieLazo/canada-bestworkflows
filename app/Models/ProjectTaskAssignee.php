@@ -12,8 +12,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * assigned to these people".
  *
  * A task is a SHARED unit of work with 0..N assignees. Status, remarks and
- * submitted_at stay on the task (one per task, any assignee may move it), so
- * this row carries nothing but the membership itself and who created it.
+ * submitted_at stay on the task (one per task, any assignee may move it), and
+ * an INDIVIDUAL task keeps each member's own response in a separate
+ * {@see ProjectTaskSubmission} row, so this row carries nothing but the
+ * membership itself and who created it. Deleting it through
+ * {@see ProjectTask::syncAssignees()} deletes that member's response with it.
  *
  * First-class model rather than an Eloquent Pivot subclass, like
  * PayrollRunMember: it has its own ULID (minted by BaseModel on create, which

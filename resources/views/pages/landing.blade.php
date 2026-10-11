@@ -37,7 +37,8 @@
     <link rel="icon" href="/bestworkflows-icon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    @vite('resources/css/app.css')
+    @fonts
+    @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-brand-surface text-brand-slate font-body antialiased selection:bg-brand-amber selection:text-white">
 
@@ -72,7 +73,7 @@
             </nav>
 
             <div class="flex items-center gap-3">
-                <a href="{{ route('login') }}" class="hidden sm:inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold text-brand-teal hover:text-brand-dark transition">
+                <a href="{{ route('login') }}" class="inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold text-brand-teal hover:text-brand-dark transition">
                     Sign In
                 </a>
                 <a href="#demo" class="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold rounded-lg bg-brand-amber hover:bg-brand-amberdark text-slate-950 transition shadow-sm font-display tracking-wide">
@@ -362,11 +363,11 @@
                             </div>
                             <div>
                                 <label for="deploymentType" class="block text-xs font-semibold text-cyan-200 uppercase mb-1">Desired Deployment</label>
-                                <select id="deploymentType" name="deploymentType" class="w-full px-4 py-2.5 rounded-lg bg-cyan-950 border border-cyan-800 text-white focus:outline-none focus:ring-2 focus:ring-brand-amber text-sm">
-                                    <option>Hybrid Sovereign (Recommended)</option>
-                                    <option>Regional Secure Cloud</option>
-                                    <option>Air-Gapped Bare Metal</option>
-                                </select>
+                                <x-kit.select id="deploymentType" name="deploymentType" aria-label="Desired Deployment" class="w-full rounded-lg bg-cyan-950 text-white [&_button[role=combobox]]:border-cyan-800 [&_button[role=combobox]]:focus:ring-brand-amber">
+                                    <flux:select.option value="hybrid">Hybrid Sovereign (Recommended)</flux:select.option>
+                                    <flux:select.option value="cloud">Regional Secure Cloud</flux:select.option>
+                                    <flux:select.option value="bare-metal">Air-Gapped Bare Metal</flux:select.option>
+                                </x-kit.select>
                             </div>
                         </div>
 
@@ -408,7 +409,9 @@
         document.getElementById('consultation-form')?.addEventListener('submit', function () {
             document.getElementById('consultation-note')?.classList.remove('hidden');
             this.reset();
+            this.querySelector('[name="deploymentType"]')?.dispatchEvent(new Event('change', { bubbles: true }));
         });
     </script>
+    @fluxScripts
 </body>
 </html>

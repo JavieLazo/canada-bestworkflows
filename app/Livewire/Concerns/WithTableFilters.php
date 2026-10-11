@@ -56,6 +56,21 @@ trait WithTableFilters
     /** The screen's free-text search. Plain filter state, deliberately unlocked. */
     public string $search = '';
 
+    /** @template TKey of array-key
+     * @template TValue
+     *
+     * @param  LengthAwarePaginator<TKey, TValue>  $page
+     * @return LengthAwarePaginator<TKey, TValue>
+     */
+    protected function acceptPage(LengthAwarePaginator $page, string $name = 'page'): LengthAwarePaginator
+    {
+        if ((int) $this->getPage($name) !== $page->currentPage()) {
+            $this->setPage($page->currentPage(), $name);
+        }
+
+        return $page;
+    }
+
     public function updatedPerPage(mixed $value): void
     {
         $size = (int) $value;

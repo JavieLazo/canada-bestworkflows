@@ -4,63 +4,97 @@ declare(strict_types=1);
 
 namespace App\Livewire\Projects;
 
-use App\Domain\Enums\ModuleCode;
-use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\ProjectPolicy;
 use App\Domain\Projects\TaskPolicy;
-use App\Models\EmployeeDocument;
-use App\Models\EmployeeProfile;
-use App\Models\Notification;
-use App\Models\Project;
-use App\Models\ProjectTask;
-use App\Models\ProjectTaskFile;
-use App\Models\User;
-use App\Models\WorkSite;
+use App\Modules\IdentityAccess\Contracts\AccountLabel as User;
+use App\Modules\IdentityAccess\Contracts\AccountNames;
+use App\Modules\Organization\Contracts\OrganizationDirectory;
+use App\Modules\Organization\Contracts\Views\WorkSiteView as WorkSite;
+use App\Modules\Workforce\Contracts\DirectoryEmployee as EmployeeProfile;
+use App\Modules\WorkManagement\Application\Queries\WorkRecords;
+use App\Modules\WorkManagement\Application\TaskFilePolicy;
+use App\Modules\WorkManagement\Application\WorkRules;
+use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView as ProjectTask;
+use App\Modules\WorkManagement\Contracts\Views\ProjectView as Project;
+use App\Modules\WorkManagement\Domain\Tasks\ManualTaskStatus;
+use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Support\Access;
+use App\Support\CodeSequence;
 use App\Support\EmployeeName;
+use App\Support\HrisFormat;
 use App\Support\ManilaClock;
+use App\Support\TextSort;
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Support\Facades\Log;
-use Throwable;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Collection as EloquentCollection;
 
 /**
  * Shared reads, rollups and formatting for the PROJECTS module — the pieces of
- * `src/lib/hris.ts`, `src/lib/export.ts`, `src/lib/attachments.ts` and
- * `src/lib/notifications.ts` these screens consume, plus the exact filter /
- * sort pipeline of `projects-page.tsx` and `project-detail.tsx` so the two
- * Livewire screens and the two CSV export controllers cannot drift apart.
+ * `src/lib/hris.ts` and `src/lib/attachments.ts` these screens consume, plus
+ * the exact filter / sort pipeline of `projects-page.tsx` and
+ * `project-detail.tsx` so the two Livewire screens and the two CSV export
+ * controllers cannot drift apart. The `export.ts` CSV builder and the
+ * `notifications.ts` fan-out live in `App\Support\Csv` and
+ * `App\Domain\Notifications\Notifier` — one copy each, shared by every
+ * module.
  *
  * Everything status- or health-shaped delegates to {@see ProjectPolicy} and
- * {@see TaskPolicy}; nothing here re-derives a domain rule.
+ * {@see TaskPolicy}; nothing here re-derives a domain rule. The one place
+ * the pipelines leave the reference is "waiting on review" — the REVIEW
+ * queue and the stack order — which follows the mode-aware rule
+ * ({@see ProjectTask::awaitsReview()}, i.e. TaskSubmissionPolicy): an
+ * INDIVIDUAL task in progress with a response handed in waits too. That is
+ * what keeps this collection path equal to WorkLists' SQL, which the
+ * pagination tests pin it against.
  */
 final class ProjectsData
 {
-    /** attachments.ts — API mode: 2 MB per file, no client-side pool. */
+    /**
+     * attachments.ts — API mode: 2 MB per file, no client-side pool. Only the
+     * FALLBACK when `copems.uploads.max_file_bytes` is unset; read the cap
+     * through {@see self::maxFileBytes()}, never this constant.
+     */
     public const int MAX_FILE_BYTES = 2_000_000;
 
-    /** storage.ts — 1 GB sanity ceiling across every attachment. */
+    /**
+     * storage.ts — 1 GB sanity ceiling across every attachment. Only the
+     * FALLBACK when `copems.uploads.storage_ceiling_bytes` is unset; read it
+     * through {@see self::storageCeilingBytes()}, never this constant.
+     */
     public const int STORAGE_CEILING_BYTES = 1_000_000_000;
 
     /** Where task attachments live on the local disk. */
     public const string FILE_DIR = 'task-files';
 
+    /**
+     * What each submission mode means, printed under its label
+     * (TaskPolicy::MODES) wherever a reviewer chooses one — the add dialog and
+     * the review dialog's edit panel read this one copy, so they cannot drift.
+     *
+     * @var array<string, string>
+     */
+    public const array SUBMISSION_MODE_HELP = [
+        TaskPolicy::MODE_GROUP => 'Any assignee submits one response for everyone; you accept or return it once.',
+        TaskPolicy::MODE_INDIVIDUAL => 'Each assignee submits their own response, seen only by them and reviewers. You approve each one, then complete the task.',
+    ];
+
     /* ------------------------------ scoping ------------------------------- */
 
     /**
      * GET /api/projects: a manager (`all_data` + PROJECTS) reads every project;
-     * anyone else reads only the projects holding a task they are ONE OF the
-     * assignees of — and an employee-less account reads none.
+     * anyone else reads the projects holding a task they are ONE OF the
+     * assignees of, plus the projects they are the Task Leader of
+     * (WorkScope::projects()); an employee-less account that leads nothing
+     * reads none.
      *
      * Membership lives in the `project_task_assignees` pivot, so the scope
      * walks two relations: projects → tasks → assignments.employee_id.
      *
-     * @return Builder<Project>
+     * @return Collection<int, Project>
      */
-    public static function scopedProjects(Access $actor): Builder
+    public static function scopedProjects(Access $actor): EloquentCollection
     {
-        return Project::query()->toEmployeeVia($actor, 'tasks.assignments', 'employee_id', ModuleCode::PROJECTS);
+        return app(WorkRecords::class)->projects($actor);
     }
 
     /**
@@ -69,31 +103,170 @@ final class ProjectsData
      * ScopesToActor's docblock).
      *
      * Narrowed through the pivot (`assignments.employee_id`); there is no
-     * employee column on project_tasks any more. `assignees` is eager-loaded
+     * employee column on project_tasks. A PROJECTS holder also reads every
+     * task of a project they are the Task Leader of (WorkScope::tasks()),
+     * whether or not they are on its crew. `assignees` is eager-loaded
      * here so every consumer — the show page and the CSV export — gets names
      * without an N+1, and {@see ProjectTask::assigneeIds()} reads the loaded
-     * relation. (My Tasks never comes through here: it scopes with its own
+     * relation. Each row also carries its content-free response counts, which
+     * {@see ProjectTask::awaitsReview()} needs for the REVIEW queue and the
+     * stack. (My Tasks never comes through here: it scopes with its own
      * ownTasks() query and eager-loads the relation itself.)
      *
-     * @return Builder<ProjectTask>
+     * @return Collection<int, ProjectTask>
      */
-    public static function scopedTasks(Access $actor): Builder
+    public static function scopedTasks(Access $actor): EloquentCollection
     {
-        return ProjectTask::query()
-            ->with('assignees')
-            ->toEmployeeVia($actor, 'assignments', 'employee_id', ModuleCode::PROJECTS);
+        return app(WorkRecords::class)->tasks($actor);
     }
 
-    /** The write gate of every project/task mutation: requireAllDataModule("PROJECTS"). */
+    /**
+     * The organisation-wide gate, requireAllDataModule("PROJECTS"): creating,
+     * deleting and fully editing projects and tasks. Statuses, start dates and
+     * reviews are also the project's Task Leader's ({@see self::runsProject()}).
+     */
     public static function managesProjects(Access $actor): bool
     {
-        return $actor->mayReadAllData(ModuleCode::PROJECTS);
+        return WorkRules::managesProjects($actor);
     }
 
     /** respond.ts `forbidden()` — the sentence every denied action toasts. */
     public static function forbiddenMessage(): string
     {
-        return 'You do not have access to that.';
+        return WorkRules::forbiddenMessage();
+    }
+
+    /**
+     * The task's reviewer ({@see WorkRules::reviewsTask()}; ReviewTask's
+     * first DELIBERATE DIVERGENCE paragraph): a PROJECTS manager, or the
+     * project's Task Leader, who is not one of its assignees. They alone may
+     * accept, return or complete the
+     * task and approve or return a member's response, and on an INDIVIDUAL
+     * task they alone see every member's content (WorkRecords::responses()
+     * and files() apply the same rule). Display only here — the commands
+     * re-check it under the task lock.
+     */
+    public static function reviewsTask(Access $actor, ProjectTask $task): bool
+    {
+        return WorkRules::reviewsTask($actor, $task);
+    }
+
+    /**
+     * The statuses an assignee can see their own task in — the My Tasks
+     * filter's options. TaskPolicy::STATUSES plus APPROVED, because
+     * WorkRecords::ownPage() filters on the member's own status
+     * (TaskSubmissionPolicy::myStatus()), which can be an approved response.
+     *
+     * @return array<string, string>
+     */
+    public static function myStatuses(): array
+    {
+        return TaskSubmissionPolicy::MY_STATUSES;
+    }
+
+    /* ------------------------- individual responses ------------------------ */
+
+    /*
+     * Forwarders to the WorkManagement rules for INDIVIDUAL tasks, so the two
+     * task screens and their Blade ask the same rule the commands re-check —
+     * none of these decides anything itself.
+     */
+
+    /**
+     * Every CURRENT assignee whose response is not approved yet, mapped to
+     * their state (NONE for no row) — what "Complete task" waits on.
+     *
+     * @param  list<string>  $assigneeIds
+     * @param  array<string, string>  $statusByEmployee  employee id => member status
+     * @return array<string, string>
+     */
+    public static function completionGaps(array $assigneeIds, array $statusByEmployee): array
+    {
+        return TaskSubmissionPolicy::completionGaps($assigneeIds, $statusByEmployee);
+    }
+
+    /**
+     * Why an INDIVIDUAL task cannot be completed yet, as the sentence beside
+     * its disabled "Complete task" — "Waiting on: Ben Reyes (Not submitted),
+     * Ana Cruz (Submitted)." in the dialog's assignee order — or '' when it
+     * can be. A task nobody is on gets the completion gate's own refusal.
+     * States only: this names who is outstanding, never what they wrote.
+     *
+     * @param  array<string, string>  $gaps  from completionGaps()
+     * @param  list<EmployeeProfile>  $assignees  from sortedAssignees()
+     */
+    public static function completionWaitingOn(array $gaps, array $assignees): string
+    {
+        if ($assignees === []) {
+            return TaskSubmissionPolicy::completeError([], []) ?? '';
+        }
+        $waiting = [];
+        foreach ($assignees as $employee) {
+            $id = (string) $employee->getKey();
+            if (array_key_exists($id, $gaps)) {
+                $waiting[] = self::employeeName($employee).' ('.TaskSubmissionPolicy::memberStatusLabel($gaps[$id]).')';
+            }
+        }
+
+        return $waiting === [] ? '' : 'Waiting on: '.implode(', ', $waiting).'.';
+    }
+
+    /** Whether a GROUP response was ever handed in on the task row — one of the mode lock's triggers. */
+    public static function groupHandedIn(?string $submittedBy, mixed $submittedAt, ?string $remarks): bool
+    {
+        return TaskSubmissionPolicy::groupHandedIn($submittedBy, $submittedAt, $remarks);
+    }
+
+    /**
+     * Whether the task's submission mode can no longer change — the edit
+     * panel hides the choice exactly where UpdateTaskDetails would refuse it.
+     * Feed it the task's CONTENT-FREE facts (ProjectTask::responsesTotal(),
+     * `has_submission_files`), never a file list narrowed for the viewer: a
+     * manager on the crew, who cannot see a peer's evidence, must still see
+     * the lock that evidence causes.
+     */
+    public static function modeLocked(string $taskStatus, bool $groupHandedIn, int $responseRows, bool $hasSubmissionFiles): bool
+    {
+        return TaskSubmissionPolicy::modeLocked($taskStatus, $groupHandedIn, $responseRows, $hasSubmissionFiles);
+    }
+
+    /**
+     * Whether an assignee may still attach or withdraw their evidence — the
+     * rule AttachSubmission and DeleteSubmission enforce, so Attach is never
+     * offered where the server refuses it. On an INDIVIDUAL task it follows
+     * the member's own response.
+     */
+    public static function evidenceEditable(?string $mode, string $taskStatus, ?string $memberStatus): bool
+    {
+        return TaskFilePolicy::submissionEditable($mode, $taskStatus, $memberStatus);
+    }
+
+    /** Whether a member of an INDIVIDUAL task may hand in, or resubmit, their own response now. */
+    public static function memberCanRespond(string $taskStatus, ?string $memberStatus): bool
+    {
+        return TaskSubmissionPolicy::memberCanMove($taskStatus, $memberStatus, 'SUBMITTED');
+    }
+
+    /**
+     * What a reviewer may move one member's response to right now — that
+     * response's Approve / Return buttons, from the map ReviewTaskResponse
+     * re-checks.
+     *
+     * @return list<string>
+     */
+    public static function reviewerMovesFrom(string $taskStatus, ?string $memberStatus): array
+    {
+        return TaskSubmissionPolicy::reviewerMovesFrom($taskStatus, $memberStatus);
+    }
+
+    /**
+     * The status an assignee sees for their own task: their response's state
+     * while an INDIVIDUAL task is in progress, otherwise the task's — so on a
+     * GROUP task it IS the task status. Null and NONE both mean "no row".
+     */
+    public static function myState(?string $mode, string $taskStatus, ?string $memberStatus): string
+    {
+        return TaskSubmissionPolicy::myStatus($mode, $taskStatus, $memberStatus);
     }
 
     /* ---------------------------- projects list ---------------------------- */
@@ -112,8 +285,8 @@ final class ProjectsData
      */
     public static function projectsDataset(Access $actor): array
     {
-        $projects = self::scopedProjects($actor)->orderBy('code')->get();
-        $tasks = self::scopedTasks($actor)->orderBy('code')->get();
+        $projects = self::scopedProjects($actor);
+        $tasks = self::scopedTasks($actor);
 
         $tasksByProject = [];
         foreach ($tasks as $task) {
@@ -124,13 +297,14 @@ final class ProjectsData
             'projects' => $projects,
             'tasks' => $tasks,
             'tasksByProject' => $tasksByProject,
-            'sites' => WorkSite::query()->orderBy('name')->get(),
-            'accounts' => User::query()->orderBy('name')->get(),
+            'sites' => app(OrganizationDirectory::class)->sites($actor),
+            'accounts' => app(AccountNames::class)->list($actor),
         ];
     }
 
     /**
-     * The filter + sort pipeline of projects-page.tsx:83-126, verbatim.
+     * The filter + sort pipeline of projects-page.tsx:83-126, verbatim but
+     * for the mode-aware REVIEW queue (see the class docblock).
      *
      * @param  EloquentCollection<int, Project>  $projects
      * @param  array<string, list<ProjectTask>>  $tasksByProject
@@ -163,7 +337,7 @@ final class ProjectsData
 
             $projectTasks = $tasksByProject[$project->id] ?? [];
 
-            if ($filters['queue'] === 'REVIEW' && ! self::anyTask($projectTasks, static fn (ProjectTask $t): bool => TaskPolicy::isAwaitingReview($t->status))) {
+            if ($filters['queue'] === 'REVIEW' && ! self::anyTask($projectTasks, static fn (ProjectTask $t): bool => $t->awaitsReview())) {
                 continue;
             }
             if ($filters['queue'] === 'OVERDUE' && ! self::anyTask($projectTasks, static fn (ProjectTask $t): bool => TaskPolicy::isOverdue(self::taskShape($t), $today))) {
@@ -208,7 +382,8 @@ final class ProjectsData
     /* ----------------------------- tasks table ----------------------------- */
 
     /**
-     * The filter + sort pipeline of project-detail.tsx:175-223, verbatim.
+     * The filter + sort pipeline of project-detail.tsx:175-223, verbatim but
+     * for the mode-aware REVIEW queue and stack order (see the class docblock).
      *
      * @param  list<ProjectTask>  $projectTasks
      * @param  EloquentCollection<int, EmployeeProfile>  $employees
@@ -244,7 +419,7 @@ final class ProjectsData
             if ($filters['priority'] !== 'ALL' && $task->priority !== $filters['priority']) {
                 continue;
             }
-            if ($filters['queue'] === 'REVIEW' && $task->status !== 'SUBMITTED') {
+            if ($filters['queue'] === 'REVIEW' && ! $task->awaitsReview()) {
                 continue;
             }
             if ($filters['queue'] === 'OVERDUE' && ! TaskPolicy::isOverdue(self::taskShape($task), $today)) {
@@ -284,7 +459,9 @@ final class ProjectsData
         usort($filtered, static function (ProjectTask $a, ProjectTask $b) use ($sortKey, $firstAssigneeLastName): int {
             switch ($sortKey) {
                 case 'stack':
-                    $rank = TaskPolicy::stackRank($a->status) - TaskPolicy::stackRank($b->status);
+                    // Waiting on review heads the stack whatever the mode.
+                    $rank = TaskPolicy::stackRank(TaskSubmissionPolicy::stackStatus($a->submission_mode, $a->status, (int) $a->responses_submitted))
+                        - TaskPolicy::stackRank(TaskSubmissionPolicy::stackStatus($b->submission_mode, $b->status, (int) $b->responses_submitted));
                     if ($rank !== 0) {
                         return $rank;
                     }
@@ -297,6 +474,8 @@ final class ProjectsData
                     return self::compareText($firstAssigneeLastName($a), $firstAssigneeLastName($b));
                 case 'priority':
                     return TaskPolicy::priorityRank($a->priority) - TaskPolicy::priorityRank($b->priority);
+                case 'start':
+                    return self::compareText(self::dateKey($a->start_date), self::dateKey($b->start_date));
                 case 'due':
                     return self::compareText(self::dateKey($a->due_date), self::dateKey($b->due_date));
                 case 'status':
@@ -330,7 +509,7 @@ final class ProjectsData
     /** @return array{status: string, due_date: string|null} */
     public static function taskShape(ProjectTask $task): array
     {
-        return ['status' => $task->status, 'due_date' => self::dateKey($task->due_date)];
+        return WorkRules::taskShape($task);
     }
 
     /**
@@ -339,42 +518,27 @@ final class ProjectsData
      */
     public static function taskShapes(iterable $tasks): array
     {
-        $shapes = [];
-        foreach ($tasks as $task) {
-            $shapes[] = self::taskShape($task);
-        }
-
-        return $shapes;
+        return WorkRules::taskShapes($tasks);
     }
 
     /** @return array{status: string, due_date: string|null, manager_id: string|null, start_date: string} */
     public static function projectShape(Project $project): array
     {
-        return [
-            'status' => $project->status,
-            'due_date' => self::dateKey($project->due_date),
-            'manager_id' => $project->manager_id === null ? null : (string) $project->manager_id,
-            'start_date' => self::dateKey($project->start_date) ?? '',
-        ];
+        return WorkRules::projectShape($project);
     }
 
     /* ------------------------------ formatting ----------------------------- */
 
-    /** hris.ts `todayKey()` — today's Manila calendar day. */
+    /** hris.ts `todayKey()` — today's Manila calendar day, ManilaClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::dayKey(CarbonImmutable::now());
+        return ManilaClock::todayKey();
     }
 
-    /** hris.ts `fmtDate` — "Aug 05, 2026". Date columns carry no zone to shift. */
+    /** hris.ts `fmtDate` — "Aug 05, 2026", shared through HrisFormat. Date columns carry no zone to shift. */
     public static function fmtDate(CarbonImmutable|string|null $value): string
     {
-        if ($value === null || $value === '') {
-            return '—';
-        }
-        $day = $value instanceof CarbonImmutable ? $value : CarbonImmutable::parse($value);
-
-        return $day->format('M d, Y');
+        return WorkRules::fmtDate($value);
     }
 
     /** As fmtDate, but for a UTC timestamp — displayed on the Manila wall clock. */
@@ -392,32 +556,35 @@ final class ProjectsData
     /** A date column (or 'Y-m-d' string) as the key the policies compare. */
     public static function dateKey(CarbonImmutable|string|null $value): ?string
     {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        return $value instanceof CarbonImmutable
-            ? $value->format('Y-m-d')
-            : substr($value, 0, 10);
+        return WorkRules::dateKey($value);
     }
 
     /** hris.ts `employeeName()`. */
-    public static function employeeName(?EmployeeProfile $employee): string
+    public static function employeeName(?object $employee): string
     {
         return EmployeeName::display($employee);
     }
 
     /**
-     * Every assignee's display name, "Garcia-first" by last name then first
-     * name, joined with ', ' — or '—' for an unassigned task. Reads the loaded
-     * `assignees` relation (lazy-loads if a caller forgot the eager load).
+     * A task's assignees in display order (last name, then first) — the ONE
+     * list the tasks table's Assignees cell, the review dialog header and
+     * assigneeNames() all draw from, so a code sits under its own name
+     * everywhere. Reads the loaded `assignees` relation (lazy-loads if a
+     * caller forgot the eager load). `$only` restricts it to those ids — the
+     * My Tasks dialog's "working with" line, which leaves the actor out.
+     *
+     * @param  list<string>|null  $only
+     * @return list<EmployeeProfile>
      */
-    public static function assigneeNames(ProjectTask $task): string
+    public static function sortedAssignees(ProjectTask $task, ?array $only = null): array
     {
         $employees = $task->assignees->all();
 
-        if ($employees === []) {
-            return EmployeeName::NONE;
+        if ($only !== null) {
+            $employees = array_values(array_filter(
+                $employees,
+                static fn (EmployeeProfile $e): bool => in_array((string) $e->getKey(), $only, true),
+            ));
         }
 
         usort($employees, static function (EmployeeProfile $a, EmployeeProfile $b): int {
@@ -426,66 +593,180 @@ final class ProjectsData
             return $last !== 0 ? $last : self::compareText($a->first_name, $b->first_name);
         });
 
+        return $employees;
+    }
+
+    /**
+     * Every assignee's display name in sortedAssignees() order, joined with
+     * ', ' — or '—' for an unassigned task (or an empty `$only`).
+     *
+     * @param  list<string>|null  $only
+     */
+    public static function assigneeNames(ProjectTask $task, ?array $only = null): string
+    {
+        $employees = self::sortedAssignees($task, $only);
+
+        if ($employees === []) {
+            return EmployeeName::NONE;
+        }
+
         return implode(', ', array_map(static fn (EmployeeProfile $e): string => self::employeeName($e), $employees));
     }
 
+    /**
+     * `task.code || task.title` — how a task is named in a bell or an audit
+     * sentence; a task without a code is announced by its title.
+     */
+    public static function taskLabel(ProjectTask $task): string
+    {
+        return WorkRules::taskLabel($task);
+    }
+
+    /**
+     * The crew a notice goes to: every assignee EXCEPT the actor — nobody is
+     * told about their own action — and except `$alsoExcept`, an employee
+     * whose account the caller has already told directly, so one action never
+     * lands twice in one bell.
+     *
+     * @return list<string>
+     */
+    public static function crewExcept(ProjectTask $task, Access $actor, ?string $alsoExcept = null): array
+    {
+        return WorkRules::crewExcept($task, $actor, $alsoExcept);
+    }
+
+    /**
+     * Which side of a task thread the actor speaks from — a fact about the
+     * actor, not a choice (api/tasks/[id]/comments/route.ts:39-47): whoever
+     * runs the task's project (a Projects manager, or its Task Leader) is
+     * MANAGEMENT, everyone else the ASSIGNEE ({@see WorkRules::commentSide()}).
+     *
+     * @return 'MANAGEMENT'|'ASSIGNEE'
+     */
+    public static function commentSide(Access $actor, ?ProjectTask $task = null): string
+    {
+        return WorkRules::commentSide($actor, $task);
+    }
+
+    /**
+     * The statuses the review dialog's "Set status" offers: ManualTaskStatus's
+     * map from the task's CURRENT status and mode, less every target its
+     * safeguards would refuse on what the dialog can see — the self-review
+     * rule, a hand-in, a closed project, the INDIVIDUAL completion gate — and
+     * less the moves the decision buttons already make (the reviewer map,
+     * TaskPolicy::managerCanMoveTo()), so each move has one control and one
+     * set of side effects on this screen. Display only: ChangeTaskStatus
+     * re-decides each of them under the task lock, so a stale list can only
+     * be refused, never obeyed blindly.
+     *
+     * @param  array<string, string>  $statusByEmployee  member responses by employee id (INDIVIDUAL)
+     * @return list<string>
+     */
+    public static function manualMoves(Access $actor, ProjectTask $task, string $projectStatus, array $statusByEmployee): array
+    {
+        $onCrew = $task->hasAssignee($actor->employeeId);
+        $handedIn = ManualTaskStatus::handedIn(
+            $task->submission_mode,
+            TaskSubmissionPolicy::groupHandedIn($task->submitted_by, $task->submitted_at, $task->remarks),
+            $task->responsesTotal(),
+        );
+        $completion = $task->isIndividual() ? TaskSubmissionPolicy::completeError($task->assigneeIds(), $statusByEmployee) : null;
+
+        $decisions = TaskPolicy::managerCanMoveTo($task->status, $task->submission_mode);
+
+        return array_values(array_filter(
+            ManualTaskStatus::canMoveTo($task->status, $task->submission_mode),
+            static fn (string $to): bool => ! in_array($to, $decisions, true)
+                && ! ($onCrew && ManualTaskStatus::isReviewMove($task->status, $to))
+                && ManualTaskStatus::moveError($task->status, $to, $task->submission_mode, $handedIn, $projectStatus, $completion) === null,
+        ));
+    }
+
+    /**
+     * Whether the actor runs this TASK ({@see WorkRules::runsTask()}): a
+     * Projects manager, or the project's Task Leader off its crew. Display
+     * only — the commands re-check it under the task lock.
+     */
+    public static function runsTask(Access $actor, ProjectTask $task): bool
+    {
+        return WorkRules::runsTask($actor, $task);
+    }
+
+    /**
+     * Who runs the project — a Projects manager, or its own Task Leader
+     * ({@see WorkRules::runsProject()}): who may change its status and its
+     * tasks' statuses by hand, plan start dates and review its tasks.
+     * Display only — every command re-checks it against the locked rows.
+     */
+    public static function runsProject(Access $actor, ?Project $project): bool
+    {
+        return WorkRules::runsProject($actor, $project);
+    }
+
     /** hris.ts `initials()` as the avatar fallbacks used it. */
-    public static function initials(EmployeeProfile $employee): string
+    public static function initials(object $employee): string
     {
         return EmployeeName::initials($employee);
     }
 
-    /** attachments.ts `humanSize`. */
+    /** attachments.ts `humanSize`, shared through HrisFormat — no thousands separator, as in the reference. */
     public static function humanSize(int $bytes): string
     {
-        return $bytes >= 1_000_000
-            ? number_format($bytes / 1_000_000, 1).' MB'
-            : max(1, (int) round($bytes / 1000)).' KB';
+        return TaskFilePolicy::humanSize($bytes);
     }
 
     /**
      * hris.ts `nextCode()` — the next `PRJ-001`-style code past the highest in
-     * use. Deleting a row can never hand a code back out.
+     * use, through the one mint in CodeSequence. Read the codes under lock and
+     * insert in the same transaction. Deletes are hard, so the highest code
+     * CAN be handed out again; the unique index is the backstop.
+     *
+     * Projects and tasks keep their prefix, which the other eleven coded
+     * columns do not carry; see {@see WorkRules::nextCode()}, which this
+     * forwards to.
      *
      * @param  iterable<array-key, string|null>  $codes
      */
     public static function nextCode(string $prefix, iterable $codes, int $width = 3): string
     {
-        $highest = 0;
-        $pattern = '/^'.preg_quote($prefix, '/').'-(\d+)$/i';
-
-        foreach ($codes as $code) {
-            if ($code !== null && preg_match($pattern, trim($code), $m) === 1) {
-                $highest = max($highest, (int) $m[1]);
-            }
-        }
-
-        return $prefix.'-'.str_pad((string) ($highest + 1), $width, '0', STR_PAD_LEFT);
+        return WorkRules::nextCode($prefix, $codes, $width);
     }
 
     /**
-     * useSort.ts `compareText` — locale compare, blanks last whichever way the
-     * comparator itself is asked (screens then reverse the array for desc).
+     * useSort.ts `compareText` — case-insensitive byte compare with a byte
+     * tiebreak, blanks last whichever way the comparator itself is asked
+     * (screens then reverse the array for desc). Shared through
+     * App\Support\TextSort; this wrapper is the name the call sites use.
      */
     public static function compareText(?string $a, ?string $b): int
     {
-        $left = trim($a ?? '');
-        $right = trim($b ?? '');
-
-        if ($left === '' && $right === '') {
-            return 0;
-        }
-        if ($left === '') {
-            return 1;
-        }
-        if ($right === '') {
-            return -1;
-        }
-
-        return strcasecmp($left, $right) <=> 0;
+        // One comparator for every sorted list, so no two modules order text
+        // differently. It is a wrapper so call sites and Blade imports keep
+        // this name; TextSortTest pins it.
+        return TextSort::compare($a, $b);
     }
 
     /* ------------------------------ attachments ----------------------------- */
+
+    /**
+     * The per-file cap — `copems.uploads.max_file_bytes`
+     * (COPEMS_MAX_UPLOAD_BYTES), the same key Documents and My Tasks read,
+     * so one env var moves every upload surface together.
+     */
+    public static function maxFileBytes(): int
+    {
+        return TaskFilePolicy::maxFileBytes();
+    }
+
+    /**
+     * The ceiling documents and task files share —
+     * `copems.uploads.storage_ceiling_bytes` (COPEMS_STORAGE_CEILING_BYTES),
+     * with Documents and My Tasks. Community and Chat keep their own.
+     */
+    public static function storageCeilingBytes(): int
+    {
+        return TaskFilePolicy::storageCeilingBytes();
+    }
 
     /**
      * attachments.ts `attachmentRejection()`, API-mode branch: a per-file cap
@@ -493,16 +774,7 @@ final class ProjectsData
      */
     public static function attachmentRejection(string $name, int $size): ?string
     {
-        if ($size > self::MAX_FILE_BYTES) {
-            return sprintf(
-                '%s is %s — the limit is %s per file.',
-                $name,
-                self::humanSize($size),
-                self::humanSize(self::MAX_FILE_BYTES),
-            );
-        }
-
-        return null;
+        return TaskFilePolicy::attachmentRejection($name, $size);
     }
 
     /**
@@ -511,183 +783,10 @@ final class ProjectsData
      */
     public static function storageCeilingError(int $incomingBytes): ?string
     {
-        $used = (int) EmployeeDocument::query()->sum('size')
-            + (int) ProjectTaskFile::query()->sum('size');
-
-        if ($used + $incomingBytes > self::STORAGE_CEILING_BYTES) {
-            return 'The file store is full. Delete old attachments before uploading more.';
-        }
-
-        return null;
+        return TaskFilePolicy::storageCeilingError($incomingBytes);
     }
 
-    /* ------------------------------ notifications --------------------------- */
-
-    /**
-     * notifications.ts `notify()` — one row for one account; nothing written
-     * when the addressee is unknown. Fail-soft like the source's try/catch:
-     * the action that raised the notice has already happened.
-     */
-    public static function notifyAccount(
-        int|string|null $userId,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        if ($userId === null || $userId === '') {
-            return;
-        }
-
-        try {
-            $notification = new Notification;
-            $notification->fill([
-                'kind' => $kind,
-                'title' => mb_substr($title, 0, 200),
-                'body' => $body === null ? null : mb_substr($body, 0, 2000),
-                'href' => $href === null ? null : mb_substr($href, 0, 191),
-                'dedupe_key' => null,
-            ]);
-            $notification->setAttribute('user_id', (int) $userId);
-            $notification->save();
-        } catch (Throwable $e) {
-            Log::error('[projects] notification write failed', ['kind' => $kind, 'error' => $e->getMessage()]);
-        }
-    }
-
-    /**
-     * notifications.ts `notifyEmployee()` — resolve the employee's ACTIVE
-     * accounts first; an employee with no login is silently not notified.
-     *
-     * Multiple accounts may point at the same employee record. That is how the
-     * app recognizes two sign-ins as one person, so task notices fan out to
-     * every active account exactly like {@see Notifier::employee()}.
-     */
-    public static function notifyEmployee(
-        ?string $employeeId,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        self::notifyEmployees([$employeeId], $kind, $title, $body, $href);
-    }
-
-    /**
-     * The multi-assignee fan-out: one {@see self::notifyEmployee()} call per
-     * DISTINCT employee id, in the order given, blanks skipped. Use it for
-     * every "tell every assignee" moment — a review outcome, a management
-     * comment, a peer's submission — so each employee's active accounts get
-     * rows and the single-employee helper's contract stays pinned.
-     *
-     * @param  iterable<array-key, string|null>  $employeeIds
-     */
-    public static function notifyEmployees(
-        iterable $employeeIds,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        self::notifyEmployeesExceptAccounts($employeeIds, [], $kind, $title, $body, $href);
-    }
-
-    /**
-     * Employee fan-out with an account ledger. Use when the same event has
-     * already been sent to a direct account, such as `assigned_by`, and the
-     * employee fan-out should fill in that person's other active accounts
-     * without writing the same row twice to the direct account.
-     *
-     * @param  iterable<array-key, string|null>  $employeeIds
-     * @param  iterable<array-key, int|string|null>  $exceptUserIds
-     */
-    public static function notifyEmployeesExceptAccounts(
-        iterable $employeeIds,
-        iterable $exceptUserIds,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        $told = [];
-        foreach ($exceptUserIds as $userId) {
-            if ($userId !== null && $userId !== '') {
-                $told[] = (int) $userId;
-            }
-        }
-
-        foreach (self::accountIdsOfEmployees($employeeIds) as $userId) {
-            if (in_array($userId, $told, true)) {
-                continue;
-            }
-
-            $told[] = $userId;
-            self::notifyAccount($userId, $kind, $title, $body, $href);
-        }
-    }
-
-    /**
-     * The active accounts behind employee ids, distinct by account id.
-     *
-     * @param  iterable<array-key, string|null>  $employeeIds
-     * @return list<int>
-     */
-    private static function accountIdsOfEmployees(iterable $employeeIds): array
-    {
-        $ids = [];
-        foreach ($employeeIds as $employeeId) {
-            if ($employeeId !== null && $employeeId !== '' && ! in_array($employeeId, $ids, true)) {
-                $ids[] = $employeeId;
-            }
-        }
-
-        if ($ids === []) {
-            return [];
-        }
-
-        try {
-            return array_values(User::query()
-                ->whereIn('employee_id', $ids)
-                ->where('is_active', true)
-                ->orderBy('id')
-                ->pluck('id')
-                ->map(static fn ($id): int => (int) $id)
-                ->unique()
-                ->all());
-        } catch (Throwable $e) {
-            Log::error('[projects] notification lookup failed', ['error' => $e->getMessage()]);
-
-            return [];
-        }
-    }
-
-    /* --------------------------------- CSV ---------------------------------- */
-
-    /**
-     * export.ts `toCsv()` — RFC 4180 with the formula-injection guard, CRLF
-     * line endings and the UTF-8 BOM `downloadCsv` prepended.
-     *
-     * @param  list<string>  $headers
-     * @param  list<list<string|int|float|null>>  $rows
-     */
-    public static function toCsv(array $headers, array $rows): string
-    {
-        $cell = static function (string|int|float|null $v): string {
-            $text = (string) ($v ?? '');
-            if (is_string($v) && preg_match('/^[=+\-@\t\r]/', $text) === 1) {
-                $text = "'".$text;
-            }
-
-            return '"'.str_replace('"', '""', $text).'"';
-        };
-
-        $lines = [];
-        foreach ([$headers, ...$rows] as $row) {
-            $lines[] = implode(',', array_map($cell, $row));
-        }
-
-        return "\u{FEFF}".implode("\r\n", $lines);
-    }
+    /* ------------------------------- predicates ------------------------------ */
 
     /**
      * @param  array<array-key, ProjectTask>  $tasks

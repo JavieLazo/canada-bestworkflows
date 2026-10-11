@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Auth;
 
-use App\Concerns\PasswordValidationRules;
-use App\Concerns\ProfileValidationRules;
 use App\Http\Middleware\RegistrationBootstrapGate;
 use App\Support\FirstAdmin;
 use Illuminate\Contracts\View\View;
@@ -21,8 +19,6 @@ use Illuminate\Support\Facades\Auth;
  */
 final class RegisterController
 {
-    use PasswordValidationRules, ProfileValidationRules;
-
     public function show(): View
     {
         return view('pages::auth.register');
@@ -31,20 +27,20 @@ final class RegisterController
     public function store(Request $request): RedirectResponse
     {
         $data = $request->validate([
-            ...$this->profileRules(),
-            'password' => $this->passwordRules(),
+            'email' => ['required', 'string', 'email', 'max:200'],
+            'password' => ['required', 'string', 'confirmed'],
         ]);
 
-        $user = FirstAdmin::provision($data['name'], $data['email'], $data['password']);
+        $accountId = FirstAdmin::provision($data['email'], $data['password']);
 
         // Lost the race: someone provisioned between the gate and here. The
         // bootstrap is over, so send them to sign in rather than 500.
-        if ($user === null) {
+        if ($accountId === null) {
             return redirect()->route('login')
                 ->with('status', 'The system has already been set up. Please sign in.');
         }
 
-        Auth::login($user);
+        Auth::loginUsingId($accountId);
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard'));

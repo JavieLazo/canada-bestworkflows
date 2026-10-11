@@ -4,14 +4,26 @@ declare(strict_types=1);
 
 use App\Models\AttendanceLog;
 use App\Models\AttendanceRemark;
+use App\Models\Concerns\ScopesToActor;
 use App\Models\EmployeeDocument;
 use App\Models\EmployeeProfile;
+use App\Models\InventoryItem;
+use App\Models\InventoryReceipt;
+use App\Models\LeaveCredit;
+use App\Models\LeaveCreditEntry;
 use App\Models\LeaveTravelRequest;
+use App\Models\OvertimeApproval;
 use App\Models\Payslip;
 use App\Models\Project;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskAssignee;
+use App\Models\ProjectTaskFile;
+use App\Models\RosterDayOverride;
+use App\Models\RosterLocation;
+use App\Models\RosterScheduleChange;
+use App\Models\RosterShift;
 use App\Models\Shift;
+use App\Models\TaskComment;
 use App\Support\Access;
 use Illuminate\Support\Str;
 
@@ -31,24 +43,39 @@ use Illuminate\Support\Str;
  * happens to be empty makes a leaking query look correct.
  */
 
-/** Every directly scoped model, with its employee foreign key and module code. */
+/**
+ * Every directly scoped model, with its employee foreign key and module code.
+ *
+ * @return array<string, array{class-string<AttendanceLog|AttendanceRemark|Shift|RosterLocation|RosterShift|RosterDayOverride|RosterScheduleChange|LeaveTravelRequest|LeaveCredit|LeaveCreditEntry|OvertimeApproval|EmployeeDocument|Payslip|InventoryItem|InventoryReceipt>, string, string}>
+ */
 function scopedModels(): array
 {
     return [
         'AttendanceLog' => [AttendanceLog::class, 'employee_id', 'EDTR'],
         'AttendanceRemark' => [AttendanceRemark::class, 'employee_id', 'EDTR'],
         'Shift' => [Shift::class, 'employee_id', 'ROSTER'],
+        'RosterLocation' => [RosterLocation::class, 'employee_id', 'ROSTER'],
+        'RosterShift' => [RosterShift::class, 'employee_id', 'ROSTER'],
+        'RosterDayOverride' => [RosterDayOverride::class, 'employee_id', 'ROSTER'],
+        'RosterScheduleChange' => [RosterScheduleChange::class, 'employee_id', 'ROSTER'],
         'LeaveTravelRequest' => [LeaveTravelRequest::class, 'employee_id', 'LEAVES'],
+        'LeaveCredit' => [LeaveCredit::class, 'employee_id', 'LEAVES'],
+        'LeaveCreditEntry' => [LeaveCreditEntry::class, 'employee_id', 'LEAVES'],
+        'OvertimeApproval' => [OvertimeApproval::class, 'employee_id', 'EDTR'],
         'EmployeeDocument' => [EmployeeDocument::class, 'employee_id', 'EMPLOYEES'],
         'Payslip' => [Payslip::class, 'employee_id', 'PAYROLL'],
+        'InventoryItem' => [InventoryItem::class, 'employee_id', 'INVENTORY'],
+        'InventoryReceipt' => [InventoryReceipt::class, 'employee_id', 'INVENTORY'],
     ];
 }
 
 /**
  * The models scoped THROUGH a relation: task membership lives in the
- * project_task_assignees pivot (project_tasks has no employee column since
- * migration 2026_09_10_0002), so tasks narrow via `assignments` and projects
- * two hops away via `tasks.assignments`.
+ * project_task_assignees pivot (project_tasks has no employee column), so
+ * tasks narrow via `assignments` and projects two hops away via
+ * `tasks.assignments`.
+ *
+ * @return array<string, array{class-string<ProjectTask|Project>, string, string, string}>
  */
 function viaScopedModels(): array
 {
@@ -62,7 +89,7 @@ function scopingEmployee(): EmployeeProfile
 {
     $employee = new EmployeeProfile;
     $employee->forceFill([
-        'employee_code' => 'BWF-'.Str::upper(Str::random(4)),
+        'employee_code' => 'COP-'.Str::upper(Str::random(4)),
         'first_name' => 'Ana',
         'last_name' => 'Garcia',
         'employment_status' => 'Regular',
@@ -73,7 +100,13 @@ function scopingEmployee(): EmployeeProfile
     return $employee;
 }
 
-/** A project holding an UNASSIGNED task and a task assigned to $assignee. */
+/**
+ * A project holding an UNASSIGNED task and a task assigned to $assignee.
+ *
+ * The third element is null exactly when no assignee was given.
+ *
+ * @return ($assignee is null ? array{Project, ProjectTask, null} : array{Project, ProjectTask, ProjectTask})
+ */
 function scopingFixture(?EmployeeProfile $assignee = null): array
 {
     $project = new Project;
@@ -112,7 +145,11 @@ function scopingFixture(?EmployeeProfile $assignee = null): array
     return [$project, $unassigned, $assigned];
 }
 
-/** A signed-in account holding the grant but with NO employee link. */
+/**
+ * A signed-in account holding the grant but with NO employee link.
+ *
+ * @param  list<string>  $modules  ModuleCode values
+ */
 function employeelessActor(array $modules, bool $allData = false): Access
 {
     return new Access(
@@ -261,4 +298,40 @@ it('fails closed for a guest', function () {
     expect($guest->isSignedIn())->toBeFalse();
     expect($guest->hasEmployeeLink())->toBeFalse();
     expect($guest->rowVisibility('EDTR'))->toBe(Access::ROWS_NONE);
+});
+
+it('registers every model that uses ScopesToActor, or names it as trait-only', function () {
+    // The IS NULL scans above see only the models listed in scopedModels() and
+    // viaScopedModels(). A new `use ScopesToActor;` that is not registered
+    // here would get no check at all. TaskComment and ProjectTaskFile carry
+    // the trait but are read by task_id behind the parent task's gate, and
+    // nothing calls their scopes — so they are named as trait-only rather than
+    // silently skipped.
+    $traitOnly = [ProjectTaskFile::class, TaskComment::class];
+    $registered = array_merge(
+        array_map(static fn (array $row): string => $row[0], array_values(scopedModels())),
+        array_map(static fn (array $row): string => $row[0], array_values(viaScopedModels())),
+    );
+
+    $withTrait = [];
+    $unregistered = [];
+    foreach (glob(app_path('Models/*.php')) ?: [] as $path) {
+        $class = 'App\\Models\\'.basename($path, '.php');
+        if (! in_array(ScopesToActor::class, class_uses_recursive($class), true)) {
+            continue;
+        }
+        $withTrait[] = $class;
+        if (! in_array($class, $registered, true) && ! in_array($class, $traitOnly, true)) {
+            $unregistered[] = $class;
+        }
+    }
+
+    expect($unregistered)->toBe([], 'A model uses ScopesToActor but is in neither scopedModels(), viaScopedModels() nor the trait-only list. Register it so the IS NULL guard covers it.');
+
+    // Both lists stay honest: every entry really carries the trait, and
+    // nothing is counted twice.
+    foreach (array_merge($registered, $traitOnly) as $class) {
+        expect($withTrait)->toContain($class);
+    }
+    expect(count($withTrait))->toBe(count($registered) + count($traitOnly));
 });

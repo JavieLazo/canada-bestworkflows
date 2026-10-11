@@ -2,20 +2,31 @@
     Port of src/components/DateField.tsx — a date input that is typed first and
     picked second.
 
-    Value in and out stays the `YYYY-MM-DD` key the tables store — callers are
-    unchanged by the swap — while what the user sees and types is `dd MMM yyyy`
-    (`20 Aug 2026`, and `20/08/2026`, `2026-08-20`, `20 August 2026` all parse).
+    Value in and out is the `YYYY-MM-DD` key the tables store, while what the
+    user sees and types is `dd MMM yyyy` (`20 Aug 2026`, and `20/08/2026`,
+    `2026-08-20`, `20 August 2026` all parse).
     Typing is authoritative: a half-finished entry is left alone until it
     parses, so the caret never jumps while someone is mid-word, and the text
     snaps to the canonical spelling on blur.
 
-    The source's popover calendar is Flux Pro, so the picking half degrades to
-    the BROWSER'S OWN date picker: the calendar icon is a transparent native
-    `type="date"` input laid over it — clicking where the icon sits opens the
-    native picker, and a pick writes the same key typing would have.
+    THE PICKING HALF is a calendar popover of our own (the source's is Flux
+    Pro's). The panel is a native `popover="manual"` element, which the
+    browser renders in the TOP LAYER: the viewport is its containing
+    block and an ancestor's overflow or transform does not apply, so it
+    escapes an `hris-card overflow-hidden` and a Flux <dialog> (transformed,
+    and scrolling in the projects dialogs) and stacks above an open modal.
+    It STAYS A DESCENDANT OF THE FIELD: teleported to <body> it would be inert
+    under a modal, and Flux would read a click on it as a click outside the
+    dialog. `wire:ignore` keeps Livewire's morph off the Alpine-rendered grid
+    and the inline position; the ROOT is not ignored, so `disabled` and
+    `required` keep morphing. A browser without `showPopover` gets a plain
+    absolute panel under the field, which those overflow containers clip —
+    the accepted degradation. `font-sans` on the panel, because two callers
+    pass `class="num"` (mono) to the root and the top layer still inherits.
 
-    The parsing functions are a JS mirror of App\Livewire\Kit\DateText — keep
-    the two in sync.
+    Behaviour and parsers live in resources/js/date-field.js (`dateField`,
+    the JS mirror of App\Support\DateText — keep the two in sync, and run
+    `npm run build` after touching it).
 
     Usage (inside a Livewire component):
         <x-kit.date-field wire:model="form.date_hired" aria-label="Date hired" />
@@ -35,55 +46,20 @@
 
     $entangle = '$wire.entangle('.\Illuminate\Support\Js::from($model->value()).')'.($model->hasModifier('live') ? '.live' : '');
     $ariaLabel ??= $attributes->get('aria-label') ?? 'Date';
+    // A caller-supplied id names the panel deterministically (and testably);
+    // otherwise Alpine's $id, stable across morphs because the root survives.
+    $panelId = $id !== null ? $id.'-calendar' : null;
+    // w-7, not w-8: the header is 278px wide (a w-[19rem] panel less its p-3
+    // and border) and the Month dropdown needs 126px of it for "September".
+    $panelControl = 'flex h-8 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+    $panelFooter = 'h-7 cursor-pointer rounded-md px-2 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
 @endphp
 <div
     {{ $attributes->whereDoesntStartWith('wire:model')->except('aria-label')->class('relative') }}
-    x-data="{
-        state: {!! $entangle !!},
-        text: '',
-        MONTHS: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-        toDisplay(key) {
-            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(key).trim());
-            if (!m) return '';
-            const month = this.MONTHS[Number(m[2]) - 1];
-            return month ? m[3] + ' ' + month + ' ' + m[1] : '';
-        },
-        toKey(text) {
-            const raw = String(text).trim();
-            if (!raw) return '';
-            const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
-            const slashed = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(raw);
-            const worded = /^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/.exec(raw);
-            let year, month, day;
-            if (iso) { year = Number(iso[1]); month = Number(iso[2]); day = Number(iso[3]); }
-            else if (slashed) { day = Number(slashed[1]); month = Number(slashed[2]); year = Number(slashed[3]); }
-            else if (worded) {
-                const idx = this.MONTHS.findIndex((mm) => worded[2].toLowerCase().startsWith(mm.toLowerCase()));
-                if (idx < 0) return '';
-                day = Number(worded[1]); month = idx + 1; year = Number(worded[3]);
-            } else return '';
-            if (month < 1 || month > 12 || day < 1 || day > 31) return '';
-            const date = new Date(year, month - 1, day);
-            if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
-            return String(year).padStart(4, '0') + '-' + String(month).padStart(2, '0') + '-' + String(day).padStart(2, '0');
-        },
-        init() {
-            if (this.state === null || this.state === undefined) this.state = '';
-            this.text = this.toDisplay(this.state);
-            {{-- Re-sync when the form is reset or the value changes from outside, but
-                 not while the field holds an equivalent value — that would fight the
-                 typist (DateField.tsx:95-98). --}}
-            this.$watch('state', (v) => { if (this.toKey(this.text) !== v) this.text = this.toDisplay(v ?? ''); });
-        },
-        commit(next) {
-            this.text = next;
-            const key = this.toKey(next);
-            if (!next.trim()) this.state = '';
-            else if (key) this.state = key;
-        },
-        settle() { this.text = this.toDisplay(this.state ?? ''); },
-        pick(v) { if (!v) return; this.state = v; this.text = this.toDisplay(v); }
-    }"
+    x-data="dateField({!! $entangle !!})"
+    x-id="['kit-date']"
+    x-on:keydown.escape="onEscape($event)"
+    x-on:focusout="onFocusOut($event)"
 >
     <flux:input
         type="text"
@@ -99,19 +75,103 @@
         x-on:blur="settle()"
     />
 
-    {{-- The calendar affordance: a decorative icon with the browser's own date
-         input laid transparently over it. --}}
-    <span class="pointer-events-none absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center text-muted-foreground">
-        <flux:icon.calendar-days class="size-4" />
-    </span>
-    <input
-        type="date"
-        tabindex="-1"
-        aria-hidden="true"
+    {{-- The calendar trigger, inside the input's right edge. --}}
+    <button
+        type="button"
+        x-ref="trigger"
         @disabled($disabled)
-        class="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2 cursor-pointer opacity-0"
-        x-bind:value="state"
-        x-on:click="try { $event.target.showPicker() } catch (e) {}"
-        x-on:change="pick($event.target.value)"
-    />
+        aria-label="Open calendar for {{ $ariaLabel }}"
+        aria-haspopup="dialog"
+        x-bind:aria-expanded="open ? 'true' : 'false'"
+        @if ($panelId) aria-controls="{{ $panelId }}" @else x-bind:aria-controls="$id('kit-date')" @endif
+        x-on:click="toggle()"
+        class="absolute right-1 top-1/2 flex h-7 w-7 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+    >
+        <flux:icon.calendar-days class="size-4" />
+    </button>
+
+    {{--
+        The panel. The UA popover stylesheet is overridden explicitly (m-0,
+        inset-auto, the border, padding, colours and size) because it sets
+        margin:auto, inset:0, a solid border, Canvas colours and fit-content;
+        its `display:none` while not :popover-open is the hidden state in a
+        supporting browser, and x-show is the fallback's.
+    --}}
+    <div
+        x-ref="panel"
+        @if ($panelId) id="{{ $panelId }}" @else x-bind:id="$id('kit-date')" @endif
+        popover="manual"
+        wire:ignore
+        role="dialog"
+        aria-label="Calendar for {{ $ariaLabel }}"
+        x-cloak
+        x-show="native || open"
+        x-bind:class="native ? 'fixed inset-auto' : 'absolute right-0 top-full mt-1'"
+        x-on:click.outside="close()"
+        x-on:toggle="onToggle($event)"
+        class="z-50 m-0 h-auto w-[19rem] max-h-[calc(100dvh-1rem)] overflow-y-auto rounded-md border border-border bg-popover p-3 font-sans text-popover-foreground shadow-lift transition-opacity duration-100 starting:opacity-0"
+    >
+        <p aria-live="polite" class="sr-only" x-text="viewLabel"></p>
+
+        {{-- Header: previous · month · year · next --}}
+        <div class="flex items-center gap-1">
+            <button type="button" aria-label="Previous month" x-on:click="shiftMonth(-1)" class="{{ $panelControl }}">
+                <flux:icon.chevron-left class="size-4" />
+            </button>
+            <x-kit.select size="sm" :searchable="false" aria-label="Month" x-model.number="view.month" x-on:change="viewChanged()" class="min-w-0 flex-1">
+                @foreach (['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'] as $i => $name)
+                    <option value="{{ $i }}">{{ $name }}</option>
+                @endforeach
+            </x-kit.select>
+            <x-kit.select size="sm" aria-label="Year" x-model.number="view.year" x-on:change="viewChanged()" class="w-[5.25rem] shrink-0 tabular-nums">
+                <template x-for="y in years()" :key="y">
+                    <option x-bind:value="y" x-text="y"></option>
+                </template>
+            </x-kit.select>
+            <button type="button" aria-label="Next month" x-on:click="shiftMonth(1)" class="{{ $panelControl }}">
+                <flux:icon.chevron-right class="size-4" />
+            </button>
+        </div>
+
+        {{-- The grid: seven weekday headers, six rows of seven, one tabbable day (roving tabindex). --}}
+        <table role="grid" aria-label="Days" class="mt-2 w-full border-collapse" x-on:keydown="onGridKeydown($event)">
+            <thead>
+                <tr>
+                    @foreach (['Sunday' => 'Su', 'Monday' => 'Mo', 'Tuesday' => 'Tu', 'Wednesday' => 'We', 'Thursday' => 'Th', 'Friday' => 'Fr', 'Saturday' => 'Sa'] as $long => $short)
+                        <th scope="col" abbr="{{ $long }}" class="h-8 w-8 text-center text-xs font-medium text-muted-foreground">{{ $short }}</th>
+                    @endforeach
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="(week, w) in weeks" :key="w">
+                    <tr>
+                        <template x-for="d in week" :key="d.key">
+                            <td role="gridcell" x-bind:aria-selected="d.key === state ? 'true' : 'false'" class="p-0 text-center">
+                                <button
+                                    type="button"
+                                    x-bind:data-day="d.key"
+                                    x-bind:tabindex="d.key === focusKey ? 0 : -1"
+                                    x-bind:aria-label="d.label"
+                                    x-bind:aria-current="d.today ? 'date' : null"
+                                    x-on:click="select(d.key)"
+                                    x-text="d.day"
+                                    class="mx-auto flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-sm tabular-nums transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    x-bind:class="{
+                                        'text-muted-foreground': ! d.inMonth && d.key !== state,
+                                        'border border-primary': d.today && d.key !== state,
+                                        'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground': d.key === state,
+                                    }"
+                                ></button>
+                            </td>
+                        </template>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
+
+        <div class="mt-2 flex items-center justify-between border-t border-border pt-2">
+            <button type="button" x-on:click="pickToday()" class="{{ $panelFooter }}">Today</button>
+            <button type="button" x-on:click="clear()" class="{{ $panelFooter }}">Clear</button>
+        </div>
+    </div>
 </div>

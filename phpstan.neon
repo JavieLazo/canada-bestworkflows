@@ -1,13 +1,18 @@
 includes:
     - vendor/larastan/larastan/extension.neon
     - vendor/nesbot/carbon/extension.neon
+    # Teaches PHPStan that a Pest `it()` closure's `$this` is the bound TestCase
+    # (Tests\TestCase under tests/Feature via Pest.php). Without it, every
+    # `$this->get()` / `->actingAs()` / `->assertDatabaseHas()` inside a closure
+    # is "Call to an undefined method Pest\PendingCalls\TestCall::…" — 138 of
+    # the 218 errors the first scan of tests/ produced. Listed explicitly because
+    # phpstan/extension-installer is not installed, so nothing auto-discovers it.
+    - vendor/pestphp/pest-plugin-phpstan/extension.neon
 
 parameters:
-    # Larastan's own extension.neon declares this as a path relative to itself, which
-    # PHPStan's parallel worker processes fail to resolve — they look for ./bootstrap.php
-    # in the project root, find nothing, and skip it. LARAVEL_VERSION is then never
-    # defined and LarastanStubFilesExtension fatals. Declaring it here, relative to this
-    # file, resolves correctly in workers too. Remove once larastan/larastan fixes it.
+    # Retain the explicit worker bootstrap. The Composer types:check command also
+    # loads this through --autoload-file, before Larastan constructs its stub extension;
+    # bootstrapFiles alone is too late for LARAVEL_VERSION in this installed toolchain.
     bootstrapFiles:
         - vendor/larastan/larastan/bootstrap.php
 
@@ -17,5 +22,16 @@ parameters:
         - config/
         - database/
         - routes/
+        - tests/
 
     level: 7
+
+services:
+    # Types Pest's no-argument `test()` proxy as forwarding to Laravel's
+    # TestCase, so `test()->actingAs()` inside a global fixture helper resolves.
+    # A type correction, not an ignore — see the class docblock for why this is
+    # an extension and not a stub. tests/ is analysed, so this file is too.
+    -
+        class: Tests\PhpStan\HigherOrderTapProxyMethodsExtension
+        tags:
+            - phpstan.broker.methodsClassReflectionExtension

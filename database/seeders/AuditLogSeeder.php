@@ -6,6 +6,7 @@ namespace Database\Seeders;
 
 use App\Models\AuditLog;
 use App\Models\LeaveTravelRequest;
+use App\Models\Shift;
 use App\Models\User;
 
 /**
@@ -40,7 +41,7 @@ final class AuditLogSeeder extends PortSeeder
         }
 
         if ($supervisor !== null) {
-            $requestId = LeaveTravelRequest::query()->where('code', 'LR-001')->value('id');
+            $requestId = $this->seedId(LeaveTravelRequest::class, 'req-1');
 
             $this->upsert(AuditLog::class, ['id' => 'aud-3'], [
                 'actor_id' => $supervisor->id,
@@ -59,7 +60,7 @@ final class AuditLogSeeder extends PortSeeder
                 'actor_name' => (string) $admin->email,
                 'action' => 'SHIFT_UPDATED',
                 'entity' => 'shifts',
-                'entity_id' => $employees[3],
+                'entity_id' => $this->seedId(Shift::class, 'shift-4'),
                 'details' => 'Paolo Bautista shift set to 07:00–16:00 (grace 10m)',
                 'created_at' => $this->at(8, 14, 20),
             ]);

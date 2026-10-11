@@ -17,6 +17,7 @@ final readonly class LeaveRequest
 
     public const DAY_TYPE_HALF = 'HALF_DAY';
 
+    /** @param list<string> $cancelledDates */
     public function __construct(
         public string $requestType,
         public string $startDate,
@@ -32,6 +33,7 @@ final readonly class LeaveRequest
         public ?bool $isPaid = null,
         /** WHOLE_DAY or HALF_DAY. Missing rows are read as a whole day. */
         public ?string $dayType = null,
+        public array $cancelledDates = [],
     ) {}
 
     /**
@@ -58,6 +60,7 @@ final readonly class LeaveRequest
             employeeId: isset($row['employee_id']) ? (string) $row['employee_id'] : null,
             isPaid: isset($row['is_paid']) ? (bool) $row['is_paid'] : null,
             dayType: isset($row['day_type']) ? (string) $row['day_type'] : null,
+            cancelledDates: array_values(array_map(self::dayOnly(...), is_array($row['cancelled_dates'] ?? null) ? $row['cancelled_dates'] : [])),
         );
     }
 

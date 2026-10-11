@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 use App\Http\Controllers\Projects\ProjectsExportController;
-use App\Http\Controllers\Projects\TaskFileDownloadController;
 use App\Http\Controllers\Projects\TasksExportController;
+use App\Http\Controllers\Tasks\TaskFileController;
 use App\Livewire\Projects\Index;
 use App\Livewire\Projects\Show;
 use Illuminate\Support\Facades\Route;
@@ -17,14 +17,16 @@ use Illuminate\Support\Facades\Route;
  * gate on PROJECTS *or* TASKS, because GET /api/tasks/files/[id] served both
  * the reviewer and the assignee — "a task moves under PROJECTS for a reviewer
  * and under TASKS for its assignee" (guard.ts:80-83); the controller then
- * narrows to exactly those two parties.
+ * narrows to those parties — the project's Task Leader counts as a reviewer.
+ * It is the same controller My Tasks uses for `tasks.files.download`
+ * (routes/modules/tasks.php): two URLs, both linked from Blade, one rule.
  *
  * Order matters: the literal segments (/projects/export, /projects/task-files)
  * are registered before /projects/{project} so the wildcard cannot swallow
  * them.
  */
 Route::middleware(['web', 'auth', 'module:PROJECTS,TASKS'])->group(static function (): void {
-    Route::get('/projects/task-files/{file}', TaskFileDownloadController::class)
+    Route::get('/projects/task-files/{file}', [TaskFileController::class, 'show'])
         ->name('projects.task-files.download');
 });
 

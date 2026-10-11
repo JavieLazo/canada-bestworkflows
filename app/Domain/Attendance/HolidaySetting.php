@@ -57,6 +57,28 @@ final readonly class HolidaySetting
     }
 
     /**
+     * Every holiday on a date, in list order — two or more is a double
+     * holiday, which a Pay Basis & Rates version may price (PayRules).
+     *
+     * @param  list<self>  $holidays
+     * @return list<self>
+     */
+    public static function allOn(string $date, array $holidays = []): array
+    {
+        $out = [];
+        foreach ($holidays as $holiday) {
+            $matches = $holiday->schedule === self::SCHEDULE_ONE_TIME
+                ? $holiday->date === $date
+                : substr($holiday->date, 5) === substr($date, 5);
+            if ($matches) {
+                $out[] = $holiday;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * @param  array<string, mixed>  $row
      */
     public static function fromArray(array $row): self

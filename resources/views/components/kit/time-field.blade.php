@@ -1,16 +1,14 @@
 {{--
     A clock-time input in the 12-hour clock the rest of the system speaks —
-    the port of src/components/TimeField.tsx reshaped by the locked product
-    decision: a TYPED clock box plus a SEPARATE AM/PM select. No popover
-    pickers of any kind.
+    the port of src/components/TimeField.tsx reshaped as a TYPED clock box
+    plus a SEPARATE AM/PM select. No popover pickers of any kind.
 
-    Value in and out stays the `HH:mm` (24-hour) key the tables store —
-    callers are unchanged — while what the user types is `8:30` (or `830`, or
-    a bare `8`), and AM/PM is its own select. A change to one part keeps the
-    other; picking a period while the field is empty fills in the
-    workday-shaped 8:00 default so one pick produces a complete time
-    (TimeField.tsx:62-66). A half-typed clock is left alone until it parses;
-    blur snaps it to the canonical spelling.
+    Value in and out is the `HH:mm` (24-hour) key the tables store, while
+    what the user types is `8:30` (or `830`, or a bare `8`), and AM/PM is
+    its own select. A change to one part keeps the other; picking a period
+    while the field is empty fills in the workday-shaped 8:00 default so one
+    pick produces a complete time (TimeField.tsx:62-66). A half-typed clock
+    is left alone until it parses; blur snaps it to the canonical spelling.
 
     The parsing functions are a JS mirror of App\Livewire\Kit\TimeText — keep
     the two in sync.
@@ -108,14 +106,16 @@
         x-on:input="setClock($event.target.value)"
         x-on:blur="settle()"
     />
-    <flux:select
+    {{-- 4.5rem leaves the period 24px beside the chevron: "AM" needs 21px
+         at the trigger's 14px. --}}
+    <x-kit.select
         :disabled="$disabled"
         aria-label="{{ $ariaLabel }} — AM or PM"
-        class="w-[4.5rem]"
+        class="w-[4.5rem] shrink-0"
         x-model="period"
         x-on:change="setPeriod($event.target.value)"
     >
         <flux:select.option value="AM">AM</flux:select.option>
         <flux:select.option value="PM">PM</flux:select.option>
-    </flux:select>
+    </x-kit.select>
 </div>

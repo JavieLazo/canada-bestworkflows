@@ -15,14 +15,14 @@ use Illuminate\Support\Str;
 /**
  * The multi-assignee data layer: the project_task_assignees pivot, the
  * ProjectTask helpers every screen keys on (assigneeIds / hasAssignee /
- * syncAssignees), the inverse taskLoad(), and the migration pair that moved
- * the old single assignee_id column into the pivot.
+ * syncAssignees), the inverse taskLoad(), and the migration pair that moves
+ * the single assignee_id column into the pivot.
  */
 function ptaEmployee(string $last = 'Garcia'): EmployeeProfile
 {
     $employee = new EmployeeProfile;
     $employee->forceFill([
-        'employee_code' => 'BWF-'.Str::upper(Str::random(4)),
+        'employee_code' => 'COP-'.Str::upper(Str::random(4)),
         'first_name' => 'Ana',
         'last_name' => $last,
         'employment_status' => 'Regular',
@@ -91,7 +91,8 @@ it('syncs the pivot to exactly the wanted set and returns the deduped diff', fun
         expect($row->assigned_by)->toBe((int) $manager->getKey());
         expect($row->created_at)->not->toBeNull();
     }
-    $keptRowId = $rows->firstWhere('employee_id', $a->getKey())->getKey();
+    // The key is a ULID string (asserted above), so find() resolves to one row rather than a collection.
+    $keptRowId = (string) $rows->firstWhere('employee_id', $a->getKey())->getKey();
 
     $second = $task->syncAssignees([$c->getKey(), $a->getKey()], (int) $reassigner->getKey());
 

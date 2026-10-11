@@ -1,6 +1,7 @@
 @import url('https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700,800|inter:400,500,600,700|jetbrains-mono:400,500,600,700&display=swap');
 @import 'tailwindcss';
 @import '../../vendor/livewire/flux/dist/flux.css';
+@import './payslip.css';
 
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
@@ -19,11 +20,7 @@
     --font-sans: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 
-    /*
-     * Public marketing palette and type. Kept out of the HRIS semantic tokens
-     * above on purpose: these are the brand's outward face (the teal-and-amber
-     * of the logo), used only by the landing page, not by the application shell.
-     */
+    /* BestWorkflows public landing palette and type. */
     --font-display: 'Plus Jakarta Sans', ui-sans-serif, system-ui, sans-serif;
     --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
     --color-brand-teal: #164e63;
@@ -242,16 +239,17 @@
  * both meanings have to survive. So the Tailwind theme keeps `accent` = the
  * soft tint, and Flux's own controls are re-pointed at `primary` here.
  *
- * That mapping held in light mode only. Flux's own dark theme re-points the
- * same variable at white — `@layer theme { .dark { --color-accent:
+ * That mapping alone holds in light mode only. Flux's own dark theme re-points
+ * the same variable at white — `@layer theme { .dark { --color-accent:
  * var(--color-white) } }` in flux.css — and `.dark` and `:root` carry equal
- * specificity, so Flux's later rule won and every `accent` utility resolved to
- * white once night mode was on. The row hover below then painted 55% WHITE
- * behind unchanged light text: measured 1.14:1 on muted cells and 2.51:1 on
- * ordinary ones, against 6.64 and 14.7 unhovered. Re-assert the ported palette
- * for dark here. This block is unlayered, so it outranks Flux's layered rule
- * whatever the source order. `--color-accent-content` is deliberately left to
- * Flux: it is the CONTRASTING pair to `accent-foreground`, not a tint.
+ * specificity, so without this block Flux's later rule wins and every `accent`
+ * utility resolves to white in night mode. The row hover below would then
+ * paint 55% WHITE behind unchanged light text: measured 1.14:1 on muted cells
+ * and 2.51:1 on ordinary ones, against 6.64 and 14.7 unhovered. This block
+ * re-asserts the ported palette for dark. It is unlayered, so it outranks
+ * Flux's layered rule whatever the source order. `--color-accent-content` is
+ * deliberately left to Flux: it is the CONTRASTING pair to
+ * `accent-foreground`, not a tint.
  */
 .dark {
     --color-accent: var(--accent);
@@ -275,6 +273,19 @@ ui-switch {
     --color-accent-foreground: var(--primary-foreground);
 }
 
+/*
+ * A solid green primary button (every Export CSV, through
+ * `<x-kit.export-button>` and the four hand-rolled ones it documents). A
+ * plain rule, not an @utility: utilities are layered, and the unlayered
+ * block above would win over any of them. Two selectors outrank its one,
+ * and the `success` token carries its own dark-mode value.
+ */
+[data-flux-button].hris-button-success {
+    --color-accent: var(--success);
+    --color-accent-content: var(--success);
+    --color-accent-foreground: var(--success-foreground);
+}
+
 /* Starter-kit form ergonomics, kept for the Fortify/settings pages. */
 [data-flux-field]:not(ui-radio, ui-checkbox) {
     @apply grid gap-2;
@@ -288,6 +299,85 @@ input:focus[data-flux-control],
 textarea:focus[data-flux-control],
 select:focus[data-flux-control] {
     @apply outline-hidden ring-2 ring-(--ring) ring-offset-2 ring-offset-(--background);
+}
+
+/*
+ * The app shell's grid, from the body's FIRST byte.
+ *
+ * Flux lays the shell out with `*:has(>[data-flux-main])` (flux.css), so the
+ * body only becomes a grid once the parser has reached `<flux:main>` — and the
+ * sidebar and header come before it in the document. The live host delivers
+ * the page in pieces, and the browser paints between them: measured on every
+ * page tried, a frame with the body still `display: block`, the sidebar
+ * stacked top-left and the 56px header UNDER it at y=686 of an 809px
+ * viewport, held for 9–150ms until `main` arrived and the grid snapped in. A
+ * local server hands the page over in one go, so it only shows there with the
+ * network throttled (Slow 4G) and the stylesheet already cached.
+ *
+ * These are Flux's own values for a sidebar-first shell (its
+ * `[data-flux-sidebar]+[data-flux-header]` areas), so once `main` is parsed
+ * both rules agree and the grid does not move. They assume the header comes
+ * RIGHT AFTER the sidebar, as Flux's areas do. Only the app layout's body
+ * carries it — the auth layout has no shell.
+ */
+@utility hris-shell {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    grid-template-columns: min-content minmax(0, 1fr) min-content;
+    grid-template-areas:
+        'sidebar header header'
+        'sidebar main aside'
+        'sidebar footer aside';
+}
+
+/*
+ * The collapsed sidebar opens OVER the page while the pointer is on it.
+ *
+ * Collapsed, the sidebar is a rail of icons, and a module drawn as a tree
+ * (Records, Payroll) has nowhere to list its pages. Under the pointer the
+ * rail is drawn at its full width, labels and trees included. It stays
+ * collapsed: the pointer leaving, or the next page, brings the rail back.
+ *
+ * IT MUST NOT PUSH THE PAGE. The shell's sidebar column is `min-content`
+ * (`hris-shell`), sized from this element's margin box, so the negative end
+ * margin takes back exactly what the width adds: the column keeps the rail's
+ * width, and the open sidebar hangs over the header and the page (Flux
+ * already stacks it above both). The two widths are Flux's own — `w-64`
+ * and `w-14` in its sidebar stub — and `SidebarRailTest` fails when they move.
+ * The cursor is Flux's too: it marks a collapsed sidebar as something to
+ * click open, which an open one is not.
+ *
+ * `sidebar-rail` is the variant for whatever is drawn ONLY in the rail: a
+ * hidden label, a centered icon. Never style the sidebar's contents with
+ * `in-data-flux-sidebar-collapsed-desktop:`, which still matches while the
+ * sidebar is open over the page and would leave it a wide strip of icons.
+ *
+ * A touch screen has no pointer to leave: a tap would open the sidebar and
+ * nothing would close it. Both rules therefore ask for a device that hovers;
+ * without one the rail stays a rail.
+ */
+@utility hris-sidebar {
+    @media (hover: hover) {
+        &[data-flux-sidebar-collapsed-desktop]:hover {
+            width: calc(var(--spacing) * 64);
+            padding-inline: calc(var(--spacing) * 4);
+            margin-inline-end: calc(var(--spacing) * (14 - 64));
+            box-shadow: var(--shadow-lift);
+            cursor: auto;
+        }
+    }
+}
+
+@custom-variant sidebar-rail {
+    &:where([data-flux-sidebar-collapsed-desktop]:not(:hover) *) {
+        @slot;
+    }
+
+    @media (hover: none) {
+        &:where([data-flux-sidebar-collapsed-desktop] *) {
+            @slot;
+        }
+    }
 }
 
 @utility hris-card {
@@ -329,9 +419,10 @@ select:focus[data-flux-control] {
  * and drops `hris-table-wrap` too while its columns fit the card, so the header
  * pins to the page instead; once they do not, it takes the wrap back on — see
  * `hris-table-flush` and the DTR template. The payroll run workspace drops only
- * the cap: at twenty-two columns it needs the wrap on every screen.
- * `live-feed` and the run workspace picker bound themselves already, which is
- * why their headers pinned even while every other one was broken.
+ * the cap: at two dozen columns or more (one per Payroll Deductions row) it
+ * needs the wrap on every screen.
+ * `live-feed` and the run workspace picker bound their own height, so their
+ * headers pin without this cap.
  */
 @utility hris-table-scroll {
     max-height: max(20rem, calc(100dvh - 20rem));
@@ -380,6 +471,8 @@ select:focus[data-flux-control] {
 
 @utility hris-table {
     width: 100%;
+    /* SEPARATE, not collapse: `hris-table-pin-first` needs the borders to belong
+       to the cells, or a pinned column scrolls its own borders away. */
     border-collapse: separate;
     border-spacing: 0;
     font-size: 0.875rem;
@@ -420,6 +513,84 @@ select:focus[data-flux-control] {
         background-color: var(--color-muted);
         vertical-align: middle;
         font-weight: 700;
+    }
+}
+
+/*
+ * Pins a wide table's FIRST column while the x-axis scrolls under it.
+ *
+ * Opt-in companion to `hris-table-wrap`, and only earned by a table too wide
+ * to read in one screen. The payroll run workspace is two dozen columns or
+ * more and roughly 2,500px, so by the time the reader has scrolled out to the
+ * deductions the row has lost the only thing that says whose row it is.
+ * Pinning the Employee cell keeps the name beside whichever figure is on
+ * screen. A table that fits its card does not want this — the divider would
+ * be a rule down the middle of nothing.
+ *
+ * Three things have to hold for a sticky cell to work, and `hris-table`
+ * already supplies the first: `border-collapse: separate`. A COLLAPSED table
+ * hands its borders to the table rather than the cell, and a pinned cell then
+ * scrolls its own borders away. The other two are here:
+ *
+ *   - AN OPAQUE BACKGROUND ON EVERY PINNED CELL. Cells are transparent by
+ *     default, so a pinned one shows the columns sliding under it. thead and
+ *     tfoot already paint `--color-muted`; the body cells take `--color-card`,
+ *     and the hover and focus tints are restated as opaque mixes over that
+ *     card because the originals composite against `transparent` and would let
+ *     the scrolled figures through.
+ *   - A STACKING ORDER. The header outranks the pinned column — a table that
+ *     also caps its height with `hris-table-scroll` sticks on both axes, and
+ *     the header has to win the corner where they meet — and the pinned column
+ *     outranks the cells it slides over.
+ *
+ * A first cell carrying any `colspan` is left out — in this grid that is the
+ * empty state's message, already as wide as its containing block, so sticky has
+ * nothing to move it by and the divider would only draw a hairline two thousand
+ * pixels off-screen.
+ */
+@utility hris-table-pin-first {
+    /* Beats `hris-table`'s `z-index: 1` on specificity, not source order. */
+    & thead tr th {
+        z-index: 3;
+    }
+
+    /* The corner cell — sticky on both axes; `top` comes from `hris-table`. */
+    & thead tr:first-child > th:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 4;
+        box-shadow: 1px 0 0 0 var(--color-border);
+    }
+
+    & tbody tr > td:first-child:not([colspan]),
+    & tfoot tr > td:first-child:not([colspan]) {
+        position: sticky;
+        left: 0;
+        z-index: 2;
+        box-shadow: 1px 0 0 0 var(--color-border);
+    }
+
+    & tbody tr > td:first-child:not([colspan]) {
+        background-color: var(--color-card);
+    }
+
+    & tbody tr:focus-visible > td:first-child:not([colspan]) {
+        background-color: var(--color-accent);
+    }
+
+    & tbody tr:hover > td:first-child:not([colspan]) {
+        background-color: color-mix(in oklab, var(--color-accent) 55%, var(--color-card));
+    }
+
+    /* FOCUSED AND HOVERED AT ONCE IS ITS OWN STATE, not the hover state. In the
+       unpinned table the row paints solid accent and the cell then paints accent
+       at 55% alpha ON TOP OF IT, which composites straight back to solid accent —
+       so a row that is tabbed to and then moused over is uniformly accent. The
+       mix above is against the card, not against that focus tint, so without this
+       the pinned cell would sit a visible step lighter than the twenty-two cells
+       beside it, with the divider drawing the seam. */
+    & tbody tr:focus-visible:hover > td:first-child:not([colspan]) {
+        background-color: var(--color-accent);
     }
 }
 
@@ -507,11 +678,918 @@ select:focus[data-flux-control] {
     color: var(--color-muted-foreground);
 }
 
+/* Reports keep the presentation envelope readable as a document on every
+   screen. Business totals and grouping remain in the owning queries. */
+.reports-document {
+    /* Paper tokens stay independent of the screen theme: a dark-mode report
+       must still produce readable ink when print backgrounds are disabled. */
+    --report-paper: oklch(1 0 0);
+    --report-ink: oklch(0.23 0.035 260);
+    --report-muted-ink: oklch(0.45 0.025 258);
+    --report-rule: oklch(0.85 0.01 252);
+    --report-fill: oklch(0.965 0.005 250);
+    --report-accent-ink: oklch(0.45 0.15 258);
+    --report-accent-fill: oklch(0.95 0.025 258);
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    background: var(--color-card);
+    color: var(--color-card-foreground);
+    box-shadow: var(--shadow-card);
+}
+
+.reports-document-header {
+    padding: 1.5rem 1.5rem 0;
+}
+
+.reports-document-heading,
+.reports-document-title,
+.reports-statement-heading,
+.reports-section-heading,
+.reports-sheet-brand {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.reports-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+    font-size: 0.8rem;
+}
+
+.reports-brand img {
+    flex-shrink: 0;
+    object-fit: contain;
+}
+
+.reports-overline {
+    color: var(--color-muted-foreground);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.065em;
+    line-height: 1.5;
+    text-transform: uppercase;
+}
+
+.reports-document-label {
+    padding-top: 0.3rem;
+    color: var(--color-muted-foreground);
+    font-size: 0.7rem;
+    white-space: nowrap;
+}
+
+.reports-document-title {
+    margin-top: 1.5rem;
+    padding-bottom: 1.25rem;
+}
+
+.reports-document-title h2 {
+    overflow-wrap: anywhere;
+    font-size: clamp(1.25rem, 1.5vw, 1.6rem);
+    font-weight: 750;
+    letter-spacing: -0.035em;
+    line-height: 1.3;
+}
+
+.reports-document-title p {
+    margin-top: 0.35rem;
+    color: var(--color-muted-foreground);
+    font-size: 0.8rem;
+}
+
+.reports-document-meta {
+    flex-shrink: 0;
+    font-size: 0.68rem;
+    line-height: 1.6;
+}
+
+.reports-document-meta > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.reports-document-meta dt {
+    color: var(--color-muted-foreground);
+}
+
+.reports-document-meta dd {
+    text-align: right;
+}
+
+.reports-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+    gap: 0.75rem 1.25rem;
+    padding: 1.1rem 0;
+    border-top: 1px solid var(--color-border);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.reports-summary dt {
+    color: var(--color-muted-foreground);
+    font-size: 0.65rem;
+    line-height: 1.45;
+}
+
+.reports-summary dd {
+    margin-top: 0.3rem;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.reports-document-body {
+    min-width: 0;
+    padding: 1.25rem 0 0;
+}
+
+.reports-detail-section {
+    min-width: 0;
+    margin: 0 0 1.5rem;
+}
+
+.reports-section-heading {
+    align-items: center;
+    padding: 0 1.5rem 0.8rem;
+}
+
+.reports-section-heading h3 {
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.reports-row-count {
+    flex-shrink: 0;
+    color: var(--color-muted-foreground);
+    font-size: 0.65rem;
+}
+
+.reports-section-period {
+    margin-top: 0.3rem;
+    color: var(--color-muted-foreground);
+    font-size: 0.65rem;
+    line-height: 1.5;
+}
+
+.reports-table-wrap:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+}
+
+.reports-table th {
+    max-width: 14rem;
+    white-space: normal !important;
+    line-height: 1.45;
+}
+
+.reports-table td {
+    min-width: 6rem;
+    max-width: 22rem;
+    overflow-wrap: anywhere;
+    line-height: 1.55;
+}
+
+.reports-table .reports-number,
+.reports-data-table .reports-number {
+    text-align: right;
+}
+
+.reports-table tbody .reports-number,
+.reports-table tfoot .reports-number {
+    white-space: nowrap;
+}
+
+.reports-table tfoot td {
+    font-size: 0.8rem;
+}
+
+.reports-section-notes {
+    display: grid;
+    gap: 0.3rem;
+    padding: 0.85rem 1.5rem 0;
+    color: var(--color-muted-foreground);
+    font-size: 0.67rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+
+.reports-source-notes {
+    margin: 0 1.5rem;
+    padding: 1.25rem 0 1rem;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-muted-foreground);
+    overflow-wrap: anywhere;
+}
+
+.reports-source-notes h3 {
+    margin-bottom: 0.65rem;
+    color: var(--color-foreground);
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.reports-source-notes ol {
+    display: grid;
+    gap: 0.4rem;
+    padding-left: 1rem;
+    list-style: decimal;
+    font-size: 0.67rem;
+    line-height: 1.65;
+}
+
+.reports-document-end {
+    margin-top: 1rem;
+    font-size: 0.6rem;
+}
+
+.reports-statement {
+    margin: 0 1.5rem 1.5rem;
+    padding: 1.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+}
+
+.reports-statement-sequence {
+    display: grid;
+    gap: 0.15rem;
+    flex-shrink: 0;
+    text-align: right;
+    font-size: 0.7rem;
+}
+
+.reports-statement-title {
+    margin: 1.2rem 0 1rem;
+    overflow-wrap: anywhere;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+.reports-sheet-identity {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.65rem 1.5rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.75rem;
+}
+
+.reports-sheet-identity dt {
+    color: var(--color-muted-foreground);
+    font-size: 0.63rem;
+}
+
+.reports-sheet-identity dd {
+    margin-top: 0.1rem;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+}
+
+.reports-statement-totals {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    padding: 0;
+    background: var(--color-muted);
+}
+
+.reports-statement-totals > div {
+    padding: 0.9rem 0.75rem;
+}
+
+.reports-statement-totals .reports-net-pay {
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
+}
+
+.reports-net-pay dt {
+    color: var(--color-primary);
+}
+
+.reports-statement-groups {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 1.25rem;
+    padding-top: 1.25rem;
+}
+
+.reports-statement-group {
+    grid-column: span 2;
+    min-width: 0;
+}
+
+.reports-statement-primary-group {
+    grid-column: span 3;
+}
+
+.reports-statement-group h4 {
+    padding-bottom: 0.45rem;
+    border-bottom: 2px solid var(--color-border);
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.reports-statement-group dl > div,
+.reports-statement-fallback > div {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.38rem 0;
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.67rem;
+    line-height: 1.45;
+}
+
+.reports-statement-group dt {
+    color: var(--color-muted-foreground);
+    overflow-wrap: anywhere;
+}
+
+.reports-statement-group dd {
+    max-width: 55%;
+    text-align: right;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+}
+
+.reports-statement-group-note,
+.reports-statement-footer {
+    margin-top: 0.7rem;
+    color: var(--color-muted-foreground);
+    font-size: 0.6rem;
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+}
+
+.reports-statement-footer {
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.reports-sheet-brand {
+    margin: 0 1.5rem 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    font-size: 0.65rem;
+    font-weight: 600;
+}
+
+.reports-attendance-sheet .reports-sheet-identity {
+    margin-right: 1.5rem;
+    margin-left: 1.5rem;
+}
+
+.reports-section-summary {
+    margin: 0 1.5rem 1rem;
+}
+
+@media (max-width: 767px) {
+    .reports-document-header {
+        padding: 1rem 1rem 0;
+    }
+
+    .reports-document-title {
+        flex-direction: column;
+        gap: 0.75rem;
+        margin-top: 1rem;
+    }
+
+    .reports-document-meta {
+        width: 100%;
+        max-width: 22rem;
+    }
+
+    .reports-document-label {
+        display: none;
+    }
+
+    .reports-section-heading {
+        padding-right: 1rem;
+        padding-left: 1rem;
+    }
+
+    .reports-section-notes {
+        padding-right: 1rem;
+        padding-left: 1rem;
+    }
+
+    .reports-source-notes,
+    .reports-statement,
+    .reports-section-summary,
+    .reports-sheet-brand,
+    .reports-attendance-sheet .reports-sheet-identity {
+        margin-right: 1rem;
+        margin-left: 1rem;
+    }
+
+    .reports-statement {
+        padding: 1rem;
+    }
+
+    .reports-statement-group {
+        grid-column: span 3;
+    }
+}
+
+@media (max-width: 479px) {
+    .reports-brand {
+        gap: 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    .reports-brand img {
+        width: 32px;
+        height: 32px;
+    }
+
+    .reports-overline {
+        font-size: 0.57rem;
+    }
+
+    .reports-statement {
+        margin-right: 0.6rem;
+        margin-left: 0.6rem;
+        padding: 0.8rem;
+    }
+
+    .reports-sheet-identity {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .reports-statement-totals {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+    }
+
+    .reports-statement-totals > div {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.65rem;
+    }
+
+    .reports-statement-totals dd {
+        margin-top: 0;
+    }
+
+    .reports-statement-group {
+        grid-column: 1 / -1;
+    }
+}
+
+/*
+ * The Organization view of Employee Records (`employees/organization`): every
+ * department is a card in one wrapping grid on a dotted ground, and an opened
+ * department's table is a full-width grid item right after its card. Dense
+ * flow keeps the card's row whole and puts the table under it, so nothing
+ * scrolls sideways. Only what a utility cannot say lives here: the grid, the
+ * ground, the open state (keyed on the department item's `data-open`, set by Alpine) and
+ * the pointer notch under an open card.
+ */
+.hris-org-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+    grid-auto-flow: row dense;
+    gap: 14px;
+    padding: 20px;
+    background-color: var(--color-background);
+    background-image: radial-gradient(var(--color-border) 1px, transparent 1px);
+    background-size: 16px 16px;
+}
+
+.hris-org-dept {
+    position: relative;
+    display: flex;
+}
+
+.hris-org-card:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+}
+
+.hris-org-dept[data-open] > .hris-org-card {
+    background-color: var(--color-accent);
+    border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+}
+
+.hris-org-dept[data-open]::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: -15px;
+    z-index: 2;
+    width: 14px;
+    height: 14px;
+    transform: translateX(-50%) rotate(45deg);
+    background-color: var(--color-card);
+    border-top: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+    border-left: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+}
+
+.hris-org-dept[data-open] .hris-org-top {
+    color: var(--color-accent-foreground);
+}
+
+.hris-org-dept[data-open] .hris-org-chev {
+    transform: rotate(180deg);
+}
+
+/* The next people's photos overlap, each ringed in the card's own colour. */
+.hris-org-more > * {
+    box-shadow: 0 0 0 2px var(--color-card);
+}
+
+.hris-org-dept[data-open] .hris-org-more > * {
+    box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.hris-org-panel {
+    grid-column: 1 / -1;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 45%, var(--color-border));
+}
+
+.hris-org-panel[hidden] {
+    display: none;
+}
+
+.hris-org-group td {
+    background-color: color-mix(in srgb, var(--color-muted) 55%, var(--color-card));
+}
+
+.hris-org-in .hris-org-emp {
+    padding-left: 16px;
+}
+
+@media (min-width: 641px) {
+    .hris-org-table th:first-child {
+        width: 45%;
+    }
+}
+
+@media (max-width: 640px) {
+    .hris-org-grid {
+        grid-template-columns: 1fr;
+        padding: 12px;
+        background-image: none;
+    }
+
+    .hris-org-in .hris-org-emp {
+        padding-left: 8px;
+    }
+}
+
 /*
  * Printing a payslip. Everything that is not the payslip's branch is removed
  * from the print flow here. (`:has()` — Chrome 105+, Safari 15.4+, Firefox 121+.)
  */
 @media print {
+    @page reports {
+        size: A4 landscape;
+        margin: 12mm;
+    }
+
+    @page report-statement {
+        size: A4 portrait;
+        margin: 12mm;
+    }
+
+    /* Keep the surrounding layout on the document's paper size, so its
+       trailing space cannot create an empty page with the default size. */
+    html:root:has(.reports-document) {
+        --report-paper: oklch(1 0 0);
+        background: var(--report-paper);
+        color-scheme: light;
+    }
+
+    body:has(.reports-document) {
+        page: reports;
+        background: var(--report-paper);
+    }
+
+    body:has(.reports-document-statements) {
+        page: report-statement;
+    }
+
+    .reports-document {
+        /* Inline theme utilities read these underlying tokens directly;
+           custom report rules read the --color-* aliases below. */
+        --card: var(--report-paper);
+        --card-foreground: var(--report-ink);
+        --foreground: var(--report-ink);
+        --muted-foreground: var(--report-muted-ink);
+        --muted: var(--report-fill);
+        --border: var(--report-rule);
+        --primary: var(--report-accent-ink);
+        --primary-soft: var(--report-accent-fill);
+        --color-card: var(--report-paper);
+        --color-card-foreground: var(--report-ink);
+        --color-foreground: var(--report-ink);
+        --color-muted-foreground: var(--report-muted-ink);
+        --color-muted: var(--report-fill);
+        --color-border: var(--report-rule);
+        --color-primary: var(--report-accent-ink);
+        --color-primary-soft: var(--report-accent-fill);
+        page: reports;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    .reports-document-header {
+        padding: 0;
+    }
+
+    .reports-document-title {
+        flex-direction: row;
+        margin-top: 10pt;
+        padding-bottom: 10pt;
+    }
+
+    .reports-document-title h2 {
+        font-size: 16pt;
+    }
+
+    .reports-document-title p {
+        font-size: 9pt;
+    }
+
+    .reports-document-meta {
+        width: auto;
+        font-size: 7pt;
+    }
+
+    .reports-brand {
+        font-size: 9pt;
+    }
+
+    .reports-brand img {
+        width: 30pt;
+        height: 30pt;
+    }
+
+    .reports-overline {
+        font-size: 6pt;
+    }
+
+    .reports-document-body {
+        padding-top: 12pt;
+    }
+
+    .reports-summary {
+        grid-template-columns: repeat(auto-fit, minmax(60pt, 1fr));
+        gap: 8pt;
+        padding: 9pt 0;
+        break-inside: avoid;
+    }
+
+    .reports-summary dt {
+        font-size: 7pt;
+    }
+
+    .reports-summary dd {
+        font-size: 11pt;
+    }
+
+    .reports-detail-section {
+        margin-bottom: 16pt;
+    }
+
+    .reports-section-heading {
+        padding: 0 0 7pt;
+        break-after: avoid;
+    }
+
+    .reports-section-heading h3 {
+        font-size: 9pt;
+    }
+
+    .reports-row-count {
+        font-size: 7pt;
+    }
+
+    .reports-document .hris-table-wrap {
+        overflow: visible;
+        max-height: none;
+    }
+
+    .reports-document .hris-table {
+        min-width: 0;
+        width: 100%;
+        font-size: 8pt;
+    }
+
+    .reports-document .hris-table th,
+    .reports-document .hris-table td {
+        padding: 4pt;
+        min-width: 0;
+        max-width: none;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        line-height: 1.35;
+        position: static;
+    }
+
+    .reports-document .hris-table .reports-number {
+        white-space: normal;
+    }
+
+    .reports-document .hris-table th {
+        font-size: 7pt;
+    }
+
+    .reports-document .hris-table tr {
+        break-inside: avoid;
+    }
+
+    .reports-document .hris-table thead {
+        position: static;
+        display: table-header-group;
+    }
+
+    /* Totals belong at the end, rather than repeating on every printed page. */
+    .reports-document .hris-table tfoot {
+        display: table-row-group;
+    }
+
+    .reports-source-notes {
+        margin: 0;
+        padding: 10pt 0 0;
+        break-inside: avoid;
+    }
+
+    .reports-source-notes h3 {
+        font-size: 8pt;
+        break-after: avoid;
+    }
+
+    .reports-source-notes ol,
+    .reports-section-notes {
+        font-size: 7pt;
+        line-height: 1.5;
+    }
+
+    .reports-source-notes li {
+        break-inside: avoid;
+    }
+
+    .reports-section-notes {
+        padding: 6pt 0 0;
+    }
+
+    .reports-document-end {
+        font-size: 6pt;
+    }
+
+    .reports-document-statements {
+        page: report-statement;
+    }
+
+    .reports-document-statements .reports-document-body {
+        padding: 0;
+    }
+
+    .reports-statement {
+        page: report-statement;
+        margin: 0;
+        padding: 0;
+        border: none;
+        border-radius: 0;
+    }
+
+    .reports-statement + .reports-statement,
+    .reports-statement-appendix {
+        break-before: page;
+    }
+
+    .reports-statement-title {
+        margin: 10pt 0 8pt;
+        font-size: 11pt;
+    }
+
+    .reports-sheet-identity {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5pt 12pt;
+        margin-bottom: 9pt;
+        font-size: 8pt;
+    }
+
+    .reports-sheet-identity dt {
+        font-size: 6.5pt;
+    }
+
+    .reports-statement-totals {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+        padding: 0;
+    }
+
+    .reports-statement-totals > div {
+        display: block;
+        padding: 7pt;
+    }
+
+    .reports-statement-groups {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12pt;
+        padding-top: 11pt;
+    }
+
+    .reports-statement-group {
+        grid-column: span 2;
+    }
+
+    .reports-statement-primary-group {
+        grid-column: span 3;
+    }
+
+    .reports-statement-group h4 {
+        font-size: 8pt;
+        padding-bottom: 4pt;
+        break-after: avoid;
+    }
+
+    .reports-statement-group dl > div {
+        gap: 6pt;
+        padding: 3pt 0;
+        font-size: 7pt;
+        line-height: 1.4;
+        break-inside: avoid;
+    }
+
+    .reports-statement-group-note,
+    .reports-statement-footer {
+        font-size: 6.5pt;
+        line-height: 1.45;
+    }
+
+    .reports-statement-footer {
+        break-inside: avoid;
+    }
+
+    .reports-attendance-sheet + .reports-attendance-sheet {
+        break-before: page;
+    }
+
+    .reports-sheet-brand {
+        margin: 0 0 9pt;
+        padding-top: 9pt;
+        font-size: 7pt;
+    }
+
+    .reports-attendance-sheet .reports-sheet-identity,
+    .reports-section-summary {
+        margin-right: 0;
+        margin-left: 0;
+    }
+
+    .reports-attendance-sheet .reports-sheet-brand {
+        padding-top: 0;
+        margin-bottom: 5pt;
+        border-top: none;
+    }
+
+    .reports-attendance-sheet .reports-section-heading {
+        padding-bottom: 4pt;
+    }
+
+    .reports-section-period {
+        margin-top: 2pt;
+        font-size: 7pt;
+    }
+
+    .reports-attendance-sheet .reports-sheet-identity {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-bottom: 6pt;
+    }
+
+    .reports-attendance-sheet .reports-section-summary {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 6pt;
+        padding: 5pt 0;
+        margin-bottom: 6pt;
+    }
+
+    .reports-attendance-sheet .reports-table {
+        font-size: 6.5pt;
+    }
+
+    .reports-attendance-sheet .hris-table th,
+    .reports-attendance-sheet .hris-table td {
+        padding: 1pt 2pt;
+        line-height: 1.3;
+    }
+
+    .reports-attendance-sheet .hris-table th {
+        font-size: 6pt;
+    }
+
     body > *:not(:has(.payslip-print, .record-print)) {
         display: none !important;
     }

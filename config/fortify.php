@@ -162,20 +162,24 @@ return [
 
     'features' => [
         /*
-         * Features::registration() is deliberately absent — Fortify's own
-         * /register creates a roleless, link-less account and stays open
-         * forever, which on an internal HRIS is an unauthenticated door onto
-         * the users table.
+         * Features::registration() is deliberately absent.
          *
-         * Registration is not gone, it is REPLACED. routes/web.php defines a
-         * /register that RegistrationBootstrapGate keeps open ONLY while the
-         * system has no account, and that provisions a full System
-         * Administrator through App\Support\FirstAdmin rather than a roleless
-         * stub. The instant the first account exists it 404s, and every account
-         * after that is made in User Management behind all_data + USERS. So the
-         * one legitimate use of self-registration — standing up the first
-         * admin on a fresh install — is kept, and the standing-open hole is
-         * closed.
+         * Accounts are PROVISIONED, not self-served: User Management creates
+         * them behind `all_data` + USERS, hands each one a role, and links it
+         * to a 201 record. Fortify's registration screen bypasses every part of
+         * that — App\Actions\Fortify\CreateNewUser writes name, email and
+         * password and nothing else, so a self-registered account arrives with
+         * no role and no employee link.
+         *
+         * Such an account can read nothing (Access::rowVisibility() returns
+         * ROWS_NONE without an employee link, and no role means no module), so
+         * registration would be no data leak. It would be an unauthenticated
+         * endpoint on an HRIS that lets anybody create rows in `users` and
+         * probe which company addresses already exist, for a screen nothing in
+         * the app links to.
+         *
+         * The route exists only with the feature; the view and CreateNewUser
+         * stay where they are, so re-enabling is this one line back.
          */
         Features::resetPasswords(),
         Features::emailVerification(),

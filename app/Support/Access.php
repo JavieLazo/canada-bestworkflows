@@ -31,7 +31,7 @@ use LogicException;
  * `scoped()` — not `singleton()`, which would survive into the next request
  * under Octane, and never through the cache:
  *
- *     // AppServiceProvider::register()
+ *     // bootstrap/app.php
  *     $this->app->scoped(Access::class, fn () => Access::forActor(Auth::user()));
  *
  * This is precisely why `spatie/laravel-permission` is banned from this port:
@@ -170,7 +170,7 @@ final readonly class Access
             // exists before it is linked to an employee record. Read
             // `rowVisibility()` before you read this.
             employeeId: self::stringOrNull($user->getAttribute('employee_id')),
-            fullName: (string) ($user->getAttribute('full_name') ?? $user->getAttribute('name') ?? ''),
+            fullName: $user->name,
             roleName: $role->name ?? 'Unassigned',
             allData: (bool) ($role->all_data ?? false),
             modules: $modules,

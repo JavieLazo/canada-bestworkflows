@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Kit;
 
-use App\Livewire\Kit\Concerns\ReadsEmployeeDirectory;
-use App\Models\EmployeeProfile;
+use App\Modules\Workforce\Contracts\DirectoryEmployee as EmployeeProfile;
+use App\Modules\Workforce\Contracts\OperationalDirectory;
+use App\Support\Access;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -26,6 +27,9 @@ use Livewire\Component;
  *     <livewire:kit.employee-picker
  *         :value="$form->employeeId"      selected employee id, '' for none
  *         name="assignee"                 identifies THIS picker in the event
+ *         :active-only="true"             optional: hide people who have left
+ *         :department="$department"       optional: one department (and its units),
+ *                                         one unit, or "NONE" (Not placed)
  *         wire:key="assignee-{{ $form->employeeId }}"
  *     />
  *
@@ -44,15 +48,13 @@ use Livewire\Component;
  * ── Who appears in the list ─────────────────────────────────────────────────
  *
  * The scoped directory query and the multi-term search live in
- * {@see ReadsEmployeeDirectory}, shared with the multi-select
+ * {@see OperationalDirectory}, shared with the multi-select
  * {@see EmployeeChecklist} so the two controls can never disagree about who
  * an actor may see. The actor is re-read from the session EVERY request —
  * never cached on a property, never taken from the client.
  */
 class EmployeePicker extends Component
 {
-    use ReadsEmployeeDirectory;
-
     /** The selected employee's id, or "" for none. Id-bearing → #[Locked]. */
     #[Locked]
     public string $value = '';
@@ -81,6 +83,29 @@ class EmployeePicker extends Component
     #[Locked]
     public bool $disabled = false;
 
+    /**
+     * Offer ACTIVE employees only, for a control that starts something
+     * new — the roster's Assign shift dialog. Off by default: the eDTR and
+     * the punch station look up people who have left as well. Enforced on
+     * the pick and the trigger too, not only on the list, because the id
+     * arrives from the client.
+     */
+    #[Locked]
+    public bool $activeOnly = false;
+
+    /**
+     * Narrow the list to one department and its units, one unit, or
+     * OperationalDirectory::PLACE_NOT_PLACED; PLACE_ALL (the default) lists
+     * everyone the actor may see. It only ever narrows: the directory applies
+     * it AFTER its own row scope. Enforced on the pick as well as the list,
+     * because the id arrives from the client. The selected employee keeps
+     * showing on the trigger when they are outside it, so a parent that
+     * changes the department does not blank the record already open.
+     * #[Locked]: a parent changes it by re-keying the picker.
+     */
+    #[Locked]
+    public string $department = OperationalDirectory::PLACE_ALL;
+
     /** The live search text. Plain filter state, deliberately unlocked. */
     public string $search = '';
 
@@ -100,9 +125,9 @@ class EmployeePicker extends Component
             return;
         }
 
-        $employee = $this->directoryQuery()->whereKey($id)->first();
+        $employee = $this->resolve($id);
 
-        if ($employee === null) {
+        if ($employee === null || ! $this->inDepartment($id)) {
             return;
         }
 
@@ -125,11 +150,9 @@ class EmployeePicker extends Component
     /** @return Collection<int, EmployeeProfile> */
     protected function visibleEmployees(): Collection
     {
-        $query = $this->applyDirectorySearch($this->directoryQuery(), $this->search);
+        $visible = app(OperationalDirectory::class)->list(app(Access::class), search: $this->search, filters: ['place' => $this->department]);
 
-        return $query->get([
-            'id', 'employee_code', 'first_name', 'last_name', 'position', 'is_active', 'photo_path',
-        ]);
+        return $this->activeOnly ? $visible->filter(static fn (EmployeeProfile $e): bool => $e->is_active)->values() : $visible;
     }
 
     protected function selectedEmployee(): ?EmployeeProfile
@@ -141,6 +164,21 @@ class EmployeePicker extends Component
         // Through the SAME scoped query: a value pointing outside the actor's
         // visibility renders as the placeholder, never as a name they may not
         // read.
-        return $this->directoryQuery()->whereKey($this->value)->first();
+        return $this->resolve($this->value);
+    }
+
+    /** Whether an id is inside the department the parent narrowed the list to. */
+    private function inDepartment(string $id): bool
+    {
+        return $this->department === OperationalDirectory::PLACE_ALL
+            || app(OperationalDirectory::class)->list(app(Access::class), [$id], filters: ['place' => $this->department])->isNotEmpty();
+    }
+
+    /** The employee an id names, within the actor's scope and, when asked, only while active. */
+    private function resolve(string $id): ?EmployeeProfile
+    {
+        $employee = app(OperationalDirectory::class)->find(app(Access::class), $id);
+
+        return $employee === null || ($this->activeOnly && ! $employee->is_active) ? null : $employee;
     }
 }

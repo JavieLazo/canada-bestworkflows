@@ -19,12 +19,18 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * non-exempt site at (0,0) or with radius < 1; that check belongs in the
  * FormRequest, not here, because the columns keep their 0 defaults.
  *
+ * `is_active` (2026_09_30_0009): an INACTIVE site stays on every record and
+ * existing assignment that names it and is only withheld from new ones. It
+ * is not fillable: `SetSiteStatus` alone changes it, so a site edit or an
+ * import can never reactivate a site by accident.
+ *
  * @property string $id
  * @property string $name
  * @property float $latitude
  * @property float $longitude
  * @property int $radius_meters
  * @property bool $geofence_exempt
+ * @property bool $is_active
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read Collection<int, EmployeeProfile> $employees
@@ -35,6 +41,9 @@ class WorkSite extends BaseModel
 {
     /** @var string */
     protected $table = 'work_sites';
+
+    /** @var array<string, mixed> */
+    protected $attributes = ['is_active' => true];
 
     /** @var list<string> */
     protected $fillable = [
@@ -53,6 +62,7 @@ class WorkSite extends BaseModel
             'longitude' => 'float',
             'radius_meters' => 'integer',
             'geofence_exempt' => 'boolean',
+            'is_active' => 'boolean',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

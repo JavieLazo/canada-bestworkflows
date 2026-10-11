@@ -14,6 +14,12 @@ use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
 use App\Models\WorkSite;
+use App\Modules\Timekeeping\Application\Commands\CorrectPunches;
+use App\Modules\Timekeeping\Application\Commands\RecordPunch;
+use App\Modules\Timekeeping\Application\PunchInput;
+use App\Modules\Timekeeping\Application\Queries\PunchFeed;
+use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
+use App\Support\Access;
 use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -27,6 +33,8 @@ use Livewire\Livewire;
  * regression the starter pack calls non-negotiable), and the two write flows —
  * a kiosk punch and a day correction — land rows, audit entries and remarks.
  */
+
+/** @param list<string> $modules */
 function edtrRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -40,6 +48,7 @@ function edtrRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/** @param list<string> $modules */
 function edtrActor(array $modules, bool $allData = false, ?string $employeeId = null): User
 {
     $user = User::factory()->create([
@@ -67,7 +76,7 @@ function edtrEmployee(?WorkSite $site = null, string $first = 'Liza', string $la
 {
     $employee = new EmployeeProfile;
     $employee->forceFill([
-        'employee_code' => 'BWF-'.random_int(10000, 99999),
+        'employee_code' => 'COP-'.random_int(10000, 99999),
         'first_name' => $first,
         'last_name' => $last,
         'position' => 'Field Engineer',
@@ -80,6 +89,7 @@ function edtrEmployee(?WorkSite $site = null, string $first = 'Liza', string $la
     return $employee;
 }
 
+/** @param array<string, string|int|bool|null> $overrides */
 function edtrRosterShift(EmployeeProfile $employee, array $overrides = []): Shift
 {
     return Shift::query()->create(array_merge([
@@ -95,6 +105,32 @@ function edtrRosterShift(EmployeeProfile $employee, array $overrides = []): Shif
         'break_minutes' => 60,
         'requires_break_punch' => true,
     ], $overrides));
+}
+
+/**
+ * One stored punch at a Manila wall-clock instant, with whatever location
+ * the test needs on it.
+ *
+ * @param  array<string, mixed>  $overrides
+ */
+function edtrPunch(EmployeeProfile $employee, ?WorkSite $site, string $type, string $manilaStamp, array $overrides = []): AttendanceLog
+{
+    $punch = new AttendanceLog;
+    $punch->forceFill(array_merge([
+        'employee_id' => (string) $employee->getKey(),
+        'site_id' => $site?->getKey(),
+        'log_type' => $type,
+        'source' => 'WEB_GPS',
+        'latitude' => null,
+        'longitude' => null,
+        'distance_meters' => null,
+        'accuracy_meters' => null,
+        'is_geofenced' => true,
+        'is_anomaly' => false,
+        'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+    ], $overrides))->save();
+
+    return $punch;
 }
 
 /* ── the route gates on the module grant ─────────────────────────────────── */
@@ -117,6 +153,108 @@ it('renders for a role holding EDTR', function () {
         ->assertOk()
         ->assertSee('eDTR & Attendance')
         ->assertSee('Punch Station');
+});
+
+/* ── captured locations belong to the punch and follow its row scope ────── */
+
+it('maps captured punch coordinates and distinguishes a hand-entered location after a feed refresh', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:00', [
+        'latitude' => 14.612345, 'longitude' => 121.023456,
+    ]);
+    edtrPunch($employee, null, 'TIME_OUT', '2026-09-02T12:00:00', [
+        'location_kind' => 'WFH', 'latitude' => 14.654321, 'longitude' => 121.065432,
+    ]);
+    $manual = edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T13:00:00', [
+        'source' => 'MANUAL', 'latitude' => 14.699999, 'longitude' => 121.099999,
+    ]);
+    edtrActor(['EDTR'], allData: true);
+
+    $feed = Livewire::test(LiveFeed::class);
+
+    // A site's reference pin is not the captured fix. A kiosk fix on a manual
+    // entry is not evidence of the employee's location either.
+    foreach ([$feed->html(), $feed->call('punchRecorded')->html()] as $html) {
+        $header = Str::before(Str::after($html, '<thead>'), '</thead>');
+        expect(trim((string) preg_replace('/\s+/', ' ', strip_tags($header))))
+            ->toBe('Employee Timestamp Site Type Source Distance Captured location');
+        expect($html)->toContain('Captured location')
+            ->toContain($site->name)
+            ->toContain('Work from home')
+            ->toContain('href="https://www.google.com/maps?q=14.612345,121.023456"')
+            ->toContain('href="https://www.google.com/maps?q=14.654321,121.065432"')
+            ->toContain('target="_blank"')
+            ->toContain('rel="noopener noreferrer"')
+            ->not->toContain('google.com/maps?q=14.5995,120.9842')
+            ->not->toContain('google.com/maps?q=14.699999,121.099999');
+        $manualRow = Str::before(Str::after($html, 'wire:key="feed-'.$manual->getKey().'"'), '</tr>');
+        expect($manualRow)->toContain($site->name)->not->toContain('google.com/maps');
+        expect(Str::afterLast($manualRow, '<td '))->toContain('Manually Entered')
+            ->not->toContain($site->name)
+            ->not->toContain('google.com/maps');
+    }
+
+    $compact = Livewire::test(LiveFeed::class, ['compact' => true])->html();
+    expect($compact)->toContain('>Site</th>')
+        ->not->toContain('Captured location')
+        ->not->toContain('google.com/maps');
+});
+
+it('offers a captured-location map only when both coordinates were stored', function (?float $latitude, ?float $longitude, bool $hasMap) {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:00', [
+        'latitude' => $latitude, 'longitude' => $longitude,
+    ]);
+    edtrActor(['EDTR'], allData: true);
+
+    $html = Livewire::test(LiveFeed::class)->html();
+
+    expect($html)->toContain($site->name);
+    if ($hasMap) {
+        expect($html)->toContain('href="https://www.google.com/maps?q=0,0"');
+    } else {
+        expect($html)->not->toContain('google.com/maps');
+    }
+})->with([
+    'no coordinates' => [null, null, false],
+    'latitude only' => [14.612345, null, false],
+    'longitude only' => [null, 121.023456, false],
+    'zero coordinates are valid' => [0.0, 0.0, true],
+]);
+
+it('keeps captured coordinates and map links within the feed viewers employee scope', function () {
+    $site = edtrSite();
+    $own = edtrEmployee($site, 'Self', 'Viewer');
+    $other = edtrEmployee($site, 'Ramon', 'Bautista');
+    $ownPunch = edtrPunch($own, $site, 'TIME_IN', '2026-09-02T08:00:00', [
+        'latitude' => 14.612345, 'longitude' => 121.023456,
+    ]);
+    edtrPunch($other, $site, 'TIME_IN', '2026-09-02T08:01:00', [
+        'latitude' => 14.654321, 'longitude' => 121.065432,
+    ]);
+    $viewer = edtrActor(['EDTR'], employeeId: (string) $own->getKey());
+
+    $rows = app(PunchFeed::class)->list(Access::forActor($viewer), 300);
+    expect($rows->pluck('id')->all())->toBe([(string) $ownPunch->getKey()])
+        ->and($rows->sole()->latitude)->toBe(14.612345)
+        ->and($rows->sole()->longitude)->toBe(121.023456);
+    Livewire::test(LiveFeed::class)
+        ->assertSee('google.com/maps?q=14.612345,121.023456', false)
+        ->assertDontSee('121.065432')
+        ->assertDontSee('Bautista');
+
+    $unlinked = edtrActor(['EDTR']);
+    app()->forgetInstance(Access::class);
+
+    expect(app(PunchFeed::class)->list(Access::forActor($unlinked), 300))->toBeEmpty();
+    Livewire::test(LiveFeed::class)
+        ->assertSee('No punches recorded yet.')
+        ->assertSee('colspan="7"', false)
+        ->assertDontSee('google.com/maps')
+        ->assertDontSee('121.023456')
+        ->assertDontSee('121.065432');
 });
 
 /* ── scoped reads: an employee-less actor gets ZERO rows ─────────────────── */
@@ -159,6 +297,73 @@ it('ignores a forged employee pick from a self-only viewer', function () {
         ->call('employeePicked', 'dtr-employee', (string) $other->getKey())
         ->assertSet('dtrEmployee', '');
 });
+
+/* ── a feed name opens that employee's Daily Time Record ─────────────────── */
+
+it('links a feed name to that employees Daily Time Record, not to Employee Records', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site, 'Ramon', 'Bautista');
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:00');
+    // Employee Records too: a name opens the Daily Time Record even for a
+    // role that could open the record page.
+    edtrActor(['EDTR', 'EMPLOYEES'], allData: true);
+
+    $html = Livewire::test(LiveFeed::class)->html();
+
+    expect($html)->toContain('href="'.e(route('edtr.index', ['tab' => 'dtr', 'employee' => (string) $employee->getKey()])).'"')
+        ->not->toContain('/employees/'.$employee->getKey());
+});
+
+it('opens the DTR tab on the employee a feed link names', function () {
+    $employee = edtrEmployee(edtrSite(), 'Ramon', 'Bautista');
+    edtrActor(['EDTR'], allData: true);
+
+    $this->get(route('edtr.index', ['tab' => 'dtr', 'employee' => (string) $employee->getKey()]))
+        ->assertOk()
+        ->assertSee('Bautista')
+        ->assertDontSee('Select an employee to compute their daily time record.');
+
+    Livewire::withQueryParams(['tab' => 'dtr', 'employee' => (string) $employee->getKey()]);
+    Livewire::test(EdtrPage::class)
+        ->assertSet('tab', 'dtr')
+        ->assertSet('dtrEmployee', (string) $employee->getKey());
+});
+
+it('keeps a self-only viewer on their own record whatever employee a feed link names', function () {
+    $other = edtrEmployee(edtrSite(), 'Ramon', 'Bautista');
+    $own = edtrEmployee(edtrSite(), 'Self', 'Viewer');
+    edtrActor(['EDTR'], allData: false, employeeId: (string) $own->getKey());
+
+    $this->get(route('edtr.index', ['tab' => 'dtr', 'employee' => (string) $other->getKey()]))
+        ->assertOk()
+        ->assertSee('Viewer')
+        ->assertDontSee('Bautista');
+
+    Livewire::withQueryParams(['tab' => 'dtr', 'employee' => (string) $other->getKey()]);
+    Livewire::test(EdtrPage::class)
+        ->assertSet('tab', 'dtr')
+        ->assertSet('dtrEmployee', '');
+});
+
+it('ignores the part of a DTR link it cannot honour', function (array $query, string $tab) {
+    $employee = edtrEmployee(edtrSite(), 'Ramon', 'Bautista');
+    edtrActor(['EDTR'], allData: true);
+    array_walk_recursive($query, static function (mixed &$value) use ($employee): void {
+        if ($value === '{id}') {
+            $value = (string) $employee->getKey();
+        }
+    });
+
+    Livewire::withQueryParams($query);
+    Livewire::test(EdtrPage::class)
+        ->assertSet('tab', $tab)
+        ->assertSet('dtrEmployee', '');
+})->with([
+    'an id nobody has' => [['tab' => 'dtr', 'employee' => (string) Str::ulid()], 'dtr'],
+    'an employee without the DTR tab' => [['employee' => '{id}'], 'punch'],
+    'an unknown tab' => [['tab' => 'nonsense', 'employee' => '{id}'], 'punch'],
+    'an employee sent as a list' => [['tab' => 'dtr', 'employee' => ['{id}']], 'dtr'],
+]);
 
 /* ── the kiosk punch flow ────────────────────────────────────────────────── */
 
@@ -509,7 +714,11 @@ it('never writes a remark for a viewer without the widened role', function () {
 
 /* ── the stamped poll: a tick reads a stamp, not 300 rows ────────────────── */
 
-/** Every statement the callback issued, as SQL. */
+/**
+ * Every statement the callback issued, as SQL.
+ *
+ * @return Collection<int, string>
+ */
 function edtrQueriesDuring(Closure $work): Collection
 {
     DB::flushQueryLog();
@@ -653,7 +862,14 @@ it('colours a DTR row by what the day actually contains', function () {
     // That day's row, and the five right-aligned numbers in it, in the order
     // the header names them: break, worked, late, undertime, overtime.
     $row = Str::before(Str::after($html, 'wire:key="dtr-'.$today.'"'), '</tr>');
-    preg_match_all('/<td class="num text-right ?([a-z-]*)">([^<]*)</', $row, $cells, PREG_SET_ORDER);
+    preg_match_all('/<td class="num text-right ?([a-z-]*)">(.*?)<\/td>/s', $row, $cells, PREG_SET_ORDER);
+    // Overtime also has an approval action or status. Its review button is
+    // the computed duration; those other labels are not part of that number.
+    $cells = array_map(static function (array $cell): array {
+        preg_match('/<button\b[^>]*wire:click="openOvertime\([^"]*"[^>]*>(.*?)<\/button>/s', $cell[2], $computed);
+
+        return [$cell[0], $cell[1], trim(strip_tags($computed[1] ?? $cell[2]))];
+    }, $cells);
 
     expect($cells)->toHaveCount(5);
     [, $worked, $late, $undertime, $overtime] = $cells;
@@ -673,6 +889,14 @@ it('colours a DTR row by what the day actually contains', function () {
 });
 
 it('keeps DTR corrections out of the live feed, but not station punches', function () {
+    // Freeze the clock. The correction below targets today minus five days, and
+    // openCorrection() silently ignores a date outside the displayed period, which
+    // defaults to the current semi-monthly cutoff (Hris::semiMonthlyPeriod — 1–15 or
+    // 16–end of month). With a live clock, five days back crosses that boundary on
+    // the 1st–5th and 16th–20th of every month, the correction never opens, and this
+    // test fails ten days a month without any code having changed.
+    test()->travelTo(new DateTimeImmutable('2026-09-23T12:00:00+08:00'));
+
     $site = edtrSite();
     $employee = edtrEmployee($site);
     edtrActor(['EDTR'], allData: true);
@@ -769,3 +993,652 @@ it('draws every day of the chosen period, with nothing behind a scrollbar', func
         ->and($card)->toContain("x-bind:class=\"{ 'hris-table-wrap': overflows }\"")
         ->and(substr_count($card, 'hris-table-wrap'))->toBe(1);
 });
+
+/* ── which identifier the header card shows ──────────────────────────────── */
+
+it('pills the Employee ID beside the name, and shows no pill at all without one', function () {
+    $site = edtrSite();
+    $numbered = edtrEmployee($site, 'Liza', 'Domingo');
+    $numbered->forceFill(['employee_code' => 'COP-00061', 'employee_id_no' => '2024-301'])->save();
+    $plain = edtrEmployee($site, 'Noel', 'Reyes');
+    $plain->forceFill(['employee_code' => 'COP-00062'])->save();
+
+    edtrActor(['EDTR'], allData: true);
+
+    // An empty pill is a grey smudge: the whole span goes, not just its text.
+    Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $numbered->getKey())
+        ->assertSee('2024-301')
+        ->assertDontSee('COP-00061')
+        ->call('employeePicked', 'dtr-employee', (string) $plain->getKey())
+        ->assertSee('Noel Reyes')
+        ->assertDontSee('COP-00062');
+});
+
+/* ── the browser fix and its accuracy ────────────────────────────────────── */
+
+it('stores the browser accuracy on a self-service punch, rounded to two decimals, and audits it', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['PORTAL'], employeeId: (string) $employee->getKey()));
+
+    app(RecordPunch::class)->handle(
+        $actor,
+        new PunchInput((string) $employee->getKey(), '', 'WEB_GPS', true, '', ''),
+        'TIME_IN',
+        14.5995,
+        120.9842,
+        8.456,
+    );
+
+    $log = AttendanceLog::query()->where('employee_id', $employee->getKey())->sole();
+    expect($log->source)->toBe('WEB_GPS')
+        ->and((float) $log->latitude)->toBe(14.5995)
+        ->and((float) $log->longitude)->toBe(120.9842)
+        // Exempt site: nothing to measure a distance against, but the fix
+        // itself was measured.
+        ->and($log->distance_meters)->toBeNull()
+        ->and((float) $log->accuracy_meters)->toBe(8.46);
+    expect(DB::table('audit_logs')->where('action', 'PUNCH_TIME_IN')->value('details'))->toContain('(±8 m)');
+});
+
+it('lets a typed kiosk pin override the browser fix and records no accuracy for it', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    app(RecordPunch::class)->handle(
+        $actor,
+        new PunchInput((string) $employee->getKey(), '', 'MANUAL', false, '14.5995', '120.9842'),
+        'TIME_IN',
+        13.0,
+        121.0,
+        30.0,
+    );
+
+    $log = AttendanceLog::query()->where('employee_id', $employee->getKey())->sole();
+    expect((float) $log->latitude)->toBe(14.5995)
+        ->and((float) $log->longitude)->toBe(120.9842)
+        ->and($log->accuracy_meters)->toBeNull();
+    expect((string) DB::table('audit_logs')->where('action', 'PUNCH_TIME_IN')->value('details'))->not->toContain('±');
+});
+
+it('uses the kiosk browser fix and its accuracy when both coordinate boxes are blank', function () {
+    // A fenced site right at the pin, so the fix is verified and measured.
+    $site = edtrSite(exempt: false);
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    app(RecordPunch::class)->handle(
+        $actor,
+        new PunchInput((string) $employee->getKey(), '', 'WEB_GPS', false, '', ''),
+        'TIME_IN',
+        14.5995,
+        120.9842,
+        5.0,
+    );
+
+    $log = AttendanceLog::query()->where('employee_id', $employee->getKey())->sole();
+    expect($log->is_geofenced)->toBeTrue()
+        ->and((float) $log->distance_meters)->toBe(0.0)
+        ->and((float) $log->accuracy_meters)->toBe(5.0);
+    expect(DB::table('audit_logs')->where('action', 'PUNCH_TIME_IN')->value('details'))->toContain('(0 m ±5 m)');
+});
+
+it('records no accuracy without coordinates or for a reading outside its range', function (?float $lat, ?float $lng, float $accuracy) {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    app(RecordPunch::class)->handle(
+        $actor,
+        new PunchInput((string) $employee->getKey(), '', 'WEB_GPS', false, '', ''),
+        'TIME_IN',
+        $lat,
+        $lng,
+        $accuracy,
+    );
+
+    // The punch lands (the site is exempt); the reading does not.
+    expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->sole()->accuracy_meters)->toBeNull();
+})->with([
+    'no fix' => [null, null, 5.0],
+    'negative' => [14.5995, 120.9842, -1.0],
+    'not a number' => [14.5995, 120.9842, NAN],
+    'past the column' => [14.5995, 120.9842, 10_000_000_000.0],
+]);
+
+it('still refuses non-numeric typed kiosk coordinates before reading the browser fix', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    expect(fn () => app(RecordPunch::class)->handle(
+        $actor,
+        new PunchInput((string) $employee->getKey(), '', 'WEB_GPS', false, 'x', ''),
+        'TIME_IN',
+        14.5995,
+        120.9842,
+        5.0,
+    ))->toThrow(RuntimeException::class, "Those coordinates aren't numbers.");
+
+    expect(AttendanceLog::query()->count())->toBe(0);
+});
+
+/* ── a correction keeps what it did not change ───────────────────────────── */
+
+it('keeps an untouched punch with its source and location through a correction and replaces only the changed slot', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    $in = edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:31', [
+        'latitude' => 14.5995, 'longitude' => 120.9842, 'distance_meters' => 12.0, 'accuracy_meters' => 8.46,
+    ]);
+    $out = edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T16:00:05');
+
+    CorrectPunches::apply($actor, (string) $employee->getKey(), '2026-09-02', [
+        'time_in' => '08:00', 'break_out' => null, 'break_in' => null, 'time_out' => '17:00',
+    ], PunchSlots::SAME_DAY, null);
+
+    // The Time In was left as prefilled: same row, same seconds, same fix.
+    $kept = AttendanceLog::query()->findOrFail((string) $in->getKey());
+    expect($kept->source)->toBe('WEB_GPS')
+        ->and($kept->logged_at->format('Y-m-d H:i:s'))->toBe('2026-09-02 00:00:31')
+        ->and((float) $kept->latitude)->toBe(14.5995)
+        ->and((float) $kept->accuracy_meters)->toBe(8.46);
+
+    // The Time Out changed: the recorded one is gone, a CORRECTION stands.
+    expect(AttendanceLog::query()->whereKey($out->getKey())->exists())->toBeFalse();
+    $replacement = AttendanceLog::query()->where('employee_id', $employee->getKey())->where('source', AttendanceLog::SOURCE_CORRECTION)->sole();
+    expect($replacement->log_type)->toBe('TIME_OUT')
+        ->and($replacement->logged_at->format('Y-m-d H:i:s'))->toBe('2026-09-02 09:00:00')
+        ->and($replacement->accuracy_meters)->toBeNull();
+    expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->count())->toBe(2);
+
+    $details = (string) DB::table('audit_logs')->where('action', 'DTR_CORRECTED')->value('details');
+    // "now" prints what STANDS: the kept row with its real seconds (the
+    // seconds its lateness verdict comes from), the inserted one at :00.
+    expect($details)->toContain('was TIME_IN 8:00:31 AM, TIME_OUT 4:00:05 PM')
+        ->toContain('now TIME_IN 8:00:31 AM, TIME_OUT 5:00:00 PM')
+        ->toContain('kept 1 as recorded');
+    expect(AttendanceRemark::query()->count())->toBe(0);
+});
+
+it('keeps a night shift\'s carried time out when its minute is unchanged', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee, ['start_time' => '22:00:00', 'end_time' => '06:00:00', 'break_start' => null, 'break_end' => null, 'break_minutes' => 0, 'requires_break_punch' => false]);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    $in = edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T22:00:15');
+    $out = edtrPunch($employee, $site, 'TIME_OUT', '2026-09-03T06:01:40');
+
+    // The 06:01 is ticked Next day, as the dialog prefills it: a save never
+    // infers the next morning from the order of the times, so an unticked
+    // 06:01 would read as earlier than the 22:00.
+    CorrectPunches::apply($actor, (string) $employee->getKey(), '2026-09-02', [
+        'time_in' => '22:00', 'break_out' => null, 'break_in' => null, 'time_out' => '06:01',
+    ], ['time_out' => true] + PunchSlots::SAME_DAY, null);
+
+    expect(AttendanceLog::query()->whereKey($in->getKey())->exists())->toBeTrue()
+        ->and(AttendanceLog::query()->whereKey($out->getKey())->exists())->toBeTrue()
+        ->and(AttendanceLog::query()->where('source', AttendanceLog::SOURCE_CORRECTION)->count())->toBe(0)
+        ->and(AttendanceLog::query()->count())->toBe(2);
+    // The audit sentence carries only the corrected date, so the carried
+    // Time Out says it is on the next day — before and after.
+    expect((string) DB::table('audit_logs')->where('action', 'DTR_CORRECTED')->value('details'))
+        ->toContain('was TIME_IN 10:00:15 PM, TIME_OUT 6:01:40 AM next day')
+        ->toContain('now TIME_IN 10:00:15 PM, TIME_OUT 6:01:40 AM next day')
+        ->toContain('kept 2 as recorded');
+});
+
+it('drops the duplicate of two punches recorded in the same minute', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    $first = edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:10');
+    $double = edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:40');
+    $out = edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T17:00:00');
+
+    CorrectPunches::apply($actor, (string) $employee->getKey(), '2026-09-02', [
+        'time_in' => '08:00', 'break_out' => null, 'break_in' => null, 'time_out' => '17:00',
+    ], PunchSlots::SAME_DAY, null);
+
+    expect(AttendanceLog::query()->whereKey($first->getKey())->exists())->toBeTrue()
+        ->and(AttendanceLog::query()->whereKey($double->getKey())->exists())->toBeFalse()
+        ->and(AttendanceLog::query()->whereKey($out->getKey())->exists())->toBeTrue()
+        ->and(AttendanceLog::query()->count())->toBe(2);
+});
+
+it('clears a day entirely when every slot is emptied, and still audits it', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
+
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:00:00');
+    edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T17:00:00');
+
+    CorrectPunches::apply($actor, (string) $employee->getKey(), '2026-09-02', [
+        'time_in' => null, 'break_out' => null, 'break_in' => null, 'time_out' => null,
+    ], PunchSlots::SAME_DAY, 'Punched by mistake');
+
+    expect(AttendanceLog::query()->count())->toBe(0);
+    $details = (string) DB::table('audit_logs')->where('action', 'DTR_CORRECTED')->value('details');
+    expect($details)->toContain('→ now no punches')
+        ->not->toContain('kept');
+    $this->assertDatabaseHas('attendance_remarks', ['employee_id' => (string) $employee->getKey(), 'note' => 'Punched by mistake']);
+});
+
+/* ── the feed header and the DTR's time cells ────────────────────────────── */
+
+it('shows no count pill on the live feed', function () {
+    edtrActor(['EDTR'], allData: true);
+
+    $feed = Livewire::test(LiveFeed::class);
+
+    // The header carries no count; the total drives the empty row.
+    expect($feed->html())->not->toContain('pill pill-muted num')
+        ->and($feed->viewData('total'))->toBe(0);
+});
+
+it('prints DTR punch times without seconds', function () {
+    expect(Hris::fmtTime('2026-09-02T14:05:31'))->toBe('2:05 PM')
+        ->and(Hris::fmtTime('2026-09-02T00:05:31.000Z'))->toBe('8:05 AM');
+
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T08:47:31');
+    edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T15:30:00');
+    edtrActor(['EDTR'], allData: true);
+
+    $html = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->html();
+    $row = Str::before(Str::after($html, 'wire:key="dtr-2026-09-02"'), '</tr>');
+
+    expect($row)->toContain('>8:47 AM<')->toContain('>3:30 PM<')
+        ->not->toContain('8:47:31')->not->toContain('8:47:00');
+});
+
+/* ── the row opens the correction ────────────────────────────────────────── */
+
+it('opens the correction from the row itself, with no pencil column', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $employee = edtrEmployee(edtrSite());
+    edtrActor(['EDTR'], allData: true);
+    $today = '2026-09-02';
+
+    $page = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey());
+    $html = $page->html();
+
+    // No pencil column, and this zero-OT row needs no approval button. The
+    // eleven cells keep computed OT; pending approval stays inside its OT cell.
+    expect($html)->not->toContain('sr-only">Correct</span>');
+    $row = Str::before(Str::after($html, 'wire:key="dtr-'.$today.'"'), '</tr>');
+    // The Remarks cell is marked, never `.stop`-ped: a stopped click would keep
+    // every `.outside` panel on the page (bell, picker, calendar) open.
+    expect(substr_count($row, '<td'))->toBe(11)
+        ->and($row)->not->toContain('<button')
+        ->and($row)->not->toContain('.stop')
+        ->and($row)->toContain('<td data-remarks>');
+
+    // The <tr> skips Remarks and the separate overtime button by target,
+    // while keeping its keyboard handlers and focus.
+    $opening = Str::before($row, '<td');
+    expect($opening)->toContain('x-on:click="$event.target.closest(\'[data-remarks], button\') || $wire.openCorrection(\''.$today.'\')"')
+        ->toContain('x-on:keydown.enter.self.prevent')
+        ->toContain('x-on:keydown.space.self.prevent')
+        ->toContain('tabindex="0"')
+        ->toContain('cursor-pointer');
+
+    // And the empty state spans all eleven columns.
+    $page->set('start', '2026-09-30')->set('end', '2026-09-01');
+    expect($page->html())->toContain('colspan="11"');
+});
+
+it('keeps the DTR row inert for a self-only viewer', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $employee = edtrEmployee(edtrSite());
+    edtrActor(['EDTR'], employeeId: (string) $employee->getKey());
+
+    $page = Livewire::test(EdtrPage::class)->set('tab', 'dtr');
+    $row = Str::before(Str::after($page->html(), 'wire:key="dtr-2026-09-02"'), '</tr>');
+
+    expect($row)->not->toContain('openCorrection')
+        ->not->toContain('tabindex')
+        ->not->toContain('cursor-pointer');
+    $page->call('openCorrection', '2026-09-02')
+        ->assertSet('correctionOpen', false)
+        ->assertSet('correctingDate', null);
+});
+
+it('still ignores a correction for a date outside the shown period or that is no date', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $employee = edtrEmployee(edtrSite());
+    edtrActor(['EDTR'], allData: true);
+
+    $page = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey());
+
+    foreach (['2020-01-01', 'not-a-date', '2026-13-01'] as $date) {
+        $page->call('openCorrection', $date)
+            ->assertSet('correctionOpen', false)
+            ->assertSet('correctingDate', null);
+        expect($page->viewData('correction'))->toBeNull();
+    }
+});
+
+/* ── the correction dialog ───────────────────────────────────────────────── */
+
+it('draws the correction dialog from the day\'s own shift and punches', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    $fix = ['latitude' => 14.5995, 'longitude' => 120.9842, 'distance_meters' => 12.0, 'accuracy_meters' => 8.0];
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T10:03:00', $fix);
+    $typed = edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T12:05:00', ['source' => 'MANUAL'] + $fix);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T13:02:00', $fix);
+    edtrActor(['EDTR'], allData: true);
+
+    $page = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-02')
+        ->assertSet('correctionOpen', true)
+        ->assertSet('correctionForm.time_in', '10:03');
+
+    $correction = $page->viewData('correction');
+    expect($correction)->not->toBeNull()
+        ->and($correction->punches)->toHaveCount(3);
+
+    // A Web GPS punch shows the place it was captured at and its spot on a
+    // map — no source, distance or accuracy — and an admin's MANUAL punch
+    // says only "Manually Entered", with no place and no map even when it
+    // carries the kiosk's fix.
+    $dialog = Str::after($page->html(), 'Recorded punches');
+    expect($dialog)
+        ->toContain('rel="noopener noreferrer"')
+        ->toContain('>10:03 AM<')
+        ->not->toContain('10:03:00')
+        ->toContain($site->name)
+        ->not->toContain('WEB GPS')
+        ->not->toContain('MANUAL')
+        ->not->toContain('>12 m<')
+        ->not->toContain('±')
+        ->not->toContain('no GPS fix');
+    expect(substr_count($dialog, 'google.com/maps?q=14.5995,120.9842'))->toBe(2);
+    $typedRow = Str::before(Str::after($dialog, 'wire:key="correct-punch-'.$typed->getKey().'"'), '</tr>');
+    expect($typedRow)->toContain('Manually Entered')
+        ->not->toContain($site->name)
+        ->not->toContain('google.com/maps');
+    expect(substr_count($dialog, 'Manually Entered'))->toBe(1);
+
+    // The shift for THAT date, not the header card's label.
+    $facts = Str::before(Str::after($page->html(), 'correction-heading'), 'Recorded punches');
+    expect($facts)->toContain('10:00 AM – 5:00 PM')
+        ->toContain('12:00 PM – 1:00 PM')
+        ->not->toContain('Rest day');
+});
+
+it('tells the corrector what the shift for that date looks like', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $site = edtrSite();
+    edtrActor(['EDTR'], allData: true);
+
+    $noBreak = edtrEmployee($site, 'Noel', 'Reyes');
+    edtrRosterShift($noBreak, ['break_start' => null, 'break_end' => null, 'break_minutes' => 0, 'requires_break_punch' => false]);
+    $flexible = edtrEmployee($site, 'Ana', 'Cruz');
+    edtrRosterShift($flexible, ['mode' => 'FLEXIBLE', 'required_hours' => 6, 'break_start' => null, 'break_end' => null, 'break_minutes' => 0, 'requires_break_punch' => false]);
+    $unrostered = edtrEmployee($site, 'Ben', 'Santos');
+
+    $open = fn (EmployeeProfile $e, string $date) => Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $e->getKey())
+        ->call('openCorrection', $date);
+
+    $open($noBreak, '2026-09-02')->assertSee('No scheduled break — use First Time In and Final Time Out');
+    $open($flexible, '2026-09-02')->assertSee('Flexible · 6h a day, no set start');
+    // A Sunday on the default Mon–Fri week, for somebody with no roster row.
+    $open($unrostered, '2026-09-06')->assertSee('Rest day')->assertSee('Not rostered');
+});
+
+it('shows the auto remark only as the dialog\'s placeholder, with no status line', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee, ['break_start' => null, 'break_end' => null, 'break_minutes' => 0, 'requires_break_punch' => false]);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T10:25:00');
+    edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T17:00:00');
+    edtrActor(['EDTR'], allData: true);
+
+    $html = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-02')
+        ->html();
+    $dialog = Str::after($html, 'correction-heading');
+
+    // There is no name / status / auto-remark line under the date: the
+    // remark is said once, as the placeholder.
+    expect($dialog)->toContain('placeholder="25 min late"')
+        ->and(substr_count($dialog, '25 min late'))->toBe(1)
+        ->and($dialog)->not->toContain('pill pill-caution">LATE<')
+        ->not->toContain('Liza Domingo');
+});
+
+it('clears all four slots without touching the remark, and has no clear per slot', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $employee = edtrEmployee(edtrSite());
+    edtrActor(['EDTR'], allData: true);
+
+    $page = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-02');
+
+    // "Clear all" is the one clear button: a single slot is emptied by
+    // deleting its typed time.
+    $dialog = Str::after($page->html(), 'correction-heading');
+    expect($dialog)->toContain('wire:click="clearAllSlots"')
+        ->not->toContain('clearSlot(')
+        ->not->toContain('aria-label="Clear ');
+
+    $page->set('correctionForm.time_in', '08:00')
+        ->set('correctionForm.time_out', '17:00')
+        ->set('correctionForm.note', 'Late bus')
+        ->call('clearAllSlots')
+        ->assertSet('correctionForm.time_in', '')
+        ->assertSet('correctionForm.time_out', '')
+        ->assertSet('correctionForm.break_out', '')
+        ->assertSet('correctionForm.break_in', '')
+        ->assertSet('correctionForm.note', 'Late bus');
+
+    // A shape error goes with the shape that caused it.
+    $page->set('correctionForm.break_out', '12:00')
+        ->call('saveCorrection')
+        ->assertSet('correctionError', 'Record both middle punches, or neither - First Time Out with no Second Time In never closes.')
+        ->call('clearAllSlots')
+        ->assertSet('correctionError', null)
+        ->assertSet('correctionForm.break_out', '');
+
+    // Closed, the dialog's Clear all does nothing.
+    $page->set('correctionOpen', false)
+        ->assertSet('correctingDate', null)
+        ->set('correctionForm.time_out', '09:00')
+        ->call('clearAllSlots')
+        ->assertSet('correctionForm.time_out', '09:00');
+
+    expect(AttendanceLog::query()->count())->toBe(0);
+});
+
+/* ── the station sends the browser fix ───────────────────────────────────── */
+
+it('stores the browser fix and its accuracy on a kiosk punch when the boxes are empty', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrActor(['EDTR'], allData: true);
+
+    Livewire::test(PunchStation::class)
+        ->call('employeePicked', 'punch-employee', (string) $employee->getKey())
+        ->call('punch', 'TIME_IN', 14.5995, 120.9842, 8.4);
+
+    $log = AttendanceLog::query()->where('employee_id', $employee->getKey())->sole();
+    expect((float) $log->latitude)->toBe(14.5995)
+        ->and((float) $log->longitude)->toBe(120.9842)
+        ->and((float) $log->accuracy_meters)->toBe(8.4);
+});
+
+it('lets typed kiosk coordinates win over the browser fix', function () {
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrActor(['EDTR'], allData: true);
+
+    Livewire::test(PunchStation::class)
+        ->call('employeePicked', 'punch-employee', (string) $employee->getKey())
+        ->set('lat', '14.6')
+        ->set('lng', '121.1')
+        ->call('punch', 'TIME_IN', 14.5, 120.9, 8.4);
+
+    $log = AttendanceLog::query()->where('employee_id', $employee->getKey())->sole();
+    expect((float) $log->latitude)->toBe(14.6)
+        ->and((float) $log->longitude)->toBe(121.1)
+        ->and($log->accuracy_meters)->toBeNull();
+});
+
+/* ── the correction dialog's layout ──────────────────────────────────────── */
+
+it('keeps one Recorded punches anchor, no tab strip on a day without overtime, and Save inside the form', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T10:03:00');
+    edtrActor(['EDTR'], allData: true);
+
+    $html = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-02')
+        ->html();
+    $dialog = Str::after($html, 'correction-heading');
+
+    expect(substr_count($html, 'Recorded punches'))->toBe(1)
+        ->and($dialog)->not->toContain('role="tablist"')
+        ->and(Str::between($html, 'wire:submit="saveCorrection"', '</form>'))->toContain('Save punches')
+        // The title is the date; "Correct" is left for screen readers only.
+        ->and($dialog)->toContain('<span class="sr-only">Correct </span>Wed, Sep 02, 2026');
+
+    // That heading is the dialog's only accessible name: Flux forwards no
+    // aria-label, so x-init points aria-labelledby at the heading's id.
+    expect($html)->toContain('id="correction-heading"')
+        ->toMatch("/x-init=\"[^\"]*setAttribute\\((?:'|&#0?39;)aria-labelledby(?:'|&#0?39;), (?:'|&#0?39;)correction-heading(?:'|&#0?39;)\\)/");
+
+    // The empty-slots warning is a live region that is in the markup before
+    // it speaks (a region added later is not announced), slots filled or not.
+    expect(Str::between($html, 'wire:submit="saveCorrection"', '</form>'))
+        ->toMatch('#<p role="status"[^>]*>\s*<span[^>]*x-show="dropsDay\(\)"[^>]*>.*?Every slot is empty, so saving deletes all of this day#s');
+});
+
+it('keeps the dialog header to the date, the shift, the break and the place', function () {
+    // The dialog has no name / status / auto-remark line, no grace,
+    // Overnight or Assigned worksite tag, no break minutes, no × per slot
+    // and no "Saving replaces" footer line. A night shift on the Assigned
+    // Worksite fallback would show every one of them.
+    $this->travelTo(new DateTimeImmutable('2026-09-03T18:00:00+08:00'));
+    $site = edtrSite();
+    $employee = edtrEmployee($site, 'Ramon', 'Aquino');
+    edtrRosterShift($employee, ['start_time' => '22:00:00', 'end_time' => '06:00:00', 'grace_minutes' => 15, 'break_start' => '02:00:00', 'break_end' => '03:00:00']);
+    edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T21:55:00');
+    edtrActor(['EDTR'], allData: true);
+
+    $page = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-02')
+        ->assertSet('correctionOpen', true);
+    $dialog = Str::after($page->html(), 'correction-heading');
+    $facts = Str::before($dialog, 'Recorded punches');
+
+    expect($page->viewData('correction')->shift->overnight)->toBeTrue()
+        ->and($page->viewData('correction')->location->from_roster)->toBeFalse()
+        ->and($facts)->toContain('10:00 PM – 6:00 AM')
+        ->toContain('2:00 AM – 3:00 AM')
+        ->toContain($site->name)
+        ->not->toContain('Ramon Aquino')
+        ->not->toContain('class="pill')
+        ->not->toContain('grace')
+        ->not->toContain('Overnight')
+        ->not->toContain('Assigned worksite')
+        ->not->toContain('60m')
+        ->and($dialog)->not->toContain('aria-label="Clear ')
+        ->not->toContain('Saving replaces');
+});
+
+it('shows a corrected time as Manually Entered and keeps the captured place of a punch it left alone', function () {
+    // A correction stamps its inserted punch with the date's place, but that
+    // place was never captured with the new time, so the list drops it; the
+    // untouched Web GPS punch keeps its own.
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $site = edtrSite();
+    $employee = edtrEmployee($site);
+    edtrRosterShift($employee);
+    $fix = ['latitude' => 14.5995, 'longitude' => 120.9842, 'distance_meters' => 12.0, 'accuracy_meters' => 8.0];
+    $in = edtrPunch($employee, $site, 'TIME_IN', '2026-09-02T10:03:00', $fix);
+    edtrPunch($employee, $site, 'TIME_OUT', '2026-09-02T16:00:00', $fix);
+    edtrActor(['EDTR'], allData: true);
+
+    $page = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-02')
+        ->set('correctionForm.time_out', '17:00')
+        ->call('saveCorrection')
+        ->assertSet('correctionError', null)
+        ->call('openCorrection', '2026-09-02');
+
+    $corrected = AttendanceLog::query()->where('source', AttendanceLog::SOURCE_CORRECTION)->sole();
+    expect($corrected->site_id)->toBe($site->getKey());
+
+    $dialog = Str::after($page->html(), 'Recorded punches');
+    $keptRow = Str::before(Str::after($dialog, 'wire:key="correct-punch-'.$in->getKey().'"'), '</tr>');
+    $correctedRow = Str::before(Str::after($dialog, 'wire:key="correct-punch-'.$corrected->getKey().'"'), '</tr>');
+    expect($keptRow)->toContain('>10:03 AM<')
+        ->toContain($site->name)
+        ->toContain('google.com/maps?q=14.5995,120.9842')
+        ->not->toContain('Manually Entered')
+        ->and($correctedRow)->toContain('>5:00 PM<')
+        ->toContain('Manually Entered')
+        ->not->toContain($site->name)
+        ->not->toContain('google.com/maps');
+});
+
+it('folds the empty middle slots on a shift with no scheduled break without dropping them', function (bool $scheduledBreak) {
+    $this->travelTo(new DateTimeImmutable('2026-09-02T18:00:00+08:00'));
+    $employee = edtrEmployee(edtrSite());
+    edtrRosterShift($employee, $scheduledBreak ? [] : ['break_start' => null, 'break_end' => null, 'break_minutes' => 0, 'requires_break_punch' => false]);
+    edtrActor(['EDTR'], allData: true);
+
+    $html = Livewire::test(EdtrPage::class)
+        ->set('tab', 'dtr')
+        ->call('employeePicked', 'dtr-employee', (string) $employee->getKey())
+        ->call('openCorrection', '2026-09-01')
+        ->html();
+
+    // Folded on the client only: all four boxes are always in the server HTML.
+    expect($html)->toContain('id="correct-break_out-time"')->toContain('id="correct-break_in-time"')
+        ->and(substr_count($html, 'x-show="middle"'))->toBe($scheduledBreak ? 0 : 2)
+        ->and(str_contains($html, 'Add break punches'))->toBe(! $scheduledBreak)
+        ->and($html)->toContain($scheduledBreak ? 'data-middle="1"' : 'data-middle="0"');
+})->with([
+    'a scheduled break' => [true],
+    'no scheduled break' => [false],
+]);

@@ -3,6 +3,9 @@
     Same columns in the same order (Site, Coordinates, Radius, Geofence,
     Punches, Action), same search + geofence filter, same default sort (name,
     ascending), same dialog fields, validation toasts and copy.
+    DELIBERATE DIVERGENCE: a Status column and filter, and Make inactive /
+    Make active in the row menu — a site history names is retired, not
+    deleted.
 --}}
 <div class="space-y-6">
     <div>
@@ -28,9 +31,19 @@
                 <flux:select.option value="EXEMPT">Geofence exempt</flux:select.option>
             </x-kit.filter-select>
 
-            <flux:button variant="primary" class="ml-auto" icon="plus" wire:click="openAdd">
-                Add site
-            </flux:button>
+            <x-kit.filter-select label="Filter by status" class="w-[10rem]" wire:model.live="status">
+                <flux:select.option value="ALL">All statuses</flux:select.option>
+                <flux:select.option value="ACTIVE">Active</flux:select.option>
+                <flux:select.option value="INACTIVE">Inactive</flux:select.option>
+            </x-kit.filter-select>
+
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+                <x-kit.export-button :href="route('records.sites.export', array_filter(['q' => $search, 'geofence' => $geofence, 'status' => $status === 'ALL' ? null : $status, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+                <livewire:kit.csv-import table="records.sites" :template="route('records.sites.export', ['template' => 1])" key="import-sites" />
+                <flux:button variant="primary" icon="plus" wire:click="openAdd">
+                    Add site
+                </flux:button>
+            </div>
         </header>
 
         <div class="hris-table-wrap hris-table-scroll">
@@ -41,6 +54,7 @@
                         <th>Coordinates</th>
                         <x-kit.sort-header field="radius" label="Radius" />
                         <th>Geofence</th>
+                        <th>Status</th>
                         <x-kit.sort-header field="punches" label="Punches" />
                         <th class="text-right">Action</th>
                     </tr>
@@ -67,11 +81,22 @@
                                     {{ $s->geofence_exempt ? 'Exempt' : 'Enforced' }}
                                 </span>
                             </td>
+                            <td>
+                                <span class="{{ $s->is_active ? 'pill pill-success' : 'pill pill-muted' }}">
+                                    {{ $s->is_active ? 'Active' : 'Inactive' }}
+                                </span>
+                            </td>
                             <td class="num">{{ $punches }}</td>
                             <td class="text-right">
                                 <x-kit.row-actions :label="$s->name">
                                     <flux:menu.item icon="pencil" wire:click="startEdit('{{ $s->getKey() }}')">
                                         Edit
+                                    </flux:menu.item>
+                                    <flux:menu.item
+                                        :icon="$s->is_active ? 'no-symbol' : 'check-circle'"
+                                        wire:click="confirmStatus('{{ $s->getKey() }}')"
+                                    >
+                                        {{ $s->is_active ? 'Make inactive' : 'Make active' }}
                                     </flux:menu.item>
                                     <flux:menu.item
                                         icon="trash"
@@ -99,8 +124,8 @@
                 <flux:heading size="lg">Delete {{ $deleting?->name }}?</flux:heading>
                 <flux:text>
                     Only an unused site can be deleted. A site assigned to employees or referenced
-                    by attendance or project history must remain available so those records keep
-                    their location.
+                    by attendance, schedule or project history must remain so those records keep
+                    their location. To stop using such a site, make it inactive instead.
                 </flux:text>
             </div>
             <div class="flex justify-end gap-2">
@@ -108,6 +133,35 @@
                     <flux:button variant="outline">Cancel</flux:button>
                 </flux:modal.close>
                 <flux:button variant="primary" wire:click="deleteConfirmed">Delete</flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- Make inactive / Make active. The flag is all that changes. --}}
+    <flux:modal wire:model.self="statusOpen" class="w-full max-w-md">
+        <div class="space-y-4">
+            <div class="space-y-2">
+                @if ($changing?->is_active ?? true)
+                    <flux:heading size="lg">Make {{ $changing?->name }} inactive?</flux:heading>
+                    <flux:text>
+                        An inactive site can no longer be chosen for new assignments. Employees
+                        already assigned or scheduled there keep it, their punches are still checked
+                        against it, and it stays on every past record. No schedule is changed.
+                    </flux:text>
+                @else
+                    <flux:heading size="lg">Make {{ $changing?->name }} active?</flux:heading>
+                    <flux:text>
+                        The site can be chosen for new assignments again. Nothing else changes.
+                    </flux:text>
+                @endif
+            </div>
+            <div class="flex justify-end gap-2">
+                <flux:modal.close>
+                    <flux:button variant="outline">Cancel</flux:button>
+                </flux:modal.close>
+                <flux:button variant="primary" wire:click="statusConfirmed">
+                    {{ ($changing?->is_active ?? true) ? 'Make inactive' : 'Make active' }}
+                </flux:button>
             </div>
         </div>
     </flux:modal>

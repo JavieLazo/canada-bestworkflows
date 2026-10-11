@@ -7,22 +7,47 @@ namespace Database\Seeders;
 use App\Models\Notification;
 use App\Models\Project;
 use App\Models\ProjectTask;
+use App\Models\ProjectTaskSubmission;
 use App\Models\TaskComment;
 use App\Models\WorkSite;
 
 /**
- * Two projects with twelve tasks (seed.ts buildProjects(), prj-1 and prj-2) —
- * the demo Employee account is linked to emp-4, so its tasks deliberately
- * cover every status My Tasks can show: pending, in progress, submitted,
- * returned and completed (plus a cancelled one on the reviewing side).
+ * Two projects with thirteen tasks: the twelve of seed.ts buildProjects()
+ * (prj-1 and prj-2) plus one this port adds (TSK-013, below). The demo
+ * Employee account is linked to emp-4, so its tasks deliberately cover every
+ * TASK status My Tasks can show: pending, in progress, submitted, returned
+ * and completed (plus a cancelled one on the reviewing side). Approved, the
+ * one state that belongs to a member's own response on an INDIVIDUAL task,
+ * is not seeded for emp-4: walking TSK-013 through a review reaches it.
  *
  * Assignees live in the project_task_assignees pivot (a task is SHARED by
  * 0..N employees — ProjectTask docblock), written through
  * ProjectTask::syncAssignees() so a re-run is a no-op for rows already there.
  * TSK-002 is deliberately given TWO assignees (emp-6 and the demo emp-4) so
- * the demo data shows collaboration on first run; every other task keeps the
- * reference's single owner. A submitted task names its first assignee as
- * submitted_by, matching the "first to submit submits for everyone" rule.
+ * the demo data shows collaboration on first run; the other reference tasks
+ * keep the reference's single owner. They are all GROUP tasks, the column
+ * default: a submitted task names its first assignee as submitted_by,
+ * matching the "first to submit submits for everyone" rule.
+ *
+ * TSK-013 is the INDIVIDUAL demo, which the reference cannot have (copems has
+ * no submission mode): three assignees answer for themselves, and the task
+ * stays IN_PROGRESS while their responses move. emp-5's is APPROVED, emp-6's
+ * RETURNED with a note, and the demo emp-4 has none yet (Not submitted), so a
+ * walkthrough can submit from My Tasks and then review from Projects. The
+ * responses are project_task_submissions rows keyed on (task_id, employee_id),
+ * each seeded in the state one submission and one review leave behind. The
+ * crew leaves out emp-1 and emp-3 ON PURPOSE: their accounts (admin,
+ * supervisor) are the all-data PROJECTS reviewers, and an assignee may never
+ * review their own task. emp-5 and emp-6 have no account, so emp-6 can never
+ * resubmit: completing the task takes emp-4's approval AND emp-6's removal —
+ * the situation a crew member who cannot sign in creates.
+ *
+ * A re-run restores all of that — the task row, the crew, both responses and
+ * emp-4's missing one — so the walkthrough can be repeated; files and
+ * notifications it left behind stay. TSK-013 is seeded only while that code
+ * is free or already the seeder's own (id tsk-13): on a database whose
+ * seeded tasks stop at TSK-012, CreateTask mints TSK-013 next, and a
+ * developer's task holding it is NEVER taken over.
  *
  * Also the rework conversation on TSK-004, so the thread has something to
  * show and the two-way shape is obvious on first run, and the four task
@@ -41,7 +66,7 @@ final class ProjectSeeder extends PortSeeder
         $supervisorId = $this->userId('supervisor@bestworkflows.local');
         $employeeAccountId = $this->userId('employee@bestworkflows.local');
 
-        $site1 = WorkSite::query()->whereKey('site-1')->value('id');
+        $site1 = $this->seedId(WorkSite::class, 'site-1');
 
         $prj1 = $this->upsert(Project::class, ['code' => 'PRJ-001'], [
             'id' => 'prj-1',
@@ -139,6 +164,8 @@ final class ProjectSeeder extends PortSeeder
             $taskIds[$code] = (string) $task->getKey();
         }
 
+        $this->individualTask($projects[1], $employees);
+
         // The rework conversation on TSK-004.
         $comments = [
             ['tskc-1', $employeeAccountId, 'Paolo Bautista', 'ASSIGNEE', 'Readers swapped, badges re-enrolled.', 'SUBMITTED', [15, 16, 10]],
@@ -184,6 +211,108 @@ final class ProjectSeeder extends PortSeeder
                 'dedupe_key' => null,
                 'read_at' => $readAt === null ? null : $this->at($readAt[0], $readAt[1], $readAt[2]),
                 'created_at' => $this->at($createdAt[0], $createdAt[1], $createdAt[2]),
+            ]);
+        }
+    }
+
+    /**
+     * TSK-013, the INDIVIDUAL demo (class docblock).
+     *
+     * The task row holds no response: on an INDIVIDUAL task `submitted_by`,
+     * `remarks` and the review columns stay empty, and each member's latest
+     * response is their own ProjectTaskSubmission row. Those rows get no
+     * literal id — BaseModel mints a ULID — because a response id is the
+     * token a review decision posts, and a literal one would come back
+     * unchanged if a walkthrough removed the member and a re-run re-seeded
+     * them.
+     *
+     * @param  array{id: string, manager: int|null}  $project
+     * @param  array<int, string>  $employees  0-based reference index => employee_profiles.id
+     */
+    private function individualTask(array $project, array $employees): void
+    {
+        // TSK-013 is also the NEXT code CreateTask mints (the highest + 1) on
+        // any database whose seeded tasks stop at TSK-012, so a developer's
+        // first task there already holds it. Matching on the code would take
+        // that task over: move it, rewrite it, swap its crew and delete its
+        // members' responses. Only the row this seeder created (resolved
+        // through its stable identity) is updated; another TSK-013 skips it.
+        $seededId = $this->seedId(ProjectTask::class, 'tsk-13');
+        $codeHolder = ProjectTask::query()->where('code', 'TSK-013')->value('id');
+        if ($codeHolder !== null && $codeHolder !== $seededId) {
+            $this->command->warn('TSK-013 already belongs to another task: the INDIVIDUAL demo task was not seeded.');
+
+            return;
+        }
+
+        // The demo emp-4 plus emp-5 and emp-6, never the reviewers' own emp-1
+        // or emp-3. A missing index leaves the crew one short, as above.
+        $crew = [];
+        foreach ([3, 4, 5] as $empIdx) {
+            if (isset($employees[$empIdx])) {
+                $crew[$empIdx] = $employees[$empIdx];
+            }
+        }
+
+        /** @var ProjectTask $task */
+        $task = $this->upsert(ProjectTask::class, ['code' => 'TSK-013'], [
+            'id' => 'tsk-13',
+            'project_id' => $project['id'],
+            'title' => 'Complete the CCTV operator refresher',
+            'description' => "Each of you finishes the vendor's CCTV operator refresher and attaches your own completion certificate.",
+            'status' => 'IN_PROGRESS',
+            'priority' => 'NORMAL',
+            'submission_mode' => 'INDIVIDUAL',
+            'due_date' => $this->dateKey(-5),
+            'assigned_by' => $project['manager'],
+            'assigned_at' => $this->at(8, 9, 0),
+            'submitted_at' => null,
+            'submitted_by' => null,
+            'completed_at' => null,
+            'reviewed_by' => null,
+            'remarks' => null,
+            'review_remarks' => null,
+            'created_at' => $this->at(8, 9, 0),
+        ]);
+
+        $task->syncAssignees(array_values($crew), $project['manager']);
+
+        // Every run gives the demo emp-4 back "Not submitted", as the task row
+        // above is reset: a walkthrough hands in and decides that response,
+        // and a row left APPROVED on an IN_PROGRESS task would refuse the next
+        // walkthrough's submission. syncAssignees() deletes by primary key to
+        // avoid a gap lock under concurrent submissions; nothing runs beside a
+        // seeder, so this delete can key on the (task, employee) pair.
+        if (isset($crew[3])) {
+            ProjectTaskSubmission::query()->where('task_id', (string) $task->getKey())->where('employee_id', '=', $crew[3])->delete();
+        }
+
+        // employee index, status, the member's note, submitted (days ago, h,
+        // m), review remarks, reviewed (days ago, h, m). Each row is one
+        // submission and one review old, hence revision 2: SubmitTask inserts
+        // at 1 and every decision bumps it. The demo emp-4 is left out ON
+        // PURPOSE — no row is what "Not submitted" is.
+        $responses = [
+            [4, 'APPROVED', 'Refresher finished, certificate attached.', [6, 15, 30], 'Certificate checks out, thanks.', [5, 10, 0]],
+            [5, 'RETURNED', 'Done, certificate attached.', [3, 16, 0], "That certificate is for last year's module — please take the current one and resubmit.", [2, 11, 0]],
+        ];
+
+        foreach ($responses as [$empIdx, $status, $remarks, $submitted, $reviewRemarks, $reviewed]) {
+            if (! isset($crew[$empIdx])) {
+                continue;
+            }
+
+            // reviewed_by is an actor column, outside the model's $fillable:
+            // upsert() force-fills it, like every seeded actor column.
+            $this->upsert(ProjectTaskSubmission::class, ['task_id' => (string) $task->getKey(), 'employee_id' => $crew[$empIdx]], [
+                'status' => $status,
+                'remarks' => $remarks,
+                'submitted_at' => $this->at($submitted[0], $submitted[1], $submitted[2]),
+                'reviewed_by' => $project['manager'],
+                'review_remarks' => $reviewRemarks,
+                'reviewed_at' => $this->at($reviewed[0], $reviewed[1], $reviewed[2]),
+                'revision' => 2,
+                'created_at' => $this->at($submitted[0], $submitted[1], $submitted[2]),
             ]);
         }
     }

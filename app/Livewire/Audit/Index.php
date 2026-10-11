@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Livewire\Audit;
 
-use App\Domain\Enums\ModuleCode;
+use App\Livewire\Audit\Support\AuditRows;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
-use App\Models\AuditLog;
+use App\Platform\Audit\AuditRecords;
+use App\Platform\ReadModels\AuditLogView as AuditLog;
 use App\Support\Access;
+use App\Support\TextSort;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Layout;
@@ -94,9 +96,7 @@ class Index extends Component
         // newest first (audit/route.ts:13-21). Without the scope the reference
         // page rendered its table over an empty list; so does this one.
         /** @var Collection<int, AuditLog> $rows */
-        $rows = $access->mayReadAllData(ModuleCode::AUDIT)
-            ? AuditLog::query()->orderByDesc('created_at')->limit(self::LIMIT)->get()
-            : new Collection;
+        $rows = app(AuditRecords::class)->latest($access, self::LIMIT);
 
         // The three filter option lists (audit-page.tsx:28-43): distinct
         // values off the loaded rows, each sorted with localeCompare.
@@ -113,54 +113,9 @@ class Index extends Component
             ->unique()->values()->all();
         usort($actors, static fn (string $a, string $b): int => strcasecmp($a, $b));
 
-        // The filter pipeline (audit-page.tsx:45-55).
-        $needle = mb_strtolower(trim($this->search));
-
-        $visible = $rows->filter(function (AuditLog $r) use ($needle): bool {
-            if ($this->action !== 'ALL' && $r->action !== $this->action) {
-                return false;
-            }
-
-            if ($this->entity !== 'ALL' && $r->entity !== $this->entity) {
-                return false;
-            }
-
-            if ($this->actor !== 'ALL' && self::actorLabel($r) !== $this->actor) {
-                return false;
-            }
-
-            if ($needle === '') {
-                return true;
-            }
-
-            // `[action, entity, actor_name, details].some(...)` — the search
-            // matches the RAW actor_name, not the "System" fallback
-            // (audit-page.tsx:52-54).
-            foreach ([$r->action, $r->entity, $r->actor_name, $r->details] as $v) {
-                if (str_contains(mb_strtolower($v ?? ''), $needle)) {
-                    return true;
-                }
-            }
-
-            return false;
-        })->values();
-
-        // The sort (audit-page.tsx:57-70) — comparator then a whole-list
-        // reverse() for descending, exactly as the source did it. Timestamps
-        // compare as strings the way ISO strings did through compareText.
-        $sorted = $visible->sort(fn (AuditLog $a, AuditLog $b): int => match ($this->sortKey) {
-            'actor' => self::compareText($a->actor_name, $b->actor_name),
-            'action' => self::compareText($a->action, $b->action),
-            'entity' => self::compareText($a->entity, $b->entity),
-            default => self::compareText(
-                $a->created_at->format('Y-m-d H:i:s.v'),
-                $b->created_at->format('Y-m-d H:i:s.v'),
-            ),
-        })->values();
-
-        if ($this->sortDir === 'desc') {
-            $sorted = $sorted->reverse()->values();
-        }
+        // The filter pipeline and sort (audit-page.tsx:45-71): one copy,
+        // shared with the CSV export.
+        $sorted = AuditRows::arrange($rows, $this->search, $this->action, $this->entity, $this->actor, $this->sortKey, $this->sortDir);
 
         return view('livewire.audit.index', [
             'rows' => $this->paginateClamped($sorted),
@@ -182,25 +137,14 @@ class Index extends Component
      * Port of `compareText` (useSort.ts:33-40): blanks always sort last in an
      * ascending pass. `strcasecmp` stands in for `localeCompare` — for the
      * uppercase event literals, table names and English actor names this
-     * screen sorts, the ordering is the same.
+     * screen sorts, the ordering is the same. Shared through
+     * App\Support\TextSort; this wrapper keeps the call sites unchanged.
      */
-    private static function compareText(?string $a, ?string $b): int
+    public static function compareText(?string $a, ?string $b): int
     {
-        $left = trim($a ?? '');
-        $right = trim($b ?? '');
-
-        if ($left === '' && $right === '') {
-            return 0;
-        }
-
-        if ($left === '') {
-            return 1;
-        }
-
-        if ($right === '') {
-            return -1;
-        }
-
-        return strcasecmp($left, $right);
+        // One comparator for every sorted list — the eight module copies drifted
+        // (a case-only tiebreak in My Tasks, ICU in Employee Records). This stays a
+        // wrapper so no call site or Blade import changes; TextSortTest pins it.
+        return TextSort::compare($a, $b);
     }
 }

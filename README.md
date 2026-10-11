@@ -15,6 +15,10 @@ The system helps the company manage:
 - User accounts, roles, and permissions
 - Audit trail and activity history
 - Employee self-service portal
+- Community posts and chat
+- Inventory and property accountability
+- Workforce, attendance, and payroll reports
+- Payroll settings, statutory tables, benefits, and deductions
 
 Main Modules
 Employee Records	Manages employee profiles, hiring details, positions, rates, and status
@@ -51,6 +55,32 @@ Production Setup
 Production setup uses a separate seeder that creates only system configuration, such as roles, permissions, reference lists, holidays, formulas, and shift types.
 It does not create demo employees or demo passwords.
 The first admin account is created with a secure command. The password is generated automatically and shown only once.
+
+BestWorkflows keeps its public landing page at `/`. Sign-in opens the first
+module allowed by the account's role. First-run registration is available only
+until the first account exists; subsequent accounts use User Management.
+
+New seeded domain records use the same generated ULID database identifiers as
+records created through the application. Internal seed keys preserve repeatable
+seeding and relationships without becoming record IDs. Existing database IDs
+remain stable; account IDs and visible business codes keep their own formats.
+
+Upgrading An Existing Installation
+
+Back up the database and uploaded files before applying migrations. Use the
+existing environment file and application key. Do not run a fresh migration or
+reseed an existing installation merely to upgrade its code.
+
+The upgrade archives legacy values that newer schemas remove or normalize in
+`legacy_upgrade_values`, including account names, legacy leave balances,
+business codes, draft statutory inputs, and the SIL formula. This is recovery
+evidence, not active configuration. Old leave balances have no entitlement year;
+review them before entering the corresponding yearly leave credits. Existing
+role grants remain in place; enable additional modules through User Management.
+
+Runtime settings use `BESTWORKFLOWS_*` environment variables, with `COPEMS_*`
+fallbacks for EMS compatibility. Keep passwords, keys, employee data, and database
+backups outside Git and deployment archives.
 
 Scheduled Tasks
 A single cron job runs the system scheduler every minute. This powers background tasks such as:

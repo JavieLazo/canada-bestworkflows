@@ -4,18 +4,21 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Records\Support\Hris;
-use App\Livewire\Records\Support\ShiftTypePolicy;
-use App\Models\Shift;
-use App\Models\ShiftType;
+use App\Livewire\Records\Support\ShiftTypeRows;
+use App\Livewire\Roster\Support\ScheduleReview;
+use App\Modules\Timekeeping\Application\Commands\DeleteShiftType;
+use App\Modules\Timekeeping\Application\Commands\SaveShiftType;
+use App\Modules\Timekeeping\Application\Queries\ReferenceData;
+use App\Modules\Timekeeping\Application\ScheduleImpactPending;
+use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -29,13 +32,23 @@ use Livewire\Component;
  * flexible ones that only owe a daily total — with the full editor: mode,
  * work week, required hours, grace and the break rules.
  *
- * Permissions, exactly as the reference:
+ * Permissions:
  *  - the PAGE needs RECORDS — route middleware;
  *  - READS are open to any session (GET /api/records/shift-types);
  *  - every WRITE needs all_data + RECORDS and passes the shift-shape policy
- *    (api/records/shift-types/route.ts), re-checked inside each action;
- *  - the usage count reads the assigned-shift list through the same scoping
- *    GET /api/shifts applies (ROSTER, EDTR, PAYROLL).
+ *    (api/records/shift-types/route.ts), re-checked inside the owning
+ *    command; editing a pattern that employees are rostered on ALSO needs
+ *    all_data + ROSTER, because `SaveShiftType` re-copies the edit onto
+ *    their schedule from the effective date (the write `AssignShift` gates
+ *    on ROSTER);
+ *  - an edit that reaches rostered employees carries an EFFECTIVE FROM date
+ *    (today or later) and, when it affects anything worth a second look,
+ *    is HELD for review: nothing is saved until it is confirmed with the
+ *    token of exactly what was shown;
+ *  - the "in use by N" count is an unscoped count of employees a copy of
+ *    each pattern still reaches from today (`ReferenceData::shiftTypeUsage`),
+ *    so the badge, the Delete guard and the re-copy count agree. DELIBERATE DIVERGENCE from
+ *    the reference, which read the actor-scoped shift list.
  */
 #[Layout('layouts.app')]
 #[Title('Shifting Settings')]
@@ -76,8 +89,27 @@ class ShiftTypesPage extends Component
 
     public bool $formRequiresBreakPunch = true;
 
+    /**
+     * The date an edit applies to rostered employees from; blank is the
+     * earliest date possible. A draft: `SaveShiftType` refuses a past date
+     * and decides whether today is still possible.
+     */
+    public string $formEffectiveFrom = '';
+
     /** The dialog's inline error (shift-types-page.tsx:404-414). */
     public ?string $formError = null;
+
+    /** The token of the impact shown in the review dialog; the save carries it back. */
+    #[Locked]
+    public string $reviewToken = '';
+
+    /**
+     * The review dialog's lines, as the command reported them.
+     *
+     * @var array{takes_effect: string, moved: string, conflicts: list<string>, rest_days: list<string>, drafts: list<string>}
+     */
+    #[Locked]
+    public array $review = ScheduleReview::EMPTY;
 
     /** Delete confirmation visibility. Plain UI state. */
     public bool $confirmOpen = false;
@@ -119,13 +151,15 @@ class ShiftTypesPage extends Component
         $this->formBreakEnd = '13:00';
         $this->formBreakMinutes = '60';
         $this->formRequiresBreakPunch = true;
+        $this->formEffectiveFrom = '';
+        $this->reviewToken = '';
         $this->formError = null;
         $this->dialogOpen = true;
     }
 
     public function startEdit(string $id): void
     {
-        $row = ShiftType::query()->find($id);
+        $row = app(ReferenceData::class)->shiftType(app(Access::class), $id);
 
         if ($row === null) {
             Flux::toast(variant: 'danger', text: 'That shift pattern no longer exists.');
@@ -147,6 +181,8 @@ class ShiftTypesPage extends Component
         $this->formBreakEnd = self::hhmm($row->break_end, '13:00');
         $this->formBreakMinutes = (string) $row->break_minutes;
         $this->formRequiresBreakPunch = $row->requires_break_punch;
+        $this->formEffectiveFrom = '';
+        $this->reviewToken = '';
         $this->formError = null;
         $this->dialogOpen = true;
     }
@@ -175,9 +211,51 @@ class ShiftTypesPage extends Component
     /**
      * Save the dialog — the client checks of ShiftTypeDialog `submit()`
      * (shift-types-page.tsx:400-414) plus the API's own shape policy and caps
-     * (ShiftTypeInput, schemas.ts:118-134).
+     * (ShiftTypeInput, schemas.ts:118-134), all re-run by `SaveShiftType`.
+     *
+     * TAKES NO ARGUMENT ON PURPOSE: an action's arguments come from the
+     * client, and a confirmation passed that way would skip the review.
      */
     public function save(): void
+    {
+        $this->reviewToken = '';
+        $this->persist(null);
+    }
+
+    /**
+     * The review dialog's Confirm: the held save runs again, carrying the
+     * token of what was shown. Copied and cleared first, so a second click
+     * carries nothing.
+     */
+    public function confirmReview(): void
+    {
+        $token = $this->reviewToken;
+        $this->reviewToken = '';
+        if ($token === '') {
+            return;
+        }
+        $this->modal('schedule-review')->close();
+        $this->persist($token);
+    }
+
+    /** The review dialog's Go back: the editor again, as it was left. */
+    public function reviewBack(): void
+    {
+        $this->reviewToken = '';
+        $this->modal('schedule-review')->close();
+        $this->dialogOpen = true;
+    }
+
+    /**
+     * An edit also re-copies the pattern onto its rostered rows inside one
+     * transaction, so the catches are ordered narrowest first — a held
+     * review saves nothing and shows what the edit affects, a unique clash
+     * is the duplicate toast, any other QueryException (the roster update
+     * failing, rolled back with the pattern) is the generic one, and a
+     * RuntimeException is the command's own refusal. The last three each
+     * extend the next, so the order is load-bearing.
+     */
+    private function persist(?string $confirmed): void
     {
         if (trim($this->formName) === '') {
             $this->formError = 'Name is required.';
@@ -194,121 +272,38 @@ class ShiftTypesPage extends Component
         }
 
         $this->formError = null;
-
-        if (mb_strlen(trim($this->formName)) > 160) {
-            Flux::toast(variant: 'danger', text: 'name: must be at most 160 characters.');
-
-            return;
-        }
-
-        $flexible = $this->formMode === 'FLEXIBLE';
-
-        // The client's payload mapping, verbatim (shift-types-page.tsx:170-186).
-        // Bounds-checked because the property is client-writable: 0–6 only
-        // (ShiftTypeInput, schemas.ts:124).
-        $days = array_values(array_unique(array_filter(
-            array_map(intval(...), $this->formWorkDays),
-            static fn (int $d): bool => $d >= 0 && $d <= 6,
-        )));
-        sort($days);
-
-        if ($days === []) {
-            $this->formError = 'Pick at least one working day.';
-
-            return;
-        }
-
-        $payload = [
-            'name' => trim($this->formName),
-            'mode' => $flexible ? 'FLEXIBLE' : 'FIXED',
-            'work_days' => $days,
-            'start_time' => $flexible ? null : $this->formStartTime.':00',
-            'end_time' => $flexible ? null : $this->formEndTime.':00',
-            'grace_minutes' => $flexible ? 0 : (is_numeric($this->formGrace) ? (int) $this->formGrace : 0),
-            'required_hours' => $flexible ? (is_numeric($this->formRequiredHours) ? (float) $this->formRequiredHours : 0.0) : null,
-            'break_start' => $this->formHasBreak && ! $flexible ? $this->formBreakStart.':00' : null,
-            'break_end' => $this->formHasBreak && ! $flexible ? $this->formBreakEnd.':00' : null,
-            'break_minutes' => $this->formHasBreak ? (is_numeric($this->formBreakMinutes) ? (int) $this->formBreakMinutes : 0) : 0,
-            'requires_break_punch' => $this->formHasBreak && ! $flexible ? $this->formRequiresBreakPunch : false,
-        ];
-
-        // ShiftTypeInput's numeric caps (schemas.ts:118-134).
-        if ($payload['grace_minutes'] < 0 || $payload['grace_minutes'] > 600) {
-            Flux::toast(variant: 'danger', text: 'grace_minutes: must be between 0 and 600.');
-
-            return;
-        }
-
-        if ($payload['break_minutes'] < 0 || $payload['break_minutes'] > 600) {
-            Flux::toast(variant: 'danger', text: 'break_minutes: must be between 0 and 600.');
-
-            return;
-        }
-
-        if ($payload['required_hours'] !== null
-            && ($payload['required_hours'] < 0 || $payload['required_hours'] > 24)) {
-            Flux::toast(variant: 'danger', text: 'required_hours: must be between 0 and 24.');
-
-            return;
-        }
-
-        // The API's combination policy (api/records/shift-types/route.ts:19-25).
-        $shapeError = ShiftTypePolicy::shapeError($payload);
-
-        if ($shapeError !== null) {
-            Flux::toast(variant: 'danger', text: $shapeError);
-
-            return;
-        }
-
         $access = app(Access::class);
+        $from = trim($this->formEffectiveFrom) === '' ? null : trim($this->formEffectiveFrom);
+        try {
+            $message = app(SaveShiftType::class)->handle($access, $this->editingId, new ShiftTypeDraft($this->formName, $this->formMode, $this->formWorkDays, $this->formStartTime, $this->formEndTime, $this->formGrace, $this->formRequiredHours, $this->formHasBreak, $this->formBreakStart, $this->formBreakEnd, $this->formBreakMinutes, $this->formRequiresBreakPunch), $from, $confirmed);
+        } catch (ScheduleImpactPending $pending) {
+            $this->reviewToken = $pending->impact->token();
+            $this->review = ScheduleReview::lines($pending->impact);
+            $this->dialogOpen = false;
+            $this->modal('schedule-review')->show();
 
-        // requireAllDataModule("RECORDS") — re-checked in the action itself.
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (UniqueConstraintViolationException) {
+            Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
+            $this->dialogOpen = true;
+
+            return;
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The shift pattern could not be saved. Nothing was changed. Please try again.');
+            $this->dialogOpen = true;
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+            $this->dialogOpen = true;
 
             return;
         }
-
-        $name = $payload['name'];
-
-        if ($this->editingId !== null) {
-            $row = ShiftType::query()->find($this->editingId);
-
-            if ($row === null) {
-                Flux::toast(variant: 'danger', text: 'That shift pattern no longer exists.');
-
-                return;
-            }
-
-            $row->fill($payload)->save();
-
-            AuditService::record(
-                $access,
-                AuditEvent::SHIFT_TYPE_UPDATED,
-                'shift_types',
-                (string) $row->getKey(),
-                "{$row->code} updated — {$name}",
-            );
-
-            Flux::toast(variant: 'success', text: "{$name} updated.");
-        } else {
-            $code = $this->nextCode();
-            $row = ShiftType::query()->create($payload + ['code' => $code]);
-
-            AuditService::record(
-                $access,
-                AuditEvent::SHIFT_TYPE_CREATED,
-                'shift_types',
-                (string) $row->getKey(),
-                "{$name} added as {$code}",
-            );
-
-            Flux::toast(variant: 'success', text: "{$name} added.");
-        }
-
+        Flux::toast(variant: 'success', text: $message);
         $this->dialogOpen = false;
         $this->editingId = null;
+        $this->formEffectiveFrom = '';
     }
 
     public function confirmDelete(string $id): void
@@ -322,113 +317,49 @@ class ShiftTypesPage extends Component
         $id = $this->deletingId;
         $this->confirmOpen = false;
         $this->deletingId = null;
-
         if ($id === null) {
             return;
         }
-
         $access = app(Access::class);
+        try {
+            $name = app(DeleteShiftType::class)->handle($access, $id);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The record could not be deleted. Please try again.');
 
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        $row = ShiftType::query()->find($id);
-
-        if ($row === null) {
-            Flux::toast(variant: 'danger', text: 'That shift pattern no longer exists.');
-
-            return;
-        }
-
-        $code = $row->code;
-        $name = $row->name;
-        $row->delete();
-
-        AuditService::record(
-            $access,
-            AuditEvent::SHIFT_TYPE_DELETED,
-            'shift_types',
-            $id,
-            "{$code} \"{$name}\" deleted",
-        );
-
         Flux::toast(variant: 'success', text: "{$name} deleted.");
-    }
-
-    /** shift-types-page.tsx:110-116 — `SFT-000` codes, read from the rows. */
-    private function nextCode(): string
-    {
-        $highest = 0;
-
-        foreach (ShiftType::query()->pluck('code') as $code) {
-            if (preg_match('/^SFT-(\d+)$/i', (string) $code, $m) === 1) {
-                $highest = max($highest, (int) $m[1]);
-            }
-        }
-
-        return sprintf('SFT-%03d', $highest + 1);
     }
 
     public function render(): View
     {
-        // A pattern counts as in use when someone is rostered on those exact
-        // hours (shift-types-page.tsx:134-139), read through the same scoping
-        // GET /api/shifts applies.
+        // DELIBERATE DIVERGENCE from shift-types-page.tsx:138-143, which
+        // counted a pattern as in use when a scoped shift row matched its
+        // start and end — and so read 0 for every FLEXIBLE pattern. Here it is
+        // the unscoped count of rows linked by shift_type_id, the same rows
+        // SaveShiftType rewrites, so the badge, the Delete guard and the
+        // save toast's count agree.
         $access = app(Access::class);
 
-        $assigned = Shift::query()
-            ->toEmployee($access, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->get(['start_time', 'end_time']);
+        $usage = app(ReferenceData::class)->shiftTypeUsage($access);
 
-        $usageOf = static function (ShiftType $row) use ($assigned): int {
-            if ($row->mode === 'FLEXIBLE') {
-                return 0;
-            }
+        // Search and sort: one copy shared with the CSV export.
+        $rows = $this->paginateClamped(ShiftTypeRows::list($access, $this->search, $this->sortKey, $this->sortDir));
 
-            return $assigned
-                ->filter(static fn (Shift $s): bool => $s->start_time === $row->start_time && $s->end_time === $row->end_time)
-                ->count();
-        };
-
-        $needle = strtolower(trim($this->search));
-
-        $items = ShiftType::query()->get()
-            ->filter(static function (ShiftType $r) use ($needle): bool {
-                return $needle === '' || str_contains(strtolower("{$r->code} {$r->name}"), $needle);
-            })
-            ->values()
-            ->all();
-
-        usort($items, function (ShiftType $a, ShiftType $b): int {
-            return match ($this->sortKey) {
-                'id' => Hris::compareText($a->code, $b->code),
-                'mode' => Hris::compareText($a->mode, $b->mode) ?: Hris::compareText($a->name, $b->name),
-                default => Hris::compareText($a->name, $b->name),
-            };
-        });
-
-        if ($this->sortDir === 'desc') {
-            $items = array_reverse($items);
-        }
-
-        $rows = $this->paginateClamped($items);
-
-        $usage = [];
-
-        foreach ($rows as $row) {
-            $usage[$row->getKey()] = $usageOf($row);
-        }
-
-        $editing = $this->editingId !== null ? ShiftType::query()->find($this->editingId) : null;
-        $deleting = $this->deletingId !== null ? ShiftType::query()->find($this->deletingId) : null;
+        $editing = $this->editingId !== null ? app(ReferenceData::class)->shiftType(app(Access::class), $this->editingId) : null;
+        $deleting = $this->deletingId !== null ? app(ReferenceData::class)->shiftType(app(Access::class), $this->deletingId) : null;
 
         return view('livewire.records.shift-types-page', [
             'rows' => $rows,
             'usage' => $usage,
             'editing' => $editing,
+            // How many rostered rows the save will rewrite; 0 when adding.
+            'editingUsage' => $this->editingId !== null ? ($usage[$this->editingId] ?? 0) : 0,
             'deleting' => $deleting,
         ]);
     }

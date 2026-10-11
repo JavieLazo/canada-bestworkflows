@@ -4,20 +4,25 @@ declare(strict_types=1);
 
 namespace App\Livewire\Employees;
 
-use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
-use App\Models\EmployeeProfile;
-use App\Models\EmploymentStatusOption;
-use App\Models\PayrollRunMember;
-use App\Models\Position;
-use App\Models\User;
-use App\Models\WorkSite;
+use App\Livewire\Employees\Support\PositionPicker;
+use App\Modules\IdentityAccess\Application\Queries\AccountLinks;
+use App\Modules\Organization\Contracts\OrganizationDirectory;
+use App\Modules\Workforce\Application\Commands\DeleteEmployee;
+use App\Modules\Workforce\Application\Commands\SubmitRecordChange;
+use App\Modules\Workforce\Application\Commands\UpdateEmployee;
+use App\Modules\Workforce\Application\Commands\UpdatePortrait;
+use App\Modules\Workforce\Application\EmployeeInput;
+use App\Modules\Workforce\Application\Queries\EmployeePdsWorkbook;
+use App\Modules\Workforce\Application\Queries\EmployeeRecords;
+use App\Modules\Workforce\Application\Queries\EmploymentObligations;
+use App\Modules\Workforce\Contracts\Views\EmployeeProfileView as EmployeeProfile;
+use App\Modules\Workforce\Domain\Records\OwnRecordFields;
+use App\Platform\Files\PortraitUrl;
 use App\Support\Access;
-use App\Support\AuditService;
-use App\Support\EmployeeName;
-use Carbon\CarbonImmutable;
+use App\Support\Portrait;
 use Flux\Flux;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Database\QueryException;
 use Illuminate\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -25,37 +30,84 @@ use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * The full 201 file — the port of
- * `src/app/(protected)/employees/[id]/employee-detail.tsx`.
- *
- * One section edits at a time; email is checked as the field is left and
- * everything else waits for Save. The portrait is redrawn down to a 512px
- * JPEG with GD before it is stored (lib/portrait.ts), never kept as base64.
- *
- * Two callers with different rights land on the PATCH this mirrors
- * (api/employees/[id]/route.ts): HR (`all_data` + EMPLOYEES) edits anyone;
- * an employee edits their OWN record and only the SelfPatch fields — the
- * profile form must never become a way to award yourself a raise.
+ * The full employee record is shared by management and My Profile. Permitted
+ * My Profile edits require independent approval; Employee Records grants
+ * management direct editing, including their linked employee record.
  */
 #[Title('Employee record')]
 class Show extends Component
 {
     use WithFileUploads;
 
-    /** What a person may change about themselves. Deliberately short (SelfPatch). */
-    private const array SELF_PATCH = [
-        'birth_date', 'sex', 'civil_status', 'address', 'phone', 'email',
-        'residence_cert', 'emergency_name', 'emergency_relation', 'emergency_phone',
+    /** The tabs in strip order, value => label. */
+    public const array TABS = [
+        'profile' => 'Profile',
+        'family' => 'Family',
+        'education' => 'Education',
+        'eligibility' => 'Eligibility',
+        'experience' => 'Work experience',
+        'training' => 'Training',
+        'voluntary' => 'Voluntary work',
+        'other' => 'Other info',
+        'declarations' => 'Declarations',
+        'documents' => 'Documents',
+        'inventory' => 'Issued items',
+    ];
+
+    /** The tabs drawn by the list card (PdsList), one list each. */
+    public const array LIST_TABS = ['education', 'eligibility', 'experience', 'training', 'voluntary'];
+
+    /**
+     * The Profile tab's columns, top to bottom; the record's order, not the
+     * wizard's. Emergency Contact sits on the wide right column, where its
+     * address and its Cancel / Save buttons have room beside the title.
+     */
+    public const array PROFILE_LEFT = ['personal'];
+
+    public const array PROFILE_RIGHT = ['employment', 'addresses', 'emergency', 'statutory'];
+
+    /** The tab each editable section is drawn on. */
+    private const array SECTION_TAB = [
+        'personal' => 'profile',
+        'addresses' => 'profile',
+        'emergency' => 'profile',
+        'employment' => 'profile',
+        'statutory' => 'profile',
+        'spouse' => 'family',
+        'parents' => 'family',
+        'children' => 'family',
+        'skills' => 'other',
+        'distinctions' => 'other',
+        'memberships' => 'other',
+        'declarations' => 'declarations',
     ];
 
     #[Locked]
-    public string $employeeId;
+    public string $employeeId = '';
+
+    #[Locked]
+    public bool $own = false;
+
+    public bool $portraitOpen = false;
+
+    public bool $portraitRemoved = false;
+
+    /** Which tab is showing. Plain UI state; anything unknown collapses back to Profile. */
+    public string $tab = 'profile';
 
     public ?string $editingSection = null;
 
-    /** @var array<string, mixed> */
+    /**
+     * The open section's draft. Not Locked: every value is re-validated by
+     * the owning employee command. Employee Details also carries `department_id` and
+     * `unit_id`, which only narrow the Position list and are never saved,
+     * and `position_id`, which the command re-resolves (EmployeePosition).
+     *
+     * @var array<string, mixed>
+     */
     public array $form = [];
 
     /**
@@ -67,6 +119,11 @@ class Show extends Component
 
     public bool $deleteConfirmOpen = false;
 
+    /** Not Locked: this is a confirmation draft rechecked against outstanding obligations by UpdateEmployee. */
+    public bool $acknowledgeObligations = false;
+
+    public string $obligationReason = '';
+
     /**
      * The picked portrait (Livewire temporary upload).
      *
@@ -74,26 +131,47 @@ class Show extends Component
      */
     public $photo = null;
 
-    public function mount(string $employee): void
+    public function mount(string $employee = '', bool $own = false): void
     {
-        $this->employeeId = $employee;
+        $this->own = $own;
+        $access = app(Access::class);
+        $this->employeeId = $own && $access->hasEmployeeLink() ? $access->ownEmployeeId() : $employee;
+
+        // Deep links follow this entry point and the actor's current grants.
+        $this->updatedTab((string) request()->query('tab', ''));
+    }
+
+    /**
+     * The strip's buttons and the narrow-screen Section select. An unknown
+     * value collapses to Profile; leaving the tab of the section being
+     * edited drops that edit, so no hidden draft lingers, while choosing the
+     * tab already showing keeps it.
+     */
+    public function updatedTab(string $value): void
+    {
+        $this->tab = array_key_exists($value, $this->availableTabs(app(Access::class))) ? $value : 'profile';
+
+        if ($this->editingSection !== null && (self::SECTION_TAB[$this->editingSection] ?? 'profile') !== $this->tab) {
+            $this->cancelEditing();
+        }
     }
 
     /**
      * The record, through the same visibility tiers as the list: everyone for
      * `all_data` + EMPLOYEES/PAYROLL, own record otherwise, nothing for an
-     * unlinked account.
+     * unlinked account. With the details row and the addresses, which the
+     * cards and the 201 sheet show.
      */
     private function employee(): ?EmployeeProfile
     {
         $access = app(Access::class);
-        $query = EmployeeProfile::query()->whereKey($this->employeeId);
+        if ($this->own) {
+            abort_unless($access->hasModule(ModuleCode::PROFILE), 403);
 
-        return match ($access->rowVisibility(ModuleCode::EMPLOYEES, ModuleCode::PAYROLL)) {
-            Access::ROWS_ALL => $query->first(),
-            Access::ROWS_OWN => $query->whereKey($access->ownEmployeeId())->first(),
-            Access::ROWS_NONE => null,
-        };
+            return app(EmployeeRecords::class)->own($access, details: true);
+        }
+
+        return app(EmployeeRecords::class)->find($access, $this->employeeId, details: true);
     }
 
     private function isHr(Access $access): bool
@@ -101,39 +179,180 @@ class Show extends Component
         return $access->mayReadAllData(ModuleCode::EMPLOYEES);
     }
 
+    private function requiresApproval(): bool
+    {
+        return $this->own;
+    }
+
+    private function canEdit(Access $access): bool
+    {
+        return $this->requiresApproval()
+            ? $access->hasModule(ModuleCode::PROFILE) && $access->hasEmployeeLink() && $access->ownEmployeeId() === $this->employeeId
+            : $this->isHr($access);
+    }
+
+    private function canEditSection(Access $access, string $section): bool
+    {
+        return $this->canEdit($access)
+            && (! $this->requiresApproval() || OwnRecordFields::allowsSection($section));
+    }
+
+    /** @return array<string, string> */
+    private function availableTabs(Access $access): array
+    {
+        $tabs = self::TABS;
+        if ($this->requiresApproval() || ! $this->isHr($access)) {
+            unset($tabs['documents']);
+        }
+
+        return $tabs;
+    }
+
     /* ── Section editing ─────────────────────────────────────────────────── */
 
-    public function startEditing(string $sectionId): void
+    public function startEdit(string $sectionId): void
     {
+        $access = app(Access::class);
+        $this->acknowledgeObligations = false;
+        $this->obligationReason = '';
         $employee = $this->employee();
 
-        if ($employee === null || EmployeeFields::section($sectionId) === null) {
+        $section = EmployeeFields::section($sectionId);
+
+        if ($employee === null || $section === null) {
             return;
         }
 
-        $this->form = EmployeeFields::toForm($employee);
+        if (! $this->canEditSection($access, $sectionId)) {
+            return;
+        }
+
+        // Department and Unit start where the linked position sits; they
+        // only narrow the Position list (PositionPicker).
+        $this->form = EmployeeFields::toForm($employee) + PositionPicker::drafts($employee);
         $this->formErrors = [];
+
         $this->editingSection = $sectionId;
+        $this->tab = self::SECTION_TAB[$sectionId] ?? 'profile';
     }
 
     public function cancelEditing(): void
     {
         $this->editingSection = null;
+
         $this->formErrors = [];
     }
 
-    /** Email is checked as the field is left (employee-detail.tsx:100-110). */
+    /**
+     * The Children card's rows, a name and a date of birth each: a row is
+     * added blank and removed by its position; the draft is re-checked and
+     * re-normalised on Save (EmployeeInput::childrenError / children, then
+     * UpdateEmployee).
+     */
+    public function addChild(): void
+    {
+        $rows = is_array($this->form['children'] ?? null) ? $this->form['children'] : [];
+
+        if (count($rows) >= EmployeeFields::MAX_CHILDREN) {
+            return;
+        }
+
+        $rows[] = ['name' => '', 'birth_date' => ''];
+        $this->form['children'] = $rows;
+    }
+
+    public function removeChild(int $index): void
+    {
+        $rows = is_array($this->form['children'] ?? null) ? $this->form['children'] : [];
+        unset($rows[$index]);
+        $this->form['children'] = array_values($rows);
+    }
+
+    /**
+     * An Other info card's lines: a line is added blank and removed by its
+     * position. Form state only — the key is whitelisted against the three
+     * lists, and the draft is re-checked on Save (EmployeeInput::linesError
+     * / lines, then UpdateEmployee).
+     */
+    public function addItem(string $key): void
+    {
+        if (! array_key_exists($key, EmployeeFields::ITEM_KINDS)) {
+            return;
+        }
+
+        $lines = is_array($this->form[$key] ?? null) ? $this->form[$key] : [];
+
+        if (count($lines) >= EmployeeFields::MAX_ITEMS) {
+            return;
+        }
+
+        $lines[] = '';
+        $this->form[$key] = $lines;
+    }
+
+    public function removeItem(string $key, int $index): void
+    {
+        if (! array_key_exists($key, EmployeeFields::ITEM_KINDS)) {
+            return;
+        }
+
+        $lines = is_array($this->form[$key] ?? null) ? $this->form[$key] : [];
+        unset($lines[$index]);
+        $this->form[$key] = array_values($lines);
+    }
+
+    /**
+     * Email is checked as the field is left (employee-detail.tsx:100-110).
+     * DELIBERATE DIVERGENCE — so are the two contact numbers, through the
+     * same per-answer rule the wizard applies; the reference has no phone
+     * rule at all (see PhoneRule). Everything else waits for Save.
+     */
     public function updated(string $name): void
     {
-        if ($name === 'form.email') {
-            $message = EmployeeFields::emailError((string) ($this->form['email'] ?? ''));
+        if (! str_starts_with($name, 'form.')) {
+            return;
+        }
 
-            if ($message !== null) {
-                $this->formErrors['email'] = $message;
-            } else {
-                unset($this->formErrors['email']);
+        $key = substr($name, 5);
+
+        // Department or Unit changed: the Position list follows, and a
+        // choice it no longer lists is dropped (PositionPicker::narrow).
+        if ($key === 'department_id' || $key === 'unit_id') {
+            $this->form = PositionPicker::narrow(app(Access::class), $this->form);
+
+            return;
+        }
+
+        $field = $this->contactField($key);
+
+        if ($field === null) {
+            return;
+        }
+
+        $message = EmployeeInput::fieldError($field, EmployeeInput::text($this->form[$key] ?? ''));
+
+        if ($message !== null) {
+            $this->formErrors[$key] = $message;
+        } else {
+            unset($this->formErrors[$key]);
+        }
+    }
+
+    /**
+     * The spec of an email or tel field — the two kinds checked on blur — or
+     * null for any other key.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function contactField(string $key): ?array
+    {
+        foreach (EmployeeFields::allFields() as $field) {
+            if ($field['key'] === $key && in_array($field['type'] ?? null, ['email', 'tel'], true)) {
+                return $field;
             }
         }
+
+        return null;
     }
 
     public function saveSection(string $sectionId): void
@@ -146,29 +365,53 @@ class Show extends Component
             return;
         }
 
-        // PATCH guard (api/employees/[id]/route.ts:60-63): HR may edit anyone;
-        // anyone else only their own record.
-        if (! $this->isHr($access) && $employee->id !== $access->employeeId) {
+        if (! $this->canEditSection($access, $sectionId)) {
             abort(403);
         }
 
-        // ── The section-level checks the page ran before submitting ────────
+        // ── The section-level checks the page runs before submitting ───────
+        // DELIBERATE DIVERGENCE — the reference checks only the section's
+        // email here (employee-detail.tsx:108-112); this runs every
+        // answer's shape through the wizard's own per-answer rule, so the
+        // message lands under the field instead of in a toast. UpdateEmployee
+        // repeats the checks and is the authority.
         $sectionErrors = [];
 
         foreach ($section['fields'] as $field) {
-            if (($field['type'] ?? null) !== 'email') {
+            // A field waiting on another answer (Specify, the dual
+            // citizenship parts, the permanent parts) is checked only while
+            // it is asked; UpdateEmployee clears it otherwise.
+            if (isset($field['derived']) || ! EmployeeFields::shown($field, $this->form)) {
                 continue;
             }
 
-            $message = EmployeeFields::emailError((string) ($this->form[$field['key']] ?? ''));
+            $key = (string) $field['key'];
+            // The children and the Other info lines are lists, checked as a
+            // whole; a declaration's answer goes through fieldError, whose
+            // option check covers it. Every other field is one text.
+            $message = match (true) {
+                EmployeeFields::isChildren($field) => EmployeeInput::childrenError($this->form[$key] ?? null),
+                EmployeeFields::isLines($field) => EmployeeInput::linesError($this->form[$key] ?? null),
+                default => EmployeeInput::fieldError($field, EmployeeInput::text($this->form[$key] ?? '')),
+            };
 
             if ($message !== null) {
-                $sectionErrors[$field['key']] = $message;
+                $sectionErrors[$key] = $message;
             }
         }
 
-        if ($sectionId === 'employment' && trim((string) ($this->form['work_site_id'] ?? '')) === '') {
+        $sectionErrors += EmployeeInput::conditionalErrors($section, $this->form);
+
+        if ($sectionId === 'employment' && EmployeeInput::text($this->form['work_site_id'] ?? '') === '') {
             $sectionErrors['work_site_id'] = 'Assigned Worksite is required.';
+        }
+
+        if ($sectionId === 'addresses') {
+            $kept = EmployeeFields::keptLegacyAddressError($employee, $this->form);
+
+            if ($kept !== null) {
+                $sectionErrors['residential_address'] = $kept;
+            }
         }
 
         $this->formErrors = $sectionErrors;
@@ -177,151 +420,31 @@ class Show extends Component
             return;
         }
 
-        // ── Payload (employee-detail.tsx:121-140) ──────────────────────────
-        $boolean = EmployeeFields::booleanKeys();
-        $numeric = EmployeeFields::numericKeys();
-        $payload = [];
-
-        foreach ($section['fields'] as $field) {
-            if (isset($field['derived'])) {
-                continue;
-            }
-
-            $key = (string) $field['key'];
-            $value = $this->form[$key] ?? '';
-
-            if (in_array($key, $boolean, true)) {
-                $payload[$key] = EmployeeFields::asBool($value);
-            } elseif (in_array($key, $numeric, true)) {
-                $text = trim((string) $value);
-                $n = $text === '' ? 0.0 : (is_numeric($text) ? (float) $text : NAN);
-
-                if (! is_finite($n) || $n < 0) {
-                    Flux::toast(text: "{$field['label']} must be a positive number.", variant: 'danger');
-
-                    return;
-                }
-
-                $payload[$key] = $n;
-            } else {
-                $text = trim((string) $value);
-                $payload[$key] = $text === '' ? null : $text;
-            }
-        }
-
-        // A non-HR caller is restricted to the SelfPatch fields; anything
-        // else fails the way the API's strict schema did.
-        if (! $this->isHr($access)) {
-            $extra = array_diff(array_keys($payload), self::SELF_PATCH);
-
-            if ($extra !== []) {
-                Flux::toast(
-                    text: "Unrecognized key(s) in object: '".implode("', '", array_values($extra))."'",
-                    variant: 'danger',
-                );
+        try {
+            if ($this->requiresApproval()) {
+                app(SubmitRecordChange::class)->section($access, $sectionId, $this->form);
+                $this->cancelEditing();
+                $this->dispatch('record-change-submitted');
+                Flux::toast(text: 'Change request submitted. Your record stays unchanged until approved.', variant: 'success');
 
                 return;
             }
-        }
+            $title = app(UpdateEmployee::class)->handle($access, $employee->id, $sectionId, $this->form, $this->acknowledgeObligations, $this->obligationReason);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'That employee could not be saved. Try again.', variant: 'danger');
 
-        // ── The API-side guards, message for message ───────────────────────
-        $failure = $this->serverPolicyError($employee, $payload);
-
-        if ($failure !== null) {
-            Flux::toast(text: $failure, variant: 'danger');
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        // date_hired is NOT NULL on the table (and non-optional in the API
-        // schema); a cleared DateField must fail like the API's 400 did.
-        if (array_key_exists('date_hired', $payload) && $payload['date_hired'] === null) {
-            Flux::toast(text: 'Date joined must be a real calendar date.', variant: 'danger');
-
+        if ($title === null) {
             return;
         }
-
-        $employee->fill($payload)->save();
-
-        AuditService::record(
-            $access,
-            $this->isHr($access) ? AuditEvent::EMPLOYEE_UPDATED : AuditEvent::PROFILE_UPDATED,
-            'employee_profiles',
-            $employee->id,
-            EmployeeName::display($employee).' — '.implode(', ', array_keys($payload)).' updated',
-        );
-
         $this->editingSection = null;
-        Flux::toast(text: "{$section['title']} saved.", variant: 'success');
-    }
-
-    /**
-     * The PATCH guards of api/employees/[id]/route.ts:70-108: schema caps,
-     * merged-date policy, and the existence checks for whichever of the three
-     * referenced values this patch carries.
-     *
-     * @param  array<string, mixed>  $payload
-     */
-    private function serverPolicyError(EmployeeProfile $employee, array $payload): ?string
-    {
-        foreach (EmployeeFields::TEXT_CAPS as $key => $cap) {
-            if (isset($payload[$key]) && is_string($payload[$key]) && mb_strlen($payload[$key]) > $cap) {
-                return "{$key}: must be at most {$cap} characters.";
-            }
-        }
-
-        foreach (EmployeeFields::NUMERIC_CAPS as $key => $cap) {
-            if (isset($payload[$key]) && is_float($payload[$key]) && $payload[$key] > $cap) {
-                return "{$key}: must be at most {$cap}.";
-            }
-        }
-
-        foreach (['sss_mode', 'philhealth_mode', 'pagibig_mode'] as $key) {
-            if (array_key_exists($key, $payload) && $payload[$key] !== null
-                && ! in_array($payload[$key], EmployeeFields::SERVER_MODES, true)) {
-                return "{$key}: expected SEMI_MONTHLY or MONTHLY.";
-            }
-        }
-
-        $day = static fn (?CarbonImmutable $d): ?string => $d?->format('Y-m-d');
-
-        $merged = [
-            'birth_date' => array_key_exists('birth_date', $payload)
-                ? $payload['birth_date']
-                : $day($employee->birth_date),
-            'date_hired' => array_key_exists('date_hired', $payload) && $payload['date_hired'] !== null
-                ? (string) $payload['date_hired']
-                : (string) $day($employee->date_hired),
-            'date_regular' => array_key_exists('date_regular', $payload)
-                ? $payload['date_regular']
-                : $day($employee->date_regular),
-            'date_resigned' => array_key_exists('date_resigned', $payload)
-                ? $payload['date_resigned']
-                : $day($employee->date_resigned),
-        ];
-
-        $dateError = EmployeeFields::employeeDateError($merged, EmployeeFields::todayKey());
-
-        if ($dateError !== null) {
-            return $dateError;
-        }
-
-        if (isset($payload['work_site_id']) && is_string($payload['work_site_id'])
-            && WorkSite::query()->whereKey($payload['work_site_id'])->doesntExist()) {
-            return 'Choose an existing work site for the employee.';
-        }
-
-        if (isset($payload['position']) && is_string($payload['position'])
-            && Position::query()->where('name', $payload['position'])->doesntExist()) {
-            return 'Choose a position from Records Management.';
-        }
-
-        if (isset($payload['employment_status']) && is_string($payload['employment_status'])
-            && EmploymentStatusOption::query()->where('name', $payload['employment_status'])->doesntExist()) {
-            return 'Choose an employment status from Records Management.';
-        }
-
-        return null;
+        Flux::toast(text: "{$title} saved.", variant: 'success');
     }
 
     /* ── Portrait ────────────────────────────────────────────────────────── */
@@ -335,99 +458,81 @@ class Show extends Component
         if ($this->photo === null) {
             return;
         }
-
         $access = app(Access::class);
         $employee = $this->employee();
-
         if ($employee === null) {
             return;
         }
+        abort_unless($this->canEdit($access), 403);
+        if ($this->requiresApproval()) {
+            $this->portraitRemoved = false;
 
-        // SelfPatch includes `photo`, so a non-HR caller may replace their own.
-        if (! $this->isHr($access) && $employee->id !== $access->employeeId) {
-            abort(403);
+            $this->portraitOpen = true;
+
+            return;
         }
-
         $upload = $this->photo;
         $this->photo = null;
-
-        if (! str_starts_with((string) $upload->getMimeType(), 'image/')) {
-            Flux::toast(text: 'Pick an image file.', variant: 'danger');
-
-            return;
-        }
-
-        $size = (int) $upload->getSize();
-
-        if ($size > EmployeeFields::MAX_PHOTO_BYTES) {
-            Flux::toast(
-                text: 'That image is '.EmployeeFields::humanSize($size).' — the limit is '
-                    .EmployeeFields::humanSize(EmployeeFields::MAX_PHOTO_BYTES).'.',
-                variant: 'danger',
-            );
-
-            return;
-        }
-
         try {
-            $jpeg = $this->portraitJpeg((string) file_get_contents($upload->getRealPath()));
+            $changed = app(UpdatePortrait::class)->handle($access, $employee->id, $upload);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'The photo could not be saved.', variant: 'danger');
+
+            return;
         } catch (RuntimeException $e) {
             Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        $path = 'portraits/'.$employee->id.'.jpg';
-        Storage::disk('public')->put($path, $jpeg);
-
-        $employee->photo_path = $path;
-        $employee->save();
-
-        // The server path folds a photo change into EMPLOYEE_UPDATED
-        // (AuditEvent: EMPLOYEE_PHOTO_UPDATED is read-only, demo-era).
-        AuditService::record(
-            $access,
-            $this->isHr($access) ? AuditEvent::EMPLOYEE_UPDATED : AuditEvent::PROFILE_UPDATED,
-            'employee_profiles',
-            $employee->id,
-            EmployeeName::display($employee).' — photo updated',
-        );
-
-        Flux::toast(text: 'Photo updated.', variant: 'success');
+        if ($changed) {
+            Flux::toast(text: 'Photo updated.', variant: 'success');
+        }
     }
 
-    /** portrait.ts:29-63 in ~20 lines of raw GD. */
-    private function portraitJpeg(string $bytes): string
+    public function stagePortraitRemoval(): void
     {
-        $source = @imagecreatefromstring($bytes);
+        $access = app(Access::class);
+        abort_unless($this->canEdit($access) && $this->requiresApproval(), 403);
+        $this->photo = null;
+        $this->portraitRemoved = true;
 
-        if ($source === false) {
-            throw new RuntimeException('Could not read that image.');
+        $this->portraitOpen = true;
+    }
+
+    public function submitPortrait(): void
+    {
+        $access = app(Access::class);
+        abort_unless($this->canEdit($access) && $this->requiresApproval(), 403);
+        if ($this->photo === null && ! $this->portraitRemoved) {
+            return;
         }
+        try {
+            app(SubmitRecordChange::class)->portrait($access, $this->photo);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'The portrait request could not be submitted. Try again.', variant: 'danger');
 
-        $width = imagesx($source);
-        $height = imagesy($source);
-        $scale = min(1.0, EmployeeFields::PORTRAIT_MAX_EDGE / max($width, $height));
-        $newWidth = max(1, (int) round($width * $scale));
-        $newHeight = max(1, (int) round($height * $scale));
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
 
-        $canvas = imagecreatetruecolor($newWidth, $newHeight);
-        // Over white — transparent corners would go black otherwise.
-        imagefill($canvas, 0, 0, (int) imagecolorallocate($canvas, 255, 255, 255));
-        imagecopyresampled($canvas, $source, 0, 0, 0, 0, $newWidth, $newHeight, $width, $height);
-
-        ob_start();
-        imagejpeg($canvas, null, EmployeeFields::PORTRAIT_JPEG_QUALITY);
-        $jpeg = (string) ob_get_clean();
-
-        imagedestroy($canvas);
-        imagedestroy($source);
-
-        if ($jpeg === '') {
-            throw new RuntimeException('Could not read that image.');
+            return;
         }
+        $this->photo = null;
+        $this->portraitRemoved = false;
+        $this->portraitOpen = false;
+        $this->dispatch('record-change-submitted');
+        Flux::toast(text: 'Portrait change submitted for approval.', variant: 'success');
+    }
 
-        return $jpeg;
+    public function updatedPortraitOpen(bool $value): void
+    {
+        if (! $value) {
+            $this->photo = null;
+            $this->portraitRemoved = false;
+
+        }
     }
 
     /* ── Delete ──────────────────────────────────────────────────────────── */
@@ -435,57 +540,22 @@ class Show extends Component
     public function deleteEmployee(): void
     {
         $access = app(Access::class);
-
-        // requireAllDataModule("EMPLOYEES") — api/employees/[id]/route.ts:137.
-        abort_unless($this->isHr($access), 403);
-
-        $employee = $this->employee();
-
-        if ($employee === null) {
-            return;
-        }
-
-        if ($employee->is_active) {
-            Flux::toast(text: 'Mark the employee inactive before deleting a test record.', variant: 'danger');
+        abort_unless($this->isHr($access) && ! $this->requiresApproval(), 403);
+        try {
+            $name = app(DeleteEmployee::class)->handle($access, $this->employeeId);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'The employee could not be deleted. Please try again.', variant: 'danger');
 
             return;
-        }
-
-        $historicalCount = $employee->accounts()->count()
-            + $employee->logs()->count()
-            + $employee->requests()->count()
-            + $employee->payslips()->count()
-            + $employee->documents()->count()
-            + $employee->taskLoad()->count();
-
-        $hasShift = $employee->shift()->exists();
-        $onPayroll = PayrollRunMember::query()->where('employee_id', $employee->id)->exists();
-
-        if ($historicalCount > 0 || $hasShift || $onPayroll) {
-            Flux::toast(
-                text: 'This employee has linked or historical records and must remain inactive instead of being deleted.',
-                variant: 'danger',
-            );
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        $name = EmployeeFields::employeeName($employee);
-
-        if ($employee->photo_path !== null) {
-            Storage::disk('public')->delete($employee->photo_path);
+        if ($name === null) {
+            return;
         }
-
-        $employee->delete();
-
-        AuditService::record(
-            $access,
-            AuditEvent::EMPLOYEE_DELETED,
-            'employee_profiles',
-            $this->employeeId,
-            "{$name} employee record deleted",
-        );
-
         $this->deleteConfirmOpen = false;
         Flux::toast(text: "{$name} deleted.", variant: 'success');
         $this->redirect(route('employees.index'));
@@ -493,22 +563,47 @@ class Show extends Component
 
     /* ── Render ──────────────────────────────────────────────────────────── */
 
+    /** The Personal Data Sheet downloads as an editable workbook from the authorized employee record. */
+    public function printPds(): StreamedResponse
+    {
+        $access = app(Access::class);
+        abort_unless(! $this->requiresApproval() && $this->employee() !== null, 403);
+        $workbook = app(EmployeePdsWorkbook::class)->download($access, $this->employeeId);
+
+        return response()->streamDownload(static function () use ($workbook): void {
+            echo $workbook['content'];
+        }, $workbook['filename'], ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
     public function render(): View
     {
+        $access = app(Access::class);
         $employee = $this->employee();
 
         if ($employee === null) {
             return view('livewire.employees.show', ['employee' => null]);
         }
 
-        $sites = WorkSite::query()->orderBy('name')->get(['id', 'name', 'radius_meters', 'geofence_exempt']);
+        $this->updatedTab($this->tab);
+        if ($this->editingSection !== null && ! $this->canEditSection($access, $this->editingSection)) {
+            $this->cancelEditing();
+        }
+        $requiresApproval = $this->requiresApproval();
+        $sites = app(OrganizationDirectory::class)->sites($access);
 
         // Read-mode display text, precomputed per field key.
         $display = [];
+        $editableSections = [];
+        $readOnlyFields = [];
 
         foreach (EmployeeFields::sections() as $section) {
+            $editableSections[$section['id']] = $this->canEditSection($access, $section['id']);
+            $readOnlyFields[$section['id']] = [];
             foreach ($section['fields'] as $field) {
                 $key = (string) $field['key'];
+                if ($requiresApproval && ! OwnRecordFields::allowsField($section['id'], $key)) {
+                    $readOnlyFields[$section['id']][] = $key;
+                }
 
                 if (isset($field['derived'])) {
                     $display[$key] = EmployeeFields::derivedValue($employee, $field);
@@ -526,15 +621,45 @@ class Show extends Component
         return view('livewire.employees.show', [
             'employee' => $employee,
             'sections' => EmployeeFields::sections(),
+            'tabs' => $this->availableTabs($access),
+            'editableSections' => $editableSections,
+            'readOnlyFields' => $readOnlyFields,
+            'profileLeft' => self::PROFILE_LEFT,
+            'profileRight' => self::PROFILE_RIGHT,
             'display' => $display,
-            'accountsCount' => User::query()->where('employee_id', $employee->id)->count(),
+            'listTabs' => self::LIST_TABS,
+            'canEdit' => $this->canEdit(app(Access::class)),
+            'requiresApproval' => $requiresApproval,
+            'canPrint' => ! $requiresApproval,
+            'canManage' => $this->isHr(app(Access::class)) && ! $this->requiresApproval(),
+            'employmentObligations' => $this->editingSection === 'employment' && $this->isHr(app(Access::class)) && ! $this->requiresApproval()
+                ? app(EmploymentObligations::class)->forEmployee(app(Access::class), $employee->id) : [],
+            // The stored one-line address, citizenship text and spouse while
+            // nothing structured replaces them: the Addresses and Spouse
+            // cards and the Citizenship field show them as "Entered before".
+            'legacy' => [
+                'address' => EmployeeFields::legacyAddress($employee),
+                'citizenship' => EmployeeFields::legacyCitizenship($employee),
+                'spouse' => EmployeeFields::legacySpouse($employee),
+            ],
+            // The card reads the typed residential parts alone; the stored
+            // one-line address appears once, in the note under the card.
+            'addressText' => [
+                'residential' => EmployeeFields::structuredResidentialText($employee) ?: '—',
+                'permanent' => EmployeeFields::permanentText($employee) ?: '—',
+            ],
+            // The printed sheet's "Area office" line: the worksite's name,
+            // blank (never a dash) when the record has none.
+            'siteName' => $employee->work_site_id === null ? '' : (string) ($sites->firstWhere('id', $employee->work_site_id)->name ?? ''),
+            'accountsCount' => app(AccountLinks::class)->count(app(Access::class), $employee->id),
             'referenceOptions' => [
-                'positions' => Position::query()->orderBy('name')->pluck('name')->all(),
-                'employment_statuses' => EmploymentStatusOption::query()->orderBy('name')->pluck('name')->all(),
+                'employment_statuses' => app(EmployeeRecords::class)->statuses(app(Access::class)),
             ],
             'sites' => $sites,
+            // Read only while Employee Details is open for editing.
+            'positionChoices' => $this->editingSection === 'employment' ? PositionPicker::options(app(Access::class), $this->form) : null,
             'photoUrl' => $employee->photo_path
-                ? Storage::disk('public')->url($employee->photo_path)
+                ? PortraitUrl::for($employee->photo_path)
                 : null,
         ]);
     }

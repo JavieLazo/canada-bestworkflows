@@ -26,14 +26,13 @@ use Illuminate\Database\Eloquent\Builder;
  * The naive transcription of `{ employee_id: session.employeeId ?? "__none__" }`
  * is `->where('employee_id', $access->employeeId)`. In Laravel that is not a
  * translation, it is a DATA LEAK: `where($column, null)` silently compiles to
- * `WHERE column IS NULL`. When tasks still carried a nullable
- * `project_tasks.assignee_id` (dropped by migration 2026_09_10_0002 — the
- * assignees now live in the `project_task_assignees` pivot), the naive port
- * handed EVERY UNASSIGNED TASK to any account with no employee record —
- * including a freshly bootstrapped admin, and including whoever is holding the
- * one account nobody has linked yet. `project_tasks.submitted_by` and every
- * other nullable employee column are the same trap. The TypeScript sentinel
- * `"__none__"` exists precisely so that an unlinked account matches zero rows.
+ * `WHERE column IS NULL`. On a nullable employee column such as
+ * `project_tasks.submitted_by`, the naive port hands EVERY ROW WITH THAT
+ * COLUMN EMPTY to any account with no employee record — including a freshly
+ * bootstrapped admin, and including whoever is holding the one account nobody
+ * has linked yet. Every other nullable employee column is the same trap. The
+ * TypeScript sentinel `"__none__"` exists precisely so that an unlinked
+ * account matches zero rows.
  *
  * Three things make that leak unconstructible here rather than merely handled:
  *
@@ -167,8 +166,8 @@ trait ScopesToActor
      * The same narrowing, one or more relations away: the port of
      * `{ tasks: { some: { assignee_id: session.employeeId ?? "__none__" } } }`
      * (api/projects/route.ts:26, api/tasks/comments/route.ts:17,
-     * api/tasks/files/route.ts:19) — now `tasks.assignments.employee_id`, since
-     * task membership moved to the `project_task_assignees` pivot.
+     * api/tasks/files/route.ts:19) — here `tasks.assignments.employee_id`,
+     * because task membership lives in the `project_task_assignees` pivot.
      *
      * It exists so that call sites never hand-roll the comparison inside a
      * `whereHas` closure, which is where the `IS NULL` leak would reappear out

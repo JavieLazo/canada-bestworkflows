@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Domain\Enums\ModuleCode;
 
 /**
- * The module registry — a literal port of `MODULES` (src/lib/hris.ts:31-122),
+ * The module registry — based on `MODULES` (src/lib/hris.ts:31-122),
  * with the sidebar's icon map (src/components/AppSidebar.tsx:45-58) folded in
  * as an `icon` key so one file describes a module completely.
  *
@@ -33,11 +33,8 @@ use App\Domain\Enums\ModuleCode;
  *   ['label' => …, 'path'  => …]        a page of its own   (Holiday Settings)
  *   ['label' => …, 'items' => [ … ]]    a folder of pages   (General Records)
  *
- * Labels, paths, descriptions and group structure are transcribed from
- * hris.ts, NOT from 01-STARTER-PACK.md §5.1 — the pack's sketch renames six
- * modules ('Employees' for 'Employee Records'), renames and reorders the
- * Records children, and normalises every group to the `items` shape. The
- * TypeScript is the thing being ported, so the TypeScript wins.
+ * Ported labels, paths, descriptions and group structure follow hris.ts.
+ * Community, Chat and Reports extend that registry with their own grants.
  *
  * @var list<array{
  *     code: string,
@@ -49,6 +46,17 @@ use App\Domain\Enums\ModuleCode;
  * }>
  */
 return [
+    // Community (which has no counterpart in the reference) comes FIRST: it
+    // heads the sidebar and is the sign-in landing page of every account that
+    // holds it — any role can (a fresh install seeds it into every role, an
+    // existing one grants it per role in User Management).
+    [
+        'code' => ModuleCode::COMMUNITY,
+        'label' => 'Community',
+        'path' => '/community',
+        'description' => 'Company-wide posts, groups and informal discussion',
+        'icon' => 'newspaper',
+    ],
     [
         'code' => ModuleCode::EMPLOYEES,
         'label' => 'Employee Records',
@@ -67,7 +75,7 @@ return [
         'code' => ModuleCode::ROSTER,
         'label' => 'Shift Roster',
         'path' => '/roster',
-        'description' => 'Shift start, end and grace period per employee',
+        'description' => 'Shift pattern and weekly work location per employee',
         'icon' => 'calendar-clock',
     ],
     [
@@ -85,11 +93,31 @@ return [
         'icon' => 'folder-kanban',
     ],
     [
+        'code' => ModuleCode::INVENTORY,
+        'label' => 'Inventory',
+        'path' => '/inventory',
+        'description' => 'Office property, custody and Memorandum Receipts',
+        'icon' => 'package',
+    ],
+    [
         'code' => ModuleCode::PAYROLL,
         'label' => 'Payroll',
         'path' => '/payroll',
         'description' => 'Run and review payroll',
         'icon' => 'banknote',
+        // Expands in place like Records Management, with the labels spelled
+        // exactly as PayrollRunKind::LABELS spells them.
+        'groups' => [
+            ['label' => 'Basic Payroll', 'path' => '/payroll'],
+            ['label' => '13th Month Payroll', 'path' => '/payroll/thirteenth-month'],
+        ],
+    ],
+    [
+        'code' => ModuleCode::REPORTS,
+        'label' => 'Reports',
+        'path' => '/reports',
+        'description' => 'Payroll, employee, leave, attendance and audit reports',
+        'icon' => 'chart-no-axes-combined',
     ],
     [
         'code' => ModuleCode::RECORDS,
@@ -105,6 +133,7 @@ return [
                 'label' => 'General Records',
                 'items' => [
                     ['label' => 'Position', 'path' => '/records/positions'],
+                    ['label' => 'Departments', 'path' => '/records/departments'],
                     ['label' => 'Document', 'path' => '/records/documents'],
                     ['label' => 'Employment', 'path' => '/records/employment'],
                 ],
@@ -116,8 +145,10 @@ return [
             [
                 'label' => 'Payroll Settings',
                 'items' => [
-                    ['label' => 'Formulas', 'path' => '/records/payroll-formulas'],
+                    ['label' => 'Contribution & Tax Tables', 'path' => '/records/contribution-tables'],
+                    ['label' => 'Pay Basis & Rates', 'path' => '/records/pay-rates'],
                     ['label' => 'Payroll Deductions', 'path' => '/records/payroll-deductions'],
+                    ['label' => 'Incentives & Bonuses', 'path' => '/records/incentive-types'],
                 ],
             ],
         ],
@@ -151,6 +182,16 @@ return [
         'path' => '/my-tasks',
         'description' => 'Tasks assigned to me, and what I owe on each',
         'icon' => 'list-checks',
+    ],
+    // Chat sits after every work module but My Profile on purpose: any role
+    // can hold it, so a role with a work module still lands on that module
+    // rather than on Chat when Community is not granted.
+    [
+        'code' => ModuleCode::CHAT,
+        'label' => 'Chat',
+        'path' => '/chat',
+        'description' => 'Private one-to-one and group conversations',
+        'icon' => 'messages-square',
     ],
     // Last on purpose: everyone holds it, and it must never become the module a
     // role lands on at sign-in.

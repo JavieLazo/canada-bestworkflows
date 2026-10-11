@@ -4,36 +4,38 @@ declare(strict_types=1);
 
 namespace App\Livewire\Portal;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
+use App\Livewire\Payroll\Support\PayslipDocument;
 use App\Livewire\Portal\Support\PortalLabels;
-use App\Models\EmployeeProfile;
-use App\Models\LeaveTravelRequest;
-use App\Models\LeaveType;
-use App\Models\Notification;
-use App\Models\Payslip;
-use App\Models\Role;
-use App\Models\RoleModuleGrant;
-use App\Models\User;
+use App\Modules\Payroll\Application\Queries\PayslipRecords;
+use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
+use App\Modules\Payroll\Contracts\Views\PayslipDeductionView;
+use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
+use App\Modules\Payroll\Contracts\Views\PayslipView as Payslip;
+use App\Modules\Payroll\Domain\DeductionCalculation;
+use App\Modules\Timekeeping\Application\Commands\FileAbsence;
+use App\Modules\Timekeeping\Application\Commands\WithdrawAbsence;
+use App\Modules\Timekeeping\Application\Queries\AbsenceRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Application\Queries\ReferenceData;
+use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
+use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Workforce\Application\Queries\EmployeeRecords;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use RuntimeException;
-use Throwable;
 
 /**
  * My Portal — the port of copems/src/app/(protected)/portal/portal-page.tsx:
- * the employee self-service landing. Three tabs: the punch station beside the
- * "My punches" feed, the leave/OB filing form over the caller's own request
- * table, and the caller's posted payslips with the printable detail dialog.
+ * the employee self-service landing. Its tabs hold the punch station and
+ * "My punches" feed, read-only own attendance, leave/OB filing and requests,
+ * posted payslips with their printable detail, and the caller's issued items.
  *
  * Filing is the port of POST /api/leave-requests (route.ts) with the portal's
  * constraint folded in: THE EMPLOYEE IS ALWAYS THE SESSION'S OWN. The portal
@@ -44,13 +46,21 @@ use Throwable;
  * advisory lock; MySQL has no transaction-scoped advisory lock, so the scan
  * takes `lockForUpdate()` instead (the PunchStation precedent).
  *
- * Withdrawing is the port of POST /api/leave-requests/[id]/withdraw.
+ * Filing and withdrawal delegate to Timekeeping operations, which own their
+ * authorization, validation, transactions, audit, and notifications.
  *
  * EVERY read on this page is scoped: the request table, the payslip list and
  * the punch feed all pass through ScopesToActor AND branch on
  * `hasEmployeeLink()` first — this page is where the employee-less-account
  * leak would show, and the scope must yield empty states, not errors (and not
  * the whole organisation for an all_data holder, whose "mine" is still mine).
+ *
+ * The Leave & travel tab also shows MY leave credits for the current year
+ * (LeaveCreditRecords::own, pinned the same way) beside the filing form on
+ * wider screens, and a hint saying what the draft would cost against them.
+ * Both are read only while that tab shows — the punch station never touches
+ * the credits table. Filing requires enough credits for the chosen type and
+ * start year; the command re-checks when Submit is clicked.
  */
 #[Layout('layouts.app')]
 #[Title('My Portal')]
@@ -89,11 +99,11 @@ class PortalPage extends Component
 
     public function mount(): void
     {
-        // The ?tab= deep link (portal-page.tsx:105-108): only these two are
-        // honoured; anything else stays on the punch station.
+        // Supported ?tab= deep links open their self-service view; anything
+        // else stays on the punch station (portal-page.tsx:105-108).
         $requested = (string) request()->query('tab', '');
 
-        if (in_array($requested, ['payslips', 'requests'], true)) {
+        if (in_array($requested, ['attendance', 'payslips', 'requests', 'inventory'], true)) {
             $this->tab = $requested;
         }
 
@@ -106,7 +116,7 @@ class PortalPage extends Component
 
     public function updatedTab(string $value): void
     {
-        $this->tab = in_array($value, ['punch', 'requests', 'payslips'], true) ? $value : 'punch';
+        $this->tab = in_array($value, ['punch', 'attendance', 'requests', 'payslips', 'inventory'], true) ? $value : 'punch';
     }
 
     public function updatedDayType(string $value): void
@@ -131,152 +141,22 @@ class PortalPage extends Component
     public function file(): void
     {
         $actor = app(Access::class);
-
-        // Grants are re-read every request; a PORTAL grant revoked mid-session
-        // must stop this action, not just the next page load.
-        if (! $actor->hasModule(ModuleCode::PORTAL)) {
-            Flux::toast(text: 'You do not have access to that.', variant: 'danger');
-
-            return;
-        }
-
-        // portal-page.tsx:121-124 and route.ts:83-85 share this wording.
-        if (! $actor->hasEmployeeLink()) {
-            Flux::toast(text: "Your account isn't linked to an employee record yet.", variant: 'danger');
-
-            return;
-        }
-        $employeeId = $actor->ownEmployeeId();
-
-        $type = trim($this->type);
-
-        if ($type === '' || mb_strlen($type) > 60) {
-            // The submit button is disabled without a type; a forged call gets
-            // the schema's refusal rather than a crafted sentence.
-            Flux::toast(text: 'Choose a request type from Leave Settings.', variant: 'danger');
-
-            return;
-        }
-
-        $dateError = PortalLabels::leaveRequestDateError($this->start, $this->end);
-
-        if ($dateError !== null) {
-            Flux::toast(text: $dateError, variant: 'danger');
-
-            return;
-        }
-
-        $reason = trim($this->reason);
-
-        if (mb_strlen($reason) > 2000) {
-            // parseBody's rendering of the Zod issue (body.ts:41-46).
-            Flux::toast(text: 'reason: String must contain at most 2000 character(s)', variant: 'danger');
-
-            return;
-        }
-
-        $employee = EmployeeProfile::query()->whereKey($employeeId)->first();
-
-        if ($employee === null || ! $employee->is_active) {
-            Flux::toast(text: 'Choose an active employee for the request.', variant: 'danger');
-
-            return;
-        }
-
-        // What can be filed is whatever Leave Settings holds, plus official
-        // business (route.ts:96-103).
-        $supported = [PortalLabels::OFFICIAL_BUSINESS => true];
-
-        foreach (LeaveType::query()->pluck('name') as $name) {
-            $supported[PortalLabels::normalizeRequestType((string) $name)] = true;
-        }
-
-        if (! isset($supported[$type])) {
-            Flux::toast(text: 'Choose a request type from Leave Settings.', variant: 'danger');
-
-            return;
-        }
-
-        $dayType = array_key_exists($this->dayType, PortalLabels::DAY_TYPES) ? $this->dayType : 'WHOLE_DAY';
-        $start = $this->start;
-        $end = $this->end;
-
         try {
-            $created = DB::transaction(function () use ($employeeId, $type, $dayType, $start, $end, $reason): LeaveTravelRequest {
-                // The lock covers both overlap detection and code minting
-                // (route.ts:105-110). Without it, two simultaneous filings can
-                // both pass the read and create an overlapping range with
-                // different codes. The reference serialised this with
-                // `pg_advisory_xact_lock`; here the scan takes lockForUpdate.
-                $rows = LeaveTravelRequest::query()
-                    ->lockForUpdate()
-                    ->get(['id', 'code', 'employee_id', 'status', 'start_date', 'end_date']);
+            app(FileAbsence::class)->handle($actor, $this->type, $this->dayType, $this->start, $this->end, $this->reason);
+        } catch (QueryException) {
+            Flux::toast(text: 'The request could not be saved. Please try again.', variant: 'danger');
 
-                foreach ($rows as $row) {
-                    if ((string) $row->employee_id !== $employeeId) {
-                        continue;
-                    }
-                    if (! in_array($row->status, ['PENDING', 'APPROVED'], true)) {
-                        continue;
-                    }
-                    if (PortalLabels::leaveRangesOverlap(
-                        $row->start_date->format('Y-m-d'),
-                        $row->end_date->format('Y-m-d'),
-                        $start,
-                        $end,
-                    )) {
-                        throw new RuntimeException(
-                            "These dates overlap {$row->code}. Resolve that request before filing another.",
-                        );
-                    }
-                }
-
-                $code = PortalLabels::nextCode('LR', array_values($rows->map(static fn ($r): string => (string) $r->code)->all()));
-
-                return LeaveTravelRequest::query()->create([
-                    'code' => $code,
-                    // The session's own employee, never the request's.
-                    'employee_id' => $employeeId,
-                    'request_type' => $type,
-                    'day_type' => $dayType,
-                    'start_date' => $start,
-                    'end_date' => $end,
-                    'reason' => $reason !== '' ? $reason : null,
-                    'status' => 'PENDING',
-                ]);
-            });
+            return;
         } catch (RuntimeException $e) {
             Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        AuditService::record(
-            $actor,
-            AuditEvent::REQUEST_FILED,
-            'leave_travel_requests',
-            (string) $created->id,
-            "{$created->code} filed {$start} \u{2192} {$end}",
-        );
-
-        // Whoever holds a role granted Leave Management reviews this
-        // (route.ts:135-140). The description resolves through the built-in
-        // fallbacks, exactly as `requestDescription(input.request_type)` did.
-        $this->notifyLeaveReviewers($actor, [
-            'kind' => 'LEAVE_FILED',
-            'title' => "{$created->code} filed by {$actor->fullName}",
-            'body' => PortalLabels::requestDescription($type).' · '.$start,
-            'href' => '/leaves',
-        ]);
-
-        // The form resets to its opening state (portal-page.tsx:185-189).
-        $today = PortalLabels::todayKey();
         $this->reason = '';
         $this->type = '';
         $this->dayType = 'WHOLE_DAY';
-        $this->start = $today;
-        $this->end = $today;
-
+        $this->start = PortalLabels::todayKey();
+        $this->end = $this->start;
         Flux::toast(text: 'Request submitted for approval.', variant: 'success');
     }
 
@@ -287,69 +167,17 @@ class PortalPage extends Component
     public function withdraw(string $id): void
     {
         $actor = app(Access::class);
+        try {
+            app(WithdrawAbsence::class)->handle($actor, $id);
+        } catch (QueryException) {
+            Flux::toast(text: 'The request could not be withdrawn. Please try again.', variant: 'danger');
 
-        if (! $actor->hasModule(ModuleCode::PORTAL)) {
-            Flux::toast(text: 'You do not have access to that.', variant: 'danger');
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        $request = LeaveTravelRequest::query()->whereKey($id)->first();
-
-        if ($request === null) {
-            Flux::toast(text: 'That request no longer exists.', variant: 'danger');
-
-            return;
-        }
-
-        // Withdrawing is for yourself, whoever you are (withdraw/route.ts:18).
-        if (! $actor->hasEmployeeLink() || $request->employee_id !== $actor->ownEmployeeId()) {
-            Flux::toast(text: 'You do not have access to that.', variant: 'danger');
-
-            return;
-        }
-
-        if ($request->status !== 'PENDING') {
-            Flux::toast(text: 'Only a pending request can be withdrawn.', variant: 'danger');
-
-            return;
-        }
-
-        // `status = 'PENDING'` in the WHERE is the real guard
-        // (withdraw/route.ts:23-27): a reviewer racing this withdrawal wins or
-        // loses atomically, never both.
-        $won = LeaveTravelRequest::query()
-            ->whereKey($request->id)
-            ->where('employee_id', '=', $actor->ownEmployeeId())
-            ->where('status', 'PENDING')
-            ->update([
-                'status' => 'WITHDRAWN',
-                'is_paid' => null,
-                'reviewed_at' => null,
-                'reviewed_by' => null,
-            ]);
-
-        if ($won === 0) {
-            Flux::toast(text: 'That request changed before it was withdrawn.', variant: 'danger');
-
-            return;
-        }
-
-        AuditService::record(
-            $actor,
-            AuditEvent::REQUEST_WITHDRAWN,
-            'leave_travel_requests',
-            (string) $request->id,
-            "{$request->code} withdrawn by {$actor->fullName}",
-        );
-
-        $this->notifyLeaveReviewers($actor, [
-            'kind' => 'LEAVE_WITHDRAWN',
-            'title' => "{$request->code} withdrawn",
-            'body' => "{$actor->fullName} withdrew the pending request.",
-            'href' => '/leaves',
-        ]);
-
         Flux::toast(text: 'Request withdrawn.', variant: 'success');
     }
 
@@ -366,11 +194,7 @@ class PortalPage extends Component
             return;
         }
 
-        $visible = Payslip::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
-            ->where('employee_id', '=', $actor->ownEmployeeId())
-            ->whereKey($id)
-            ->exists();
+        $visible = app(PayslipRecords::class)->ownVisible($actor, $id);
 
         if (! $visible) {
             return;
@@ -384,12 +208,10 @@ class PortalPage extends Component
     {
         $actor = app(Access::class);
 
-        $employee = $actor->hasEmployeeLink()
-            ? EmployeeProfile::query()->whereKey($actor->ownEmployeeId())->first()
-            : null;
+        $employee = app(EmployeeRecords::class)->own($actor);
 
         /** What can be filed is whatever Records Management → Leave Settings holds. */
-        $leaveTypeNames = LeaveType::query()->orderBy('name')->pluck('name')->all();
+        $leaveTypeNames = app(ReferenceData::class)->leaveTypes($actor)->pluck('name')->all();
 
         // Business travel is filed as official business, not as a leave
         // (portal-page.tsx:70-75).
@@ -411,27 +233,33 @@ class PortalPage extends Component
         // mine (`requests.filter(r => r.employee_id === employeeId)`,
         // portal-page.tsx:117). The employee-less branch never touches
         // ownEmployeeId() — it renders the empty states.
-        if ($actor->hasEmployeeLink()) {
-            $mine = LeaveTravelRequest::query()
-                ->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
-                ->where('employee_id', '=', $actor->ownEmployeeId())
-                ->orderByDesc('created_at')
-                ->get();
-
-            $payslips = Payslip::query()
-                ->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
-                ->where('employee_id', '=', $actor->ownEmployeeId())
-                ->orderByDesc('period_start')
-                ->get();
-        } else {
-            $mine = new EloquentCollection;
-            $payslips = new EloquentCollection;
-        }
+        $mine = app(AbsenceRecords::class)->list($actor, own: true);
+        $payslips = app(PayslipRecords::class)->own($actor);
 
         $dateError = PortalLabels::leaveRequestDateError($this->start, $this->end);
 
+        // MY credits for the current Manila year, read only while the Leave &
+        // travel tab shows (own-pinned; empty when unlinked), and what the
+        // draft would cost against the one its type resolves to.
+        $creditYear = LeaveCreditPolicy::yearOf(PortalLabels::todayKey());
+        $balances = $this->tab === 'requests'
+            ? app(LeaveCreditRecords::class)->own($actor, $creditYear)
+            : collect();
+        $filingBalances = $balances;
+        if ($this->tab === 'requests' && $dateError === null && trim($this->type) !== '' && LeaveCreditPolicy::isLeave($this->type)) {
+            $filingYear = LeaveCreditPolicy::yearOf($this->start);
+            if ($filingYear !== $creditYear) {
+                $filingBalances = app(LeaveCreditRecords::class)->own($actor, $filingYear);
+            }
+        }
+        $creditHint = $this->tab === 'requests' && $dateError === null ? $this->creditHint($filingBalances) : null;
+
         // The open payslip comes from the OWN list, never a fresh unscoped read.
         $viewing = $this->viewingId !== null ? $payslips->firstWhere('id', $this->viewingId) : null;
+        $incentives = $viewing !== null ? (app(PayslipRecords::class)->incentives($actor, [$viewing->id])[$viewing->id] ?? []) : [];
+        $customDeductions = $viewing !== null ? (app(PayslipRecords::class)->customDeductions($actor, [$viewing->id])[$viewing->id] ?? []) : [];
+        $deductionColumns = $viewing !== null ? app(PayslipRecords::class)->deductionColumns($actor, [$viewing->id]) : collect();
+        $viewingYearly = $viewing !== null && $viewing->thirteenth_month > 0;
 
         return view('livewire.portal.portal-page', [
             'actor' => $actor,
@@ -443,21 +271,70 @@ class PortalPage extends Component
             'mine' => $mine,
             'payslips' => $payslips,
             'dateError' => $dateError,
-            'submitDisabled' => ! $actor->hasEmployeeLink() || trim($this->type) === '' || $dateError !== null,
+            'creditYear' => $creditYear,
+            'balances' => $balances,
+            'creditHint' => $creditHint,
+            'submitDisabled' => ! $actor->hasEmployeeLink() || trim($this->type) === '' || $dateError !== null || ($creditHint['error'] ?? null) !== null,
             'viewing' => $viewing,
-            'earnings' => $viewing !== null ? $this->earningLines($viewing) : [],
-            'deductions' => $viewing !== null ? $this->deductionLines($viewing) : [],
+            'earnings' => $viewing !== null ? $this->earningLines($viewing, $incentives) : [],
+            'deductions' => $viewing !== null ? $this->deductionLines($viewing, $customDeductions, $deductionColumns) : [],
+            'payslipDocument' => $viewing !== null ? PayslipDocument::issued($viewing, $employee, $viewingYearly, $incentives, $customDeductions, $deductionColumns, own: true) : null,
+            // A 13th month payslip carries no attendance and no contributions,
+            // so its document leaves those blocks out instead of printing
+            // zeros. The note explaining it sits in the additional details,
+            // which My Portal does not show.
+            'viewingYearly' => $viewingYearly,
         ]);
     }
 
     /**
-     * The payslip's earnings column (PayslipDetail.tsx:26-45). Overtime nobody
-     * acknowledged is left off entirely rather than listed as money paid, and
-     * zero lines are filtered.
+     * What the draft request would cost against MY credits: the balance row
+     * the chosen type resolves to (the `_LEAVE` tolerance, against my own
+     * rows only, so a client-shaped `$type` can name nothing of anyone
+     * else's), the covered days of the draft, and the year it starts in —
+     * which the view compares with the panel's year before quoting a
+     * number. Missing or insufficient credits disable Submit; the command
+     * repeats the rule against fresh locked data when filing.
      *
-     * @return list<array{label: string, value: float, hint: ?string}>
+     * @param  Collection<int, LeaveBalanceView>  $balances
+     * @return array{balance: LeaveBalanceView|null, needs: float, year: int, error: string|null}|null
      */
-    private function earningLines(Payslip $p): array
+    private function creditHint(Collection $balances): ?array
+    {
+        if (trim($this->type) === '' || ! LeaveCreditPolicy::isLeave($this->type)) {
+            return null;
+        }
+        $key = LeaveCreditPolicy::resolveKey(
+            $this->type,
+            array_values($balances->map(static fn (LeaveBalanceView $row): string => $row->request_type)->all()),
+        );
+        $balance = $key === null ? null : $balances->first(static fn (LeaveBalanceView $row): bool => $row->request_type === $key);
+        $needs = LeaveCreditPolicy::coveredDays($this->dayType, $this->start, $this->end);
+        $year = LeaveCreditPolicy::yearOf($this->start);
+
+        return [
+            'balance' => $balance,
+            'needs' => $needs,
+            'year' => $year,
+            'error' => LeaveCreditPolicy::filingError($balance?->remaining, $needs, $year),
+        ];
+    }
+
+    /**
+     * The payslip's earnings column (PayslipDetail.tsx:26-45). Overtime that
+     * was not approved (per day on the Daily Time Record; by the run-level
+     * acknowledgement on older payslips) is left off entirely rather than
+     * listed as money paid, and zero lines are filtered.
+     *
+     * Incentives and bonuses are itemised from the lines the payslip posted,
+     * each hinted taxable or tax-exempt (and how much of an exempt one went
+     * over the PHP 90,000 ceiling), in place of the single "Bonus" line; a
+     * payslip with a bonus but no lines keeps that line.
+     *
+     * @param  list<PayslipIncentiveView>  $incentives
+     * @return list<array{label: string, value: float, hint: ?string, note?: string}>
+     */
+    private function earningLines(Payslip $p, array $incentives = []): array
     {
         $lines = [
             ['label' => 'Work days pay', 'value' => $p->work_days_pay, 'hint' => null],
@@ -476,8 +353,30 @@ class PortalPage extends Component
 
         $lines[] = ['label' => 'Night differential', 'value' => $p->night_differential, 'hint' => null];
         $lines[] = ['label' => 'Leave', 'value' => $p->leave_pay, 'hint' => null];
-        $lines[] = ['label' => 'Others', 'value' => $p->other_earnings, 'hint' => null];
-        $lines[] = ['label' => 'Bonus', 'value' => $p->bonus, 'hint' => null];
+        $lines[] = ['label' => 'Other earnings', 'value' => $p->other_earnings, 'hint' => null];
+        // A 13th month payslip; 0 on every other payslip, so filtered out.
+        $lines[] = [
+            'label' => '13th month pay',
+            'value' => $p->thirteenth_month,
+            'hint' => null,
+            'note' => $p->taxable_benefits_excess > 0
+                ? PortalLabels::peso($p->taxable_benefits_excess).' taxed over the yearly ceiling'
+                : 'Tax-exempt',
+        ];
+        foreach ($incentives as $line) {
+            // A worded note, not a figure hint: it renders in the text face.
+            $lines[] = [
+                'label' => $line->name,
+                'value' => $line->amount,
+                'hint' => null,
+                'note' => $line->is_taxable
+                    ? 'Taxable'
+                    : 'Tax-exempt'.($line->over_ceiling > 0 ? ' · '.PortalLabels::peso($line->over_ceiling).' taxed over the yearly ceiling' : ''),
+            ];
+        }
+        if ($incentives === []) {
+            $lines[] = ['label' => 'Bonus', 'value' => $p->bonus, 'hint' => null];
+        }
 
         return array_values(array_filter($lines, static fn (array $l): bool => $l['value'] !== 0.0));
     }
@@ -485,67 +384,42 @@ class PortalPage extends Component
     /**
      * The payslip's deductions column (PayslipDetail.tsx:47-63).
      *
+     * The lines follow the Payroll Deductions list: each automatic row as the
+     * list names it, each typed row as this payslip posted it (its snapshot's
+     * name, so a later catalog change cannot re-explain issued pay), then the
+     * one free-form Other line and the two DTR-priced lines, as on the grid.
+     * Every amount is already inside total_deductions; only the names are
+     * read here.
+     *
+     * @param  list<PayslipDeductionView>  $customDeductions
+     * @param  Collection<int, DeductionColumnView>  $columns
      * @return list<array{label: string, value: float, hint: ?string}>
      */
-    private function deductionLines(Payslip $p): array
+    private function deductionLines(Payslip $p, array $customDeductions, Collection $columns): array
     {
-        $lines = [
-            ['label' => 'Undertime', 'value' => $p->undertime_deduction, 'hint' => $p->undertime_minutes.' min'],
-            ['label' => 'Late', 'value' => $p->late_deduction, 'hint' => $p->late_minutes.' min'],
-            ['label' => 'SSS', 'value' => $p->sss, 'hint' => null],
-            ['label' => 'PhilHealth', 'value' => $p->philhealth, 'hint' => null],
-            ['label' => 'Pag-IBIG', 'value' => $p->pagibig, 'hint' => null],
-            ['label' => 'Withholding tax', 'value' => $p->withholding_tax, 'hint' => null],
-            ['label' => 'Others', 'value' => $p->other_deductions, 'hint' => null],
-        ];
+        $posted = [];
+        foreach ($customDeductions as $line) {
+            $posted['row:'.$line->deduction_code] = $line;
+        }
+
+        $lines = [];
+        foreach ($columns as $column) {
+            $field = $column->calculation !== null ? DeductionCalculation::statutoryKey($column->calculation) : null;
+            if (! $column->headsColumn()) {
+                continue; // the Late / Undertime row: its two lines follow Other deductions below
+            }
+            if ($field !== null) {
+                $lines[] = ['label' => $column->name, 'value' => (float) $p->{$field}, 'hint' => null];
+            } elseif (isset($posted[$column->key()])) {
+                $lines[] = ['label' => $posted[$column->key()]->name, 'value' => (float) $posted[$column->key()]->amount, 'hint' => null];
+            }
+        }
+        $lines[] = ['label' => 'Other deductions', 'value' => (float) $p->other_deductions, 'hint' => null];
+        if ($columns->contains(static fn (DeductionColumnView $c): bool => $c->calculation === DeductionCalculation::LATE_UNDERTIME)) {
+            $lines[] = ['label' => 'Undertime', 'value' => (float) $p->undertime_deduction, 'hint' => $p->undertime_minutes.' min'];
+            $lines[] = ['label' => 'Late', 'value' => (float) $p->late_deduction, 'hint' => $p->late_minutes.' min'];
+        }
 
         return array_values(array_filter($lines, static fn (array $l): bool => $l['value'] !== 0.0));
-    }
-
-    /**
-     * Port of `notifyModuleHolders("LEAVES", …)` (src/lib/api/notify.ts:63-83):
-     * tells everyone whose ACTIVE account holds a role with `all_data` AND a
-     * Leave Management grant — the people who can actually review — except the
-     * actor, whose own filing is not news to them. Fire-and-forget: the filing
-     * really happened, and failing it because the bell did not ring would be
-     * the worse lie.
-     *
-     * @param  array{kind: string, title: string, body: ?string, href: string}  $entry
-     */
-    private function notifyLeaveReviewers(Access $actor, array $entry): void
-    {
-        try {
-            $reviewerRoleIds = Role::query()
-                ->where('all_data', true)
-                ->whereIn(
-                    'id',
-                    RoleModuleGrant::query()->where('module', ModuleCode::LEAVES)->pluck('role_id'),
-                )
-                ->pluck('id');
-
-            $accountIds = User::query()
-                ->where('is_active', true)
-                ->whereIn('role_id', $reviewerRoleIds)
-                ->when(
-                    $actor->userId !== null,
-                    static fn ($q) => $q->where('id', '!=', (int) $actor->userId),
-                )
-                ->pluck('id');
-
-            foreach ($accountIds as $accountId) {
-                $notification = new Notification;
-                $notification->fill([
-                    'kind' => $entry['kind'],
-                    'title' => $entry['title'],
-                    'body' => $entry['body'],
-                    'href' => $entry['href'],
-                ]);
-                // The addressee is server-assigned, never mass-assigned.
-                $notification->user_id = (int) $accountId;
-                $notification->save();
-            }
-        } catch (Throwable $e) {
-            Log::error('[notify] fan-out failed', ['error' => $e->getMessage()]);
-        }
     }
 }

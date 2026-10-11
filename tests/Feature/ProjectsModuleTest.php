@@ -27,10 +27,13 @@ use Livewire\Livewire;
  * PROJECTS module: the route gate, the row scoping that must return NOTHING
  * for an employee-less actor, one full happy-path flow (create project → hand
  * out a task → accept the submission), the multi-assignee pivot (its
- * re-validation, its notification fan-out and the CSV cell it prints), the
+ * re-validation, its notification fan-out, the CSV cell it prints, and a
+ * reviewer on the crew who may cancel but never accept), the
  * transition maps that the reference API famously skipped, and the
- * delete-project confirm this port added on top of the reference.
+ * delete-project confirm this port adds on top of the reference.
  */
+
+/** @param list<string> $modules module codes, one RoleModuleGrant each */
 function projRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -44,6 +47,7 @@ function projRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/** @param list<string> $modules module codes for the actor's fresh role */
 function projActor(array $modules, bool $allData, ?string $employeeId = null): User
 {
     $user = User::factory()->create([
@@ -71,6 +75,7 @@ function projEmployee(string $code, string $first, string $last): EmployeeProfil
     return $employee;
 }
 
+/** @param array<string, mixed> $attributes column overrides, merged over the defaults */
 function projProject(array $attributes = []): Project
 {
     static $n = 100;
@@ -91,13 +96,14 @@ function projProject(array $attributes = []): Project
  * `assignee_ids` (list<string>) is the fixture's one non-column key: the
  * employees are attached through the pivot after the row exists, exactly as
  * the page does it (ProjectTask::syncAssignees()).
+ *
+ * @param  array{assignee_ids?: list<string>, ...<string, mixed>}  $attributes  column overrides plus the optional pivot key
  */
 function projTask(Project $project, array $attributes = []): ProjectTask
 {
     static $n = 100;
     $n++;
 
-    /** @var list<string> $assigneeIds */
     $assigneeIds = $attributes['assignee_ids'] ?? [];
     unset($attributes['assignee_ids']);
 
@@ -125,6 +131,42 @@ function projAccountFor(EmployeeProfile $employee): User
         'role_id' => projRole(['TASKS'], false)->getKey(),
         'employee_id' => $employee->id,
     ]);
+}
+
+/**
+ * A task shared by Ben and a lead who is also its assigner and an all-data
+ * PROJECTS reviewer, with a second active login on the lead's employee record.
+ * A SUBMITTED task is recorded as handed in by Ben.
+ *
+ * @return array{project: Project, task: ProjectTask, ben: EmployeeProfile, lead: User, leadAlt: User, benAccount: User}
+ */
+function projLeadOnCrew(string $status): array
+{
+    $lead = projEmployee('COP-0471', 'Mia', 'Lopez');
+    $ben = projEmployee('COP-0472', 'Ben', 'Reyes');
+    $leadAccount = User::factory()->create([
+        'role_id' => projRole(['PROJECTS'], true)->getKey(),
+        'employee_id' => $lead->id,
+    ]);
+    $leadAltAccount = User::factory()->create([
+        'email' => 'mia.alt@example.com',
+        'employee_id' => $lead->id,
+        'is_active' => true,
+    ]);
+    $project = projProject();
+
+    return [
+        'project' => $project,
+        'task' => projTask($project, array_merge([
+            'status' => $status,
+            'assignee_ids' => [$lead->id, $ben->id],
+            'assigned_by' => $leadAccount->getKey(),
+        ], $status === 'SUBMITTED' ? ['submitted_at' => CarbonImmutable::now(), 'submitted_by' => $ben->id] : [])),
+        'ben' => $ben,
+        'lead' => $leadAccount,
+        'leadAlt' => $leadAltAccount,
+        'benAccount' => projAccountFor($ben),
+    ];
 }
 
 /*
@@ -179,7 +221,7 @@ it('returns zero rows for an employee-less PROJECTS holder even when unassigned 
 });
 
 it('narrows a linked non-manager to the projects holding their own tasks', function () {
-    $mine = projEmployee('BWF-0101', 'Liza', 'Domingo');
+    $mine = projEmployee('COP-0101', 'Liza', 'Domingo');
     $visible = projProject(['name' => 'Visible Project']);
     $hidden = projProject(['name' => 'Hidden Project']);
     projTask($visible, ['assignee_ids' => [$mine->id]]);
@@ -199,7 +241,7 @@ it('narrows a linked non-manager to the projects holding their own tasks', funct
 */
 
 it('creates a project, assigns a task, and accepts the submitted work', function () {
-    $employee = projEmployee('BWF-0201', 'Ana', 'Garcia');
+    $employee = projEmployee('COP-0201', 'Ana', 'Garcia');
     $assigneeAccount = User::factory()->create([
         'role_id' => projRole(['TASKS'], false)->getKey(),
         'employee_id' => $employee->id,
@@ -281,8 +323,8 @@ it('creates a project, assigns a task, and accepts the submitted work', function
 */
 
 it('creates a task with two assignees: two pivot rows, one TASK_ASSIGNED per active account', function () {
-    $ana = projEmployee('BWF-0401', 'Ana', 'Garcia');
-    $ben = projEmployee('BWF-0402', 'Ben', 'Reyes');
+    $ana = projEmployee('COP-0401', 'Ana', 'Garcia');
+    $ben = projEmployee('COP-0402', 'Ben', 'Reyes');
     $anaAccount = projAccountFor($ana);
     $benAccount = projAccountFor($ben);
     $project = projProject();
@@ -311,8 +353,8 @@ it('creates a task with two assignees: two pivot rows, one TASK_ASSIGNED per act
 });
 
 it('refuses to hand a task to an inactive employee, naming the plural when several were ticked', function () {
-    $active = projEmployee('BWF-0411', 'Ana', 'Garcia');
-    $gone = projEmployee('BWF-0412', 'Gone', 'Person');
+    $active = projEmployee('COP-0411', 'Ana', 'Garcia');
+    $gone = projEmployee('COP-0412', 'Gone', 'Person');
     $gone->forceFill(['is_active' => false])->save();
     $project = projProject();
     projActor(['PROJECTS'], allData: true);
@@ -329,9 +371,9 @@ it('refuses to hand a task to an inactive employee, naming the plural when sever
 });
 
 it('reassigning [A, B] to [B, C] notifies C (assigned), A (reassigned) and B not at all', function () {
-    $a = projEmployee('BWF-0421', 'Ana', 'Garcia');
-    $b = projEmployee('BWF-0422', 'Ben', 'Reyes');
-    $c = projEmployee('BWF-0423', 'Cai', 'Santos');
+    $a = projEmployee('COP-0421', 'Ana', 'Garcia');
+    $b = projEmployee('COP-0422', 'Ben', 'Reyes');
+    $c = projEmployee('COP-0423', 'Cai', 'Santos');
     $aAccount = projAccountFor($a);
     $bAccount = projAccountFor($b);
     $cAccount = projAccountFor($c);
@@ -368,24 +410,28 @@ it('reassigning [A, B] to [B, C] notifies C (assigned), A (reassigned) and B not
 });
 
 it('counts a zero-assignee task under the UNASSIGNED filter and queue', function () {
-    $ana = projEmployee('BWF-0431', 'Ana', 'Garcia');
+    $ana = projEmployee('COP-0431', 'Ana', 'Garcia');
     $project = projProject();
     projTask($project, ['title' => 'Nobody yet', 'code' => 'TSK-NOBODY']);
     projTask($project, ['title' => 'Taken', 'code' => 'TSK-TAKEN', 'assignee_ids' => [$ana->id]]);
     projActor(['PROJECTS'], allData: true);
 
-    Livewire::test(Show::class, ['project' => $project->id])
-        ->assertViewHas('unassignedCount', 1)
-        ->set('queue', 'UNASSIGNED')
+    // One component, driven in steps: Testable has no assertViewHas of its
+    // own — it forwards to TestResponse through `@mixin`, so PHPStan types
+    // the chain as TestResponse from there on and TestResponse has no
+    // set(). Each ->set() therefore starts from the Testable itself.
+    $show = Livewire::test(Show::class, ['project' => $project->id]);
+    $show->assertViewHas('unassignedCount', 1);
+    $show->set('queue', 'UNASSIGNED')
         ->assertViewHas('visibleCount', 1)
         ->assertSee('TSK-NOBODY')
-        ->assertDontSee('TSK-TAKEN')
-        ->set('queue', 'ALL')
+        ->assertDontSee('TSK-TAKEN');
+    $show->set('queue', 'ALL')
         ->set('assignee', 'UNASSIGNED')
         ->assertViewHas('visibleCount', 1)
         ->assertSee('TSK-NOBODY')
-        ->assertDontSee('TSK-TAKEN')
-        ->set('assignee', $ana->id)
+        ->assertDontSee('TSK-TAKEN');
+    $show->set('assignee', $ana->id)
         ->assertViewHas('visibleCount', 1)
         ->assertSee('TSK-TAKEN')
         ->assertDontSee('TSK-NOBODY');
@@ -394,9 +440,9 @@ it('counts a zero-assignee task under the UNASSIGNED filter and queue', function
 });
 
 it('shows a project to the SECOND assignee of one of its tasks and hides it from a stranger', function () {
-    $first = projEmployee('BWF-0441', 'Ana', 'Garcia');
-    $second = projEmployee('BWF-0442', 'Ben', 'Reyes');
-    $stranger = projEmployee('BWF-0443', 'Cai', 'Santos');
+    $first = projEmployee('COP-0441', 'Ana', 'Garcia');
+    $second = projEmployee('COP-0442', 'Ben', 'Reyes');
+    $stranger = projEmployee('COP-0443', 'Cai', 'Santos');
     $project = projProject(['name' => 'Shared Project']);
     $task = projTask($project, ['code' => 'TSK-SHARED', 'assignee_ids' => [$first->id, $second->id]]);
 
@@ -416,9 +462,9 @@ it('shows a project to the SECOND assignee of one of its tasks and hides it from
 it('lets the second assignee download a task file and refuses an unrelated employee', function () {
     Storage::fake('local');
 
-    $first = projEmployee('BWF-0451', 'Ana', 'Garcia');
-    $second = projEmployee('BWF-0452', 'Ben', 'Reyes');
-    $stranger = projEmployee('BWF-0453', 'Cai', 'Santos');
+    $first = projEmployee('COP-0451', 'Ana', 'Garcia');
+    $second = projEmployee('COP-0452', 'Ben', 'Reyes');
+    $stranger = projEmployee('COP-0453', 'Cai', 'Santos');
     $project = projProject();
     $task = projTask($project, ['assignee_ids' => [$first->id, $second->id]]);
 
@@ -446,8 +492,8 @@ it('lets the second assignee download a task file and refuses an unrelated emplo
 });
 
 it('fans a review outcome and a management comment out to every assignee', function () {
-    $a = projEmployee('BWF-0461', 'Ana', 'Garcia');
-    $b = projEmployee('BWF-0462', 'Ben', 'Reyes');
+    $a = projEmployee('COP-0461', 'Ana', 'Garcia');
+    $b = projEmployee('COP-0462', 'Ben', 'Reyes');
     $aAccount = projAccountFor($a);
     $bAccount = projAccountFor($b);
     $project = projProject();
@@ -476,27 +522,11 @@ it('fans a review outcome and a management comment out to every assignee', funct
     }
 });
 
-it('never tells the actor about their own comment or decision, and tells an assigner on the crew only once', function () {
-    $lead = projEmployee('BWF-0471', 'Mia', 'Lopez'); // the reviewer, who is also on the crew
-    $ben = projEmployee('BWF-0472', 'Ben', 'Reyes');
-    $leadAccount = User::factory()->create([
-        'role_id' => projRole(['PROJECTS'], true)->getKey(),
-        'employee_id' => $lead->id,
-    ]);
-    $leadAltAccount = User::factory()->create([
-        'email' => 'mia.alt@example.com',
-        'employee_id' => $lead->id,
-        'is_active' => true,
-    ]);
-    $benAccount = projAccountFor($ben);
-    $project = projProject();
-    $task = projTask($project, [
-        'status' => 'SUBMITTED',
-        'assignee_ids' => [$lead->id, $ben->id],
-        'assigned_by' => $leadAccount->getKey(),
-        'submitted_at' => CarbonImmutable::now(),
-        'submitted_by' => $ben->id,
-    ]);
+it('never tells the actor about their own comment, and tells an assigner on the crew only once', function () {
+    [
+        'project' => $project, 'task' => $task, 'ben' => $ben,
+        'lead' => $leadAccount, 'leadAlt' => $leadAltAccount, 'benAccount' => $benAccount,
+    ] = projLeadOnCrew('SUBMITTED');
 
     // Ben — an assignee, not a manager — comments: the assigner is told ONCE,
     // through their account, not again through the employee fan-out that
@@ -512,28 +542,58 @@ it('never tells the actor about their own comment or decision, and tells an assi
     expect(Notification::query()->where('user_id', $leadAltAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
     expect(Notification::query()->where('user_id', $benAccount->getKey())->count())->toBe(0);
 
-    // The reviewer comments and accepts: Ben is told of both, the reviewer
-    // of neither — nobody is notified of their own action.
+    // The reviewer comments: Ben is told, the reviewer is not — nobody is
+    // notified of their own action.
     test()->actingAs($leadAccount);
+    app()->forgetInstance(Access::class);
     Livewire::test(Show::class, ['project' => $project->id])
         ->call('openTask', $task->id)
         ->set('commentBody', 'Looks good.')
-        ->call('postComment')
+        ->call('postComment');
+
+    expect(Notification::query()->where('user_id', $benAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
+    expect(Notification::query()->where('user_id', $leadAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
+    expect(Notification::query()->where('user_id', $leadAltAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
+});
+
+it('refuses an accept from a reviewer who is one of the task assignees', function () {
+    ['project' => $project, 'task' => $task, 'lead' => $leadAccount] = projLeadOnCrew('SUBMITTED');
+    test()->actingAs($leadAccount);
+
+    Livewire::test(Show::class, ['project' => $project->id])
+        ->call('openTask', $task->id)
         ->set('remarks', 'Accepted')
         ->call('review', 'COMPLETED')
+        ->assertSet('reviewOpen', true);
+
+    $task->refresh();
+    expect($task->status)->toBe('SUBMITTED');
+    expect($task->getAttribute('reviewed_by'))->toBeNull();
+    expect(TaskComment::query()->where('task_id', $task->id)->count())->toBe(0);
+    expect(AuditLog::query()->where('action', 'TASK_COMPLETED')->where('entity_id', $task->id)->count())->toBe(0);
+    expect(Notification::query()->where('kind', 'TASK_COMPLETED')->count())->toBe(0);
+});
+
+it('lets a reviewer on the crew cancel a shared task, telling everyone else but none of their own accounts', function () {
+    [
+        'project' => $project, 'task' => $task,
+        'lead' => $leadAccount, 'leadAlt' => $leadAltAccount, 'benAccount' => $benAccount,
+    ] = projLeadOnCrew('IN_PROGRESS');
+    test()->actingAs($leadAccount);
+
+    Livewire::test(Show::class, ['project' => $project->id])
+        ->call('openTask', $task->id)
+        ->call('review', 'CANCELLED')
         ->assertSet('reviewOpen', false);
 
-    expect($task->refresh()->status)->toBe('COMPLETED');
-    expect(Notification::query()->where('user_id', $benAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
-    expect(Notification::query()->where('user_id', $benAccount->getKey())->where('kind', 'TASK_COMPLETED')->count())->toBe(1);
-    expect(Notification::query()->where('user_id', $leadAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
-    expect(Notification::query()->where('user_id', $leadAccount->getKey())->where('kind', 'TASK_COMPLETED')->count())->toBe(0);
-    expect(Notification::query()->where('user_id', $leadAltAccount->getKey())->where('kind', 'TASK_COMMENT')->count())->toBe(1);
-    expect(Notification::query()->where('user_id', $leadAltAccount->getKey())->where('kind', 'TASK_COMPLETED')->count())->toBe(0);
+    expect($task->refresh()->status)->toBe('CANCELLED');
+    expect(Notification::query()->where('user_id', $benAccount->getKey())->where('kind', 'TASK_CANCELLED')->count())->toBe(1);
+    expect(Notification::query()->where('user_id', $leadAccount->getKey())->where('kind', 'TASK_CANCELLED')->count())->toBe(0);
+    expect(Notification::query()->where('user_id', $leadAltAccount->getKey())->where('kind', 'TASK_CANCELLED')->count())->toBe(0);
 });
 
 it('tells a removed employee the task is no longer theirs when nobody is left on it', function () {
-    $ana = projEmployee('BWF-0481', 'Ana', 'Garcia');
+    $ana = projEmployee('COP-0481', 'Ana', 'Garcia');
     $anaAccount = projAccountFor($ana);
     $project = projProject();
     $task = projTask($project, ['code' => 'TSK-SOLO', 'assignee_ids' => [$ana->id]]);
@@ -552,13 +612,13 @@ it('tells a removed employee the task is no longer theirs when nobody is left on
         ->where('user_id', $anaAccount->getKey())
         ->where('kind', 'TASK_REASSIGNED')
         ->firstOrFail();
-    expect($notice->body)->toContain('You were removed from TSK-SOLO');
+    expect($notice->body)->toContain('You were removed from Task TSK-SOLO');
     expect($notice->body)->not->toContain('another employee');
 });
 
 it('refuses an unknown or inactive newcomer on the review dialog and leaves the pivot alone', function () {
-    $ana = projEmployee('BWF-0491', 'Ana', 'Garcia');
-    $gone = projEmployee('BWF-0492', 'Gone', 'Person');
+    $ana = projEmployee('COP-0491', 'Ana', 'Garcia');
+    $gone = projEmployee('COP-0492', 'Gone', 'Person');
     $gone->forceFill(['is_active' => false])->save();
     $project = projProject();
     $task = projTask($project, ['assignee_ids' => [$ana->id]]);
@@ -583,20 +643,24 @@ it('refuses an unknown or inactive newcomer on the review dialog and leaves the 
 });
 
 it('exports the tasks CSV with an Assignees header and a "; "-joined, surname-ordered cell', function () {
-    $ben = projEmployee('BWF-0501', 'Ben', 'Reyes');
-    $ana = projEmployee('BWF-0502', 'Ana', 'Garcia');
+    $ben = projEmployee('COP-0501', 'Ben', 'Reyes');
+    $ana = projEmployee('COP-0502', 'Ana', 'Garcia');
     $project = projProject();
     projTask($project, ['code' => 'TSK-BOTH', 'assignee_ids' => [$ben->id, $ana->id]]);
     projTask($project, ['code' => 'TSK-NONE']);
     projActor(['PROJECTS'], allData: true);
 
-    $csv = (string) $this->get('/projects/'.$project->id.'/tasks/export')->assertOk()->getContent();
+    $csv = $this->get('/projects/'.$project->id.'/tasks/export')->assertOk()->streamedContent();
 
     // The exporter prepends a UTF-8 BOM, so match the quoted cells rather
     // than a line start. A shared task lists every name — Garcia before
     // Reyes — "; "-joined so two people never read as one "Last, First"
     // name; an unassigned task prints the em dash.
-    expect($csv)->toContain('"Code","Task","Assignees","Priority","Due date","Status"');
+    // One BOM, first bytes — App\Support\Csv puts it inside the builder, so a
+    // caller that prepends its own would give Excel a stray ï»¿ in cell A1.
+    expect(str_starts_with($csv, "\u{FEFF}"))->toBeTrue()
+        ->and(substr_count($csv, "\u{FEFF}"))->toBe(1);
+    expect($csv)->toContain('"Code","Task","Assignees","Priority","Start date","Due date","Status"');
     expect($csv)->toContain('"TSK-BOTH"');
     expect($csv)->toContain('"Ana Garcia; Ben Reyes"');
     expect($csv)->not->toContain('Ben Reyes; Ana Garcia');
@@ -616,7 +680,7 @@ it('refuses a review decision the manager transition map does not allow', functi
     projActor(['PROJECTS'], allData: true);
 
     // MANAGER_TRANSITIONS[PENDING] is [CANCELLED] — completing pending work
-    // was the reference API's flat-list bug; the map closes it.
+    // is the reference API's flat-list bug; the map closes it.
     Livewire::test(Show::class, ['project' => $project->id])
         ->call('openTask', $task->id)
         ->call('review', 'COMPLETED');
@@ -624,18 +688,26 @@ it('refuses a review decision the manager transition map does not allow', functi
     expect($task->refresh()->status)->toBe('PENDING');
 });
 
-it('refuses reopening a completed project through the status select', function () {
+it('reopens a completed project through the status select, but never to Active without a task leader', function () {
+    // DELIBERATE DIVERGENCE (ManualProjectStatus): the reference keeps
+    // COMPLETED terminal; a status set by hand may reopen it. The facts
+    // still stand — Active needs a Task Leader.
     $project = projProject(['status' => 'COMPLETED']);
     projActor(['PROJECTS'], allData: true);
 
     Livewire::test(Show::class, ['project' => $project->id])
-        ->call('changeStatus', 'ACTIVE');
-
+        ->call('changeStatus', 'ACTIVE', 'COMPLETED')
+        ->assertDispatched('toast-show', fn ($name, $p) => ($p['slots']['text'] ?? null) === 'Assign a task leader before activating this project.');
     expect($project->refresh()->status)->toBe('COMPLETED');
+
+    Livewire::test(Show::class, ['project' => $project->id])
+        ->call('changeStatus', 'PLANNING', 'COMPLETED');
+    expect($project->refresh()->status)->toBe('PLANNING')
+        ->and(AuditLog::query()->where('action', 'PROJECT_STATUS_CHANGED')->where('entity_id', $project->id)->count())->toBe(1);
 });
 
 it('requires a remark before returning a task', function () {
-    $employee = projEmployee('BWF-0301', 'Ben', 'Reyes');
+    $employee = projEmployee('COP-0301', 'Ben', 'Reyes');
     $project = projProject();
     $task = projTask($project, [
         'status' => 'SUBMITTED',
@@ -669,7 +741,7 @@ it('blocks project writes for a PROJECTS holder without all_data', function () {
 */
 
 it('blocks deleting a project for a PROJECTS holder without all_data, even one who can see it', function () {
-    $emp = projEmployee('BWF-0511', 'Non', 'Manager');
+    $emp = projEmployee('COP-0511', 'Non', 'Manager');
     $project = projProject(['name' => 'Must Survive']);
     projTask($project, ['assignee_ids' => [$emp->id]]);
     $user = projActor(['PROJECTS'], allData: false, employeeId: $emp->id);
@@ -677,7 +749,7 @@ it('blocks deleting a project for a PROJECTS holder without all_data, even one w
     // Precondition: the actor CAN see the project, so only the manage gate —
     // not row scoping, which would hide it from an employee-less account —
     // stands between them and the delete.
-    expect(ProjectsData::scopedProjects(Access::forActor($user))->whereKey($project->id)->exists())->toBeTrue();
+    expect(ProjectsData::scopedProjects(Access::forActor($user))->contains('id', $project->id))->toBeTrue();
 
     Livewire::test(Show::class, ['project' => $project->id])
         ->assertSee('Must Survive')
@@ -732,4 +804,52 @@ it('deletes a project with its tasks, files and comments, then returns to the li
     $entry = AuditLog::query()->where('action', 'PROJECT_DELETED')->where('entity_id', $project->id)->first();
     expect($entry)->not->toBeNull();
     expect($entry?->details)->toContain('Doomed Project')->toContain('1 task');
+});
+
+/*
+|--------------------------------------------------------------------------
+| Which identifier the task tables show
+|--------------------------------------------------------------------------
+*/
+
+it('lists assignee Employee IDs POSITIONALLY, so an unnumbered one holds its place', function () {
+    $ana = projEmployee('COP-0501', 'Ana', 'Garcia');
+    $ana->forceFill(['employee_id_no' => '2024-201'])->save();
+    $ben = projEmployee('COP-0502', 'Ben', 'Reyes');
+    $cara = projEmployee('COP-0503', 'Cara', 'Lim');
+    $cara->forceFill(['employee_id_no' => '2024-203'])->save();
+
+    $project = projProject();
+    projTask($project, ['assignee_ids' => [$ana->id, $ben->id, $cara->id]]);
+    projActor(['PROJECTS'], allData: true);
+
+    // Assignees are listed by surname — Garcia, Lim, Reyes — so the id line
+    // must read 2024-201 · 2024-203 · — to stay under its own name. Dropping
+    // the unnumbered Ben instead would sit two ids under three names and pair
+    // Cara's number with him.
+    Livewire::test(Show::class, ['project' => $project->id])
+        ->assertSee('Ana Garcia, Cara Lim, Ben Reyes')
+        ->assertSee('2024-201 · 2024-203 · —')
+        ->assertDontSee('COP-0501')
+        ->assertDontSee('COP-0503');
+});
+
+it('shows one em dash, not a blank line, when no assignee on a task has a company number', function () {
+    $ben = projEmployee('COP-0504', 'Ben', 'Torres');
+    $cara = projEmployee('COP-0505', 'Cara', 'Villar');
+    $project = projProject();
+    projTask($project, ['assignee_ids' => [$ben->id, $cara->id]]);
+    projActor(['PROJECTS'], allData: true);
+
+    // Two unnumbered assignees collapse to ONE em dash, not to "— · —" and not
+    // to an empty line: with nothing to align, there is nothing to hold a place
+    // for. The names still render in full.
+    $page = Livewire::test(Show::class, ['project' => $project->id])
+        ->assertSee('Ben Torres, Cara Villar')
+        ->assertDontSee('COP-0504')
+        ->assertDontSee('— · —');
+
+    // The id line itself, not just the absence of a wrong one: an empty <p>
+    // would satisfy every assertion above.
+    expect($page->html())->toMatch('/<p class="num break-words text-xs text-muted-foreground">\s*—\s*<\/p>/');
 });

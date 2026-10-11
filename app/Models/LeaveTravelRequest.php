@@ -6,7 +6,9 @@ namespace App\Models;
 
 use App\Models\Concerns\ScopesToActor;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A leave filing or an official-business travel request.
@@ -15,7 +17,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * `BUSINESS_TRAVEL` for official business (dtr.ts: OFFICIAL_BUSINESS). It is
  * not an enum: the list is user-editable in Records Management. `day_type`
  * (WHOLE_DAY | HALF_DAY) and `status` (PENDING | APPROVED | REJECTED |
- * WITHDRAWN) are free text for the same reason.
+ * WITHDRAWN | CANCELLED) are free text for the same reason. Partial date
+ * cancellations keep APPROVED; their evidence excludes only the named dates.
  *
  * `is_paid` is genuinely THREE-STATE and the nullable boolean is load-bearing:
  * true = paid leave, false = leave without pay, NULL = official business.
@@ -40,6 +43,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $updated_at
  * @property-read EmployeeProfile|null $employee
  * @property-read User|null $reviewer
+ * @property-read Collection<int, LeaveRequestCancellation> $cancellations
  */
 class LeaveTravelRequest extends BaseModel
 {
@@ -85,5 +89,22 @@ class LeaveTravelRequest extends BaseModel
     public function reviewer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reviewed_by');
+    }
+
+    /** @return HasMany<LeaveRequestCancellation, $this> */
+    public function cancellations(): HasMany
+    {
+        return $this->hasMany(LeaveRequestCancellation::class, 'leave_travel_request_id');
+    }
+
+    /** @return list<string> */
+    public function cancelledDates(): array
+    {
+        $dates = $this->cancellations
+            ->map(static fn (LeaveRequestCancellation $row): string => $row->date->format('Y-m-d'))
+            ->values()->all();
+        sort($dates, SORT_STRING);
+
+        return $dates;
     }
 }

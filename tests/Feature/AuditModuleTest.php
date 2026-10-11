@@ -19,7 +19,11 @@ use Livewire\Livewire;
  * filters, search and "System" actor fallback.
  */
 
-/** A role holding the given modules. Helpers are audit-prefixed: Pest loads every test file into one process. */
+/**
+ * A role holding the given modules. Helpers are audit-prefixed: Pest loads every test file into one process.
+ *
+ * @param  list<string>  $modules  ModuleCode strings, one RoleModuleGrant each
+ */
 function auditRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -33,6 +37,11 @@ function auditRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/**
+ * A signed-in user on a fresh role holding the given modules.
+ *
+ * @param  list<string>  $modules  ModuleCode strings passed through to auditRole()
+ */
 function auditActor(array $modules, bool $allData = false, ?string $employeeId = null): User
 {
     $user = User::factory()->create([

@@ -30,15 +30,15 @@ use Livewire\Attributes\Locked;
  * rather than removed it.
  *
  * OVER-TRIGGERING IS SAFE; UNDER-TRIGGERING IS A BUG. A stamp that moves too
- * often merely renders as often as the old poll did. A stamp that misses a
+ * often merely renders as often as an unstamped poll. A stamp that misses a
  * write leaves the screen stale until the next real interaction, so each
  * implementation states plainly which writes it watches — and, where it is
  * narrower than everything the view draws, which ones it does not.
  *
  * `$changeStamp` is `#[Locked]`: it is server-derived state, and a client that
  * could write it could pin a screen to a stamp that never matches (a render on
- * every tick, back to the old cost) or one that always matches (a screen that
- * never updates again).
+ * every tick, the full cost of an unstamped poll) or one that always matches
+ * (a screen that never updates again).
  *
  * USAGE — three lines per component:
  *
@@ -77,9 +77,9 @@ use Livewire\Attributes\Locked;
  * re-reads its own rows through its own scope. A knock meant for someone else
  * costs one index read. A knock that never arrives costs nothing at all,
  * because the poll is still running underneath — at
- * `bestworkflows.realtime.poll_backstop` rather than its usual cadence, but running.
+ * `copems.realtime.poll_backstop` rather than its usual cadence, but running.
  *
- * The listener is registered ONLY when `bestworkflows.realtime.enabled` is true. On a
+ * The listener is registered ONLY when `copems.realtime.enabled` is true. On a
  * host with no broadcaster keys there is no listener in the payload at all,
  * rather than one that makes Livewire warn "Laravel Echo cannot be found" into
  * every console on every page.
@@ -171,7 +171,7 @@ trait WithChangeStamp
     {
         $listeners = parent::getListeners();
 
-        if (config('bestworkflows.realtime.enabled') !== true) {
+        if (config('copems.realtime.enabled') !== true) {
             return $listeners;
         }
 

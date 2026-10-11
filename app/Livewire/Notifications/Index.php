@@ -6,11 +6,12 @@ namespace App\Livewire\Notifications;
 
 use App\Livewire\Concerns\WithChangeStamp;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Livewire\Notifications\Concerns\OwnsInbox;
 use App\Models\Notification;
+use App\Platform\Notifications\Inbox;
 use App\Support\Access;
 use App\Support\Realtime;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -30,20 +31,24 @@ use Livewire\Component;
  *
  * The addressee is ALWAYS the session's account ({@see Access::$userId}),
  * never anything the client could write — every read and both actions go
- * through {@see self::own()}, so no posted id can touch another account's
- * rows. That is the whole permission story of this screen: an inbox is not a
- * module, every signed-in account has one (notifications/page.tsx:15-21).
+ * through `own()`, so no posted id can touch another account's rows. That is
+ * the whole permission story of this screen: an inbox is not a module, every
+ * signed-in account has one (notifications/page.tsx:15-21). `own()`,
+ * `follow()` and `changeStamp()` come from {@see OwnsInbox}, the one copy the
+ * header bell shares.
  *
  * The 60-second poll goes through {@see WithChangeStamp}. It matters more here
- * than anywhere: a tick re-read the newest 500 rows, hydrated 500 models and
- * re-ran the whole search/status pipeline in PHP to redraw a page that had not
- * changed. The stamp is one aggregate, and the filters are untouched by it —
- * typing in the search box is its own request and renders normally.
+ * than anywhere: without it a tick would re-read the newest 500 rows, hydrate
+ * 500 models and re-run the whole search/status pipeline in PHP to redraw a
+ * page that has not changed. The stamp is one aggregate, and the filters are
+ * untouched by it — typing in the search box is its own request and renders
+ * normally.
  */
 #[Layout('layouts.app')]
 #[Title('Notifications')]
 class Index extends Component
 {
+    use OwnsInbox;
     use WithChangeStamp;
     use WithTableFilters;
 
@@ -72,44 +77,14 @@ class Index extends Component
     }
 
     /**
-     * Mark one notification read, then follow it to the record it is about —
-     * the row click (notifications-page.tsx:107-110): `markRead(n.id)` then
-     * `router.push(n.href)`. A row with no href still marks read and stays.
-     */
-    public function follow(string $id): void
-    {
-        $notification = $this->own()?->whereKey($id)->first();
-
-        if ($notification === null) {
-            return;
-        }
-
-        if ($notification->read_at === null) {
-            $notification->read_at = now();
-            $notification->save();
-        }
-
-        if ($notification->href !== null && $notification->href !== '') {
-            $this->redirect($notification->href);
-        }
-    }
-
-    /**
      * Port of `markAllRead(items)` (useNotifications.ts:55-58): marks the
      * unread among the LOADED window — the newest {@see self::LIMIT} rows —
      * not the whole table, preserving the reference's ceiling.
      */
     public function markAllRead(): void
     {
-        $own = $this->own();
-
-        if ($own === null) {
-            return;
-        }
-
-        $window = (clone $own)->orderByDesc('created_at')->limit(self::LIMIT)->pluck('id');
-
-        (clone $own)->whereIn('id', $window)->whereNull('read_at')->update(['read_at' => now()]);
+        $actor = app(Access::class);
+        app(Inbox::class)->markAllRead($actor, self::LIMIT);
     }
 
     public function render(): View
@@ -118,7 +93,7 @@ class Index extends Component
 
         // useNotifications(PAGE_FETCH_LIMIT) — the newest 500, newest first.
         /** @var Collection<int, Notification> $items */
-        $items = $this->own()?->orderByDesc('created_at')->limit(self::LIMIT)->get() ?? new Collection;
+        $items = app(Inbox::class)->latest(app(Access::class), self::LIMIT);
 
         // The filter pipeline (notifications-page.tsx:28-40).
         $needle = mb_strtolower(trim($this->search));
@@ -164,36 +139,6 @@ class Index extends Component
     }
 
     /**
-     * The same three-part stamp the bell reads — total, read, newest — over
-     * the same account's rows, because this page draws the same facts at
-     * greater length: the rows themselves, the "most recent 500" line, and the
-     * unread tally the Unread filter and "mark all read" work against.
-     *
-     * The window the page loads is capped at {@see self::LIMIT}; the stamp
-     * counts the whole inbox. Beyond 500 notifications the count keeps moving
-     * while the visible newest-500 may not, which costs an occasional render
-     * that draws the same rows — the safe direction to be wrong in, and it
-     * keeps the stamp to one indexed aggregate.
-     */
-    protected function changeStamp(): string
-    {
-        $own = $this->own();
-
-        if ($own === null) {
-            return 'signed-out';
-        }
-
-        $stamp = $own
-            ->toBase()
-            ->selectRaw('COUNT(*) AS total, COUNT(read_at) AS seen, MAX(created_at) AS newest')
-            ->first();
-
-        return ((int) ($stamp->total ?? 0))
-            .':'.((int) ($stamp->seen ?? 0))
-            .':'.((string) ($stamp->newest ?? ''));
-    }
-
-    /**
      * Port of `notificationKindLabel` (hris.ts:141-150): TASK_DUE_SOON →
      * "Task due soon". "Derived rather than looked up … a kind added by a
      * later migration should still render as words instead of falling through
@@ -206,24 +151,5 @@ class Index extends Component
         return $words === ''
             ? $kind
             : mb_strtoupper(mb_substr($words, 0, 1)).mb_substr($words, 1);
-    }
-
-    /**
-     * The session account's own notifications — null when nobody is signed
-     * in. The ONLY way this component reaches the table, so no action can
-     * touch another account's rows no matter what id the client posts.
-     * The actor is re-read from {@see Access} on every call, never mounted.
-     *
-     * @return Builder<Notification>|null
-     */
-    private function own(): ?Builder
-    {
-        $access = app(Access::class);
-
-        if (! $access->isSignedIn()) {
-            return null;
-        }
-
-        return Notification::query()->where('user_id', (int) $access->userId);
     }
 }

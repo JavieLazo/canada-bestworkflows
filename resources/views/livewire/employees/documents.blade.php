@@ -1,8 +1,8 @@
 {{--
     Documents card — port of employee-documents.tsx:117-429.
 
-    Same columns (ID · Document · Category · Expiration · actions), same empty
-    copy, same storage footer, same add-document dialog fields.
+    Category filtering and CSV share the scoped document query. The storage
+    footer and add-document dialog cover every document, regardless of the filter.
 --}}
 @php
     use App\Livewire\Employees\EmployeeFields;
@@ -16,10 +16,24 @@
                     Contracts, IDs and certificates on file for {{ EmployeeFields::employeeName($employee) }}.
                 </p>
             </div>
-            <flux:button variant="primary" icon="plus" class="print:hidden" wire:click="$set('adding', true)">
-                Add document
-            </flux:button>
+            <div class="flex flex-wrap items-center gap-2">
+                <x-kit.export-button :href="route('employees.documents.export', ['employee' => $employeeId, 'category' => $category])" />
+                @if ($canEdit)
+                <flux:button variant="primary" icon="plus" wire:click="$set('adding', true)">
+                    Add document
+                </flux:button>
+                @endif
+            </div>
         </header>
+
+        <div class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
+            <x-kit.filter-select wire:model.live="category" label="Filter by category" all-value="" class="w-full sm:w-64">
+                <flux:select.option value="" :selected="$category === ''">All categories</flux:select.option>
+                @foreach ($filterCategories as $filterCategory)
+                    <flux:select.option value="{{ $filterCategory }}" :selected="$category === $filterCategory">{{ $filterCategory }}</flux:select.option>
+                @endforeach
+            </x-kit.filter-select>
+        </div>
 
         <div class="hris-table-wrap hris-table-scroll">
             <table class="hris-table">
@@ -35,7 +49,7 @@
                 <tbody>
                     @if ($total === 0)
                         <tr wire:key="empty">
-                            <x-kit.empty-state :colspan="5" title="No documents on file yet." />
+                            <x-kit.empty-state :colspan="5" :title="$category === '' ? 'No documents on file yet.' : 'No documents match this category.'" />
                         </tr>
                     @endif
                     @foreach ($list as $doc)
@@ -64,7 +78,7 @@
                                     <span class="text-muted-foreground">—</span>
                                 @endif
                             </td>
-                            <td class="text-right print:hidden">
+                            <td class="text-right">
                                 <div class="flex justify-end gap-1">
                                     <flux:button
                                         variant="ghost"
@@ -74,15 +88,17 @@
                                     >
                                         Download
                                     </flux:button>
+                                    @if ($canEdit)
                                     <flux:button
                                         variant="ghost"
                                         size="sm"
                                         square
                                         aria-label="Delete {{ $doc->name }}"
-                                        wire:click="remove('{{ $doc->id }}')"
+                                        wire:click="removeDocument('{{ $doc->id }}')"
                                     >
                                         <flux:icon.trash class="size-4 text-danger" />
                                     </flux:button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -91,9 +107,9 @@
             </table>
         </div>
 
-        <x-kit.pagination :paginator="$list" noun="documents" class="print:hidden" />
+        <x-kit.pagination :paginator="$list" noun="documents" />
 
-        <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-xs text-muted-foreground print:hidden">
+        <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-xs text-muted-foreground">
             <span>
                 Storage used <span class="num">{{ EmployeeFields::humanSize($usedBytes) }}</span>
             </span>
@@ -141,7 +157,7 @@
 
                     <div class="space-y-2">
                         <flux:label>Category</flux:label>
-                        <flux:select wire:model.live="form.category" aria-label="Category">
+                        <x-kit.select wire:model.live="form.category" aria-label="Category">
                             <flux:select.option value="" disabled hidden>Select a category</flux:select.option>
                             @if ($categories === [])
                                 <flux:select.option value="" disabled>No document types yet — add them in Records Management.</flux:select.option>
@@ -149,7 +165,7 @@
                             @foreach ($categories as $category)
                                 <flux:select.option value="{{ $category }}">{{ $category }}</flux:select.option>
                             @endforeach
-                        </flux:select>
+                        </x-kit.select>
                         <p class="text-xs text-muted-foreground">
                             Managed in Records Management → Document Types.
                         </p>

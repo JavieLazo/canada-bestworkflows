@@ -24,13 +24,17 @@
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             <flux:input
                 aria-label="Search shift types"
-                placeholder="Search code or name"
+                placeholder="Search ID or name"
                 class="w-full min-w-[12rem] max-w-xs flex-1"
                 wire:model.live.debounce.250ms="search"
             />
-            <flux:button variant="primary" class="ml-auto" icon="plus" wire:click="openAdd">
-                Add shift type
-            </flux:button>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+                <x-kit.export-button :href="route('records.shifts.export', array_filter(['q' => $search, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+                <livewire:kit.csv-import table="records.shifts" :template="route('records.shifts.export', ['template' => 1])" key="import-shifts" />
+                <flux:button variant="primary" icon="plus" wire:click="openAdd">
+                    Add shift type
+                </flux:button>
+            </div>
         </header>
 
         <div class="hris-table-wrap hris-table-scroll">
@@ -144,8 +148,20 @@
                 </flux:heading>
                 <flux:text>
                     A fixed pattern clocks against set hours. A flexible one only owes a daily
-                    total, whenever it is worked.
+                    total, whenever it is worked. In Shift Roster, choose a pattern for each weekday or a specific date.
                 </flux:text>
+                {{--
+                    Saving an in-use pattern re-copies it onto the employees rostered on
+                    it FROM THE EFFECTIVE DATE (SaveShiftType): every earlier date
+                    keeps the hours it was measured against. An edit that affects
+                    anything worth a second look is held in the review dialog below.
+                --}}
+                @if ($editingId !== null && $editingUsage > 0)
+                    <flux:text class="text-sm text-muted-foreground">
+                        Saving changes the hours of the <span class="num">{{ $editingUsage }}</span> {{ $editingUsage === 1 ? 'employee' : 'employees' }}
+                        rostered on this pattern from the effective date. Earlier dates keep the hours they were measured against.
+                    </flux:text>
+                @endif
             </div>
 
             <form class="grid gap-4 sm:grid-cols-2" wire:submit="save">
@@ -160,10 +176,10 @@
 
                 <div class="space-y-2">
                     <flux:label>Mode</flux:label>
-                    <flux:select aria-label="Mode" wire:model.live="formMode">
+                    <x-kit.select aria-label="Mode" wire:model.live="formMode">
                         <flux:select.option value="FIXED">Fixed hours</flux:select.option>
                         <flux:select.option value="FLEXIBLE">Flexible</flux:select.option>
-                    </flux:select>
+                    </x-kit.select>
                 </div>
 
                 <div class="space-y-2 sm:col-span-2">
@@ -184,9 +200,9 @@
                         @endforeach
                     </div>
                     <p class="text-xs text-muted-foreground">
-                        The days this pattern is scheduled on. Everything else is a rest day, and
-                        these are what the monthly rate is divided by &mdash; a six-day week makes
-                        each day worth less than a five-day one on the same monthly rate.
+                        The default work week when this pattern is assigned to an employee. Weekday and
+                        specific-date selections in Shift Roster override individual days. Payroll divides the monthly
+                        rate by the employee’s resulting scheduled workdays.
                     </p>
                 </div>
 
@@ -256,6 +272,10 @@
                     </div>
                 @endif
 
+                @if ($editingId !== null && $editingUsage > 0)
+                    @include('livewire.roster.partials.effective-from', ['model' => 'formEffectiveFrom', 'fieldId' => 'pattern-from'])
+                @endif
+
                 @if ($formError !== null)
                     <p class="text-xs text-danger sm:col-span-2">{{ $formError }}</p>
                 @endif
@@ -272,4 +292,7 @@
             </form>
         </div>
     </flux:modal>
+    {{-- Review — what an edit affects for the employees on the pattern,
+         before it is saved. Go back returns to the editor as it was left. --}}
+    @include('livewire.roster.partials.schedule-review', ['backAction' => 'reviewBack'])
 </div>

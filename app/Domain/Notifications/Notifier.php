@@ -6,53 +6,8 @@ namespace App\Domain\Notifications;
 
 use App\Models\Notification;
 use App\Models\User;
-use App\Support\Realtime;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
-use Throwable;
 
-/**
- * In-app notifications, written by the operation that causes them.
- *
- * The port of `src/lib/api/notify.ts` (the server-side fan-out — the demo's
- * client-side `src/lib/notifications.ts` deliberately went inert in production
- * because "an inbox anyone can address is not an inbox") plus the reminder
- * write path of `src/lib/data/notifications.ts` (`createReminderNotifications`).
- *
- * TWO INVARIANTS, straight from the reference:
- *
- *  1. **Fire-and-forget.** A notification that does not land must never break
- *     the action that triggered it — "the task really was assigned, and
- *     failing the request because the bell did not ring would be a worse lie
- *     than a missing notification" (notify.ts:9-12). Every method swallows and
- *     logs; none throws.
- *  2. **The addressee is server-derived.** `user_id` is resolved here — from
- *     an employee link, a module grant, or the session — never accepted off a
- *     request. It is set with `setAttribute`, not `fill()`: the column is
- *     deliberately not mass-assignable on {@see Notification}.
- *
- * TRANSACTIONS: writes go through the default connection, so a caller already
- * inside `DB::transaction()` has the notification join its transaction — a
- * rolled-back assignment takes its bell ring with it. There is no internal
- * transaction here: one row per recipient, and a partial fan-out is exactly
- * what the reference's `Promise.all` of independent creates produced.
- *
- * DEDUPE (`dedupe_key`) — reference semantics, do not "improve":
- *  - EVENT notifications ({@see account}, {@see employee},
- *    {@see moduleHolders}) always write `dedupe_key = NULL`. They fire from a
- *    write that only happens once, and the `(user_id, dedupe_key)` unique
- *    index does not bind on NULL, so they repeat freely.
- *  - REMINDERS ({@see reminders}) are derived on load and recomputed every
- *    time someone opens the app; each row carries a key naming the RULE, the
- *    RECORD and the TRIGGER (`ReminderSweep::build()`), and `insertOrIgnore`
- *    against the unique index is what stops the same reminder landing twice.
- *
- * `kind` is one of the 19 strings in `src/lib/notifications.ts`
- * (NOTIFICATION_KINDS): TASK_ASSIGNED, TASK_REASSIGNED, TASK_SUBMITTED,
- * TASK_RETURNED, TASK_COMPLETED, TASK_CANCELLED, TASK_COMMENT, LEAVE_FILED,
- * LEAVE_REVIEWED, PAYSLIP_POSTED, and the nine reminder kinds. Kept a plain
- * string on purpose — a kind added later must still render, not throw.
- */
+/** Compatibility adapter; implementation belongs to \App\Platform\Notifications\Notifier. */
 final class Notifier
 {
     /**
@@ -62,80 +17,14 @@ final class Notifier
      *
      * @param  int|string|null  $userId  The `users` row to tell (Access::userId
      *                                   arrives as a string; both are accepted).
-     * @param  string  $kind  One of the NOTIFICATION_KINDS strings.
+     * @param  string  $kind  A notification kind: NOTIFICATION_KINDS or one
+     *                        ems added (the platform Notifier's docblock).
      * @param  string|null  $href  Where clicking it should go, app-relative
      *                             (e.g. '/my-tasks').
      */
-    public static function account(
-        int|string|null $userId,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        if ($userId === null || $userId === '') {
-            return;
-        }
-
-        if (self::write($userId, $kind, $title, $body, $href)) {
-            self::ring([$userId]);
-        }
-    }
-
-    /**
-     * The single write. Returns whether the row landed, so a fan-out can knock
-     * once for the accounts it actually reached instead of once per account.
-     *
-     * Swallows and logs, per INVARIANT 1 — every caller depends on that, and
-     * the boolean is for batching the announcement, never for failing a
-     * request.
-     */
-    private static function write(
-        int|string $userId,
-        string $kind,
-        string $title,
-        ?string $body,
-        ?string $href,
-    ): bool {
-        try {
-            $notification = new Notification;
-            $notification->fill([
-                'kind' => mb_substr($kind, 0, 60),
-                'title' => mb_substr($title, 0, 300),
-                'body' => $body === null ? null : mb_substr($body, 0, 2000),
-                'href' => $href === null ? null : mb_substr($href, 0, 500),
-                'dedupe_key' => null,
-            ]);
-            // The addressee is server-assigned, never mass-assigned.
-            $notification->setAttribute('user_id', (int) $userId);
-            $notification->save();
-
-            return true;
-        } catch (Throwable $e) {
-            Log::error('[notify] write failed', ['kind' => $kind, 'error' => $e->getMessage()]);
-
-            return false;
-        }
-    }
-
-    /**
-     * Knock on the bells of the accounts just written to — one broadcast for
-     * the whole fan-out, not one per recipient, because a leave filed for five
-     * reviewers should not be five outbound HTTPS calls.
-     *
-     * Fire-and-forget in the same sense the write is: {@see Realtime::announce}
-     * waits for the caller's transaction to commit, runs after the response is
-     * flushed, and swallows its own failures. A bell that does not ring in
-     * real time still rings at the next 60-second tick.
-     *
-     * @param  list<int|string>  $userIds
-     */
-    private static function ring(array $userIds): void
+    public static function account(int|string|null $userId, string $kind, string $title, ?string $body = null, ?string $href = null): void
     {
-        Realtime::announce(array_map(
-            static fn (int|string $id): string => Realtime::account($id),
-            $userIds,
-        ));
+        \App\Platform\Notifications\Notifier::account($userId, $kind, $title, $body, $href);
     }
 
     /**
@@ -147,29 +36,34 @@ final class Notifier
      * employee with no login is simply not told." Every ACTIVE account linked
      * to the employee is told, exactly as the reference's `findMany`.
      */
-    public static function employee(
-        ?string $employeeId,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        if ($employeeId === null || $employeeId === '') {
-            return;
-        }
+    public static function employee(?string $employeeId, string $kind, string $title, ?string $body = null, ?string $href = null): void
+    {
+        \App\Platform\Notifications\Notifier::employee($employeeId, $kind, $title, $body, $href);
+    }
 
-        try {
-            $accountIds = User::query()
-                ->where('employee_id', $employeeId)
-                ->where('is_active', true)
-                ->pluck('id');
-        } catch (Throwable $e) {
-            Log::error('[notify] lookup failed', ['error' => $e->getMessage()]);
-
-            return;
-        }
-
-        self::ring(self::writeEach($accountIds, $kind, $title, $body, $href));
+    /**
+     * Tells every ACTIVE login of every listed employee, once each, except the
+     * accounts in `$exceptUserIds` — the multi-assignee fan-out with the
+     * told-ledger that Tasks and Projects need.
+     *
+     * The port of notify.ts:40-57 run over a crew. The except-list exists
+     * because one person can qualify for a task event twice — as the assigner
+     * (`assigned_by` holds a users id) and as an assignee (an employee id) —
+     * and the actor must never be told about their own action. Callers pass
+     * the actor's account and the assigner's account here, then tell the
+     * assigner separately through {@see account()} when they are not the
+     * actor.
+     *
+     * One lookup for the whole crew, `orderBy('id')` so the rows land in a
+     * stable order, each written in its own try (a failed row is logged and
+     * skipped, the rest still land), and ONE bell knock for the fan-out.
+     *
+     * @param  iterable<?string>  $employeeIds  null and '' entries are ignored
+     * @param  iterable<int|string|null>  $exceptUserIds  users ids never told, whatever they are linked to
+     */
+    public static function employees(iterable $employeeIds, iterable $exceptUserIds, string $kind, string $title, ?string $body = null, ?string $href = null): void
+    {
+        \App\Platform\Notifications\Notifier::employees($employeeIds, $exceptUserIds, $kind, $title, $body, $href);
     }
 
     /**
@@ -186,60 +80,9 @@ final class Notifier
      * @param  string  $module  A ModuleCode value, e.g. 'LEAVES'.
      * @param  int|string|null  $exceptUserId  The actor, excluded from the fan-out.
      */
-    public static function moduleHolders(
-        string $module,
-        int|string|null $exceptUserId,
-        string $kind,
-        string $title,
-        ?string $body = null,
-        ?string $href = null,
-    ): void {
-        try {
-            $accountIds = User::query()
-                ->join('roles', 'roles.id', '=', 'users.role_id')
-                ->join('role_module_grants', 'role_module_grants.role_id', '=', 'roles.id')
-                ->where('users.is_active', true)
-                ->where('roles.all_data', true)
-                ->where('role_module_grants.module', $module)
-                ->when(
-                    $exceptUserId !== null && $exceptUserId !== '',
-                    static fn ($q) => $q->where('users.id', '!=', (int) $exceptUserId),
-                )
-                ->distinct()
-                ->pluck('users.id');
-        } catch (Throwable $e) {
-            Log::error('[notify] fan-out failed', ['error' => $e->getMessage()]);
-
-            return;
-        }
-
-        self::ring(self::writeEach($accountIds, $kind, $title, $body, $href));
-    }
-
-    /**
-     * One row per recipient — the port of the reference's `Promise.all` of
-     * independent creates, including its partial-fan-out behaviour: an account
-     * whose row fails is logged and skipped, and the rest still land.
-     *
-     * @param  iterable<int|string>  $userIds
-     * @return list<int|string> those actually written
-     */
-    private static function writeEach(
-        iterable $userIds,
-        string $kind,
-        string $title,
-        ?string $body,
-        ?string $href,
-    ): array {
-        $written = [];
-
-        foreach ($userIds as $userId) {
-            if (self::write($userId, $kind, $title, $body, $href)) {
-                $written[] = $userId;
-            }
-        }
-
-        return $written;
+    public static function moduleHolders(string $module, int|string|null $exceptUserId, string $kind, string $title, ?string $body = null, ?string $href = null): void
+    {
+        \App\Platform\Notifications\Notifier::moduleHolders($module, $exceptUserId, $kind, $title, $body, $href);
     }
 
     /**
@@ -263,36 +106,6 @@ final class Notifier
      */
     public static function reminders(int|string|null $userId, array $rows): void
     {
-        if ($userId === null || $userId === '' || $rows === []) {
-            return;
-        }
-
-        try {
-            $now = now()->format('Y-m-d H:i:s.v');
-
-            $values = [];
-            foreach ($rows as $row) {
-                $values[] = [
-                    'id' => (string) Str::ulid(),
-                    'user_id' => (int) $userId,
-                    'kind' => mb_substr($row['kind'], 0, 60),
-                    'title' => mb_substr($row['title'], 0, 300),
-                    'body' => $row['body'] === null ? null : mb_substr($row['body'], 0, 2000),
-                    'href' => $row['href'] === null ? null : mb_substr($row['href'], 0, 500),
-                    'dedupe_key' => $row['dedupeKey'],
-                    'read_at' => null,
-                    'created_at' => $now,
-                    'updated_at' => null,
-                ];
-            }
-
-            // The count is what insertOrIgnore actually inserted: a sweep
-            // whose every key was already recorded knocks on nobody's bell.
-            if (Notification::query()->insertOrIgnore($values) > 0) {
-                self::ring([$userId]);
-            }
-        } catch (Throwable $e) {
-            Log::error('[notify] reminder write failed', ['error' => $e->getMessage()]);
-        }
+        \App\Platform\Notifications\Notifier::reminders($userId, $rows);
     }
 }

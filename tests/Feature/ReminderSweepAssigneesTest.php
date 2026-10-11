@@ -68,10 +68,10 @@ function rswEmployeeRow(string $id, string $first, string $last): array
 }
 
 /** @param  list<string>  $modules */
-function rswRole(array $modules): Role
+function rswRole(array $modules, bool $allData = false): Role
 {
     $role = new Role;
-    $role->forceFill(['name' => 'Sweep '.Str::random(6), 'all_data' => false, 'is_system' => false])->save();
+    $role->forceFill(['name' => 'Sweep '.Str::random(6), 'all_data' => $allData, 'is_system' => false])->save();
 
     foreach ($modules as $module) {
         $grant = new RoleModuleGrant;
@@ -82,10 +82,10 @@ function rswRole(array $modules): Role
 }
 
 /** @param  list<string>  $modules */
-function rswUser(array $modules, ?string $employeeId = null): User
+function rswUser(array $modules, ?string $employeeId = null, bool $allData = false): User
 {
     return User::factory()->create([
-        'role_id' => rswRole($modules)->getKey(),
+        'role_id' => rswRole($modules, $allData)->getKey(),
         'employee_id' => $employeeId,
         'is_active' => true,
     ]);
@@ -95,7 +95,7 @@ function rswEmployee(string $first, string $last): EmployeeProfile
 {
     $employee = new EmployeeProfile;
     $employee->forceFill([
-        'employee_code' => 'BWF-'.Str::upper(Str::random(5)),
+        'employee_code' => 'COP-'.Str::upper(Str::random(5)),
         'first_name' => $first,
         'last_name' => $last,
         'position' => 'Clerk',
@@ -162,7 +162,7 @@ it('announces a due-soon task to every assignee, and to nobody else', function (
     expect($forA)->toHaveCount(1)
         ->and($forA[0]['kind'])->toBe('TASK_DUE_SOON')
         ->and($forA[0]['dedupeKey'])->toBe('TASK_DUE_SOON:tsk-1:2026-09-11')
-        ->and($forA[0]['title'])->toBe('TSK-001 is due soon')
+        ->and($forA[0]['title'])->toBe('Task TSK-001 is due soon')
         ->and($forB)->toBe($forA)
         ->and($forC)->toBe([]);
 });
@@ -268,7 +268,7 @@ it('writes one due-soon and one overdue row per assignee account, and none for a
 it('chases the reviewer with the submitter named, from the submitted_by column', function () {
     $ana = rswEmployee('Ana', 'Garcia');
     $ben = rswEmployee('Ben', 'Cruz');
-    $reviewer = rswUser(['PROJECTS']);
+    $reviewer = rswUser(['PROJECTS'], allData: true);
 
     $project = rswProject();
 
@@ -285,7 +285,7 @@ it('chases the reviewer with the submitter named, from the submitted_by column',
 
     expect($row)->not->toBeNull()
         ->and($row?->kind)->toBe('TASK_REVIEW_PENDING')
-        ->and($row?->title)->toBe('TSK-REV is waiting on your review')
+        ->and($row?->title)->toBe('Task TSK-REV is waiting on your review')
         ->and($row?->body)->toBe('Ben Cruz submitted it 3 days ago.')
         ->and($row?->href)->toBe('/projects/'.$task->project_id);
 });
@@ -324,7 +324,7 @@ function rswStaleSubmission(User $reviewer, CarbonImmutable $submittedAt): Proje
 
 it('mints the review-pending key exactly as the pre-instant sweep did', function () {
     $this->travelTo(CarbonImmutable::parse('2026-09-10 03:00:00', 'UTC'));
-    $reviewer = rswUser(['PROJECTS']);
+    $reviewer = rswUser(['PROJECTS'], allData: true);
     $submittedAt = CarbonImmutable::parse('2026-09-06 16:30:15.250', 'UTC');
     $task = rswStaleSubmission($reviewer, $submittedAt);
 
@@ -344,7 +344,7 @@ it('mints the review-pending key exactly as the pre-instant sweep did', function
 
 it('does not chase again a submission whose reminder carries the pre-change key', function () {
     $this->travelTo(CarbonImmutable::parse('2026-09-10 03:00:00', 'UTC'));
-    $reviewer = rswUser(['PROJECTS']);
+    $reviewer = rswUser(['PROJECTS'], allData: true);
     $submittedAt = CarbonImmutable::parse('2026-09-06 16:30:15.250', 'UTC');
     $task = rswStaleSubmission($reviewer, $submittedAt);
 

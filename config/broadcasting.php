@@ -18,10 +18,9 @@ declare(strict_types=1);
 | change and nothing in this repository has to know.
 |
 | DEFAULTING TO `null` IS DELIBERATE. Until PUSHER_* is filled in on a host,
-| every screen stays on the polls it has always used and no event leaves the
-| process. See config/bestworkflows.php `realtime.enabled`, which is what the app
-| actually asks — nothing dispatches an event to a broadcaster that cannot
-| deliver it.
+| every screen stays on its polls and no event leaves the process. See
+| config/copems.php `realtime.enabled`, which is what the app actually asks —
+| nothing dispatches an event to a broadcaster that cannot deliver it.
 */
 
 return [

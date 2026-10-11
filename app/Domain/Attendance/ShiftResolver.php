@@ -101,7 +101,22 @@ final class ShiftResolver
      */
     public static function workWeek(?Shift $shift): array
     {
-        return self::workDaysOrDefault($shift?->workDays);
+        $week = self::workDaysOrDefault($shift?->workDays);
+        if ($shift === null || $shift->weekdayShifts === []) {
+            return $week;
+        }
+
+        // DELIBERATE DIVERGENCE 8: each explicit weekday choice replaces the
+        // standing pattern's working/rest decision as well as its hours.
+        foreach ($shift->weekdayShifts as $weekday => $dayShift) {
+            $week = array_values(array_filter($week, static fn (int $day): bool => $day !== $weekday));
+            if (in_array($weekday, self::workDaysOrDefault($dayShift->workDays), true)) {
+                $week[] = $weekday;
+            }
+        }
+        sort($week, SORT_NUMERIC);
+
+        return $week;
     }
 
     /**
@@ -156,7 +171,7 @@ final class ShiftResolver
      * A FLEXIBLE shift returns 0: its clock times are the filler described in
      * this class's header, so there is no scheduled night span to measure.
      */
-    public static function nightShiftMinutes(?Shift $shift): float
+    public static function nightShiftMinutes(?Shift $shift, int $windowStart = self::NIGHT_WINDOW_START, int $windowEnd = self::NIGHT_WINDOW_END): float
     {
         $s = $shift ?? Shift::default();
 
@@ -168,14 +183,43 @@ final class ShiftResolver
         $rawEnd = self::clockMinutes($s->endTime);
         $end = $rawEnd <= $start ? $rawEnd + self::MINUTES_PER_DAY : $rawEnd;
 
+        return self::nightMinutesBetween((float) $start, (float) $end, $windowStart, $windowEnd);
+    }
+
+    /**
+     * How many minutes of a span (minutes from the shift day's midnight; the
+     * end may run past 1440) fall inside the night window, which repeats
+     * daily. The window is the reference's 22:00–06:00 unless a Pay Basis &
+     * Rates version moves it (DELIBERATE DIVERGENCE 13, PayRules); the
+     * default arguments keep the reference's exact operations.
+     */
+    public static function nightMinutesBetween(float $start, float $end, int $windowStart = self::NIGHT_WINDOW_START, int $windowEnd = self::NIGHT_WINDOW_END): float
+    {
         $total = 0.0;
         for ($day = -1; $day <= 1; $day++) {
-            $from = self::NIGHT_WINDOW_START + $day * self::MINUTES_PER_DAY;
-            $to = self::NIGHT_WINDOW_END + $day * self::MINUTES_PER_DAY;
+            $from = $windowStart + $day * self::MINUTES_PER_DAY;
+            $to = $windowEnd + $day * self::MINUTES_PER_DAY;
             $total += max(0.0, min($end, (float) $to) - max($start, (float) $from));
         }
 
         return $total;
+    }
+
+    /**
+     * The minutes a shift's scheduled span starts and ends at, from its day's midnight; null for a flexible shift.
+     *
+     * @return array{0: float, 1: float}|null
+     */
+    public static function shiftSpan(?Shift $shift): ?array
+    {
+        $s = $shift ?? Shift::default();
+        if ($s->isFlexible()) {
+            return null;
+        }
+        $start = self::clockMinutes($s->startTime);
+        $rawEnd = self::clockMinutes($s->endTime);
+
+        return [(float) $start, (float) ($rawEnd <= $start ? $rawEnd + self::MINUTES_PER_DAY : $rawEnd)];
     }
 
     /**
@@ -198,6 +242,28 @@ final class ShiftResolver
             $workDays ?? self::DEFAULT_WORK_DAYS,
             true,
         );
+    }
+
+    /** Date exceptions outrank the weekly schedule without changing any other weekday. */
+    public static function worksOnDate(string $date, ?Shift $schedule): bool
+    {
+        return self::worksOn($date, self::workWeek($schedule?->forDate($date)));
+    }
+
+    /** The whole month's resolved dates determine pay, including exceptions outside the cutoff. */
+    public static function scheduledWorkDaysForShift(string $start, string $end, ?Shift $schedule): int
+    {
+        if ($schedule === null || $schedule->dateShifts === []) {
+            return self::scheduledWorkDays($start, $end, self::workWeek($schedule));
+        }
+        $count = 0;
+        foreach (CalendarDays::each($start, $end) as $date) {
+            if (self::worksOnDate($date, $schedule)) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**

@@ -45,6 +45,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable $period_start
  * @property CarbonImmutable $period_end
  * @property string $status
+ * @property string $kind REGULAR | THIRTEENTH_MONTH (PayrollRunKind, 2026_09_26_0010); fixed at creation
  * @property CarbonImmutable|null $finalized_at
  * @property int|null $finalized_by
  * @property CarbonImmutable $created_at
@@ -67,6 +68,7 @@ class PayrollRun extends BaseModel
         'period_end',
         'status',
         'finalized_at',
+        'kind',
     ];
 
     /** @return array<string, string> */

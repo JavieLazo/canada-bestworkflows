@@ -4,19 +4,19 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records;
 
-use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Records\Support\Hris;
-use App\Models\AttendanceLog;
-use App\Models\EmployeeProfile;
-use App\Models\Project;
-use App\Models\WorkSite;
+use App\Livewire\Records\Support\SiteRows;
+use App\Modules\Organization\Application\Commands\DeleteSite;
+use App\Modules\Organization\Application\Commands\SaveSite;
+use App\Modules\Organization\Application\Commands\SetSiteStatus;
+use App\Modules\Organization\Application\SiteDraft;
+use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
+use Illuminate\Database\QueryException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
@@ -37,7 +37,15 @@ use Livewire\Component;
  *  - every WRITE needs all_data + RECORDS (api/sites/route.ts), re-checked
  *    inside each action;
  *  - DELETE refuses a site that employees, punches or projects still
- *    reference, with the API's own 409 wording (api/sites/[id]/route.ts).
+ *    reference, with the API's own 409 wording (api/sites/[id]/route.ts) —
+ *    and one that any employee's weekly roster location still names
+ *    (`roster_locations`; Timekeeping's `SiteReferences`, checked after its
+ *    punches, with ems's own sentence). The refusals come from the tagged
+ *    retention sources behind `DeleteSite`, in that order;
+ *  - MAKE INACTIVE / MAKE ACTIVE (no reference counterpart): a site history
+ *    names cannot be deleted, so it is retired instead. `SetSiteStatus`
+ *    flips the flag and nothing else — existing assignments keep the site;
+ *    only new ones are refused it.
  */
 #[Layout('layouts.app')]
 #[Title('Site Settings')]
@@ -48,6 +56,16 @@ class SitesPage extends Component
 
     /** Geofence filter — 'ALL', 'ENFORCED' or 'EXEMPT'. Plain filter state. */
     public string $geofence = 'ALL';
+
+    /** Status filter — 'ALL', 'ACTIVE' or 'INACTIVE'. Plain filter state. */
+    public string $status = 'ALL';
+
+    /** Make inactive / Make active confirmation visibility. Plain UI state. */
+    public bool $statusOpen = false;
+
+    /** The site queued for a status change. Id-bearing → #[Locked]. */
+    #[Locked]
+    public ?string $statusId = null;
 
     /** Add/Edit dialog visibility. Plain UI state. */
     public bool $dialogOpen = false;
@@ -91,6 +109,11 @@ class SitesPage extends Component
         $this->resetPage();
     }
 
+    public function updatedStatus(): void
+    {
+        $this->resetPage();
+    }
+
     public function openAdd(): void
     {
         $this->editingId = null;
@@ -104,7 +127,7 @@ class SitesPage extends Component
 
     public function startEdit(string $id): void
     {
-        $site = WorkSite::query()->find($id);
+        $site = app(OrganizationDirectory::class)->sites(app(Access::class))->firstWhere('id', $id);
 
         if ($site === null) {
             Flux::toast(variant: 'danger', text: 'That work site no longer exists.');
@@ -128,110 +151,20 @@ class SitesPage extends Component
      */
     public function save(): void
     {
-        if (trim($this->formName) === '') {
-            Flux::toast(variant: 'danger', text: 'Site name is required.');
-
-            return;
-        }
-
-        if (! $this->formExempt) {
-            // Blank boxes are checked before the numbers are: `Number("")` is 0,
-            // not NaN, so an empty pair would otherwise save a site at 0, 0.
-            if (trim($this->formLatitude) === '' || trim($this->formLongitude) === '') {
-                Flux::toast(variant: 'danger', text: 'A site the geofence enforces needs both coordinates.');
-
-                return;
-            }
-
-            $la = is_numeric($this->formLatitude) ? (float) $this->formLatitude : NAN;
-            $lo = is_numeric($this->formLongitude) ? (float) $this->formLongitude : NAN;
-            $radius = is_numeric($this->formRadius) ? (float) $this->formRadius : NAN;
-
-            if (! is_finite($la) || $la < -90 || $la > 90) {
-                Flux::toast(variant: 'danger', text: 'Latitude must be between -90 and 90.');
-
-                return;
-            }
-
-            if (! is_finite($lo) || $lo < -180 || $lo > 180) {
-                Flux::toast(variant: 'danger', text: 'Longitude must be between -180 and 180.');
-
-                return;
-            }
-
-            if ($la === 0.0 && $lo === 0.0) {
-                Flux::toast(variant: 'danger', text: "0, 0 is not a place. Capture the site's location or type its coordinates.");
-
-                return;
-            }
-
-            if (! is_finite($radius) || floor($radius) !== $radius || $radius <= 0) {
-                Flux::toast(variant: 'danger', text: 'Radius must be a whole number of metres, greater than 0.');
-
-                return;
-            }
-        }
-
-        if (mb_strlen(trim($this->formName)) > 160) {
-            Flux::toast(variant: 'danger', text: 'name: must be at most 160 characters.');
-
-            return;
-        }
-
         $access = app(Access::class);
+        try {
+            $message = app(SaveSite::class)->handle($access, $this->editingId, new SiteDraft($this->formName, $this->formLatitude, $this->formLongitude, $this->formRadius, $this->formExempt));
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
 
-        // requireAllDataModule("RECORDS") — re-checked in the action itself.
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        // Number(form.latitude) — an empty box on an exempt site saves as 0.
-        $payload = [
-            'name' => trim($this->formName),
-            'latitude' => is_numeric($this->formLatitude) ? (float) $this->formLatitude : 0.0,
-            'longitude' => is_numeric($this->formLongitude) ? (float) $this->formLongitude : 0.0,
-            'radius_meters' => is_numeric($this->formRadius) ? (int) $this->formRadius : 0,
-            'geofence_exempt' => $this->formExempt,
-        ];
-
-        $name = $payload['name'];
-
-        if ($this->editingId !== null) {
-            $site = WorkSite::query()->find($this->editingId);
-
-            if ($site === null) {
-                Flux::toast(variant: 'danger', text: 'That work site no longer exists.');
-
-                return;
-            }
-
-            $site->fill($payload)->save();
-
-            AuditService::record(
-                $access,
-                AuditEvent::SITE_UPDATED,
-                'work_sites',
-                (string) $site->getKey(),
-                "{$name} updated",
-            );
-
-            Flux::toast(variant: 'success', text: 'Work site updated.');
-        } else {
-            $site = WorkSite::query()->create($payload);
-
-            AuditService::record(
-                $access,
-                AuditEvent::SITE_CREATED,
-                'work_sites',
-                (string) $site->getKey(),
-                "{$name} added",
-            );
-
-            Flux::toast(variant: 'success', text: "{$name} added.");
-        }
-
+        Flux::toast(variant: 'success', text: $message);
         $this->dialogOpen = false;
         $this->editingId = null;
     }
@@ -251,143 +184,71 @@ class SitesPage extends Component
         $id = $this->deletingId;
         $this->confirmOpen = false;
         $this->deletingId = null;
-
         if ($id === null) {
             return;
         }
-
         $access = app(Access::class);
+        try {
+            $name = app(DeleteSite::class)->handle($access, $id);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The record could not be deleted. Please try again.');
 
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
-
-        $site = WorkSite::query()->find($id);
-
-        if ($site === null) {
-            Flux::toast(variant: 'danger', text: 'That work site no longer exists.');
-
-            return;
-        }
-
-        $assignedEmployees = EmployeeProfile::query()->where('work_site_id', $id)->count();
-
-        if ($assignedEmployees > 0) {
-            Flux::toast(variant: 'danger', text: sprintf(
-                'Reassign %d employee%s before deleting this work site.',
-                $assignedEmployees,
-                $assignedEmployees === 1 ? '' : 's',
-            ));
-
-            return;
-        }
-
-        $recordedPunches = AttendanceLog::query()->where('site_id', $id)->count();
-
-        if ($recordedPunches > 0) {
-            Flux::toast(variant: 'danger', text: 'This work site has recorded punches and must remain in attendance history.');
-
-            return;
-        }
-
-        $linkedProjects = Project::query()->where('site_id', $id)->count();
-
-        if ($linkedProjects > 0) {
-            Flux::toast(variant: 'danger', text: sprintf(
-                'This work site belongs to %d project%s and must remain in project history.',
-                $linkedProjects,
-                $linkedProjects === 1 ? '' : 's',
-            ));
-
-            return;
-        }
-
-        $name = $site->name;
-        $site->delete();
-
-        AuditService::record($access, AuditEvent::SITE_DELETED, 'work_sites', $id, "{$name} deleted");
-
         Flux::toast(variant: 'success', text: "{$name} deleted.");
     }
 
-    /**
-     * Punch counts per site — the port of the `stats` memo
-     * (sites-page.tsx:80-91) over `useAttendance(1000)`: the most recent 1000
-     * logs, scoped exactly as GET /api/attendance scopes them (EDTR, PAYROLL).
-     *
-     * @return array<string, int>
-     */
-    private function punchCounts(): array
+    public function confirmStatus(string $id): void
     {
-        $access = app(Access::class);
+        $this->statusId = $id;
+        $this->statusOpen = true;
+    }
 
-        $siteIds = AttendanceLog::query()
-            ->toEmployee($access, 'employee_id', ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->orderByDesc('logged_at')
-            ->limit(1000)
-            ->pluck('site_id');
-
-        $counts = [];
-
-        foreach ($siteIds as $siteId) {
-            if ($siteId === null || $siteId === '') {
-                continue;
-            }
-
-            $counts[(string) $siteId] = ($counts[(string) $siteId] ?? 0) + 1;
+    /**
+     * Flip the queued site between active and inactive. The direction is read
+     * from the site as it stands now, never from the client; the command
+     * re-checks all_data + RECORDS from a fresh Access.
+     */
+    public function statusConfirmed(): void
+    {
+        $id = $this->statusId;
+        $this->statusOpen = false;
+        $this->statusId = null;
+        if ($id === null) {
+            return;
         }
+        $access = app(Access::class);
+        $site = app(OrganizationDirectory::class)->sites($access)->firstWhere('id', $id);
+        try {
+            $message = app(SetSiteStatus::class)->handle($access, $id, $site === null || ! $site->is_active);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The site could not be changed. Please try again.');
 
-        return $counts;
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        Flux::toast(variant: 'success', text: $message);
     }
 
     public function render(): View
     {
-        $counts = $this->punchCounts();
-
-        $needle = strtolower(trim($this->search));
-
-        // Filter and sort in PHP, exactly as the source's memo does
-        // (sites-page.tsx:96-116): filter, comparator by key, then reverse the
-        // whole list for descending order.
-        $sites = WorkSite::query()->get()
-            ->filter(function (WorkSite $s) use ($needle): bool {
-                if ($this->geofence === 'ENFORCED' && $s->geofence_exempt) {
-                    return false;
-                }
-
-                if ($this->geofence === 'EXEMPT' && ! $s->geofence_exempt) {
-                    return false;
-                }
-
-                if ($needle === '') {
-                    return true;
-                }
-
-                return str_contains(strtolower($s->name), $needle);
-            })
-            ->values()
-            ->all();
-
-        $punchesAt = static fn (WorkSite $s): int => $counts[(string) $s->getKey()] ?? 0;
-
-        usort($sites, function (WorkSite $a, WorkSite $b) use ($punchesAt): int {
-            return match ($this->sortKey) {
-                'radius' => ($a->radius_meters <=> $b->radius_meters) ?: Hris::compareText($a->name, $b->name),
-                'punches' => ($punchesAt($b) <=> $punchesAt($a)) ?: Hris::compareText($a->name, $b->name),
-                default => Hris::compareText($a->name, $b->name),
-            };
-        });
-
-        if ($this->sortDir === 'desc') {
-            $sites = array_reverse($sites);
-        }
+        // Punch counts, filter and sort: one copy shared with the CSV export.
+        ['sites' => $sites, 'counts' => $counts] = SiteRows::list(app(Access::class), $this->search, $this->geofence, $this->sortKey, $this->sortDir, $this->status);
 
         $rows = $this->paginateClamped($sites);
 
-        $editing = $this->editingId !== null ? WorkSite::query()->find($this->editingId) : null;
-        $deleting = $this->deletingId !== null ? WorkSite::query()->find($this->deletingId) : null;
+        $editing = $this->editingId !== null ? app(OrganizationDirectory::class)->sites(app(Access::class))->firstWhere('id', $this->editingId) : null;
+        $deleting = $this->deletingId !== null ? app(OrganizationDirectory::class)->sites(app(Access::class))->firstWhere('id', $this->deletingId) : null;
+        $changing = $this->statusId !== null ? app(OrganizationDirectory::class)->sites(app(Access::class))->firstWhere('id', $this->statusId) : null;
 
         // How far the saved coordinates sit from the edited ones
         // (sites-page.tsx:359-367) — shown while editing only.
@@ -409,6 +270,7 @@ class SitesPage extends Component
             'counts' => $counts,
             'editing' => $editing,
             'deleting' => $deleting,
+            'changing' => $changing,
             'drift' => $drift,
         ]);
     }

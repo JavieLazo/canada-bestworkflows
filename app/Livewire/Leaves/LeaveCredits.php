@@ -1,0 +1,266 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Livewire\Leaves;
+
+use App\Domain\Enums\ModuleCode;
+use App\Livewire\Concerns\TableDefaults;
+use App\Livewire\Concerns\WithSorting;
+use App\Livewire\Concerns\WithTableFilters;
+use App\Modules\Timekeeping\Application\Commands\SaveLeaveCredits;
+use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
+use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Workforce\Contracts\DirectoryEmployee;
+use App\Modules\Workforce\Contracts\OperationalDirectory;
+use App\Support\Access;
+use App\Support\ManilaClock;
+use Flux\Flux;
+use Illuminate\Contracts\View\View;
+use Illuminate\Database\QueryException;
+use Livewire\Attributes\Locked;
+use Livewire\Component;
+use RuntimeException;
+
+/**
+ * Leave Management's Leave Credits tab: every employee the actor may see,
+ * with what is left of each Leave Settings type's credit for one year, and
+ * — for an all_data + LEAVES holder — the "Set credits" dialog that enters
+ * them. The reference has no counterpart: it keeps two numbers on the
+ * employee record that nothing reads.
+ *
+ * A child of Leaves\Index rather than more state on it, because both tables
+ * sort, search and paginate: this one keeps its own WithSorting /
+ * WithTableFilters state, and paginates under its OWN page name
+ * (`creditsPage`) — Livewire binds every WithPagination user to `?page=`, so
+ * the two tables would otherwise read and write one URL key.
+ *
+ * Reads go through Timekeeping's LeaveCreditRecords behind the leave list's
+ * scope — the directory decides which employees appear, one batched balance
+ * read covers the page — and the write is SaveLeaveCredits, which gates,
+ * re-resolves the employee, re-validates every field and audits; this class
+ * only stages the dialog and toasts what the command answers.
+ */
+class LeaveCredits extends Component
+{
+    use WithSorting;
+    use WithTableFilters;
+
+    /** The paginator's name — see the class docblock. */
+    public const string PAGE_NAME = 'creditsPage';
+
+    /**
+     * The year shown. Plain filter state, deliberately unlocked: a select
+     * writes it, `updatedYear()` collapses anything outside the three
+     * offered years back to the current one, and it carries no id.
+     */
+    public int $year = 0;
+
+    /**
+     * The Set credits dialog's employee. Id-bearing → #[Locked]:
+     * `openCredits()` alone sets it, after re-checking the grant and
+     * re-resolving the id against the actor's visible directory, and
+     * `saveCredits()` clears it once the command has written. A client-side
+     * Cancel or Escape leaves it staged, which is harmless — the next open
+     * overwrites it and nothing reads it but the dialog (the RosterPage
+     * `$locationsEmployeeId` shape).
+     */
+    #[Locked]
+    public string $creditsEmployeeId = '';
+
+    /**
+     * The Set credits dialog's number fields: leave-type token => the typed
+     * days ('12.5', '' for no credit, '0' for an explicit zero). NOT Locked
+     * on purpose — this is the wire:model draft the fields edit, the
+     * sanctioned exception: `SaveLeaveCredits` re-validates every token
+     * (against the creditable Leave Settings types, or one the employee
+     * already holds) and every value (a number of whole or half days, 0 to
+     * 9999.99) before anything is written, so a client-edited entry is
+     * refused, never trusted. Read as mixed for that reason.
+     *
+     * @var array<array-key, mixed>
+     */
+    public array $creditDraft = [];
+
+    public function mount(): void
+    {
+        $this->sortKey = 'employee';
+        $this->year = self::currentYear();
+    }
+
+    /** @return list<string> */
+    protected function sortableKeys(): array
+    {
+        return ['employee'];
+    }
+
+    /** The current Manila year — credits are entered per calendar year. */
+    public static function currentYear(): int
+    {
+        return LeaveCreditPolicy::yearOf(ManilaClock::todayKey());
+    }
+
+    /**
+     * The years the select offers: last, this, next — enough to enter next
+     * year's credits in December and to read last year's in January.
+     *
+     * @return list<int>
+     */
+    public static function yearOptions(): array
+    {
+        $year = self::currentYear();
+
+        return [$year - 1, $year, $year + 1];
+    }
+
+    /** Anything but one of the offered years collapses to the current one; the page starts over. */
+    public function updatedYear(mixed $value): void
+    {
+        $year = is_numeric($value) ? (int) $value : 0;
+        $this->year = in_array($year, self::yearOptions(), true) ? $year : self::currentYear();
+        $this->resetPage(self::PAGE_NAME);
+    }
+
+    /**
+     * The trait's hook resets the default page name; this table has its own,
+     * so the size whitelist is repeated here and the right page reset.
+     */
+    public function updatedPerPage(mixed $value): void
+    {
+        $size = (int) $value;
+        $this->perPage = in_array($size, TableDefaults::PAGE_SIZE_OPTIONS, true)
+            ? $size
+            : TableDefaults::DEFAULT_PAGE_SIZE;
+        $this->resetPage(self::PAGE_NAME);
+    }
+
+    /**
+     * Open the Set credits dialog for one row. The id is a client argument,
+     * so the grant is re-checked and the id re-resolved through the
+     * actor-scoped directory first (an id outside it is dropped on the
+     * floor); then the fields are seeded from the year's balances — the
+     * entered days, or blank for a type with no credit — and the dialog
+     * opens on them.
+     */
+    public function openCredits(string $employeeId): void
+    {
+        if ($employeeId === '') {
+            return;
+        }
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::LEAVES)) {
+            return;
+        }
+        if (app(OperationalDirectory::class)->find($access, $employeeId) === null) {
+            return;
+        }
+
+        $draft = [];
+        foreach (app(LeaveCreditRecords::class)->balances($access, $employeeId, $this->year) as $balance) {
+            $draft[$balance->request_type] = $balance->credited === null ? '' : LeaveCreditPolicy::format($balance->credited);
+        }
+
+        $this->creditsEmployeeId = $employeeId;
+        $this->creditDraft = $draft;
+
+        $this->modal('leave-credits')->show();
+    }
+
+    /**
+     * The Set credits dialog's Save — RosterPage::saveLocations()'s shape.
+     * A fresh Access is gated here so a refused actor gets the toast at once;
+     * the command gates again (all_data + LEAVES), refuses a self-edit,
+     * re-resolves the employee, re-validates every field and audits — the
+     * write lives there, not here. The draft is shaped to strings first: a
+     * non-scalar entry reads blank (no credit), everything else passes
+     * through for the command to judge. The dialog stays open on failure so
+     * the numbers are not lost, and closes only once the command has
+     * answered.
+     */
+    public function saveCredits(): void
+    {
+        $employeeId = $this->creditsEmployeeId;
+        if ($employeeId === '') {
+            return;
+        }
+
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::LEAVES)) {
+            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+
+            return;
+        }
+
+        $credits = [];
+        foreach ($this->creditDraft as $key => $value) {
+            $credits[$key] = is_scalar($value) ? trim((string) $value) : '';
+        }
+
+        try {
+            $message = app(SaveLeaveCredits::class)->handle($access, $employeeId, $this->year, $credits);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The leave credits could not be saved. Please try again.');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+
+        $this->creditsEmployeeId = '';
+        $this->creditDraft = [];
+        $this->modal('leave-credits')->close();
+        Flux::toast(variant: 'success', text: $message);
+    }
+
+    public function render(): View
+    {
+        $access = app(Access::class);
+
+        // The directory decides who appears (all_data + LEAVES: everyone;
+        // otherwise the actor's own row; unlinked: nobody), already in
+        // last-name order; desc is the whole list reversed, as the ported
+        // screens do it.
+        $employees = app(OperationalDirectory::class)->list($access, null, trim($this->search))->values();
+        if ($this->sortDir === 'desc') {
+            $employees = $employees->reverse()->values();
+        }
+
+        $rows = $this->paginateClamped($employees, self::PAGE_NAME);
+
+        /** @var list<string> $pageIds */
+        $pageIds = [];
+        /** @var DirectoryEmployee $employee */
+        foreach ($rows->items() as $employee) {
+            $pageIds[] = $employee->id;
+        }
+
+        $records = app(LeaveCreditRecords::class);
+        $types = $records->creditableTypes($access);
+        $balances = $records->balancesForEmployees($access, $this->year, $pageIds);
+        $canEdit = $access->mayReadAllData(ModuleCode::LEAVES);
+
+        // The dialog's derived state: its employee and the year's rows, from
+        // the page's batch when the row is on it, else one more read.
+        $dialogEmployee = $this->creditsEmployeeId === ''
+            ? null
+            : app(OperationalDirectory::class)->find($access, $this->creditsEmployeeId);
+        /** @var list<LeaveBalanceView> $dialogRows */
+        $dialogRows = $dialogEmployee === null
+            ? []
+            : ($balances[$dialogEmployee->id] ?? $records->balances($access, $dialogEmployee->id, $this->year));
+
+        return view('livewire.leaves.leave-credits', [
+            'rows' => $rows,
+            'types' => $types,
+            'balances' => $balances,
+            'years' => self::yearOptions(),
+            'canEdit' => $canEdit,
+            'dialogEmployee' => $dialogEmployee,
+            'dialogRows' => $dialogRows,
+        ]);
+    }
+}

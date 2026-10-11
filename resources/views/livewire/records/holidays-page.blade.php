@@ -21,7 +21,7 @@
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             <flux:input
                 aria-label="Search holidays"
-                placeholder="Search code or name"
+                placeholder="Search ID or name"
                 class="w-full min-w-[12rem] max-w-xs flex-1"
                 wire:model.live.debounce.250ms="search"
             />
@@ -31,9 +31,13 @@
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
-            <flux:button variant="primary" class="ml-auto" icon="plus" wire:click="openAdd">
-                Add holiday
-            </flux:button>
+            <div class="ml-auto flex flex-wrap items-center gap-2">
+                <x-kit.export-button :href="route('records.holidays.export', array_filter(['q' => $search, 'type' => $type, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+                <livewire:kit.csv-import table="records.holidays" :template="route('records.holidays.export', ['template' => 1])" key="import-holidays" />
+                <flux:button variant="primary" icon="plus" wire:click="openAdd">
+                    Add holiday
+                </flux:button>
+            </div>
         </header>
 
         <div class="hris-table-wrap hris-table-scroll">
@@ -144,20 +148,20 @@
 
                 <div class="space-y-2">
                     <flux:label>Schedule</flux:label>
-                    <flux:select aria-label="Schedule" wire:model="formSchedule">
+                    <x-kit.select aria-label="Schedule" wire:model="formSchedule">
                         @foreach (HolidaysPage::SCHEDULES as $value => $label)
                             <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                         @endforeach
-                    </flux:select>
+                    </x-kit.select>
                 </div>
 
                 <div class="space-y-2">
                     <flux:label>Type</flux:label>
-                    <flux:select aria-label="Type" wire:model="formType">
+                    <x-kit.select aria-label="Type" wire:model="formType">
                         @foreach (HolidaysPage::TYPES as $value => $label)
                             <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                         @endforeach
-                    </flux:select>
+                    </x-kit.select>
                 </div>
 
                 <div class="space-y-2">

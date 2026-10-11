@@ -11,7 +11,10 @@ namespace App\Models\Concerns;
  * They are five tables rather than one with a `kind` column because the demo
  * store had no way to express a partial unique index (prisma/schema.prisma,
  * `Position`). Every one of them is `(id, code UNIQUE, name UNIQUE,
- * description?, created_at)`.
+ * description?, created_at)`, except `positions`: a title is unique inside
+ * one department or unit (`positions_org_node_name_unq`), not across them,
+ * and `Position` takes over this trait's initializer for its placement
+ * columns.
  *
  * Two uniques per table is load-bearing for how they are written: Laravel's
  * `upsert()` ignores its `$uniqueBy` argument on MySQL and compiles to
@@ -35,11 +38,11 @@ trait IsReferenceList
      *   composition of Position. However, the definition differs and is
      *   considered incompatible.
      *
-     * PHP 8.5 happens to accept it, which is exactly why this reached the host
-     * before it was caught — dev ran 8.5, production runs 8.4.
+     * PHP 8.5 happens to accept it, which is exactly why a dev machine on 8.5
+     * never sees the fatal that production's 8.4 raises.
      *
      * `initialize{TraitName}()` is called by Model::initializeTraits() on every
-     * instance, so the value is identical while the compile-time clash is gone.
+     * instance, so the value is identical and there is no compile-time clash.
      *
      * `description` is capped at 2000 chars by `ReferenceInput`
      * (src/lib/api/schemas.ts).

@@ -12,13 +12,13 @@
             <div class="w-full max-w-md">
                 <div class="mb-6 flex items-center justify-center gap-3">
                     <img
-                        src="{{ asset('bestworkflows-logo.png') }}"
+                        src="{{ asset('bestworkflows-icon-32.png') }}"
                         alt="BestWorkflows logo"
                         class="size-10 shrink-0 rounded-md bg-white object-contain"
                     />
                     <div class="leading-tight">
                         <p class="text-base font-bold">BestWorkflows</p>
-                        <p class="text-xs text-muted-foreground">Employee Management System</p>
+                        <p class="text-xs text-muted-foreground">Management Information System</p>
                     </div>
                 </div>
 

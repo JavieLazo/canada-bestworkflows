@@ -17,10 +17,9 @@ jobs:
     # .env.example, which it has just copied to .env. Those name MySQL on
     # 127.0.0.1:3306, so without a database here the Setup Application step fails
     # and ci:check never runs. Values below mirror .env.example exactly — change
-    # them together. Production is MySQL, so migrating here on MySQL rather than
-    # sqlite is what makes this step worth running: it catches a migration that
-    # only the real engine would reject. The suite itself is unaffected either
-    # way; phpunit.xml pins it to sqlite :memory:.
+    # them together. This remains a MySQL compatibility check; production uses
+    # MariaDB 11.4, covered by the separate job below. phpunit.xml pins this
+    # job's feature and unit suite to sqlite :memory:.
     services:
       mysql:
         image: mysql:8.0
@@ -66,3 +65,59 @@ jobs:
 
       - name: Run CI Checks
         run: composer ci:check
+
+  mariadb:
+    runs-on: ubuntu-latest
+    # A dedicated account cannot access another database, and the test bootstrap
+    # rejects cached configuration and non-disposable targets before Laravel boots.
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_RANDOM_ROOT_PASSWORD: 'yes'
+          MARIADB_DATABASE: ems_testing
+          MARIADB_USER: ems_testing
+          MARIADB_PASSWORD: disposable-ci-only
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:UlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlI=
+      DB_PORT: '3306'
+      DB_PASSWORD: disposable-ci-only
+      EMS_MARIADB_TESTS: disposable
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.4'
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Run MariaDB suite
+        run: php vendor/bin/pest --configuration=phpunit.mariadb.xml

@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Livewire\Shell;
 
 use App\Livewire\Concerns\WithChangeStamp;
-use App\Models\Notification;
+use App\Livewire\Notifications\Concerns\OwnsInbox;
+use App\Platform\Notifications\Inbox;
 use App\Support\Access;
 use App\Support\Realtime;
 use Illuminate\Contracts\View\View;
-use Illuminate\Database\Eloquent\Builder;
 use Livewire\Component;
 
 /**
@@ -22,17 +22,19 @@ use Livewire\Component;
  * here that is the `wire:poll.60s` on the component root.
  *
  * That poll rides in the app shell, so it is the one tick EVERY signed-in page
- * pays. It goes through {@see WithChangeStamp}: a tick reads one aggregate over
- * this account's rows and redraws the bell only when a notification arrives or
- * a read state moves — which, for an account reading a long page, is almost
- * never.
+ * pays. {@see WithChangeStamp} uses an event aggregate plus bounded reminder
+ * authorization checks. The bell redraws when rows, read states or the current
+ * actor's access to stored reminder subjects change.
  *
  * No public properties at all: the addressee is ALWAYS the session's account
  * (`Access::userId`), never anything the client could write — which is also
  * why both actions re-read the actor instead of trusting anything mounted.
+ * `own()`, `follow()` and `changeStamp()` come from {@see OwnsInbox}, the one
+ * copy the page shares.
  */
 class NotificationBell extends Component
 {
+    use OwnsInbox;
     use WithChangeStamp;
 
     /**
@@ -42,40 +44,22 @@ class NotificationBell extends Component
      */
     public const int PREVIEW_COUNT = 10;
 
-    /** Mark one notification read, then follow it to the record it is about. */
-    public function follow(string $id): void
-    {
-        $notification = $this->own()?->whereKey($id)->first();
-
-        if ($notification === null) {
-            return;
-        }
-
-        if ($notification->read_at === null) {
-            $notification->read_at = now();
-            $notification->save();
-        }
-
-        if ($notification->href !== null && $notification->href !== '') {
-            $this->redirect($notification->href);
-        }
-    }
-
+    /** The whole inbox, unlike the page, which marks only its loaded window. */
     public function markAllRead(): void
     {
-        $this->own()?->whereNull('read_at')->update(['read_at' => now()]);
+        $actor = app(Access::class);
+        app(Inbox::class)->markAllRead($actor);
     }
 
     public function render(): View
     {
         $this->markStampRendered();
 
-        // Fresh builders on purpose — get() would otherwise leave its ORDER BY
-        // and LIMIT on the builder the unread count runs on.
+        // Both the preview and badge exclude reminders no longer authorized.
         return view('livewire.shell.notification-bell', [
             'signedIn' => $this->own() !== null,
-            'items' => $this->own()?->orderByDesc('created_at')->limit(self::PREVIEW_COUNT)->get() ?? collect(),
-            'unread' => $this->own()?->whereNull('read_at')->count() ?? 0,
+            'items' => app(Inbox::class)->latest(app(Access::class), self::PREVIEW_COUNT),
+            'unread' => app(Inbox::class)->summary(app(Access::class))['unread'],
         ]);
     }
 
@@ -85,53 +69,5 @@ class NotificationBell extends Component
     protected function realtimeChannel(): string
     {
         return Realtime::account(app(Access::class)->userId);
-    }
-
-    /**
-     * How many this account has, how many are read, and when the newest
-     * arrived — one aggregate answering everything the bell draws: the badge
-     * (unread), the ten-row preview (a new row is always the newest, so
-     * MAX(created_at) moves) and a read state marked from another tab
-     * (COUNT(read_at) moves while the total does not).
-     *
-     * `notif_user_created_idx` covers the range and the timestamp; the read
-     * count reaches the rows themselves, which is bounded by one account's
-     * notifications and is still an order cheaper than hydrating ten models
-     * and re-rendering the popover.
-     */
-    protected function changeStamp(): string
-    {
-        $own = $this->own();
-
-        if ($own === null) {
-            return 'signed-out';
-        }
-
-        $stamp = $own
-            ->toBase()
-            ->selectRaw('COUNT(*) AS total, COUNT(read_at) AS seen, MAX(created_at) AS newest')
-            ->first();
-
-        return ((int) ($stamp->total ?? 0))
-            .':'.((int) ($stamp->seen ?? 0))
-            .':'.((string) ($stamp->newest ?? ''));
-    }
-
-    /**
-     * The session account's own notifications — null when nobody is signed in.
-     * The ONLY way this component reaches the table, so no action can touch
-     * another account's rows no matter what id the client posts.
-     *
-     * @return Builder<Notification>|null
-     */
-    private function own(): ?Builder
-    {
-        $access = app(Access::class);
-
-        if (! $access->isSignedIn()) {
-            return null;
-        }
-
-        return Notification::query()->where('user_id', (int) $access->userId);
     }
 }

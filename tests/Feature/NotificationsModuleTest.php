@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Domain\Notifications\Notifier;
+use App\Livewire\Notifications\Concerns\OwnsInbox;
 use App\Livewire\Notifications\Index;
 use App\Livewire\Projects\ProjectsData;
 use App\Livewire\Shell\NotificationBell;
@@ -25,7 +26,11 @@ use Livewire\Livewire;
  * server-side with the reference's dedupe_key semantics.
  */
 
-/** Helpers are notif-prefixed: Pest loads every test file into one process. */
+/**
+ * Helpers are notif-prefixed: Pest loads every test file into one process.
+ *
+ * @param  list<string>  $modules  ModuleCode values the role is granted
+ */
 function notifRole(array $modules, bool $allData = false): Role
 {
     $role = new Role;
@@ -39,6 +44,9 @@ function notifRole(array $modules, bool $allData = false): Role
     return $role;
 }
 
+/**
+ * @param  list<string>  $modules  ModuleCode values the user's role is granted
+ */
 function notifUser(array $modules = ['PORTAL'], bool $allData = false, ?string $employeeId = null, bool $isActive = true): User
 {
     return User::factory()->create([
@@ -48,6 +56,9 @@ function notifUser(array $modules = ['PORTAL'], bool $allData = false, ?string $
     ]);
 }
 
+/**
+ * @param  list<string>  $modules  ModuleCode values the actor's role is granted
+ */
 function notifActor(array $modules = ['PORTAL'], bool $allData = false, ?string $employeeId = null): User
 {
     $user = notifUser($modules, $allData, $employeeId);
@@ -75,6 +86,8 @@ function notifEmployee(string $code = 'EMP-001'): EmployeeProfile
 /**
  * A notification written the way only the server may write one: `user_id` is
  * not mass-assignable, so forceFill stands in for the Notifier's write path.
+ *
+ * @param  array{kind?: string, title?: string, body?: string|null, href?: string|null, dedupe_key?: string|null, read_at?: CarbonImmutable|null, created_at?: CarbonImmutable}  $overrides  column values replacing the defaults below; `user_id` always comes from `$to`
  */
 function notifRow(User $to, array $overrides = []): Notification
 {
@@ -263,15 +276,17 @@ it('Notifier::employee tells every ACTIVE login of that employee, and nobody els
         ->and(Notification::query()->where('user_id', $unrelated->getKey())->count())->toBe(0);
 });
 
-it('ProjectsData::notifyEmployee reaches every ACTIVE login, not a disabled older one', function () {
+it('Notifier::employees reaches every ACTIVE login of a crew member, not a disabled older one', function () {
+    // ProjectsData sends no notice itself: Projects fans out through
+    // Notifier::employees(), so the disabled-older-login case is pinned there.
     $employee = notifEmployee('EMP-003');
-    // The disabled account is created FIRST, so it holds the lower id — which
-    // is what the old ->orderBy('id')->first() path used to hand the task to.
+    // The disabled account is created FIRST, so it holds the lower id — the
+    // one an ->orderBy('id')->first() pick would hand the task to.
     $disabled = notifUser(employeeId: $employee->getKey(), isActive: false);
     $active = notifUser(employeeId: $employee->getKey());
     $secondActive = notifUser(employeeId: $employee->getKey());
 
-    ProjectsData::notifyEmployee($employee->getKey(), 'TASK_ASSIGNED', 'You were assigned T-0004');
+    Notifier::employees([$employee->getKey()], [], 'TASK_ASSIGNED', 'You were assigned T-0004');
 
     expect(Notification::query()->where('user_id', $active->getKey())->count())->toBe(1)
         ->and(Notification::query()->where('user_id', $secondActive->getKey())->count())->toBe(1)
@@ -297,6 +312,53 @@ it('Notifier::moduleHolders reaches all-data holders of the module and excludes 
         ->and(Notification::query()->where('user_id', $actor->getKey())->count())->toBe(0)
         ->and(Notification::query()->where('user_id', $ownScope->getKey())->count())->toBe(0)
         ->and(Notification::query()->where('user_id', $otherModule->getKey())->count())->toBe(0);
+});
+
+it('Notifier::employees tells every ACTIVE login of every listed employee once, in one fan-out', function () {
+    $ana = notifEmployee('EMP-101');
+    $ben = notifEmployee('EMP-102');
+    $anaPhone = notifUser(['PORTAL'], false, $ana->id);
+    $anaLaptop = notifUser(['PORTAL'], false, $ana->id);
+    $anaOld = notifUser(['PORTAL'], false, $ana->id, isActive: false);
+    $benOnly = notifUser(['PORTAL'], false, $ben->id);
+    $bystander = notifUser(['PORTAL']);
+
+    // The crew lists Ana twice — a duplicate id must not mean a duplicate row.
+    Notifier::employees([$ana->id, $ben->id, $ana->id], [], 'TASK_ASSIGNED', 'Pour the slab');
+
+    expect(Notification::query()->where('user_id', $anaPhone->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $anaLaptop->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $anaOld->getKey())->count())->toBe(0)
+        ->and(Notification::query()->where('user_id', $benOnly->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $bystander->getKey())->count())->toBe(0)
+        ->and(Notification::query()->count())->toBe(3);
+});
+
+it('Notifier::employees honours the except-list — the actor and the assigner are never told', function () {
+    // One person can qualify twice: as the assigner (a users id on the task)
+    // and as an assignee (an employee id on the crew). The caller passes both
+    // the actor's and the assigner's accounts here so neither hears about
+    // their own action through the crew fan-out.
+    $ana = notifEmployee('EMP-103');
+    $ben = notifEmployee('EMP-104');
+    $anaAccount = notifUser(['PORTAL'], false, $ana->id);
+    $benAccount = notifUser(['PORTAL'], false, $ben->id);
+
+    Notifier::employees([$ana->id, $ben->id], [$anaAccount->getKey(), null, ''], 'TASK_COMMENT', 'New comment');
+
+    expect(Notification::query()->where('user_id', $anaAccount->getKey())->count())->toBe(0)
+        ->and(Notification::query()->where('user_id', $benAccount->getKey())->count())->toBe(1)
+        ->and(Notification::query()->count())->toBe(1);
+});
+
+it('Notifier::employees writes nothing for an empty crew or for ids that name nobody', function () {
+    notifUser(['PORTAL']);
+
+    Notifier::employees([], [], 'TASK_ASSIGNED', 'Nobody');
+    Notifier::employees([null, ''], [], 'TASK_ASSIGNED', 'Nobody');
+    Notifier::employees(['no-such-employee'], [], 'TASK_ASSIGNED', 'Nobody');
+
+    expect(Notification::query()->count())->toBe(0);
 });
 
 it('Notifier::reminders dedupes on (user_id, dedupe_key) and leaves the rest of the batch alone', function () {
@@ -330,7 +392,11 @@ it('Notifier::reminders dedupes on (user_id, dedupe_key) and leaves the rest of 
 |--------------------------------------------------------------------------
 */
 
-/** Every statement the callback issued, as SQL. */
+/**
+ * Every statement the callback issued, as SQL.
+ *
+ * @return Collection<int, string> the `query` string of each query-log entry
+ */
 function notifQueriesDuring(Closure $work): Collection
 {
     DB::flushQueryLog();
@@ -415,4 +481,18 @@ it('redraws the notifications page on the tick after one arrives', function () {
     notifRow($me, ['title' => 'You were assigned T-0002']);
 
     $page->call('pollForChanges')->assertSee('T-0002');
+});
+
+it('shares one inbox body between the bell and the page', function () {
+    // The bell and the page both take own(), follow() and changeStamp() from
+    // OwnsInbox, so the two cannot drift apart; a second copy would show up
+    // here as a class that declares the method itself instead of composing it.
+    foreach ([NotificationBell::class, Index::class] as $class) {
+        expect(class_uses($class))->toContain(OwnsInbox::class);
+
+        foreach (['own', 'follow', 'changeStamp'] as $method) {
+            expect((new ReflectionMethod($class, $method))->getFileName())
+                ->toBe((new ReflectionClass(OwnsInbox::class))->getFileName(), "{$class}::{$method}() is a local copy, not the trait's");
+        }
+    }
 });

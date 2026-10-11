@@ -6,6 +6,7 @@ namespace App\Domain\Payroll;
 
 use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
+use Closure;
 use DateTimeInterface;
 use DateTimeZone;
 
@@ -71,6 +72,21 @@ final class PayrollPeriod
     }
 
     /**
+     * Whether a date is the first day of a semi-monthly payroll period — the
+     * 1st or the 16th. Pay Basis & Rates versions take effect only on one, so
+     * no standard cut-off is ever priced under two versions.
+     */
+    public static function isCutoffStart(string $date): bool
+    {
+        if (! self::isPayrollDate($date)) {
+            return false;
+        }
+        $day = (int) substr($date, 8, 2);
+
+        return $day === 1 || $day === 16;
+    }
+
+    /**
      * TS: the `payrollPeriod` zod object's refine.
      *
      * Exported by the reference module but not consumed anywhere outside it; kept
@@ -85,38 +101,40 @@ final class PayrollPeriod
      * The only rule a payroll period must satisfy.
      *
      * DIVERGENCE FROM THE REFERENCE, and the largest in this file. The source's
-     * payrollCutoffError() additionally required a COMPLETE SEMI-MONTHLY
-     * CUT-OFF — the 1st-15th or the 16th-last day — and refused a period whose
-     * end date had not yet passed. Both are gone: a run may now pay any range
-     * of days, and the payslip is computed from whatever the DTR holds for
-     * them. A two-day period is a two-day payslip.
+     * payrollCutoffError() additionally requires a COMPLETE SEMI-MONTHLY
+     * CUT-OFF — the 1st-15th or the 16th-last day — and refuses a period whose
+     * end date has not yet passed. Neither applies here: a run may pay any
+     * range of days, and the payslip is computed from whatever the DTR holds
+     * for them. A two-day period is a two-day payslip.
      *
-     * The engine needed no change to allow it. PayslipCalculator already
-     * prices a day at a time — a daily rate spread over the month's scheduled
-     * working days, multiplied by the days attendance actually shows — so a
-     * shorter period was never anything but fewer days.
+     * The engine needs nothing special for it. PayslipCalculator prices a day
+     * at a time — a daily rate spread over the month's scheduled working
+     * days, multiplied by the days attendance actually shows — so a shorter
+     * period is only fewer days.
      *
-     * WHAT SURVIVES, AND WHY EACH ONE IS STRUCTURAL RATHER THAN POLICY:
+     * WHAT IS CHECKED, AND WHY EACH CHECK IS STRUCTURAL RATHER THAN POLICY:
      *
      *  - A real, ordered pair of dates. Nothing computes without it.
-     *  - Statutory::scheduleError — the contribution tables are verified for a
-     *    date range and reading them outside it would invent figures.
-     * `$today` is gone from the signature along with the in-progress rule. A
-     * period may now end in the future; the days that have not happened carry
-     * no attendance and so pay nothing, which is arithmetic rather than an
-     * error worth refusing.
+     *  - the statutory coverage: the `$coverage` closure the application hands
+     *    in (the Contribution & Tax Table versions in force) or, for a pure
+     *    caller, Statutory::scheduleError over the built-in figures' dates —
+     *    reading the tables outside their dates would invent figures.
+     * There is no `$today` parameter and no in-progress rule. A period may end
+     * in the future; the days that have not happened carry no attendance and
+     * so pay nothing, which is arithmetic rather than an error worth refusing.
      *
-     * THE ONE-CALENDAR-MONTH RULE IS GONE TOO, and unlike the others it cost
-     * something to remove. The daily rate is `monthly_rate` over that month's
-     * scheduled working days, and months hold 20 to 23 of them — so a period
+     * THERE IS NO ONE-CALENDAR-MONTH RULE EITHER, and unlike the others its
+     * absence has a cost. The daily rate derived from `monthly_rate` is that
+     * rate over the month's scheduled working days (an entered Rate Per Day,
+     * `daily_rate`, never moves), and months hold 20 to 23 of them — so a period
      * running 28 Sep to 3 Oct has two daily rates in it, not one, and pricing
      * the October days at September's rate is a silent 4.5% error on each.
-     * PayslipCalculator now resolves the rate per calendar month and counts
+     * PayslipCalculator resolves the rate per calendar month and counts
      * every day, night, late minute and undertime minute against its own
      * month. A period inside one month reduces to the single-rate arithmetic
      * exactly, which is what the 6,921 golden vectors prove.
      */
-    public static function cutoffError(string $periodStart, string $periodEnd): ?string
+    public static function cutoffError(string $periodStart, string $periodEnd, ?Closure $coverage = null): ?string
     {
         if (! self::isPayrollDate($periodStart) || ! self::isPayrollDate($periodEnd)) {
             return 'Choose valid start and end dates.';
@@ -125,8 +143,13 @@ final class PayrollPeriod
             return 'The end date cannot fall before the start date.';
         }
 
-        // The 2026-12-31 hard stop lives in Statutory::VERIFIED_THROUGH and only there.
-        $scheduleError = Statutory::scheduleError($periodStart);
+        // DELIBERATE DIVERGENCE: the reference bounds a period by constants
+        // (Statutory::scheduleError, the built-in figures' coverage). The
+        // application hands in the Contribution & Tax Tables' verdict instead
+        // — `$coverage(start, end)`, null when every table covers the period
+        // (Modules\Payroll\Application\StatutoryTables) — and the constants
+        // answer only for a caller that hands nothing in.
+        $scheduleError = $coverage === null ? Statutory::scheduleError($periodStart) : $coverage($periodStart, $periodEnd);
         if ($scheduleError !== null) {
             return $scheduleError;
         }
@@ -139,8 +162,8 @@ final class PayrollPeriod
      *
      * The first and last date of the calendar month a date falls in. Payroll
      * spreads a monthly rate over the month's scheduled working days, and asks
-     * this once per month a period touches — which since cutoffError stopped
-     * refusing a straddling period may be more than one.
+     * this once per month a period touches — which, because cutoffError
+     * accepts a period that straddles months, may be more than one.
      *
      * @return array{from: string, to: string}
      */

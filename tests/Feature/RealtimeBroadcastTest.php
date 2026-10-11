@@ -35,6 +35,8 @@ use Livewire\Livewire;
  * the fourth enforcement layer beside the route gate, the module grant and
  * ScopesToActor, and they are tested like it.
  */
+
+/** @param  list<string>  $modules  Module codes to grant the role */
 function rtRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -48,6 +50,7 @@ function rtRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/** @param  list<string>  $modules  Module codes to grant the account's role */
 function rtUser(array $modules = ['EDTR'], bool $allData = false, ?string $employeeId = null): User
 {
     return User::factory()->create([
@@ -89,7 +92,7 @@ beforeEach(function (): void {
     config()->set('broadcasting.connections.pusher.secret', 'test-secret');
     config()->set('broadcasting.connections.pusher.app_id', 'test-app-id');
     config()->set('broadcasting.connections.pusher.options.cluster', 'ap1');
-    config()->set('bestworkflows.realtime.enabled', true);
+    config()->set('copems.realtime.enabled', true);
 
     // Broadcast::channel() forwards through BroadcastManager::__call to the
     // CURRENTLY RESOLVED driver, so the callbacks bootstrap/app.php registered
@@ -205,7 +208,11 @@ function rtSite(): WorkSite
     ]);
 }
 
-/** The private channel names one dispatched event knocks on. */
+/**
+ * The private channel names one dispatched event knocks on.
+ *
+ * @return list<string>
+ */
 function rtChannels(RealtimeChange $event): array
 {
     return array_map(static fn ($channel): string => $channel->name, $event->broadcastOn());
@@ -294,7 +301,7 @@ it('carries nothing but the knock', function () {
 it('announces nothing at all when no broadcaster can reach a browser', function () {
     Event::fake([RealtimeChange::class]);
     $this->withoutDefer();
-    config()->set('bestworkflows.realtime.enabled', false);
+    config()->set('copems.realtime.enabled', false);
 
     Realtime::announce(['attendance']);
 
@@ -427,7 +434,7 @@ it('subscribes the portal card and the bell to their own channels', function () 
 });
 
 it('registers no Echo listener anywhere when realtime is off', function () {
-    config()->set('bestworkflows.realtime.enabled', false);
+    config()->set('copems.realtime.enabled', false);
     $employee = rtEmployee();
     $this->actingAs(rtUser(['EDTR'], allData: true, employeeId: (string) $employee->getKey()));
 
@@ -443,7 +450,7 @@ it('registers no Echo listener anywhere when realtime is off', function () {
 it('still redraws on the poll when realtime is off', function () {
     // The backstop promise: with no broadcaster, the app is exactly what it
     // was before any of this existed.
-    config()->set('bestworkflows.realtime.enabled', false);
+    config()->set('copems.realtime.enabled', false);
     $employee = rtEmployee();
     $this->actingAs(rtUser(['EDTR'], allData: true));
 

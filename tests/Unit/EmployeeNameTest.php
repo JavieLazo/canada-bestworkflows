@@ -10,10 +10,12 @@ use App\Models\EmployeeProfile;
 use App\Support\EmployeeName;
 
 /**
- * The suffix was addable on Employee Records and invisible everywhere else,
- * because six places each composed a name from their own copy of the same three
- * lines and only one of them learned about the new column. These pin the one
- * formatter they all now share.
+ * Every surface composes an employee's name through the one formatter, so a
+ * name column such as the suffix shows everywhere or nowhere — never on one
+ * surface alone, as it would through a private copy of the same three lines.
+ * These pin that formatter.
+ *
+ * @param  array<string, string|null>  $overrides  name columns to replace; null clears one
  */
 function nameRow(array $overrides = []): stdClass
 {
@@ -81,11 +83,11 @@ it('trims stray whitespace stored in the columns', function () {
 
 /*
 |--------------------------------------------------------------------------
-| Every module helper now spells it the same way
+| Every module helper spells it the same way
 |--------------------------------------------------------------------------
 |
-| Five classes had their own employeeName(). If any one of them stops
-| delegating, this catches it — that divergence is the bug being fixed.
+| Five classes keep their own employeeName(). If any one of them stops
+| delegating, this catches it — a second spelling is the bug.
 */
 
 it('spells a name identically in every module', function () {

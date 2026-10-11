@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\TableExportController;
 use App\Livewire\Users\Index;
 use Illuminate\Support\Facades\Route;
 
@@ -22,4 +23,11 @@ use Illuminate\Support\Facades\Route;
  */
 Route::middleware(['web', 'auth', 'module:USERS'])->group(static function (): void {
     Route::get('/users', Index::class)->name('users.index');
+    // Each tab's CSV (TableExportController): the same USERS read, no credentials.
+    Route::get('/users/export', TableExportController::class)
+        ->defaults('table', 'users')
+        ->name('users.export');
+    Route::get('/users/roles/export', TableExportController::class)
+        ->defaults('table', 'users.roles')
+        ->name('users.roles.export');
 });

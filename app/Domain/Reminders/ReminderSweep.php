@@ -39,6 +39,21 @@ use DateTimeInterface;
  * below are ported exactly; the caller passes whatever collections the account
  * may read and an empty list simply produces no reminders from that rule.
  *
+ * DELIBERATE DIVERGENCE: the reference has one assignee per task and no
+ * per-member responses. On an INDIVIDUAL task every assignee hands in their
+ * own, so a member whose own response is submitted or approved is not
+ * chased as an assignee, and TASK_RESPONSES_PENDING chases the assigner
+ * about responses left waiting. Whether a member is done and which
+ * responses wait are the owning module's rules, so they arrive precomputed
+ * on each task row (`member_done`, `pending_responses`); this class never
+ * reads that module.
+ *
+ * DELIBERATE DIVERGENCE: a document reminder opens the employee's record on
+ * its Documents tab (`?tab=documents`), the only place the record lists its
+ * documents; the reference links the bare record. A probation reminder keeps
+ * the bare link, because the record opens on Profile, where Employee Details
+ * shows the hiring and regularisation dates.
+ *
  * Pure: no Eloquent, no DB, no config(). Calendar days are 'Y-m-d' STRINGS,
  * rows arrive as plain arrays, timestamps go through ManilaClock.
  */
@@ -70,7 +85,7 @@ final class ReminderSweep
      *
      * The reference reason was storage: every insert re-serialised the whole
      * local dataset to localStorage, and the bell only shows the 50 newest
-     * rows. On MySQL that cost is gone, but the cap is kept because the
+     * rows. On MySQL that cost does not arise, but the cap stays because the
      * behaviour it produces is the same and is the point: a first run against
      * a long-neglected 201 file must not produce a document reminder per
      * expired scan in one burst. Nothing is lost by stopping short — whatever
@@ -91,7 +106,12 @@ final class ReminderSweep
      *   $tasks     id, code, title, project_id, assignee_ids (list<string> of
      *              employee ids — the project_task_assignees pivot, [] when
      *              unassigned), submitted_by (employee id|null), assigned_by,
-     *              status, due_date ('Y-m-d'), submitted_at (UTC instant)
+     *              status, due_date ('Y-m-d'), submitted_at (UTC instant);
+     *              and two precomputed INDIVIDUAL-task facts, both optional:
+     *              member_done (bool, default false — this account's own
+     *              response is submitted or approved) and pending_responses
+     *              (list of {employee_id, submitted_at (UTC instant)}, the
+     *              responses awaiting review, default [])
      *   $projects  id, code, name, manager_id, status, due_date ('Y-m-d')
      *   $employees id, first_name, last_name, suffix, is_active, employment_status,
      *              date_hired ('Y-m-d'), date_regular ('Y-m-d'|null)
@@ -107,6 +127,7 @@ final class ReminderSweep
      * @param  list<array<string, mixed>>  $employees
      * @param  list<array<string, mixed>>  $documents
      * @param  list<array<string, mixed>>  $leaves
+     * @param  string|null  $group  One owner-authorized rule group for bounded callers; null runs all legacy rules.
      * @return list<array{dedupeKey: string, kind: string, title: string, body: string|null, href: string}>
      */
     public static function build(
@@ -119,6 +140,7 @@ final class ReminderSweep
         array $employees = [],
         array $documents = [],
         array $leaves = [],
+        ?string $group = null,
     ): array {
         $out = [];
 
@@ -136,10 +158,10 @@ final class ReminderSweep
             return EmployeeName::display($employee, 'an employee');
         };
 
-        // Who submitted a task, for the reviewer's chase. The task is SHARED
-        // by its assignees (ProjectTask docblock): whoever pressed Submit is
-        // on submitted_by, so name them; a submission that predates that
-        // column (or a legacy row) names every assignee instead, so the
+        // Who submitted a task, for the assigner's review chase. The task is
+        // SHARED by its assignees (ProjectTask docblock): whoever pressed
+        // Submit is on submitted_by, so name them; a submission that predates
+        // that column (or a legacy row) names every assignee instead, so the
         // sentence still points at the people who can answer for it.
         $submitterName = static function (array $task) use ($employeeName): string {
             $submittedBy = self::id($task['submitted_by'] ?? null);
@@ -165,7 +187,7 @@ final class ReminderSweep
         // key names the task and the trigger, and the (user_id, dedupe_key)
         // unique index is per ACCOUNT, so co-assignees never collide. A task
         // with no assignees announces itself to nobody here.
-        if ($employeeId !== null && $employeeId !== '' && in_array('TASKS', $modules, true)) {
+        if (($group === null || $group === 'assigned') && $employeeId !== null && $employeeId !== '' && in_array('TASKS', $modules, true)) {
             foreach ($tasks as $task) {
                 if (! in_array($employeeId, self::assigneeIds($task), true)) {
                     continue;
@@ -173,10 +195,14 @@ final class ReminderSweep
                 // A submitted task sits with the reviewer:
                 // EMPLOYEE_TRANSITIONS leaves the assignee nothing to move it
                 // to, so chasing them about it is a nag they cannot answer.
-                // TASK_REVIEW_PENDING chases the side that can.
+                // TASK_REVIEW_PENDING chases the assigner instead (below).
+                // The same goes for an INDIVIDUAL member whose own response
+                // is submitted (TASK_RESPONSES_PENDING chases that) or
+                // approved: `member_done`.
                 $due = self::dateKey($task['due_date'] ?? null);
                 if (TaskPolicy::isClosed((string) $task['status'])
                     || TaskPolicy::isAwaitingReview((string) $task['status'])
+                    || ($task['member_done'] ?? false) === true
                     || $due === null) {
                     continue;
                 }
@@ -187,7 +213,7 @@ final class ReminderSweep
                     $out[] = [
                         'dedupeKey' => 'TASK_OVERDUE:'.$task['id'].':'.$due,
                         'kind' => 'TASK_OVERDUE',
-                        'title' => $task['code'].' is overdue',
+                        'title' => 'Task '.$task['code'].' is overdue',
                         'body' => $task['title'].' was due '.self::plural(abs($left), 'day').' ago.',
                         'href' => '/my-tasks',
                     ];
@@ -196,8 +222,8 @@ final class ReminderSweep
                         'dedupeKey' => 'TASK_DUE_SOON:'.$task['id'].':'.$due,
                         'kind' => 'TASK_DUE_SOON',
                         'title' => $left === 0
-                            ? $task['code'].' is due today'
-                            : $task['code'].' is due soon',
+                            ? 'Task '.$task['code'].' is due today'
+                            : 'Task '.$task['code'].' is due soon',
                         'body' => $task['title'].' — due '.self::inDays($left).'.',
                         'href' => '/my-tasks',
                     ];
@@ -206,11 +232,59 @@ final class ReminderSweep
         }
 
         /* --- as the person who handed the work out --- */
+        // The review chases go to the ASSIGNER, who is usually the one to
+        // decide. An assigner who is also on the crew cannot (ReviewTask and
+        // ReviewTaskResponse refuse a self-review). The GROUP chase still
+        // reaches them, deliberately: its rule ignores the refusal and its
+        // key is frozen. The INDIVIDUAL chase skips them.
         if (in_array('PROJECTS', $modules, true)) {
-            foreach ($tasks as $task) {
+            foreach (($group === null || $group === 'reviews') ? $tasks : [] as $task) {
                 if (($task['assigned_by'] ?? null) !== $userId) {
                     continue;
                 }
+
+                // TASK_RESPONSES_PENDING, the DELIBERATE DIVERGENCE in the
+                // class docblock: an INDIVIDUAL task with responses awaiting
+                // review. It is keyed on the OLDEST of them, so a later
+                // hand-in joins the reminder already sent and the key moves
+                // on only once that response stops waiting. The trigger is
+                // the TRUE instant to the millisecond (instantToken()), NOT
+                // stamp()'s whole-second token: two responses handed in within
+                // one second would share a key, and the second would never be
+                // chased once the first was reviewed. THIS KEY FORMAT IS
+                // FROZEN once it ships, like every other.
+                $pending = self::pendingResponses($task);
+                if ($pending !== []) {
+                    if ($employeeId !== null && $employeeId !== ''
+                        && in_array($employeeId, self::assigneeIds($task), true)) {
+                        continue;
+                    }
+                    $oldest = $pending[0];
+                    foreach ($pending as $response) {
+                        if (self::instantOf($response['submitted_at'])->lt(self::instantOf($oldest['submitted_at']))) {
+                            $oldest = $response;
+                        }
+                    }
+
+                    $waiting = -self::daysUntil(self::dayKeyOf($oldest['submitted_at']), $today);
+                    if ($waiting < self::REVIEW_STALE_DAYS) {
+                        continue;
+                    }
+
+                    $ago = self::plural($waiting, 'day').' ago.';
+                    $out[] = [
+                        'dedupeKey' => 'TASK_RESPONSES_PENDING:'.$task['id'].':'.self::instantToken($oldest['submitted_at']),
+                        'kind' => 'TASK_RESPONSES_PENDING',
+                        'title' => 'Task '.$task['code'].' has responses waiting on your review',
+                        'body' => count($pending) === 1
+                            ? $employeeName($oldest['employee_id']).' submitted theirs '.$ago
+                            : count($pending).' responses are waiting — the oldest from '.$employeeName($oldest['employee_id']).', '.$ago,
+                        'href' => '/projects/'.$task['project_id'],
+                    ];
+
+                    continue;
+                }
+
                 $submittedAt = $task['submitted_at'] ?? null;
                 if (! TaskPolicy::isAwaitingReview((string) $task['status']) || $submittedAt === null) {
                     continue;
@@ -228,13 +302,13 @@ final class ReminderSweep
                     // swallow the chase for it.
                     'dedupeKey' => 'TASK_REVIEW_PENDING:'.$task['id'].':'.self::stamp($submittedAt),
                     'kind' => 'TASK_REVIEW_PENDING',
-                    'title' => $task['code'].' is waiting on your review',
+                    'title' => 'Task '.$task['code'].' is waiting on your review',
                     'body' => $submitterName($task).' submitted it '.self::plural($waiting, 'day').' ago.',
                     'href' => '/projects/'.$task['project_id'],
                 ];
             }
 
-            foreach ($projects as $project) {
+            foreach (($group === null || $group === 'projects') ? $projects : [] as $project) {
                 if (($project['manager_id'] ?? null) !== $userId) {
                     continue;
                 }
@@ -252,7 +326,7 @@ final class ReminderSweep
                     $out[] = [
                         'dedupeKey' => 'PROJECT_OVERDUE:'.$project['id'].':'.$due,
                         'kind' => 'PROJECT_OVERDUE',
-                        'title' => $project['code'].' has passed its due date',
+                        'title' => 'Project '.$project['code'].' has passed its due date',
                         'body' => $project['name'].' was due '.self::plural(abs($left), 'day').' ago.',
                         'href' => '/projects/'.$project['id'],
                     ];
@@ -261,8 +335,8 @@ final class ReminderSweep
                         'dedupeKey' => 'PROJECT_DUE_SOON:'.$project['id'].':'.$due,
                         'kind' => 'PROJECT_DUE_SOON',
                         'title' => $left === 0
-                            ? $project['code'].' is due today'
-                            : $project['code'].' is due soon',
+                            ? 'Project '.$project['code'].' is due today'
+                            : 'Project '.$project['code'].' is due soon',
                         'body' => $project['name'].' — due '.self::inDays($left).'.',
                         'href' => '/projects/'.$project['id'],
                     ];
@@ -271,7 +345,7 @@ final class ReminderSweep
         }
 
         /* --- as the person who decides leave --- */
-        if (in_array('LEAVES', $modules, true)) {
+        if (($group === null || $group === 'leaves') && in_array('LEAVES', $modules, true)) {
             foreach ($leaves as $leave) {
                 if ($leave['status'] !== 'PENDING') {
                     continue;
@@ -291,7 +365,7 @@ final class ReminderSweep
                     // whole intent.
                     'dedupeKey' => 'LEAVE_PENDING:'.$leave['id'],
                     'kind' => 'LEAVE_PENDING',
-                    'title' => (($code === null || $code === '') ? 'A leave request' : $code)
+                    'title' => (($code === null || $code === '') ? 'A leave request' : 'Request '.$code)
                         .' is still awaiting review',
                     'body' => 'Filed by '.$employeeName(self::id($leave['employee_id'] ?? null))
                         .' '.self::plural($waiting, 'day').' ago.',
@@ -302,7 +376,7 @@ final class ReminderSweep
 
         /* --- as HR, over everybody's records --- */
         if (in_array('EMPLOYEES', $modules, true)) {
-            foreach ($documents as $doc) {
+            foreach (($group === null || $group === 'documents') ? $documents : [] as $doc) {
                 $expires = self::dateKey($doc['expires_on'] ?? null);
                 if ($expires === null) {
                     continue;
@@ -326,7 +400,7 @@ final class ReminderSweep
                         'title' => $doc['name'].' has expired',
                         'body' => $employeeName(self::id($doc['employee_id']))
                             .' — expired '.self::plural(abs($left), 'day').' ago.',
-                        'href' => '/employees/'.$doc['employee_id'],
+                        'href' => '/employees/'.$doc['employee_id'].'?tab=documents',
                     ];
                 } elseif ($left <= self::DOCUMENT_EXPIRY_DAYS) {
                     $out[] = [
@@ -337,12 +411,12 @@ final class ReminderSweep
                             : $doc['name'].' expires soon',
                         'body' => $employeeName(self::id($doc['employee_id']))
                             .' — expires '.self::inDays($left).'.',
-                        'href' => '/employees/'.$doc['employee_id'],
+                        'href' => '/employees/'.$doc['employee_id'].'?tab=documents',
                     ];
                 }
             }
 
-            foreach ($employees as $employee) {
+            foreach (($group === null || $group === 'probation') ? $employees : [] as $employee) {
                 if (empty($employee['is_active'])) {
                     continue;
                 }
@@ -575,16 +649,19 @@ final class ReminderSweep
      *
      * THE FORMAT IS FROZEN, quirk included. The key is an opaque token matched
      * against rows already written, so the value minted for a given submission
-     * must never change. The command originally handed submitted_at over as an
-     * offset-less 'Y-m-d H:i:s' string — UTC digits, which ManilaClock::instant()
+     * must never change. The stamp is minted from submitted_at's UTC digits
+     * as an offset-less 'Y-m-d H:i:s' string, which ManilaClock::instant()
      * reads as Manila wall clock — so every TASK_REVIEW_PENDING row in the
      * table carries a stamp eight hours BEFORE the true instant, at whole
-     * seconds. An instant arriving here is reduced to the same digits and sent
-     * down the same path, byte for byte, and a string is read exactly as
-     * before (as-is with a zone, as Manila without). Minting from the true
-     * instant instead would re-chase every submission already chased once.
+     * seconds. An instant arriving here is reduced to those digits and sent
+     * down that path, byte for byte; a string is read as-is with a zone, as
+     * Manila without. Minting from the true instant instead would re-chase
+     * every submission already chased once.
      * The day arithmetic ({@see self::dayKeyOf()}) is separate and reads the
      * instant itself, so it is NOT eight hours out.
+     *
+     * TASK_REVIEW_PENDING ONLY. Never mint a new kind's trigger here: the
+     * quirk exists solely because rows already carry it.
      */
     private static function stamp(DateTimeInterface|string $at): string
     {
@@ -593,6 +670,20 @@ final class ReminderSweep
             : $at;
 
         return ManilaClock::instant($digits)->utc()->format('Y-m-d\TH:i:s.v\Z');
+    }
+
+    /**
+     * The trigger of a TASK_RESPONSES_PENDING key: the true UTC instant, to
+     * the millisecond, as 'Y-m-d\TH:i:s.v\Z'. Read the same way as the day
+     * arithmetic ({@see self::instantOf()}), so there is no eight-hour quirk.
+     * Keeping the milliseconds matters: SubmitTask stamps each response
+     * under the task's lock, one after another, so responses handed in within
+     * the same second still get distinct keys. The format is frozen once the
+     * kind ships.
+     */
+    private static function instantToken(DateTimeInterface|string $at): string
+    {
+        return self::instantOf($at)->utc()->format('Y-m-d\TH:i:s.v\Z');
     }
 
     private static function instantOf(DateTimeInterface|string $at): CarbonImmutable
@@ -653,6 +744,36 @@ final class ReminderSweep
         }
 
         return $ids;
+    }
+
+    /**
+     * A task row's `pending_responses` as a clean list: the INDIVIDUAL
+     * responses awaiting review, as the owning module computed them. Anything
+     * that is not a list, and any entry without a submission instant, is left
+     * out — the sweep must never guess when a response was handed in.
+     *
+     * @param  array<string, mixed>  $task
+     * @return list<array{employee_id: string|null, submitted_at: DateTimeInterface|string}>
+     */
+    private static function pendingResponses(array $task): array
+    {
+        $raw = $task['pending_responses'] ?? null;
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        $responses = [];
+        foreach ($raw as $response) {
+            if (! is_array($response)) {
+                continue;
+            }
+            $submittedAt = $response['submitted_at'] ?? null;
+            if ($submittedAt instanceof DateTimeInterface || (is_string($submittedAt) && $submittedAt !== '')) {
+                $responses[] = ['employee_id' => self::id($response['employee_id'] ?? null), 'submitted_at' => $submittedAt];
+            }
+        }
+
+        return $responses;
     }
 
     /**

@@ -74,6 +74,7 @@ it('keeps actor columns out of every mass-assignable list', function () {
     $actorColumns = [
         'actor_id', 'actor_name', 'uploaded_by', 'reviewed_by',
         'assigned_by', 'finalized_by', 'author_id', 'author_name',
+        'created_by', 'cancelled_by',
     ];
 
     $dir = __DIR__.'/../../app/Models';
@@ -96,7 +97,16 @@ it('keeps actor columns out of every mass-assignable list', function () {
             continue;
         }
 
-        $fillable = (new $class)->getFillable();
+        $model = new $class;
+
+        // The reflection check above already guarantees this. The guard exists
+        // so static analysis sees a Model, not a bare object, and it can only
+        // throw if that check is ever removed.
+        if (! $model instanceof Model) {
+            throw new RuntimeException($class.' is not an Eloquent model.');
+        }
+
+        $fillable = $model->getFillable();
 
         foreach ($actorColumns as $column) {
             if (in_array($column, $fillable, true)) {

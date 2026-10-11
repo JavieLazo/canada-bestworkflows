@@ -8,12 +8,11 @@ namespace App\Livewire\Kit;
  * The parsing half of `<x-kit.time-field>`, in PHP.
  *
  * The stored value stays the `HH:mm` (24-hour) key the tables use, exactly as
- * `src/components/TimeField.tsx` kept it. What changed is the input surface:
- * the locked product decision (see the memory note "Time/date input UX
- * preference") replaces the source's hour/minute dropdowns with a TYPED clock
- * box plus a separate AM/PM select — no popover pickers. So `parts()` is the
- * straight port of TimeField.tsx:27-37 reshaped for a typed box, and `toKey()`
- * parses what a typist actually produces: `8:30`, `08:30`, `830`, `1230`, `8`.
+ * `src/components/TimeField.tsx` keeps it. The input surface differs: a TYPED
+ * clock box plus a separate AM/PM select replaces the source's hour/minute
+ * dropdowns — no popover pickers. So `parts()` is the straight port of
+ * TimeField.tsx:27-37 reshaped for a typed box, and `toKey()` parses what a
+ * typist actually produces: `8:30`, `08:30`, `830`, `1230`, `8`.
  *
  * `<x-kit.time-field>` runs a byte-for-byte JS mirror of these functions in
  * the browser; this class is the server-side source of truth for the same

@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records\Support;
 
+use App\Support\HrisFormat;
 use App\Support\ManilaClock;
-use App\Support\Money;
+use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 
 /**
@@ -15,18 +16,14 @@ use Carbon\CarbonImmutable;
  * records screens define for themselves (reference-list.tsx:52-57,
  * shift-types-page.tsx:60-88).
  *
- * Lives inside the Records namespace because there is no shared HRIS display
- * helper in the app yet and this module may only write its own files; keep it
- * in sync with any sibling module's copy until a shared home exists.
+ * The hris.ts members forward to App\Support\HrisFormat, their shared home;
+ * the wrappers stay so the records screens' call sites and Blade imports
+ * keep pointing here.
  */
 final class Hris
 {
-    /** hris.ts:281-285 — the request types that shipped before Leave Settings. */
-    public const array REQUEST_TYPES = [
-        'VACATION' => 'Vacation Leave',
-        'SICK' => 'Sick Leave',
-        'BUSINESS_TRAVEL' => 'Business Travel / OB',
-    ];
+    /** hris.ts:281-285 — the built-in request types (HrisFormat's list). */
+    public const array REQUEST_TYPES = HrisFormat::REQUEST_TYPES;
 
     /**
      * `work_days` order, Sunday first, so the picker reads like a calendar
@@ -38,40 +35,16 @@ final class Hris
 
     private function __construct() {}
 
-    /** TS: `fmtDate(d)` — a 'Y-m-d' calendar day as `Aug 05, 2026`. No zone to shift. */
+    /** TS: `fmtDate(d)` — a 'Y-m-d' calendar day as `Aug 05, 2026`, shared through HrisFormat. No zone to shift. */
     public static function fmtDate(CarbonImmutable|string|null $value): string
     {
-        if ($value === null || $value === '') {
-            return "\u{2014}";
-        }
-
-        $day = $value instanceof CarbonImmutable
-            ? $value
-            : CarbonImmutable::createFromFormat('!Y-m-d', substr($value, 0, 10), 'UTC');
-
-        return $day === null ? (string) $value : $day->format('M d, Y');
+        return HrisFormat::date($value);
     }
 
-    /** TS: `fmtHm(value)` — a stored 'HH:mm[:ss]' clock time as `5:00 PM` (hris.ts:217-226). */
+    /** TS: `fmtHm(value)` — a stored 'HH:mm[:ss]' clock time as `5:00 PM` (hris.ts:217-225), shared through HrisFormat. */
     public static function fmtHm(?string $value): string
     {
-        if ($value === null || $value === '') {
-            return "\u{2014}";
-        }
-
-        if (preg_match('/^(\d{1,2}):(\d{2})/', trim($value), $m) !== 1) {
-            return $value;
-        }
-
-        $h24 = (int) $m[1];
-
-        if ($h24 > 23) {
-            return $value;
-        }
-
-        $h12 = $h24 % 12 === 0 ? 12 : $h24 % 12;
-
-        return sprintf('%d:%s %s', $h12, $m[2], $h24 < 12 ? 'AM' : 'PM');
+        return HrisFormat::hm($value);
     }
 
     /** TS: `peso(n)` — `₱17,000.00` (hris.ts:184-189). */
@@ -86,10 +59,10 @@ final class Hris
         return "\u{20B1}".number_format($f, 2);
     }
 
-    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()`. */
+    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()` — ManilaClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::dayKey(CarbonImmutable::now());
+        return ManilaClock::todayKey();
     }
 
     /**
@@ -101,64 +74,36 @@ final class Hris
         return (string) preg_replace('/[\s-]+/', '_', strtoupper(trim((string) $value)));
     }
 
-    /** Stored request types are the normalised form of a Leave Settings name (hris.ts:328-333). */
+    /** Stored request types are the normalised form of a Leave Settings name (hris.ts:328), shared through HrisFormat. */
     public static function normalizeRequestType(string $name): string
     {
-        $key = strtoupper(trim($name));
-        $key = (string) preg_replace('/[^A-Z0-9]+/', '_', $key);
-
-        return trim($key, '_');
+        return HrisFormat::normalizeRequestType($name);
     }
 
     /**
      * What a request is *for* — resolved against Leave Settings first, with the
-     * built-in types as a fallback for older rows (hris.ts:340-353).
+     * built-in types as a fallback for older rows (hris.ts:340-350), shared
+     * through HrisFormat.
      *
      * @param  list<string>  $leaveTypeNames
      */
     public static function requestDescription(string $value, array $leaveTypeNames = []): string
     {
-        foreach ($leaveTypeNames as $name) {
-            $key = self::normalizeRequestType($name);
-
-            if ($key === $value || $key === $value.'_LEAVE') {
-                return $name;
-            }
-        }
-
-        if (isset(self::REQUEST_TYPES[$value])) {
-            return self::REQUEST_TYPES[$value];
-        }
-
-        return implode(' ', array_map(
-            static fn (string $w): string => ucfirst($w),
-            explode('_', strtolower($value)),
-        ));
+        return HrisFormat::requestDescription($value, $leaveTypeNames);
     }
 
     /**
-     * Locale-aware-ish compare that always sorts blanks last — the port of
-     * `compareText` (useSort.ts:33-40). The records screens reverse the whole
-     * sorted list for descending order, exactly as the source did.
+     * Case-insensitive byte compare that always sorts blanks last — the port
+     * of `compareText` (useSort.ts:33-40), shared through App\Support\TextSort.
+     * The records screens reverse the whole sorted list for descending order,
+     * exactly as the source did.
      */
     public static function compareText(?string $a, ?string $b): int
     {
-        $left = trim((string) $a);
-        $right = trim((string) $b);
-
-        if ($left === '' && $right === '') {
-            return 0;
-        }
-
-        if ($left === '') {
-            return 1;
-        }
-
-        if ($right === '') {
-            return -1;
-        }
-
-        return strcasecmp($left, $right);
+        // One comparator for every sorted list, so no module sorts by a rule of
+        // its own, such as a case-only tiebreak or ICU collation. This stays a
+        // wrapper so no call site or Blade import changes; TextSortTest pins it.
+        return TextSort::compare($a, $b);
     }
 
     /**
@@ -211,14 +156,16 @@ final class Hris
             : implode(', ', array_column($picked, 'label'));
     }
 
-    /**
-     * The formulas page's `round2` (formulas-page.tsx:36) — Math.round(n*100)/100,
-     * which is exactly {@see Money::round()}. Display-only rounding for the
-     * sample derivation; payroll's own rounding lives in the domain layer.
-     */
-    public static function round2(mixed $n): float
+    /** A fraction as the percentage a settings page shows: 0.025 → "2.5", 0.1 → "10". */
+    public static function percentText(mixed $rate): string
     {
-        return Money::round($n);
+        return is_numeric($rate) ? rtrim(rtrim(number_format((float) $rate * 100, 4, '.', ''), '0'), '.') : '';
+    }
+
+    /** A peso figure as a settings input shows it: "5000" or "937.5". */
+    public static function moneyText(mixed $amount): string
+    {
+        return is_numeric($amount) ? rtrim(rtrim(number_format((float) $amount, 2, '.', ''), '0'), '.') : '';
     }
 
     /** TS: `haversineMeters` (hris.ts:153-162). */

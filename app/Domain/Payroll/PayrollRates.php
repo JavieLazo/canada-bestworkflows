@@ -8,8 +8,9 @@ namespace App\Domain\Payroll;
  * The numbers the engine runs on, taken from Records Management -> Payroll
  * Settings -> Formulas where they are set.
  *
- * A literal port of payrollRates() and PAYROLL_DEFAULTS in
- * copems/src/lib/payroll.ts:129-192.
+ * The active rates and caps from payrollRates() and PAYROLL_DEFAULTS in
+ * copems/src/lib/payroll.ts:129-192. Unknown formula rows are ignored so
+ * captured payroll inputs remain replayable.
  *
  * The shape of the incoming formulas is structural on purpose, so this class
  * stays independent of the seed:
@@ -23,8 +24,6 @@ final class PayrollRates
      * day come from the roster, never from here.
      */
     public const DEFAULT_WORKING_HOURS = 8.0;
-
-    public const DEFAULT_DAYS_PER_MONTH = 24.0;
 
     public const DEFAULT_OT_RATE = 1.25;
 
@@ -53,12 +52,17 @@ final class PayrollRates
     private function __construct(
         public readonly float $otRate,
         public readonly float $maxOtHours,
-        public readonly float $daysPerMonth,
         public readonly float $nsdRate,
         public readonly float $maxNsdHours,
         public readonly float $restDayRate,
         public readonly float $maxRestDayHours,
     ) {}
+
+    /** The rates and caps as a Pay Basis & Rates version holds them, already validated. */
+    public static function of(float $otRate, float $maxOtHours, float $nsdRate, float $maxNsdHours, float $restDayRate, float $maxRestDayHours): self
+    {
+        return new self($otRate, $maxOtHours, $nsdRate, $maxNsdHours, $restDayRate, $maxRestDayHours);
+    }
 
     /**
      * @param  list<mixed>  $formulas
@@ -66,14 +70,12 @@ final class PayrollRates
     public static function fromFormulas(array $formulas = []): self
     {
         $ot = self::valuesOf($formulas, 'OT');
-        $sil = self::valuesOf($formulas, 'SIL');
         $nsd = self::valuesOf($formulas, 'NSD');
         $restDay = self::valuesOf($formulas, 'REST_DAY');
 
         return new self(
             otRate: self::rate($ot['percentage'] ?? null, self::DEFAULT_OT_RATE),
             maxOtHours: self::rate($ot['max_ot'] ?? null, self::DEFAULT_MAX_OT_HOURS),
-            daysPerMonth: self::divisor($sil['days_per_month'] ?? null, self::DEFAULT_DAYS_PER_MONTH),
             nsdRate: self::rate($nsd['percentage'] ?? null, self::DEFAULT_NSD_RATE),
             maxNsdHours: self::rate($nsd['max_nsd'] ?? null, self::DEFAULT_MAX_NSD_HOURS),
             restDayRate: self::rate($restDay['percentage'] ?? null, self::DEFAULT_REST_DAY_RATE),
@@ -112,12 +114,6 @@ final class PayrollRates
         }
 
         return [];
-    }
-
-    /** Divisors must be POSITIVE — a zero would divide by zero. */
-    private static function divisor(mixed $v, float $fallback): float
-    {
-        return is_float($v) && is_finite($v) && $v > 0 ? $v : $fallback;
     }
 
     /** Rates and caps may legitimately be ZERO — only reject non-finite and negative. */

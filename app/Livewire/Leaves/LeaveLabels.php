@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace App\Livewire\Leaves;
 
 use App\Domain\Attendance\DtrCalculator;
+use App\Support\HrisFormat;
+use App\Support\TextSort;
 
 /**
  * The slice of `src/lib/hris.ts` the Leaves screens read — labels and
- * comparisons only, no computation. Kept inside the module's own namespace
- * because the file-ownership split forbids writing a shared lib from here.
+ * comparisons only, no computation. The label helpers forward to
+ * App\Support\HrisFormat; the wrappers stay so the call sites and the Blade
+ * import of DAY_TYPES keep pointing here.
  *
  * Ported members, line-for-line:
  *
@@ -34,11 +37,7 @@ final class LeaveLabels
      *
      * @var array<string, string>
      */
-    public const array REQUEST_TYPES = [
-        'VACATION' => 'Vacation Leave',
-        'SICK' => 'Sick Leave',
-        'BUSINESS_TRAVEL' => 'Business Travel / OB',
-    ];
+    public const array REQUEST_TYPES = HrisFormat::REQUEST_TYPES;
 
     /**
      * Whether a request covers the whole working day or half of it
@@ -57,12 +56,10 @@ final class LeaveLabels
         return self::DAY_TYPES[$value] ?? 'Whole day';
     }
 
-    /** Stored request types are the normalised form of a Leave Settings name (hris.ts:326-332). */
+    /** Stored request types are the normalised form of a Leave Settings name (hris.ts:328), shared through HrisFormat. */
     public static function normalizeRequestType(string $name): string
     {
-        $key = (string) preg_replace('/[^A-Z0-9]+/', '_', strtoupper(trim($name)));
-
-        return trim($key, '_');
+        return HrisFormat::normalizeRequestType($name);
     }
 
     /**
@@ -74,22 +71,7 @@ final class LeaveLabels
      */
     public static function requestDescription(string $value, array $leaveTypeNames = []): string
     {
-        foreach ($leaveTypeNames as $name) {
-            $key = self::normalizeRequestType($name);
-
-            if ($key === $value || $key === $value.'_LEAVE') {
-                return $name;
-            }
-        }
-
-        if (isset(self::REQUEST_TYPES[$value])) {
-            return self::REQUEST_TYPES[$value];
-        }
-
-        return implode(' ', array_map(
-            static fn (string $word): string => ucfirst($word),
-            explode('_', strtolower($value)),
-        ));
+        return HrisFormat::requestDescription($value, $leaveTypeNames);
     }
 
     /**
@@ -110,25 +92,14 @@ final class LeaveLabels
      * ascending pass. `strcasecmp` stands in for `localeCompare` — a
      * case-insensitive byte comparison rather than a locale collation, which
      * for the codes, English names and labels this screen sorts is the same
-     * ordering.
+     * ordering. Shared through App\Support\TextSort; this wrapper keeps the
+     * PHP call sites unchanged (no Blade view calls it).
      */
     public static function compareText(?string $a, ?string $b): int
     {
-        $left = trim($a ?? '');
-        $right = trim($b ?? '');
-
-        if ($left === '' && $right === '') {
-            return 0;
-        }
-
-        if ($left === '') {
-            return 1;
-        }
-
-        if ($right === '') {
-            return -1;
-        }
-
-        return strcasecmp($left, $right);
+        // One comparator for every sorted list, because per-module copies drift
+        // apart (a case-only tiebreak, an ICU collation). This stays a wrapper
+        // so no call site or Blade import changes; TextSortTest pins it.
+        return TextSort::compare($a, $b);
     }
 }

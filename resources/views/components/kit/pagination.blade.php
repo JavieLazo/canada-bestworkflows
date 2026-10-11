@@ -28,7 +28,7 @@
     </p>
 
     <div class="flex items-center gap-2">
-        <flux:select
+        <x-kit.select
             size="sm"
             class="w-[4.5rem]"
             wire:model.live="perPage"
@@ -37,7 +37,7 @@
             @foreach (\App\Livewire\Concerns\TableDefaults::PAGE_SIZE_OPTIONS as $size)
                 <flux:select.option value="{{ $size }}">{{ $size }}</flux:select.option>
             @endforeach
-        </flux:select>
+        </x-kit.select>
 
         <span class="num whitespace-nowrap text-xs text-muted-foreground">
             {{ $paginator->currentPage() }} / {{ $paginator->lastPage() }}

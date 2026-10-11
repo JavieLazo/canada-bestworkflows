@@ -10,7 +10,7 @@ use Carbon\CarbonImmutable;
  * A payroll formula and the numbers it is computed from. Unique on `code` AND
  * on `key`.
  *
- * The SHAPE of each calculation lives in code, keyed by `key` (OT, SIL, NSD,
+ * The SHAPE of each calculation lives in code, keyed by `key` (OT, NSD,
  * REST_DAY); everything adjustable is `params` — a
  * `[{ key, label, value }]` array. `expression` is DISPLAY TEXT ONLY: payroll
  * must never evaluate a string typed by a user. Port that restriction as

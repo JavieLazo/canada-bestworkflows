@@ -14,6 +14,9 @@ use Illuminate\Support\Facades\Route;
  * (api/shifts/[employeeId]/route.ts:49 `requireAllDataModule("ROSTER")`),
  * which route middleware cannot express — the screen itself is readable
  * without all_data, it just shows only your own row.
+ *
+ * The roster has no CSV routes: no export, no import and no Scheduled
+ * changes file.
  */
 Route::middleware(['web', 'auth', 'module:ROSTER'])->group(static function (): void {
     Route::get('/roster', RosterPage::class)->name('roster.index');

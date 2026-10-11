@@ -70,7 +70,7 @@ final readonly class DayRecord
      * Minutes worked inside the paid shift, with overtime taken back out.
      *
      * `workedMinutes` counts every minute on the clock, overtime included, and
-     * payroll DEPENDS on that: the rest-day cap at PayslipCalculator.php:257
+     * payroll DEPENDS on that: the rest-day cap in PayslipCalculator::compute
      * exists precisely because "hours beyond it are already overtime". So the
      * engine keeps its meaning and the DTR derives this instead -- the eDTR
      * prints worked and overtime side by side, and without this the overtime
@@ -82,6 +82,24 @@ final readonly class DayRecord
     public function regularMinutes(): float
     {
         return max(0.0, $this->workedMinutes - $this->overtimeMinutes);
+    }
+
+    /**
+     * Whether this is an ABSENCE DAY: no Time In on a scheduled workday that
+     * is not a holiday or covered by approved leave or OB (ABSENT), or a Time
+     * In that never got its Time Out on a day the schedule works (INCOMPLETE)
+     * — an open Time In has no defensible duration. The ONE per-day test
+     * behind the payslip's `absence_days` (PayslipCalculator) and the Daily
+     * Time Record's Absences tile, which also waits for the day to be over
+     * (Timekeeping's DayClose).
+     *
+     * `$schedule` is the shift the day was computed against; null is the
+     * engine's default. Deliberately NOT in toArray(), like regularMinutes().
+     */
+    public function isAbsenceDay(?Shift $schedule): bool
+    {
+        return $this->status === self::ABSENT
+            || ($this->status === self::INCOMPLETE && ShiftResolver::worksOnDate($this->date, $schedule));
     }
 
     /**

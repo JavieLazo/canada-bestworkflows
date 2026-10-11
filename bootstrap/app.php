@@ -112,9 +112,11 @@ $app = Application::configure(basePath: dirname(__DIR__))
 // manifest not found" with the file sitting in public_html/build) - and
 // artisan, which never loads index.php, disagrees with the web about where
 // public even is. Declared here so web and CLI agree. Inert on any machine
-// without a public_html sibling (dev, or a host with an editable docroot).
+// with its own public/index.php (dev, or a subdomain pointed at public/).
+// The primary site's public_html may coexist with that normal layout and
+// must not replace this application's own manifest or asset paths.
 $cpanelPublic = dirname($app->basePath()).'/public_html';
-if (is_dir($cpanelPublic) && is_file($cpanelPublic.'/index.php')) {
+if (! is_file($app->basePath('public/index.php')) && is_dir($cpanelPublic) && is_file($cpanelPublic.'/index.php')) {
     $app->usePublicPath($cpanelPublic);
 }
 

@@ -2,10 +2,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
 <title>
-    {{ filled($title ?? null) ? $title.' - '.config('app.name', 'Laravel') : config('app.name', 'Laravel') }}
+    {{ filled($title ?? null) ? $title.' - '.config('app.name', 'BestWorkflows') : config('app.name', 'BestWorkflows') }}
 </title>
 
-{{-- BestWorkflows logo (bestworkflows-logo.png), same mark the reference ships as src/app/icon.png --}}
+{{-- BestWorkflows brand assets. --}}
 <link rel="icon" href="/favicon.ico" sizes="32x32">
 <link rel="icon" href="/bestworkflows-icon-32.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">

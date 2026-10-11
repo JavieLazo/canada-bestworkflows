@@ -7,11 +7,23 @@
     only while a task is open.
 
     A task is shared by 0..N assignees (project_task_assignees): $coAssignees
-    names the peers, $submittedByName is set when the last submission was a
-    peer's rather than the actor's, and the SUBMISSION list is the whole
-    crew's ("Submission files", each peer's file named for its uploader) —
-    status, remarks, submitted_at and the evidence are one-per-task, so
-    "your" must not be assumed.
+    names the peers. On a GROUP task $submittedByName is set when the last
+    submission was a peer's rather than the actor's, and the SUBMISSION list
+    is the whole crew's ("Submission files", each peer's file named for its
+    uploader) — status, remarks, submitted_at and the evidence are
+    one-per-task, so "your" must not be assumed.
+
+    DELIBERATE DIVERGENCE: on an INDIVIDUAL task everything the actor hands
+    in is their OWN response. The hint, the rework box and the
+    closed-state line key on $myState (their response's state while the task
+    is in progress — on a GROUP task simply the task's status); the note and
+    the review shown are $submissionNote / $reviewNote, the actor's own; the
+    SUBMISSION list is the actor's own evidence only (WorkRecords::files()
+    leaves a peer's out, and WorkRecords::download() refuses it); and
+    $coAssignees names each peer with their response STATE, never their
+    content. The closed-state line has one arm per state that ends the
+    actor's part, and NO catch-all: a member who still owes a response gets
+    the submit form instead, never "Management cancelled this task".
 
     Divergence noted: the source's Radix dialog scrolled its own content
     (max-h-[90vh] overflow-y-auto on DialogContent); here that sits on a
@@ -21,16 +33,19 @@
     use App\Domain\Projects\TaskPolicy;
     use App\Support\ManilaClock;
 
-    $hint = $open ? match ($open->status) {
+    // Keyed on the actor's own state: an INDIVIDUAL member reaches
+    // IN_PROGRESS here only while they have no response yet.
+    $hint = $open ? match ($myState) {
         'PENDING' => 'Start the task when you begin working on it.',
-        'IN_PROGRESS' => 'Submit it for review once the work is done.',
-        'RETURNED' => 'Management sent this back — pick it up again and resubmit.',
-        'SUBMITTED' => 'Submitted and waiting for management review.',
+        'IN_PROGRESS' => $individual ? 'Submit your response once your part is done.' : 'Submit it for review once the work is done.',
+        'RETURNED' => $individual ? 'Management sent your response back — update it and resubmit.' : 'Management sent this back — pick it up again and resubmit.',
+        'SUBMITTED' => $individual ? 'Your response is waiting for management review.' : 'Submitted and waiting for management review.',
+        'APPROVED' => "Your response was approved. The task completes once everyone's response is approved.",
         'CANCELLED' => 'This task was called off.',
         default => 'This task is closed.',
     } : '';
 
-    $returned = $open?->status === 'RETURNED';
+    $returned = $myState === 'RETURNED';
 @endphp
 <flux:modal name="task-detail" class="w-full max-w-2xl" wire:close="dialogClosed">
     @if ($open)
@@ -47,7 +62,7 @@
                 <div class="space-y-1 rounded-md border border-danger/40 bg-danger/5 p-4">
                     <p class="text-xs font-semibold uppercase tracking-wide text-danger">Returned for rework</p>
                     <p class="text-sm">
-                        {{ trim((string) $open->review_remarks) !== '' ? $open->review_remarks : 'No remarks were left with the return.' }}
+                        {{ trim((string) $reviewNote) !== '' ? $reviewNote : 'No remarks were left with the return.' }}
                     </p>
                 </div>
                 @include('livewire.tasks.partials.task-attachments', [
@@ -75,6 +90,11 @@
                     <span class="{{ TaskPolicy::priorityPill($open->priority) }}">{{ TaskPolicy::priorityLabel($open->priority) }}</span>
                     <span class="{{ TaskPolicy::statusPill($open->status) }}">{{ TaskPolicy::statusLabel($open->status) }}</span>
                 </div>
+                {{-- Its own flex item, so on a phone it wraps under the task
+                     pills instead of pushing them off the dialog. --}}
+                @if ($individual && $myResponse !== null)
+                    <span class="{{ $myResponse->pill() }}">Your response: {{ $myResponse->label() }}</span>
+                @endif
             </div>
 
             @unless ($returned)
@@ -88,7 +108,19 @@
                 ])
             @endunless
 
-            <div class="grid gap-4 sm:grid-cols-3">
+            <div class="grid gap-4 sm:grid-cols-2">
+                {{-- The planned start: a plan from management, not a gate —
+                     the task can be started before it. --}}
+                <div class="min-w-0 space-y-1">
+                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Start</p>
+                    <div class="break-words text-sm font-medium">
+                        @if ($open->start_date !== null)
+                            <span class="num">{{ $open->start_date->format('M d, Y') }}</span>
+                        @else
+                            No start date
+                        @endif
+                    </div>
+                </div>
                 <div class="min-w-0 space-y-1">
                     <p class="text-xs uppercase tracking-wide text-muted-foreground">Due</p>
                     <div class="break-words text-sm font-medium">
@@ -113,8 +145,10 @@
                 </div>
             </div>
 
-            {{-- A shared task: the peers on the same pivot. Any of them may
-                 start or submit it for everyone, so they are worth naming. --}}
+            {{-- A shared task: the peers on the same pivot. On a GROUP task any
+                 of them may start or submit it for everyone, so they are worth
+                 naming; on an INDIVIDUAL task each name carries that peer's
+                 response state — the state only, never what they handed in. --}}
             @if ($coAssignees !== '')
                 <p class="text-xs text-muted-foreground">
                     Working with: <span class="font-medium text-foreground">{{ $coAssignees }}</span>
@@ -128,22 +162,27 @@
                 </p>
             </div>
 
-            @if (trim((string) $open->remarks) !== '')
+            @if (trim((string) $submissionNote) !== '')
                 <div class="space-y-1">
-                    {{-- The note is per task, not per assignee — say whose it was. --}}
+                    {{-- A GROUP note is per task, not per assignee — say whose it
+                         was. An INDIVIDUAL one is only ever the actor's own. --}}
                     <p class="text-xs uppercase tracking-wide text-muted-foreground">
-                        {{ $submittedByName !== null ? 'Last submission by '.$submittedByName : 'Your last submission' }}
+                        @if ($individual)
+                            Your response
+                        @else
+                            {{ $submittedByName !== null ? 'Last submission by '.$submittedByName : 'Your last submission' }}
+                        @endif
                     </p>
-                    <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">{{ $open->remarks }}</p>
+                    <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">{{ $submissionNote }}</p>
                 </div>
             @endif
 
             {{-- The rework note has to survive "Resume task" — it is what the
                  employee is working against until they resubmit. --}}
-            @if (! $returned && trim((string) $open->review_remarks) !== '')
+            @if (! $returned && trim((string) $reviewNote) !== '')
                 <div class="space-y-1">
                     <p class="text-xs uppercase tracking-wide text-muted-foreground">Review remarks</p>
-                    <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">{{ $open->review_remarks }}</p>
+                    <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">{{ $reviewNote }}</p>
                 </div>
             @endif
 
@@ -165,20 +204,25 @@
                         <flux:label>What did you do?</flux:label>
                         <flux:textarea
                             rows="3"
-                            placeholder="The reviewer reads this alongside the task."
+                            placeholder="{{ $individual ? 'Only you and the reviewers see this.' : 'The reviewer reads this alongside the task.' }}"
                             wire:model="remarks"
                         />
                     </flux:field>
                 </div>
             @endif
 
-            @if ($nexts === [])
+            {{-- Nothing left for the actor to do. One explicit arm per state
+                 that ends their part, and deliberately NO catch-all: a state
+                 not listed prints nothing rather than a wrong sentence. --}}
+            @if ($nexts === [] && ! $canSubmit)
                 <p class="text-xs text-muted-foreground">
-                    @if ($open->status === 'SUBMITTED')
+                    @if ($myState === 'SUBMITTED')
                         Waiting for management review.
-                    @elseif ($open->status === 'COMPLETED')
-                        Accepted{{ $open->completed_at ? ' on '.$open->completed_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') : '' }} — nothing further is needed.
-                    @else
+                    @elseif ($myState === 'APPROVED')
+                        Approved — waiting for the rest of the team.
+                    @elseif ($myState === 'COMPLETED')
+                        {{ $individual ? 'Completed' : 'Accepted' }}{{ $open->completed_at ? ' on '.$open->completed_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') : '' }} — nothing further is needed.
+                    @elseif ($myState === 'CANCELLED')
                         Management cancelled this task — nothing further is needed.
                     @endif
                 </p>
@@ -215,7 +259,7 @@
                 @endif
                 @if ($canSubmit)
                     <flux:button variant="primary" icon="paper-airplane" wire:click="submitTask">
-                        Submit for review
+                        {{ $individual ? 'Submit my response' : 'Submit for review' }}
                     </flux:button>
                 @endif
             </div>

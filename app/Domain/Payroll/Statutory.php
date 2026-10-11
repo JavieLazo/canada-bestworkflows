@@ -15,13 +15,32 @@ use App\Support\Money;
  * architecture test enforces it.
  *
  * Divergence is proven absent by golden vectors emitted from the TS engine
- * itself — see tests/Feature/GoldenVectorTest.php.
+ * itself — see tests/Unit/GoldenVectorTest.php. PayslipCalculator reads these
+ * tables through StatutoryLines.
+ *
+ * DELIBERATE DIVERGENCE: the figures are not constants here but a
+ * StatutorySchedule each function is handed — the Contribution & Tax Tables
+ * the application keeps as dated versions. Without one, every function
+ * computes from `StatutorySchedule::builtIn()`, the figures the reference
+ * carries, so the golden vectors and every caller that passes nothing see
+ * the reference arithmetic unchanged; a schedule built from the same figures
+ * performs the same float operations (StatutorySchedule's docblock says how).
+ * EFFECTIVE_FROM and VERIFIED_THROUGH are the built-in schedule's coverage,
+ * read only when no table versions answer (PayrollPeriod::cutoffError).
  */
 final class Statutory
 {
     public const EFFECTIVE_FROM = '2025-01-01';
 
     public const VERIFIED_THROUGH = '2026-12-31';
+
+    private static ?StatutorySchedule $builtIn = null;
+
+    /** The reference's figures, built once. */
+    public static function builtIn(): StatutorySchedule
+    {
+        return self::$builtIn ??= StatutorySchedule::builtIn();
+    }
 
     /** TS: compensation() — Math.max(0, Number.isFinite(v) ? v : 0) */
     private static function compensation(mixed $value): float
@@ -41,7 +60,7 @@ final class Statutory
      *
      * @return array{employee: float, employer: float}
      */
-    public static function sss(mixed $monthlyCompensation): array
+    public static function sss(mixed $monthlyCompensation, ?StatutorySchedule $schedule = null): array
     {
         $salary = self::compensation($monthlyCompensation);
 
@@ -49,12 +68,14 @@ final class Statutory
             return ['employee' => 0.0, 'employer' => 0.0];
         }
 
-        $msc = min(35000.0, max(5000.0, floor(($salary + 250) / 500) * 500));
-        $ec = $msc <= 14500 ? 10 : 30;
+        // Built in: min(35000, max(5000, floor((salary + 250) / 500) * 500)), EC 10 up to 14500, else 30.
+        $t = ($schedule ?? self::builtIn())->sss;
+        $msc = min($t['msc_max'], max($t['msc_min'], floor(($salary + $t['offset']) / $t['step']) * $t['step']));
+        $ec = $msc <= $t['ec_threshold'] ? $t['ec_low'] : $t['ec_high'];
 
         return [
-            'employee' => Money::round($msc * 0.05),
-            'employer' => Money::round($msc * 0.1 + $ec),
+            'employee' => Money::round($msc * $t['ee_rate']),
+            'employer' => Money::round($msc * $t['er_rate'] + $ec),
         ];
     }
 
@@ -63,7 +84,7 @@ final class Statutory
      *
      * @return array{employee: float, employer: float}
      */
-    public static function philhealth(mixed $monthlyCompensation): array
+    public static function philhealth(mixed $monthlyCompensation, ?StatutorySchedule $schedule = null): array
     {
         $salary = self::compensation($monthlyCompensation);
 
@@ -71,10 +92,14 @@ final class Statutory
             return ['employee' => 0.0, 'employer' => 0.0];
         }
 
-        $premiumBase = min(100000.0, max(10000.0, $salary));
-        $share = Money::round($premiumBase * 0.025);
+        // Built in: 2.5% a side on the salary clamped to 10,000–100,000.
+        $t = ($schedule ?? self::builtIn())->philhealth;
+        $premiumBase = min($t['cap'], max($t['floor'], $salary));
 
-        return ['employee' => $share, 'employer' => $share];
+        return [
+            'employee' => Money::round($premiumBase * $t['ee_rate']),
+            'employer' => Money::round($premiumBase * $t['er_rate']),
+        ];
     }
 
     /**
@@ -82,7 +107,7 @@ final class Statutory
      *
      * @return array{employee: float, employer: float}
      */
-    public static function pagibig(mixed $monthlyCompensation): array
+    public static function pagibig(mixed $monthlyCompensation, ?StatutorySchedule $schedule = null): array
     {
         $salary = self::compensation($monthlyCompensation);
 
@@ -90,66 +115,40 @@ final class Statutory
             return ['employee' => 0.0, 'employer' => 0.0];
         }
 
-        $fundSalary = min(10000.0, $salary);
+        // Built in: 1% through 1,500 else 2%, employer 2%, on the salary capped at 10,000.
+        $t = ($schedule ?? self::builtIn())->pagibig;
+        $fundSalary = min($t['cap'], $salary);
 
         return [
-            'employee' => Money::round($fundSalary * ($salary <= 1500 ? 0.01 : 0.02)),
-            'employer' => Money::round($fundSalary * 0.02),
+            'employee' => Money::round($fundSalary * ($salary <= $t['low_line'] ? $t['ee_low_rate'] : $t['ee_rate'])),
+            'employer' => Money::round($fundSalary * $t['er_rate']),
         ];
     }
 
-    /** BIR Annex E semi-monthly withholding table, effective January 1, 2023. */
-    public static function semiMonthlyWithholdingTax(mixed $taxableCompensation): float
+    /**
+     * BIR Annex E semi-monthly withholding table (built in: the brackets
+     * effective January 1, 2023): the reference's if/elseif ladder, one
+     * bracket at a time, rounded once.
+     */
+    public static function semiMonthlyWithholdingTax(mixed $taxableCompensation, ?StatutorySchedule $schedule = null): float
     {
         $taxable = self::compensation($taxableCompensation);
 
-        if ($taxable <= 10417) {
-            return 0.0;
-        }
-        if ($taxable <= 16667) {
-            return Money::round(($taxable - 10417) * 0.15);
-        }
-        if ($taxable <= 33333) {
-            return Money::round(937.5 + ($taxable - 16667) * 0.2);
-        }
-        if ($taxable <= 83333) {
-            return Money::round(4270.7 + ($taxable - 33333) * 0.25);
-        }
-        if ($taxable <= 333333) {
-            return Money::round(16770.7 + ($taxable - 83333) * 0.3);
-        }
-
-        return Money::round(91770.7 + ($taxable - 333333) * 0.35);
+        return Money::round(StatutorySchedule::bracketTax(($schedule ?? self::builtIn())->withholding['semi_monthly'], $taxable));
     }
 
-    /** TRAIN annual income-tax table, effective January 1, 2023. */
-    public static function annualIncomeTax(mixed $taxableIncome): float
+    /** TRAIN annual income-tax table (built in: effective January 1, 2023). */
+    public static function annualIncomeTax(mixed $taxableIncome, ?StatutorySchedule $schedule = null): float
     {
         $taxable = self::compensation($taxableIncome);
 
-        if ($taxable <= 250000) {
-            return 0.0;
-        }
-        if ($taxable <= 400000) {
-            return Money::round(($taxable - 250000) * 0.15);
-        }
-        if ($taxable <= 800000) {
-            return Money::round(22500 + ($taxable - 400000) * 0.2);
-        }
-        if ($taxable <= 2000000) {
-            return Money::round(102500 + ($taxable - 800000) * 0.25);
-        }
-        if ($taxable <= 8000000) {
-            return Money::round(402500 + ($taxable - 2000000) * 0.3);
-        }
-
-        return Money::round(2202500 + ($taxable - 8000000) * 0.35);
+        return Money::round(StatutorySchedule::bracketTax(($schedule ?? self::builtIn())->withholding['annual'], $taxable));
     }
 
     /** Per-cutoff withholding after annualizing a semi-monthly taxable amount. */
-    public static function annualizedSemiMonthlyWithholdingTax(mixed $taxableCompensation): float
+    public static function annualizedSemiMonthlyWithholdingTax(mixed $taxableCompensation, ?StatutorySchedule $schedule = null): float
     {
-        return Money::round(self::annualIncomeTax(self::compensation($taxableCompensation) * 24) / 24);
+        return Money::round(self::annualIncomeTax(self::compensation($taxableCompensation) * 24, $schedule) / 24);
     }
 
     /**

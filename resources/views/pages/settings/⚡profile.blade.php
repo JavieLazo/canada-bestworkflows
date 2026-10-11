@@ -1,6 +1,7 @@
 <?php
 
-use App\Concerns\ProfileValidationRules;
+use App\Modules\IdentityAccess\Application\Commands\UpdateOwnEmail;
+use App\Support\Access;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
@@ -10,9 +11,6 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Profile settings')] class extends Component {
-    use ProfileValidationRules;
-
-    public string $name = '';
     public string $email = '';
 
     /**
@@ -20,7 +18,6 @@ new #[Title('Profile settings')] class extends Component {
      */
     public function mount(): void
     {
-        $this->name = Auth::user()->name;
         $this->email = Auth::user()->email;
     }
 
@@ -29,17 +26,8 @@ new #[Title('Profile settings')] class extends Component {
      */
     public function updateProfileInformation(): void
     {
-        $user = Auth::user();
-
-        $validated = $this->validate($this->profileRules($user->id));
-
-        $user->fill($validated);
-
-        if ($user->isDirty('email')) {
-            $user->email_verified_at = null;
-        }
-
-        $user->save();
+        app(UpdateOwnEmail::class)->handle(app(Access::class), $this->email);
+        Auth::user()->refresh();
 
         Flux::toast(variant: 'success', text: __('Profile updated.'));
     }
@@ -67,13 +55,6 @@ new #[Title('Profile settings')] class extends Component {
     {
         return Auth::user() instanceof MustVerifyEmail && ! Auth::user()->hasVerifiedEmail();
     }
-
-    #[Computed]
-    public function showDeleteUser(): bool
-    {
-        return ! Auth::user() instanceof MustVerifyEmail
-            || (Auth::user() instanceof MustVerifyEmail && Auth::user()->hasVerifiedEmail());
-    }
 }; ?>
 
 <section class="w-full">
@@ -81,12 +62,12 @@ new #[Title('Profile settings')] class extends Component {
 
     <flux:heading level="2" class="sr-only">{{ __('Profile settings') }}</flux:heading>
 
-    <x-pages::settings.layout :heading="__('Profile')" :subheading="__('Update your name and email address')">
+    <x-pages::settings.layout :heading="__('Profile')" :subheading="__('Update your login email address')">
         <form wire:submit="updateProfileInformation" class="my-6 w-full space-y-6">
-            <flux:input wire:model="name" :label="__('Name')" type="text" required autofocus autocomplete="name" />
+            <flux:text>{{ __('Personal information comes from your linked employee record. Submit personal changes through My Profile for management approval.') }}</flux:text>
 
             <div>
-                <flux:input wire:model="email" :label="__('Email')" type="email" required autocomplete="email" />
+                <flux:input wire:model="email" :label="__('Login email')" type="email" required autocomplete="email" />
 
                 @if ($this->hasUnverifiedEmail)
                     <div>
@@ -116,9 +97,5 @@ new #[Title('Profile settings')] class extends Component {
 
             </div>
         </form>
-
-        @if ($this->showDeleteUser)
-            <livewire:pages::settings.delete-user-form />
-        @endif
     </x-pages::settings.layout>
 </section>

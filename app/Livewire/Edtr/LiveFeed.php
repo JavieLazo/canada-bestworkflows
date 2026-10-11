@@ -8,6 +8,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithChangeStamp;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Models\AttendanceLog;
+use App\Modules\Timekeeping\Application\Queries\PunchFeed;
 use App\Support\Access;
 use App\Support\Realtime;
 use Illuminate\Contracts\View\View;
@@ -22,7 +23,7 @@ use Livewire\Component;
  * Newest at the top, oldest at the bottom; two punches sharing a timestamp
  * are broken by id so the order never shuffles between renders.
  *
- * Realtime degrades to POLLING: wire:poll at BESTWORKFLOWS_POLL_FEED seconds
+ * Realtime degrades to POLLING: wire:poll at COPEMS_POLL_FEED seconds
  * (default 15) — THE ONLY 15-second poll in the app; everything else polls at
  * 60. A punch recorded in this tab also refreshes immediately through the
  * `edtr-punch-recorded` event, the way the reference's cache update landed
@@ -39,8 +40,8 @@ use Livewire\Component;
  * The poll goes through {@see WithChangeStamp}: a tick reads one scoped
  * COUNT/MAX over `attendance_logs` and re-renders ONLY when it moves. This is
  * the app's most expensive poll — 300 rows and two eager loads every 15
- * seconds per open tab — and on a quiet afternoon every one of those ticks
- * redrew an unchanged table.
+ * seconds per open tab — and on a quiet afternoon, without the stamp, every
+ * one of those ticks would redraw an unchanged table.
  *
  * WHAT THE STAMP WATCHES: punches, and nothing else. A row renamed underneath
  * the feed — an employee's name, position or photo, a site's name — does not
@@ -85,38 +86,31 @@ class LiveFeed extends Component
 
         $actor = Access::forActor(auth()->user());
 
-        $logs = AttendanceLog::query()
-            ->toEmployee($actor, 'employee_id', ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->where('source', '!=', AttendanceLog::SOURCE_CORRECTION)
-            ->with(['employee:id,first_name,last_name,suffix,position,photo_path', 'site:id,name'])
-            ->orderByDesc('logged_at')
-            ->orderByDesc('id')
-            ->limit($this->limit)
-            ->get();
+        $logs = app(PunchFeed::class)->list($actor, $this->limit);
 
         $pollSeconds = self::pollSeconds();
 
         return view('livewire.edtr.live-feed', [
             'total' => $logs->count(),
             'rows' => $this->paginateClamped($logs),
-            'linksToRecords' => $actor->hasModule(ModuleCode::EMPLOYEES),
+            'linksToDtr' => $actor->hasModule(ModuleCode::EDTR),
             'pollSeconds' => $pollSeconds,
         ]);
     }
 
     /**
-     * How often the timer ticks. BESTWORKFLOWS_POLL_FEED (15s) while the poll is the
+     * How often the timer ticks. COPEMS_POLL_FEED (15s) while the poll is the
      * only way news arrives; `realtime.poll_backstop` (60s) once a punch
-     * announces itself over the socket, where the timer is no longer the
+     * announces itself over the socket, where the timer is not the
      * messenger but the safety net under a socket that may have dropped.
      *
      * Shared with App\Livewire\Portal\MyPunches, which is the same feed.
      */
     public static function pollSeconds(): int
     {
-        $seconds = config('bestworkflows.realtime.enabled') === true
-            ? (int) config('bestworkflows.realtime.poll_backstop', 60)
-            : (int) config('bestworkflows.poll_feed', 15);
+        $seconds = config('copems.realtime.enabled') === true
+            ? (int) config('copems.realtime.poll_backstop', 60)
+            : (int) config('copems.poll_feed', 15);
 
         return $seconds > 0 ? $seconds : 15;
     }
@@ -146,13 +140,14 @@ class LiveFeed extends Component
      * punches.
      *
      * All three are load-bearing, and the third is the one that is easy to
-     * talk yourself out of. `AttendanceLog` documents itself as append-only,
-     * which would make COUNT alone sufficient, but the day correction
-     * (CorrectPunches::apply) is a DELETE of a day's punches followed by an
-     * INSERT of the corrected ones. Correct a day from 4 punches to 4 and the
-     * count is unmoved; correct the middle of a day and MAX(logged_at) is
-     * unmoved too. MAX(id) catches it, because the replacement rows are minted
-     * NOW and a ULID sorts by the millisecond it was minted in.
+     * talk yourself out of. `AttendanceLog` documents itself as append-only
+     * at the station, which would make COUNT alone sufficient, but the day
+     * correction (CorrectPunches::apply) DELETES the punches whose slot
+     * changed and INSERTS their replacements, leaving the untouched ones in
+     * place. Retype one slot and the count is unmoved; retype the middle of a
+     * day and MAX(logged_at) is unmoved too. MAX(id) catches it, because the
+     * replacement rows are minted NOW and a ULID sorts by the millisecond it
+     * was minted in — and a correction that only deletes moves COUNT.
      *
      * The stamp is deliberately WIDER than the rows: it counts corrections,
      * which the feed does not show. Narrowing it would mean reading `source`,
@@ -169,19 +164,6 @@ class LiveFeed extends Component
      */
     protected function changeStamp(): string
     {
-        $stamp = AttendanceLog::query()
-            ->toEmployee(
-                Access::forActor(auth()->user()),
-                'employee_id',
-                ModuleCode::EDTR,
-                ModuleCode::PAYROLL,
-            )
-            ->toBase()
-            ->selectRaw('COUNT(*) AS punches, MAX(logged_at) AS newest, MAX(id) AS newest_id')
-            ->first();
-
-        return ((int) ($stamp->punches ?? 0))
-            .':'.((string) ($stamp->newest ?? ''))
-            .':'.((string) ($stamp->newest_id ?? ''));
+        return app(PunchFeed::class)->stamp(Access::forActor(auth()->user()));
     }
 }

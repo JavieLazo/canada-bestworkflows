@@ -12,12 +12,12 @@
     Empty states (notifications-page.tsx:94-99): "Nothing to catch up on."
     when the inbox is empty, "No notification matches those filters." when the
     filters hid everything. The source's third branch — "Loading your
-    notifications…" — was the client fetch's pending state; a server render is
+    notifications…" — is the client fetch's pending state; a server render is
     never pending, so it has no equivalent here.
 
     wire:poll.60s="pollForChanges" (WithChangeStamp) keeps the reference's
     interval but reads a stamp per tick instead of re-loading 500 rows;
-    60s is the exact interval the reference refetched on
+    60s is the exact interval the reference refetches on
     (useNotifications.ts:29-33: "Someone else's action … writes rows this
     account has no event for; without a poll the bell only moved on focus") —
     the page and the bell share that hook and its 60 s refetchInterval.

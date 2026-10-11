@@ -39,7 +39,7 @@ final class HolidaySeeder extends PortSeeder
         $year = CarbonImmutable::now(ManilaClock::TZ)->year;
 
         foreach (self::HOLIDAYS as $i => [$name, $monthDay, $type, $percent]) {
-            $this->upsert(Holiday::class, ['code' => sprintf('HOL-%03d', $i + 1)], [
+            $this->upsert(Holiday::class, $this->codeMatch(Holiday::class, 'code', $i + 1, 'HOL'), [
                 'id' => 'hol-'.($i + 1),
                 'name' => $name,
                 'date' => $year.'-'.$monthDay,

@@ -46,9 +46,10 @@ final class LeaveSeeder extends PortSeeder
 
             $pending = $status === 'PENDING';
 
-            $this->upsert(LeaveTravelRequest::class, [
-                'code' => 'LR-'.str_pad(substr($id, 4), 3, '0', STR_PAD_LEFT),
-            ], [
+            // 'req-7' -> '7', the bare number the visible codes carry — through
+            // codeMatch, so a local database still holding LR-007 updates
+            // that row instead of colliding on its primary key.
+            $this->upsert(LeaveTravelRequest::class, $this->codeMatch(LeaveTravelRequest::class, 'code', (int) substr($id, 4), 'LR'), [
                 'id' => $id,
                 'employee_id' => $employees[$empIdx],
                 'request_type' => $type,

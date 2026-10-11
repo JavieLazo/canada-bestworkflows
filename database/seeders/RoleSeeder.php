@@ -45,13 +45,11 @@ final class RoleSeeder extends PortSeeder
         }
 
         foreach ($this->grants() as $seedRoleId => $modules) {
-            foreach ($modules as $i => $module) {
+            foreach ($modules as $module) {
                 $this->upsert(RoleModuleGrant::class, [
                     'role_id' => $roleIds[$seedRoleId],
                     'module' => $module,
-                ], [
-                    'id' => "grant-{$seedRoleId}-{$i}",
-                ]);
+                ], []);
             }
         }
     }
@@ -59,9 +57,18 @@ final class RoleSeeder extends PortSeeder
     /** @return array<string, list<string>> seed role id => modules, seed.ts GRANTS order */
     private function grants(): array
     {
+        // Every role gets these two: an informal space only works when the
+        // whole company is in it. They go at the end of each list, not in
+        // registry order. The role/module pair identifies a grant, so adding
+        // a module never reassigns a legacy grant's positional primary key.
+        $everyone = [ModuleCode::COMMUNITY, ModuleCode::CHAT];
+
         return [
-            // Every module except the employee-only TASKS.
-            'role-admin' => array_values(array_diff(ModuleCode::all(), [ModuleCode::TASKS])),
+            // Inventory is assigned manually, never granted by a seed run.
+            'role-admin' => [
+                ...array_values(array_diff(ModuleCode::all(), [ModuleCode::TASKS, ModuleCode::INVENTORY], $everyone)),
+                ...$everyone,
+            ],
             'role-hr' => [
                 ModuleCode::EDTR,
                 ModuleCode::ROSTER,
@@ -71,12 +78,14 @@ final class RoleSeeder extends PortSeeder
                 ModuleCode::AUDIT,
                 ModuleCode::PORTAL,
                 ModuleCode::PROFILE,
+                ...$everyone,
             ],
             'role-payroll' => [
                 ModuleCode::PAYROLL,
                 ModuleCode::EDTR,
                 ModuleCode::PORTAL,
                 ModuleCode::PROFILE,
+                ...$everyone,
             ],
             'role-supervisor' => [
                 ModuleCode::EDTR,
@@ -85,11 +94,13 @@ final class RoleSeeder extends PortSeeder
                 ModuleCode::PROJECTS,
                 ModuleCode::PORTAL,
                 ModuleCode::PROFILE,
+                ...$everyone,
             ],
             'role-employee' => [
                 ModuleCode::PORTAL,
                 ModuleCode::TASKS,
                 ModuleCode::PROFILE,
+                ...$everyone,
             ],
         ];
     }

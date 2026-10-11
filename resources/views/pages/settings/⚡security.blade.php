@@ -1,6 +1,8 @@
 <?php
 
 use App\Concerns\PasswordValidationRules;
+use App\Models\User;
+use App\Modules\IdentityAccess\Infrastructure\PasswordWriter;
 use Flux\Flux;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -71,17 +73,18 @@ new #[Title('Security settings')] class extends Component {
         try {
             $validated = $this->validate([
                 'current_password' => $this->currentPasswordRules(),
-                'password' => $this->passwordRules(),
+                'password' => ['required', 'string', 'confirmed'],
             ]);
+            $user = Auth::user();
+            abort_unless($user instanceof User, 403);
+            app(PasswordWriter::class)->replace($user, $validated['password'], session()->getId(), $validated['current_password']);
         } catch (ValidationException $e) {
             $this->reset('current_password', 'password', 'password_confirmation');
 
             throw $e;
         }
 
-        Auth::user()->update([
-            'password' => $validated['password'],
-        ]);
+        session()->regenerate();
 
         $this->reset('current_password', 'password', 'password_confirmation');
 
@@ -184,6 +187,7 @@ new #[Title('Security settings')] class extends Component {
             <flux:input
                 wire:model="password"
                 :label="__('New password')"
+                :description="__('Use at least :min characters, with uppercase and lowercase letters, a number and a symbol. Choose a password never used for this account.', ['min' => \App\Modules\IdentityAccess\Application\PasswordPolicy::MIN_LENGTH])"
                 type="password"
                 required
                 autocomplete="new-password"

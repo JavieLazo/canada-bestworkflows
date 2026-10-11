@@ -81,6 +81,7 @@ final class KitProbe extends Component
     }
 }
 
+/** @param list<string> $modules */
 function kitRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -94,6 +95,7 @@ function kitRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/** @param list<string> $modules */
 function kitActor(array $modules, bool $allData, ?string $employeeId = null): User
 {
     $user = User::factory()->create([
@@ -106,13 +108,16 @@ function kitActor(array $modules, bool $allData, ?string $employeeId = null): Us
     return $user;
 }
 
-function kitEmployee(string $code, string $first, string $last, ?string $position = null): EmployeeProfile
+/** $suffix and $idNo are appended, never reordered: every call site in this file passes positionally. */
+function kitEmployee(string $code, string $first, string $last, ?string $position = null, ?string $suffix = null, ?string $idNo = null): EmployeeProfile
 {
     $employee = new EmployeeProfile;
     $employee->forceFill([
         'employee_code' => $code,
+        'employee_id_no' => $idNo,
         'first_name' => $first,
         'last_name' => $last,
+        'suffix' => $suffix,
         'position' => $position,
         'employment_status' => 'Regular',
         'date_hired' => '2024-01-01',
@@ -120,6 +125,22 @@ function kitEmployee(string $code, string $first, string $last, ?string $positio
     ])->save();
 
     return $employee;
+}
+
+/**
+ * The blade files directly under resources/views/<dir>, by name, sorted.
+ *
+ * @return list<string>
+ */
+function kitBladeNames(string $dir): array
+{
+    $names = array_map(
+        static fn (string $path): string => basename($path, '.blade.php'),
+        glob(resource_path("views/{$dir}/*.blade.php")) ?: [],
+    );
+    sort($names);
+
+    return $names;
 }
 
 /*
@@ -279,14 +300,14 @@ it('splits a stored key into typed-clock parts', function () {
 */
 
 it('lists the whole directory for an all-data directory role and narrows by every search term', function () {
-    $garcia = kitEmployee('BWF-0001', 'Ana', 'Garcia', 'Driver');
-    kitEmployee('BWF-0002', 'Ben', 'Reyes', 'Clerk');
+    $garcia = kitEmployee('COP-0001', 'Ana', 'Garcia', 'Driver');
+    kitEmployee('COP-0002', 'Ben', 'Reyes', 'Clerk');
     kitActor(['EMPLOYEES'], allData: true);
 
     Livewire::test(EmployeePicker::class, ['name' => 'assignee'])
         ->assertSee('Ana Garcia')
         ->assertSee('Ben Reyes')
-        ->set('search', 'bwf garcia')
+        ->set('search', 'cop garcia')
         ->assertSee('Ana Garcia')
         ->assertDontSee('Ben Reyes')
         ->call('choose', $garcia->getKey())
@@ -295,8 +316,106 @@ it('lists the whole directory for an all-data directory role and narrows by ever
         ->assertDispatched('kit-employee-picked', name: 'assignee', id: (string) $garcia->getKey());
 });
 
+it('hides people who have left only when asked to, and refuses their id on that picker', function () {
+    $active = kitEmployee('COP-0001', 'Ana', 'Garcia', 'Clerk');
+    $gone = kitEmployee('COP-0002', 'Ben', 'Reyes', 'Clerk');
+    $gone->forceFill(['is_active' => false])->save();
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // The default picker is a lookup: someone who has left still has a DTR
+    // and punches to find, so they stay, tagged.
+    Livewire::test(EmployeePicker::class)
+        ->assertSee('Ana Garcia')
+        ->assertSee('Ben Reyes')
+        ->assertSee('inactive');
+
+    // active-only starts something new (the roster's Assign shift): the list
+    // leaves them out, and a forged pick of their id is dropped on the floor,
+    // never announced.
+    Livewire::test(EmployeePicker::class, ['name' => 'assign-employee', 'activeOnly' => true])
+        ->assertSee('Ana Garcia')
+        ->assertDontSee('Ben Reyes')
+        ->call('choose', $gone->getKey())
+        ->assertSet('value', '')
+        ->assertNotDispatched('kit-employee-picked')
+        ->call('choose', $active->getKey())
+        ->assertSet('value', (string) $active->getKey())
+        ->assertDispatched('kit-employee-picked', name: 'assign-employee', id: (string) $active->getKey());
+});
+
+it('narrows the picker by a suffix and by a hand-typed Employee ID', function () {
+    kitEmployee('COP-0001', 'Juan', 'Dela Cruz', 'Driver');
+    kitEmployee('COP-0002', 'Juan', 'Dela Cruz', 'Driver', 'Jr.', '2024-118');
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // The search is SQL, so nothing composed in PHP can help it: the suffix
+    // sits in the OR list, or the one thing that tells these two apart would
+    // match nobody at all.
+    Livewire::test(EmployeePicker::class)
+        ->set('search', 'jr')
+        ->assertSee('Juan Dela Cruz Jr.')
+        ->assertSee('2024-118')
+        ->set('search', '2024-118')
+        ->assertSee('Juan Dela Cruz Jr.')
+        ->set('search', 'dela cruz jr')
+        ->assertSee('Juan Dela Cruz Jr.');
+});
+
+it('spells the picked employee with the suffix once the picker is closed', function () {
+    $junior = kitEmployee('COP-0002', 'Juan', 'Dela Cruz', 'Driver', 'Jr.', '2024-118');
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // The trigger is the CLOSED state and also the combobox's accessible name.
+    // It carries the suffix: first + last composed by hand would leave a field
+    // reading "Dela Cruz" after picking "Dela Cruz Jr." — and a screen-reader
+    // user has no list to check it against.
+    //
+    // The panel is hidden with x-show, NOT omitted, so the option rows are in
+    // the HTML on every render and would satisfy both assertions below on
+    // their own. The no-match search empties the list first: with `$visible`
+    // empty, the only place these strings can come from is the trigger, which
+    // `selectedEmployee()` resolves independently of the search.
+    Livewire::test(EmployeePicker::class)
+        ->call('choose', $junior->getKey())
+        ->assertSet('value', (string) $junior->getKey())
+        ->set('search', 'zzz-matches-nobody')
+        ->assertSee('No employee matches that search.')
+        ->assertSee('Juan Dela Cruz Jr.')
+        // The Employee ID introduces them; the row id never appears beside a
+        // name, on this control or on any other.
+        ->assertSee('2024-118')
+        ->assertDontSee('COP-0002');
+});
+
+it('shows no id beside the name of an employee the company has not numbered', function () {
+    kitEmployee('COP-0001', 'Ana', 'Garcia', 'Clerk');
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // Not the row id, and not a leading " · " where the missing number would
+    // be: the secondary line opens with the position.
+    Livewire::test(EmployeePicker::class)
+        ->assertSee('Ana Garcia')
+        ->assertSee('Clerk')
+        ->assertDontSee('COP-0001')
+        ->assertDontSee('· Clerk');
+});
+
+it('shows no id beside a checklist name either, and drops the dangling separator', function () {
+    kitEmployee('COP-0001', 'Ana', 'Garcia', 'Clerk');
+    kitEmployee('COP-0002', 'Ben', 'Torres', 'Driver', null, '2024-118');
+    kitActor(['PROJECTS'], allData: true);
+
+    Livewire::test(EmployeeChecklist::class)
+        ->assertSee('Ana Garcia')
+        ->assertSee('Clerk')
+        ->assertDontSee('COP-0001')
+        ->assertDontSee('· Clerk')
+        ->assertSee('2024-118')
+        ->assertDontSee('COP-0002');
+});
+
 it('shows an employee-less account with no directory module NO employees at all', function () {
-    $garcia = kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    $garcia = kitEmployee('COP-0001', 'Ana', 'Garcia');
     kitActor(['PORTAL'], allData: false, employeeId: null);
 
     Livewire::test(EmployeePicker::class)
@@ -309,8 +428,8 @@ it('shows an employee-less account with no directory module NO employees at all'
 });
 
 it('shows a linked account without directory modules only its own row', function () {
-    $own = kitEmployee('BWF-0001', 'Ana', 'Garcia');
-    kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    $own = kitEmployee('COP-0001', 'Ana', 'Garcia');
+    kitEmployee('COP-0002', 'Ben', 'Reyes');
     kitActor(['PORTAL'], allData: false, employeeId: (string) $own->getKey());
 
     Livewire::test(EmployeePicker::class)
@@ -332,8 +451,8 @@ it('refuses a client write to the locked selection', function () {
 */
 
 it('renders the scoped directory as a checklist and narrows by every search term', function () {
-    kitEmployee('BWF-0001', 'Ana', 'Garcia', 'Driver');
-    kitEmployee('BWF-0002', 'Ben', 'Reyes', 'Clerk');
+    kitEmployee('COP-0001', 'Ana', 'Garcia', 'Driver');
+    kitEmployee('COP-0002', 'Ben', 'Reyes', 'Clerk');
     kitActor(['PROJECTS'], allData: true);
 
     Livewire::test(EmployeeChecklist::class, ['name' => 'task-assignees'])
@@ -342,13 +461,13 @@ it('renders the scoped directory as a checklist and narrows by every search term
         ->assertSee('Driver')
         ->assertSee('No one selected')
         ->assertSeeHtml('type="checkbox"')
-        ->set('search', 'bwf reyes')
+        ->set('search', 'cop reyes')
         ->assertSee('Ben Reyes')
         ->assertDontSee('Ana Garcia');
 });
 
 it('is discoverable by its kit name', function () {
-    kitEmployee('BWF-0001', 'Ana', 'Garcia');
+    kitEmployee('COP-0001', 'Ana', 'Garcia');
     kitActor(['PROJECTS'], allData: true);
 
     $html = Blade::render('<livewire:kit.employee-checklist name="task-assignees" aria-label="Assignees" />');
@@ -357,8 +476,8 @@ it('is discoverable by its kit name', function () {
 });
 
 it('toggles an id on and then off again, keeping the summary in step', function () {
-    $garcia = kitEmployee('BWF-0001', 'Ana', 'Garcia');
-    $reyes = kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    $garcia = kitEmployee('COP-0001', 'Ana', 'Garcia');
+    $reyes = kitEmployee('COP-0002', 'Ben', 'Reyes');
     kitActor(['PROJECTS'], allData: true);
 
     Livewire::test(EmployeeChecklist::class)
@@ -374,9 +493,9 @@ it('toggles an id on and then off again, keeping the summary in step', function 
 });
 
 it('ignores an id outside the actor directory and an inactive employee', function () {
-    $own = kitEmployee('BWF-0001', 'Ana', 'Garcia');
-    $other = kitEmployee('BWF-0002', 'Ben', 'Reyes');
-    $retired = kitEmployee('BWF-0003', 'Cid', 'Santos');
+    $own = kitEmployee('COP-0001', 'Ana', 'Garcia');
+    $other = kitEmployee('COP-0002', 'Ben', 'Reyes');
+    $retired = kitEmployee('COP-0003', 'Cid', 'Santos');
     $retired->forceFill(['is_active' => false])->save();
     kitActor(['PORTAL'], allData: false, employeeId: (string) $own->getKey());
 
@@ -398,8 +517,8 @@ it('ignores an id outside the actor directory and an inactive employee', functio
 });
 
 it('keeps a selected employee selected while the search hides them', function () {
-    $garcia = kitEmployee('BWF-0001', 'Ana', 'Garcia');
-    kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    $garcia = kitEmployee('COP-0001', 'Ana', 'Garcia');
+    kitEmployee('COP-0002', 'Ben', 'Reyes');
     kitActor(['PROJECTS'], allData: true);
 
     Livewire::test(EmployeeChecklist::class, ['value' => [(string) $garcia->getKey()]])
@@ -414,8 +533,8 @@ it('keeps a selected employee selected while the search hides them', function ()
 });
 
 it('names a selected employee only through the actor scope', function () {
-    $own = kitEmployee('BWF-0001', 'Ana', 'Garcia');
-    $other = kitEmployee('BWF-0002', 'Ben', 'Reyes');
+    $own = kitEmployee('COP-0001', 'Ana', 'Garcia');
+    $other = kitEmployee('COP-0002', 'Ben', 'Reyes');
     kitActor(['PORTAL'], allData: false, employeeId: (string) $own->getKey());
 
     // A smuggled id in the entangled array renders no name the actor may not read.
@@ -452,15 +571,67 @@ it('renders every x-kit blade component', function () {
     $filter = Blade::render(
         '<x-kit.filter-select label="Status filter" wire:model.live="status" :options="[\'ALL\' => \'All statuses\', \'ACTIVE\' => \'Active\']" />'
     );
-    expect($filter)->toContain('All statuses')->toContain('Clear status filter')->toContain("entangle('status').live");
+    // The filter is the kit dropdown with a clear button back to its "all"
+    // row; the binding stays on the hidden native select.
+    expect($filter)->toContain('All statuses')->toContain('Clear status filter')
+        ->toMatch('/<select[^>]*wire:model\.live="status"[^>]*aria-hidden="true"/s')
+        ->toContain('\\u0022clearValue\\u0022:\\u0022ALL\\u0022');
+
+    // The system's dropdown: a hidden native select carries the bindings
+    // and the options, a combobox trigger shows the choice, and the list is
+    // a top-layer popover drawn by the `kitSelect` factory.
+    $select = Blade::render(
+        '<x-kit.select wire:model.live="form.sex" aria-label="Sex at birth" class="w-[10rem]" id="profile-sex">'
+        .'<flux:select.option value="">Not stated</flux:select.option><flux:select.option value="F">Female</flux:select.option>'
+        .'</x-kit.select>'
+    );
+    expect($select)
+        ->toContain('x-data="kitSelect(')
+        ->toMatch('/<select x-ref="native"[^>]*wire:model\.live="form\.sex"[^>]*tabindex="-1" aria-hidden="true"/s')
+        ->toMatch('/<option\s+value="F"[^>]*>Female<\/option>/')
+        ->toMatch('/<button[^>]*id="profile-sex"[^>]*role="combobox"/s')
+        ->toContain('aria-haspopup="listbox"')
+        ->toContain('popover="manual"')->toContain('wire:ignore')->toContain('role="listbox"')
+        ->toMatch('/<div[^>]*class="[^"]*w-\[10rem\][^"]*"[^>]*x-data="kitSelect/s')
+        ->toContain('>Sex at birth</span>')
+        // Before the scripts run, the trigger shows what the browser would: the first option.
+        ->toMatch('/data-kit-select-value[^>]*>Not stated<\/span>/s');
+
+    // A placeholder is the first label, drawn muted, until an option is
+    // marked :selected; a label wraps the trigger in a Flux field.
+    expect(Blade::render('<x-kit.select wire:model="role" placeholder="Select role" aria-label="Role"><flux:select.option value="1">Admin</flux:select.option></x-kit.select>'))
+        ->toContain('<option value="" disabled selected class="placeholder">Select role</option>')
+        ->toMatch('/data-placeholder="true"[^>]*>Select role<\/span>/s');
+    expect(Blade::render('<x-kit.select label="Shift" wire:model="shift" size="sm" disabled><flux:select.option value="A">Day</flux:select.option><flux:select.option value="B" selected>Night</flux:select.option></x-kit.select>'))
+        ->toContain('data-flux-field')->toContain('>Shift<')
+        ->toMatch('/<button[^>]*disabled[^>]*class="[^"]*h-8/s')
+        ->toMatch('/data-kit-select-value[^>]*>Night<\/span>/s');
 
     $rowActions = Blade::render(
         '<x-kit.row-actions label="Driver"><flux:menu.item icon="pencil">Edit</flux:menu.item></x-kit.row-actions>'
     );
     expect($rowActions)->toContain('Actions for Driver')->toContain('Edit');
 
+    // The typed box hands its entangled value to the `dateField` factory
+    // (resources/js/date-field.js); the picking half is a top-layer popover
+    // of our own, not the browser's native date input.
     $dateField = Blade::render('<x-kit.date-field wire:model="form.date_hired" aria-label="Date hired" />');
-    expect($dateField)->toContain("entangle('form.date_hired')")->toContain('dd Mmm yyyy')->toContain('type="date"');
+    expect($dateField)
+        ->toContain("dateField(\$wire.entangle('form.date_hired'))")
+        ->toContain('dd Mmm yyyy')
+        ->toContain('aria-label="Open calendar for Date hired"')
+        ->toContain('popover="manual"')->toContain('wire:ignore')
+        ->toContain('role="dialog"')->toContain('aria-label="Calendar for Date hired"')
+        ->toContain('role="grid"')->toContain('aria-label="Month"')->toContain('aria-label="Year"')
+        ->toContain('>Today<')->toContain('>Clear<')
+        ->not->toContain('type="date"');
+    // .live is forwarded; a caller id names the panel deterministically; disabled reaches the trigger.
+    expect(Blade::render('<x-kit.date-field wire:model.live="start" aria-label="Period start" />'))
+        ->toContain("entangle('start').live");
+    $named = Blade::render('<x-kit.date-field id="profile-birth-date" wire:model="personal.birthDate" aria-label="Birth date" />');
+    expect($named)->toContain('id="profile-birth-date-calendar"')->toContain('aria-controls="profile-birth-date-calendar"');
+    expect(Blade::render('<x-kit.date-field wire:model="end" :disabled="true" aria-label="Date to" />'))
+        ->toMatch('/<button[^>]*disabled[^>]*aria-label="Open calendar for Date to"/s');
 
     $timeField = Blade::render('<x-kit.time-field wire:model="form.time_in" aria-label="Time in" />');
     expect($timeField)->toContain("entangle('form.time_in')")->toContain('AM')->toContain('PM');
@@ -473,4 +644,25 @@ it('renders every x-kit blade component', function () {
 
     $emptyBlock = Blade::render('<x-kit.empty-state icon="inbox" title="Nothing to catch up on." hint="Notifications land here." />');
     expect($emptyBlock)->toContain('Nothing to catch up on.')->toContain('Notifications land here.');
+
+    // A plain link to the table's export route, never wire:click — the
+    // response is an attachment, so the page stays where it is. Solid green
+    // through the success token, on every table.
+    $export = Blade::render('<x-kit.export-button href="/records/sites/export?q=hq" />');
+    expect($export)->toContain('href="/records/sites/export?q=hq"')->toContain('Export CSV')->toContain('hris-button-success')->not->toContain('wire:click');
+});
+
+it('has a render line above for every file under components/kit, and a section for every Livewire kit view', function () {
+    // The render pass is a hand-kept list. A widget added to the directory
+    // without a line above would compile untested, so the directories are
+    // compared to exactly what this file exercises: the ten x-kit blades in
+    // the test above, the two Livewire kit views the picker and checklist
+    // sections drive, and csv-import, which CsvTransferTest drives end to end
+    // (preview, import, refusals). Adding a widget means adding it here and
+    // testing it.
+    expect(kitBladeNames('components/kit'))->toBe([
+        'date-field', 'empty-state', 'export-button', 'filter-select', 'money-input',
+        'pagination', 'row-actions', 'select', 'sort-header', 'time-field',
+    ]);
+    expect(kitBladeNames('livewire/kit'))->toBe(['csv-import', 'employee-checklist', 'employee-picker']);
 });

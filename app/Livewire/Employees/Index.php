@@ -4,14 +4,15 @@ declare(strict_types=1);
 
 namespace App\Livewire\Employees;
 
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
-use App\Models\EmployeeProfile;
-use App\Models\EmploymentStatusOption;
+use App\Livewire\Employees\Support\EmployeeRows;
+use App\Livewire\Kit\Support\DepartmentFilter;
 use App\Models\Position;
+use App\Modules\Organization\Contracts\OrganizationDirectory;
+use App\Modules\Workforce\Application\Queries\EmployeeRecords;
+use App\Modules\Workforce\Contracts\Views\EmployeeProfileView as EmployeeProfile;
 use App\Support\Access;
-use App\Support\EmployeeName;
 use Illuminate\Support\Collection;
 use Illuminate\View\View;
 use Livewire\Attributes\On;
@@ -22,10 +23,11 @@ use Livewire\Component;
  * Employee Records — the port of
  * `src/app/(protected)/employees/employees-page.tsx`.
  *
- * Filtering, the status/position option unions and the four sorts all run in
- * PHP over the scoped collection, exactly as the source ran them in the
- * client over the fetched list — `statusKey` comparison and the
- * legacy-token → label mapping cannot be pushed into SQL.
+ * Filtering, the status/position option unions and the sorts all run in PHP
+ * over the scoped collection, exactly as the source runs them in the client
+ * over the fetched list — `statusKey` comparison and the legacy-token → label
+ * mapping cannot be pushed into SQL. The department filter and the
+ * Department column read the placement on each view, so they run there too.
  */
 #[Title('Employee Records')]
 class Index extends Component
@@ -38,6 +40,13 @@ class Index extends Component
 
     public string $position = 'ALL';
 
+    /**
+     * "Filter by department": ALL, NONE (Not placed), or a department or unit
+     * id. A filter applied after row scoping (DepartmentFilter only narrows
+     * the scoped rows), so deliberately not #[Locked].
+     */
+    public string $department = DepartmentFilter::ALL;
+
     public function mount(): void
     {
         $this->sortKey = 'employee';
@@ -46,7 +55,7 @@ class Index extends Component
     /** @return list<string> */
     protected function sortableKeys(): array
     {
-        return ['id', 'employee', 'email', 'status'];
+        return ['id', 'employee_id_no', 'employee', 'department', 'email', 'status'];
     }
 
     /** employees-page.tsx:203 — a changed filter starts over from page 1. */
@@ -56,6 +65,11 @@ class Index extends Component
     }
 
     public function updatedPosition(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedDepartment(): void
     {
         $this->resetPage();
     }
@@ -80,15 +94,7 @@ class Index extends Component
      */
     private function visibleEmployees(Access $access): Collection
     {
-        $query = EmployeeProfile::query()->orderBy('last_name');
-
-        $query = match ($access->rowVisibility(ModuleCode::EMPLOYEES, ModuleCode::PAYROLL)) {
-            Access::ROWS_ALL => $query,
-            Access::ROWS_OWN => $query->whereKey($access->ownEmployeeId()),
-            Access::ROWS_NONE => $query->whereRaw('1 = 0'),
-        };
-
-        return $query->get();
+        return app(EmployeeRecords::class)->list($access);
     }
 
     public function render(): View
@@ -98,7 +104,7 @@ class Index extends Component
 
         // The list Records Management holds, plus any value still on a record
         // but no longer on the list (employees-page.tsx:112-131).
-        $positions = Position::query()->pluck('name')->all();
+        $positions = app(OrganizationDirectory::class)->positions($access, false);
 
         foreach ($employees as $employee) {
             if ($employee->position !== null && $employee->position !== '') {
@@ -109,7 +115,7 @@ class Index extends Component
         $positions = array_values(array_unique($positions));
         usort($positions, EmployeeFields::compareText(...));
 
-        $statuses = EmploymentStatusOption::query()->pluck('name')->all();
+        $statuses = app(EmployeeRecords::class)->statuses($access, false);
 
         foreach ($employees as $employee) {
             if ($employee->employment_status !== '') {
@@ -120,65 +126,23 @@ class Index extends Component
         $statuses = array_values(array_unique($statuses));
         usort($statuses, EmployeeFields::compareText(...));
 
-        // ── Filter (employees-page.tsx:133-150) ─────────────────────────────
-        $needle = mb_strtolower(trim($this->search));
+        // A department that has since been deleted (or a value typed in by
+        // hand) falls back to every department instead of an empty list.
+        $departments = DepartmentFilter::options($access);
+        $this->department = DepartmentFilter::choice($this->department, $departments);
 
-        $visible = $employees->filter(function (EmployeeProfile $e) use ($needle): bool {
-            if ($this->status === 'INACTIVE') {
-                if ($e->is_active) {
-                    return false;
-                }
-            } elseif ($this->status !== 'ALL'
-                && EmployeeFields::statusKey($e->employment_status) !== EmployeeFields::statusKey($this->status)) {
-                return false;
-            }
-
-            if ($this->position !== 'ALL' && ($e->position ?? '') !== $this->position) {
-                return false;
-            }
-
-            if ($needle === '') {
-                return true;
-            }
-
-            $haystack = mb_strtolower(
-                "{$e->employee_code} ".EmployeeName::display($e, '').' '.($e->position ?? '').' '.($e->email ?? '')
-            );
-
-            return str_contains($haystack, $needle);
-        })->values();
-
-        // ── Sort (employees-page.tsx:154-177): comparator, then a whole-array
-        //    reverse for desc, exactly as the source did. ───────────────────
-        $rows = $visible->all();
-
-        usort($rows, function (EmployeeProfile $a, EmployeeProfile $b): int {
-            return match ($this->sortKey) {
-                'id' => EmployeeFields::compareText($a->employee_code, $b->employee_code),
-                'email' => EmployeeFields::compareText($a->email, $b->email),
-                // Active first, then by status label — an inactive Regular
-                // belongs with the other inactive rows.
-                'status' => ((int) $b->is_active <=> (int) $a->is_active)
-                    ?: EmployeeFields::compareText(
-                        EmployeeFields::employmentStatusLabel($a->employment_status),
-                        EmployeeFields::employmentStatusLabel($b->employment_status),
-                    ),
-                default => EmployeeFields::compareText($a->last_name, $b->last_name)
-                    ?: EmployeeFields::compareText($a->first_name, $b->first_name),
-            };
-        });
-
-        if ($this->sortDir === 'desc') {
-            $rows = array_reverse($rows);
-        }
+        // Filter and sort (employees-page.tsx:133-177): one copy shared with
+        // the CSV export.
+        $rows = EmployeeRows::arrange($employees, $this->search, $this->status, $this->position, $this->department, $this->sortKey, $this->sortDir);
 
         $list = $this->paginateClamped(new Collection($rows));
 
         return view('livewire.employees.index', [
             'list' => $list,
-            'visibleCount' => $visible->count(),
+            'visibleCount' => count($rows),
             'statuses' => $statuses,
             'positions' => $positions,
+            'departments' => $departments,
         ]);
     }
 }

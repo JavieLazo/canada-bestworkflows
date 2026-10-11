@@ -19,6 +19,11 @@ use App\Support\Money;
  * by construction — a worked holiday is priced once, in `holiday_pay` — so
  * `work_days + holiday_days + rest_days` never counts a day twice.
  *
+ * DIVERGENCE 6: approved paid leave is the fourth disjoint bucket. It is
+ * counted in `paid_leave_days`, priced into `leave_pay`, and deliberately
+ * EXCLUDED from `work_days` — so basic_pay never carries it and
+ * `work_days x daily_rate` reconciles to `work_days_pay` exactly.
+ *
  * `net_pay` is deliberately UNCLAMPED and can be negative. There is no
  * max(0, …) here and there must never be one: `payrollDraftError()` in the
  * reference refuses to finalize a run whose deductions exceed gross pay rather
@@ -31,7 +36,8 @@ use App\Support\Money;
 final class PayslipDraft
 {
     /**
-     * payroll.ts:278-286 — PAYROLL_DEDUCTION_KEYS.
+     * payroll.ts:278-286 — PAYROLL_DEDUCTION_KEYS, with the named-deduction
+     * aggregate appended for divergence 9. It is zero on the reference path.
      *
      * THE ORDER IS LOAD-BEARING. `total_deductions` is a left-to-right float
      * sum over exactly this sequence starting from 0; reordering it can move a
@@ -47,6 +53,7 @@ final class PayslipDraft
         'pagibig',
         'withholding_tax',
         'other_deductions',
+        'custom_deductions',
     ];
 
     /**
@@ -71,12 +78,14 @@ final class PayslipDraft
 
         // Day counts. `absence_days` and `unpaid_leave_days` are reported for
         // the payslip but cost nothing on their own — an unworked day simply
-        // earns none of the buckets below.
+        // earns none of the buckets below. `paid_leave_days` DOES cost: it is
+        // priced into `leave_pay`, and `work_days` never counts it.
         public readonly float $work_days,
         public readonly float $holiday_days,
         public readonly float $rest_days,
         public readonly float $absence_days,
         public readonly float $unpaid_leave_days,
+        public readonly float $paid_leave_days,
 
         // Earnings, in payslip order.
         public readonly float $work_days_pay,
@@ -88,9 +97,16 @@ final class PayslipDraft
         /** basic_pay + allowances — the "Total" line under Allowance. */
         public readonly float $total_base_pay,
         public readonly float $overtime_hours,
-        /** Always the computed amount, whether or not it was acknowledged. */
+        /**
+         * Under the reference regime, the computed amount whether or not it
+         * was acknowledged. Under per-day approval (divergence 7, the live
+         * path) the priced APPROVED minutes only.
+         */
         public readonly float $overtime_pay,
-        /** Overtime reaches gross pay only once someone acknowledges it. */
+        /**
+         * Reference regime: someone acknowledged the run's overtime. Per-day
+         * approval: approved overtime reached gross pay.
+         */
         public readonly bool $overtime_acknowledged,
         /** Night shift differential. Computed from the shift; a typed figure wins. */
         public readonly float $night_differential,
@@ -99,11 +115,12 @@ final class PayslipDraft
         public readonly float $other_earnings,
         public readonly float $bonus,
         /**
-         * KNOWN GAP, ported faithfully: the reference engine hard-wires this to
-         * 0 and dismisses 13th-month pay as "processed separately" — separately
-         * nowhere. PH law requires it paid by 24 December, and no phase of the
-         * port plan builds it (docs/03-OPEN-ISSUES.md, first bullet block).
-         * Left at 0 so the two systems reconcile; escalated, not fixed here.
+         * 0 on every REGULAR payslip, as the reference engine hard-wires it
+         * ("processed separately", payroll.ts:531) — so the regular engine
+         * still reconciles to the centavo. It IS processed separately, as a
+         * DELIBERATE DIVERGENCE: the yearly THIRTEENTH_MONTH run
+         * (Modules\Payroll\Application\ThirteenthMonthData) builds a payslip
+         * whose `thirteenth_month` holds the amount.
          */
         public readonly float $thirteenth_month,
         public readonly float $gross_pay,
@@ -131,6 +148,26 @@ final class PayslipDraft
         public readonly float $total_deductions,
         /** Deliberately unclamped — this CAN be negative. Never add max(0, …). */
         public readonly float $net_pay,
+
+        // DELIBERATE DIVERGENCE, no reference counterpart: the PHP 90,000
+        // exempt-benefit ledger and the taxable base. They are reports
+        // around the engine's pay arithmetic, never inputs to it, so the
+        // golden vectors are untouched. PayrollData::calculateInputs sets
+        // `taxable_compensation` after compute(), and `exempt_benefits` and
+        // `taxable_benefits_excess` when it splits a tax-exempt incentive line
+        // through ExemptBenefitCeiling; 0.0 otherwise. Trailing and
+        // defaulted, so a construction that does not set them reads "nothing
+        // exempt, nothing over, base not recorded".
+        /** 13th month pay and tax-exempt benefits kept under the ceiling (ExemptBenefitCeiling). */
+        public readonly float $exempt_benefits = 0.0,
+        /** The part of those benefits over the ceiling, taxed on this payslip. */
+        public readonly float $taxable_benefits_excess = 0.0,
+        /** The taxable compensation the withholding was computed on; null when not recorded. */
+        public readonly ?float $taxable_compensation = null,
+        /** Named Payroll Deductions, separate from the free-form Other amount. */
+        public readonly float $custom_deductions = 0.0,
+        /** The part of `exempt_benefits` that spent the yearly ceiling; null when posted before it was recorded apart (then all of it did). */
+        public readonly ?float $ceiling_benefits = null,
     ) {}
 
     /**
@@ -160,7 +197,8 @@ final class PayslipDraft
     }
 
     /**
-     * Sums the seven deduction lines in PAYROLL_DEDUCTION_KEYS order.
+     * Sums the reference's seven deduction lines, then the named-deduction
+     * aggregate (zero on the reference path), in stable order.
      *
      * payroll.ts:672-674 / 347-349:
      *
@@ -177,6 +215,30 @@ final class PayslipDraft
         }
 
         return Money::round($total);
+    }
+
+    /**
+     * DELIBERATE DIVERGENCE 9: named Payroll Deductions are additional to the
+     * reference's one free-form Other line. They affect total and net pay,
+     * never taxable compensation or withholding. Each input is already a
+     * validated centavo amount from the captured payroll input bundle.
+     *
+     * @param  list<float>  $amounts
+     */
+    public function withCustomDeductions(array $amounts): self
+    {
+        if ($amounts === []) {
+            return $this;
+        }
+
+        $custom = Money::round(array_sum($amounts));
+        $normalized = self::normalizeDeductions([...$this->toArray(), 'custom_deductions' => $custom]);
+        $total = self::sumDeductions($normalized);
+
+        return $this->with(array_merge($normalized, [
+            'total_deductions' => $total,
+            'net_pay' => Money::round($this->gross_pay - $total),
+        ]));
     }
 
     /**
@@ -212,6 +274,7 @@ final class PayslipDraft
             'rest_days' => $this->rest_days,
             'absence_days' => $this->absence_days,
             'unpaid_leave_days' => $this->unpaid_leave_days,
+            'paid_leave_days' => $this->paid_leave_days,
 
             'work_days_pay' => $this->work_days_pay,
             'holiday_pay' => $this->holiday_pay,
@@ -237,12 +300,18 @@ final class PayslipDraft
             'pagibig_er' => $this->pagibig_er,
             'withholding_tax' => $this->withholding_tax,
             'other_deductions' => $this->other_deductions,
+            'custom_deductions' => $this->custom_deductions,
             'late_minutes' => $this->late_minutes,
             'late_deduction' => $this->late_deduction,
             'undertime_minutes' => $this->undertime_minutes,
             'undertime_deduction' => $this->undertime_deduction,
             'total_deductions' => $this->total_deductions,
             'net_pay' => $this->net_pay,
+
+            'exempt_benefits' => $this->exempt_benefits,
+            'taxable_benefits_excess' => $this->taxable_benefits_excess,
+            'taxable_compensation' => $this->taxable_compensation,
+            'ceiling_benefits' => $this->ceiling_benefits,
         ];
     }
 }

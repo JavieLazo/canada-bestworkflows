@@ -4,49 +4,37 @@ declare(strict_types=1);
 
 namespace App\Livewire\Edtr;
 
-use App\Domain\Attendance\AttendanceLog as DomainLog;
-use App\Domain\Attendance\Minutes;
-use App\Domain\Attendance\Shift as DomainShift;
-use App\Domain\Attendance\ShiftGeometry;
-use App\Domain\Attendance\ShiftResolver;
-use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
-use App\Domain\Payroll\PayrollRates;
 use App\Livewire\Edtr\Support\AttendancePolicy;
 use App\Livewire\Edtr\Support\Hris;
-use App\Models\AttendanceLog;
-use App\Models\EmployeeProfile;
-use App\Models\PayrollFormula;
 use App\Models\Shift;
-use App\Models\WorkSite;
+use App\Modules\Organization\Contracts\OrganizationDirectory;
+use App\Modules\Timekeeping\Application\Commands\RecordPunch;
+use App\Modules\Timekeeping\Application\PunchInput;
+use App\Modules\Timekeeping\Application\Queries\RosterLocations;
+use App\Modules\Timekeeping\Domain\Roster\LocationKind;
+use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\AuditService;
 use App\Support\ManilaClock;
-use App\Support\Money;
-use App\Support\Realtime;
-use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Database\QueryException;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use RuntimeException;
 
 /**
- * The kiosk — the port of copems/src/components/PunchStation.tsx merged with
- * the server half it called, POST /api/attendance/punch
- * (copems/src/app/api/attendance/punch/route.ts). In Livewire the two are one
- * place: every check the route re-ran server-side runs here, in the action,
- * against the session actor — nothing derived (distance, geofence verdict,
- * anomaly) is ever taken from the client.
+ * Kiosk and self-service presentation, ported from PunchStation.tsx.
+ * RecordPunch receives a fresh session actor and owns server-side geofencing,
+ * pairing and persistence. Client-supplied derived results are never trusted.
  *
  * ── THE "TODAY" WINDOW — a deliberate divergence ────────────────────────────
  * The reference punch route (an earlier revision, punch/route.ts:65) bucketed
  * "today's punches" by mixing the host's LOCAL date with UTC midnight, which
  * put the day's cut eight hours into the working day and silently excluded
- * pre-08:00 punches from pairing. This port implements the CORRECT window:
+ * pre-08:00 punches from pairing. RecordPunch preserves the corrected window:
  * the Manila calendar day via ManilaClock::dayKey / PayrollPeriod::
  * attendanceInstants, reading one adjacent day back so an overnight shift's
  * open TIME_IN still pairs with its next-morning TIME_OUT.
@@ -54,7 +42,7 @@ use RuntimeException;
  * ── Locks ───────────────────────────────────────────────────────────────────
  * The reference serialised concurrent punches per employee with
  * `pg_advisory_xact_lock`; MySQL has no transaction-scoped advisory lock, so
- * the pairing-window SELECT takes `lockForUpdate()` instead.
+ * RecordPunch's pairing-window SELECT takes `lockForUpdate()` instead.
  */
 class PunchStation extends Component
 {
@@ -69,7 +57,7 @@ class PunchStation extends Component
     /**
      * My Portal. The work site and punch source are the admin's to set, so the
      * employee gets no controls for them and no coordinate boxes — the
-     * location is read from the browser when they punch.
+     * browser's fix is the only location a punch there can carry.
      */
     #[Locked]
     public bool $selfService = false;
@@ -85,7 +73,11 @@ class PunchStation extends Component
     /** Punch source select. Collapsed to the known three on every write. */
     public string $source = 'WEB_GPS';
 
-    /** Typed coordinate boxes. Free text — validated at punch time. */
+    /**
+     * Typed coordinate boxes (kiosk only). Free text — validated at punch
+     * time. Filled, they win over the browser fix; left empty, the fix the
+     * station reads as the punch is pressed is used instead.
+     */
     public string $lat = '';
 
     public string $lng = '';
@@ -129,7 +121,7 @@ class PunchStation extends Component
             return;
         }
 
-        if (EmployeeProfile::query()->whereKey($id)->exists()) {
+        if (app(OperationalDirectory::class)->find($actor, $id) !== null) {
             $this->employeeId = $id;
         }
     }
@@ -140,255 +132,72 @@ class PunchStation extends Component
         if ($this->selfService) {
             return;
         }
-        if (WorkSite::query()->whereKey($id)->exists()) {
+        if (app(OrganizationDirectory::class)->sites(app(Access::class))->contains('id', $id)) {
             $this->siteId = $id;
         }
     }
 
     /**
-     * Record a punch. `$autoLat`/`$autoLng` carry the browser reading in
-     * self-service mode (PunchStation.tsx:192); the kiosk uses the typed
-     * boxes. Everything derived from the reading is recomputed HERE.
+     * Record a punch. `$autoLat`/`$autoLng`/`$autoAccuracy` carry the fix the
+     * browser handed the station as the button was pressed — in BOTH modes
+     * (the reference reads one only in self-service, PunchStation.tsx:192).
+     * Self-service: that fix is the only reading. Kiosk: RecordPunch lets the
+     * typed boxes win when either is filled and falls back to the fix when
+     * both are empty; the client always sends the fix. RecordPunch
+     * recomputes everything derived from the reading.
      */
-    public function punch(string $logType, ?float $autoLat = null, ?float $autoLng = null): void
+    public function punch(string $logType, ?float $autoLat = null, ?float $autoLng = null, ?float $autoAccuracy = null): void
     {
-        if (! in_array($logType, [DomainLog::TIME_IN, DomainLog::TIME_OUT], true)) {
-            return;
-        }
-        if ($this->employeeId === '') {
-            Flux::toast(text: 'Select an employee first.', variant: 'danger');
-
-            return;
-        }
-
         $actor = Access::forActor(auth()->user());
-
-        // Punching for yourself needs nothing beyond a session. Punching for
-        // someone else is the kiosk operation, and it needs both halves: the
-        // eDTR module to be at the station at all, and a role that sees
-        // everyone (punch/route.ts:57-66).
-        $isSelf = $actor->employeeId !== null && $actor->employeeId === $this->employeeId;
-        $isKiosk = $actor->allData && $actor->hasModule(ModuleCode::EDTR);
-        if (! $isSelf && ! $isKiosk) {
-            Flux::toast(text: 'Forbidden.', variant: 'danger');
-
-            return;
-        }
-        $source = $isSelf ? 'WEB_GPS' : $this->source;
-        if (! in_array($source, array_column(Hris::SOURCES, 'value'), true)) {
-            $source = 'WEB_GPS';
-        }
-
-        $employee = EmployeeProfile::query()->whereKey($this->employeeId)->first();
-        if ($employee === null) {
-            Flux::toast(text: 'That employee was not found.', variant: 'danger');
-
-            return;
-        }
-        if (! $employee->is_active) {
-            Flux::toast(text: 'That employee is inactive and cannot punch.', variant: 'danger');
-
-            return;
-        }
-        if ($employee->work_site_id === null) {
-            Flux::toast(
-                text: Hris::employeeName($employee).' has no assigned worksite. Assign one in Employee Records before punching.',
-                variant: 'danger',
-            );
-
-            return;
-        }
-
-        $assignedSite = WorkSite::query()->whereKey($employee->work_site_id)->first();
-        if ($assignedSite === null) {
-            Flux::toast(text: 'The assigned worksite is no longer available.', variant: 'danger');
-
-            return;
-        }
-        if (! $this->selfService && $this->siteId !== '' && $this->siteId !== (string) $employee->work_site_id) {
-            Flux::toast(
-                text: Hris::employeeName($employee).' is assigned to '.$assignedSite->name.'.',
-                variant: 'danger',
-            );
-
-            return;
-        }
-        $site = $assignedSite;
-
-        // Nobody types coordinates in the portal — the browser reading arrives
-        // as arguments there. A typed box that is not a number is no reading
-        // at all (PunchStation.tsx:193-201).
-        if ($this->selfService) {
-            $la = $autoLat;
-            $lo = $autoLng;
-        } else {
-            $la = $this->coordinate($this->lat);
-            $lo = $this->coordinate($this->lng);
-            if ((trim($this->lat) !== '' && $la === null) || (trim($this->lng) !== '' && $lo === null)) {
-                Flux::toast(text: "Those coordinates aren't numbers. Clear them or capture a location.", variant: 'danger');
-
-                return;
-            }
-        }
-        // The API schema's bounds: a reading outside them is no reading.
-        if (($la !== null && ($la < -90.0 || $la > 90.0)) || ($lo !== null && ($lo < -180.0 || $lo > 180.0))) {
-            Flux::toast(text: "Those coordinates aren't numbers. Clear them or capture a location.", variant: 'danger');
-
-            return;
-        }
-
-        // Metres are recorded only when there is a pin to measure against. An
-        // exempt site has none — the distance stays unmeasured rather than
-        // becoming the thousands of kilometres to 0, 0.
-        $hasFix = $la !== null && $lo !== null;
-        $distance = $hasFix && ! $site->geofence_exempt
-            ? AttendancePolicy::haversineMeters($la, $lo, $site->latitude, $site->longitude)
-            : null;
-        $inBounds = $site->geofence_exempt
-            ? true
-            : ($distance !== null && $distance <= $site->radius_meters);
-
-        if (AttendancePolicy::blocksPunch($inBounds)) {
-            Flux::toast(
-                text: AttendancePolicy::geofenceBlockMessage($logType, $site->name, $distance, (int) $site->radius_meters),
-                variant: 'danger',
-            );
-
-            return;
-        }
-
-        // The CORRECT Manila window — see the class docblock for the reference
-        // bug this diverges from. One adjacent day back so an overnight
-        // shift's open TIME_IN still pairs.
-        $today = Hris::todayKey();
-        $window = PayrollPeriod::attendanceInstants(PayrollPeriod::addCalendarDays($today, -1), $today);
-
         try {
-            $created = DB::transaction(function () use (
-                $logType,
-                $source,
-                $employee,
-                $site,
-                $la,
-                $lo,
-                $distance,
-                $inBounds,
-                $window,
-            ): AttendanceLog {
-                $windowRows = AttendanceLog::query()
-                    ->where('employee_id', (string) $employee->id)
-                    ->whereBetween('logged_at', [$window['gte'], $window['lte']])
-                    ->orderBy('logged_at')
-                    ->orderBy('id')
-                    ->lockForUpdate()
-                    ->get(['id', 'log_type', 'logged_at']);
+            $message = app(RecordPunch::class)->handle($actor, new PunchInput($this->employeeId, $this->siteId, $this->source, $this->selfService, $this->lat, $this->lng), $logType, $autoLat, $autoLng, $autoAccuracy);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'The punch could not be recorded. Please try again.', variant: 'danger');
 
-                $windowLogs = $windowRows
-                    ->map(static fn (AttendanceLog $row): DomainLog => DomainLog::fromArray([
-                        'id' => $row->id,
-                        'log_type' => $row->log_type,
-                        'logged_at' => $row->logged_at,
-                    ]))
-                    ->all();
-
-                $shiftRow = Shift::query()->where('employee_id', (string) $employee->id)->first();
-                $domainShift = $shiftRow === null ? null : DomainShift::fromArray($shiftRow->toArray());
-
-                // A Time In left open past the shift plus its overtime ceiling
-                // is somebody who forgot to clock out, not somebody still
-                // working — so it stops blocking the next shift and the day
-                // waits for a correction.
-                $rates = PayrollRates::fromFormulas(
-                    array_values(PayrollFormula::query()->get(['key', 'params'])->map->toArray()->all()),
-                );
-                $now = CarbonImmutable::now(ManilaClock::TZ);
-                $nowIso = DomainLog::isoFromUtc($now->utc());
-
-                $anomaly = AttendancePolicy::pairingAnomaly(
-                    array_values($windowLogs),
-                    $logType,
-                    $nowIso,
-                    ShiftResolver::openPunchExpiryMinutes($domainShift, $rates->maxOtHours),
-                );
-                if ($anomaly !== null) {
-                    throw new RuntimeException($anomaly);
-                }
-
-                $windowError = $domainShift === null
-                    ? null
-                    : self::punchWindowError(array_values($windowLogs), $logType, $now, $domainShift);
-                if ($windowError !== null) {
-                    throw new RuntimeException($windowError);
-                }
-
-                return AttendanceLog::query()->create([
-                    'employee_id' => (string) $employee->id,
-                    'site_id' => (string) $site->id,
-                    'log_type' => $logType,
-                    'source' => $source,
-                    'latitude' => $la,
-                    'longitude' => $lo,
-                    // Math.round(distance * 100) / 100 — the two-decimal
-                    // boundary, which is Money::round here.
-                    'distance_meters' => $distance === null ? null : Money::round($distance),
-                    'is_geofenced' => $inBounds,
-                    'is_anomaly' => false,
-                    'anomaly_note' => null,
-                ]);
-            });
+            return;
         } catch (RuntimeException $e) {
             Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
-
-        AuditService::record(
-            $actor,
-            AuditEvent::punch($logType),
-            'attendance_logs',
-            (string) $created->id,
-            Hris::employeeName($employee).' @ '.$site->name.' · '.$source.' · '
-                .($inBounds ? 'in-bounds' : 'OUT OF BOUNDS')
-                .($distance !== null ? ' ('.((int) Minutes::round($distance)).' m)' : ''),
-        );
-
-        $label = str_replace('_', ' ', $logType);
-        if ($site->geofence_exempt) {
-            Flux::toast(text: "{$label} recorded at {$site->name} — geofence-exempt.", variant: 'success');
-        } else {
-            Flux::toast(text: "{$label} recorded — inside {$site->name}.", variant: 'success');
+        if ($message === null) {
+            return;
         }
-
-        // The live feed refreshes without waiting for its next poll.
+        Flux::toast(text: $message, variant: 'success');
         $this->dispatch('edtr-punch-recorded');
-
-        // ...and so does every OTHER browser watching this punch: the station
-        // beside it, the supervisor's eDTR page, this employee's own portal.
-        // A knock only — Realtime sends it after the transaction commits and
-        // after this response is flushed, and swallows a failure, so the
-        // punch above is never at the mercy of a socket vendor.
-        Realtime::announce([
-            Realtime::allPunches(),
-            Realtime::employeePunches((string) $employee->id),
-        ]);
     }
 
+    /**
+     * The station is a PREVIEW keyed like a Time In: where a punch pressed
+     * now would be judged — today's roster row for the employee (Work from
+     * home, or that weekday's site) or, with no row, the Assigned Worksite
+     * (`RosterLocations::forStation`). RecordPunch decides for real, under
+     * lock, for the work date the punch itself belongs to; a Time Out that
+     * closes yesterday's open Time In can land on yesterday's place, which
+     * this preview does not read the window to know.
+     */
     public function render(): View
     {
-        $sites = WorkSite::query()->orderBy('name')->get();
+        $access = app(Access::class);
+        $sites = app(OrganizationDirectory::class)->sites($access);
 
-        $selectedEmployee = $this->employeeId === ''
+        $today = $this->employeeId === ''
             ? null
-            : EmployeeProfile::query()->whereKey($this->employeeId)->first();
-        $assignedSiteId = $selectedEmployee !== null && $selectedEmployee->work_site_id !== null
-            ? (string) $selectedEmployee->work_site_id
-            : null;
+            : app(RosterLocations::class)->forStation($access, $this->employeeId);
+        $wfhToday = $today?->kind === LocationKind::WFH;
+        $todaySiteId = $today !== null && ! $wfhToday ? $today->site_id : null;
+        $todaySite = $todaySiteId === null ? null : $sites->firstWhere('id', $todaySiteId);
 
         // The reference's three effects, replayed each render (idempotent):
-        // the assigned site pins the select; self-service without an
-        // assignment clears it; the kiosk defaults to the first site.
-        if ($assignedSiteId !== null) {
-            $this->siteId = $assignedSiteId;
+        // the day's site pins the select; a Work from home day, and
+        // self-service with no site, clear it; the kiosk defaults to the
+        // first site. RecordPunch ignores the kiosk pick on a WFH day and
+        // refuses a mismatch on an onsite one, so the pin is a courtesy.
+        if ($wfhToday) {
+            $this->siteId = '';
+        } elseif ($todaySiteId !== null) {
+            $this->siteId = $todaySiteId;
         } elseif ($this->selfService) {
             $this->siteId = '';
         } elseif ($this->siteId === '' && $sites->isNotEmpty()) {
@@ -396,14 +205,16 @@ class PunchStation extends Component
         }
 
         $site = $this->siteId === '' ? null : $sites->firstWhere('id', $this->siteId);
-        $assignedSite = $assignedSiteId === null ? null : $sites->firstWhere('id', $assignedSiteId);
 
         // The geofence verdict preview (PunchStation.tsx:106-114) — recomputed
-        // server-side from the typed boxes.
+        // server-side from the typed boxes. A WFH day has no fence to preview:
+        // the punch is accepted from anywhere, coordinates still recorded.
         $verdict = null;
-        if ($site !== null) {
+        if ($wfhToday) {
+            $verdict = ['inBounds' => true, 'distance' => 0.0, 'exempt' => true, 'wfh' => true];
+        } elseif ($site !== null) {
             if ($site->geofence_exempt) {
-                $verdict = ['inBounds' => true, 'distance' => 0.0, 'exempt' => true];
+                $verdict = ['inBounds' => true, 'distance' => 0.0, 'exempt' => true, 'wfh' => false];
             } else {
                 $la = $this->coordinate($this->lat);
                 $lo = $this->coordinate($this->lng);
@@ -413,6 +224,7 @@ class PunchStation extends Component
                         'inBounds' => $distance <= $site->radius_meters,
                         'distance' => $distance,
                         'exempt' => false,
+                        'wfh' => false,
                     ];
                 }
             }
@@ -420,202 +232,19 @@ class PunchStation extends Component
 
         return view('livewire.edtr.punch-station', [
             'sites' => $sites,
-            'selectedEmployee' => $selectedEmployee,
-            'assignedSiteId' => $assignedSiteId,
-            'assignedSite' => $assignedSite,
+            'todayLocation' => $today,
+            'wfhToday' => $wfhToday,
+            'todaySite' => $todaySite,
             'site' => $site,
             'verdict' => $verdict,
-            'punchDisabled' => $this->employeeId === '' || $assignedSiteId === null || $assignedSite === null,
+            // Nothing to punch against: no employee, one the actor may not
+            // punch for, or an onsite day whose site does not resolve (no
+            // Assigned Worksite, or one since deleted). A WFH day never disables.
+            'punchDisabled' => $this->employeeId === '' || $today === null || (! $wfhToday && $todaySite === null),
             'lockedName' => $this->lockedEmployeeId === null
                 ? ''
-                : Hris::employeeName(EmployeeProfile::query()->whereKey($this->lockedEmployeeId)->first()),
+                : Hris::employeeName(app(OperationalDirectory::class)->find($access, $this->lockedEmployeeId)),
         ]);
-    }
-
-    /**
-     * Shift-slot guard for the live station. The DTR still flags imported or
-     * corrected rows that violate these windows, but live punches should be
-     * guided before a bad row lands.
-     *
-     * @param  list<DomainLog>  $windowLogs
-     */
-    private static function punchWindowError(
-        array $windowLogs,
-        string $logType,
-        CarbonImmutable $now,
-        DomainShift $shift,
-    ): ?string {
-        if ($shift->isFlexible()) {
-            return null;
-        }
-
-        $geometry = ShiftResolver::geometry($shift);
-        $workDate = self::workDateForPunch($windowLogs, $logType, $now, $geometry);
-        $nowMinute = self::timelineMinuteForInstant($now, $workDate);
-        if (! is_finite($nowMinute)) {
-            return null;
-        }
-
-        $workLogs = self::logsForWorkDate($windowLogs, $workDate, $geometry);
-        $completedOuts = count(array_filter(
-            $workLogs,
-            static fn (DomainLog $log): bool => $log->logType === DomainLog::TIME_OUT,
-        ));
-        $last = $workLogs === [] ? null : $workLogs[count($workLogs) - 1];
-
-        if ($logType === DomainLog::TIME_IN) {
-            $firstOpensAt = $geometry->start - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES;
-            if ($nowMinute < $firstOpensAt) {
-                return self::tooEarlyMessage('Time In', 'First Time In', $firstOpensAt);
-            }
-
-            if ($nowMinute >= $geometry->end) {
-                return 'Time In is blocked: this shift already ended.';
-            }
-        }
-
-        $breakWindow = ShiftResolver::scheduledBreakWindow($shift, $geometry);
-        if ($breakWindow === null) {
-            if ($logType === DomainLog::TIME_IN && $completedOuts > 0) {
-                return 'Time In is blocked: this shift already has a Time Out.';
-            }
-
-            return null;
-        }
-
-        $firstBreakMinute = $breakWindow[0];
-        $secondSlotStart = $breakWindow[0] + (($breakWindow[1] - $breakWindow[0]) / 2);
-
-        if ($logType === DomainLog::TIME_IN) {
-            if ($completedOuts >= 2) {
-                return 'Time In is blocked: this shift already has a Final Time Out.';
-            }
-
-            $waitingForSecondTimeIn = $last !== null
-                && $last->logType === DomainLog::TIME_OUT
-                && $completedOuts === 1;
-            $missedMorningAndInsideBreak = $last === null
-                && $nowMinute >= $firstBreakMinute
-                && $nowMinute < $secondSlotStart;
-
-            if (($waitingForSecondTimeIn || $missedMorningAndInsideBreak) && $nowMinute < $secondSlotStart) {
-                return self::tooEarlyMessage('Time In', 'Second Time In', $secondSlotStart);
-            }
-
-            return null;
-        }
-
-        $firstOutOpensAt = $firstBreakMinute - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES;
-        if ($completedOuts === 0 && $nowMinute < $firstOutOpensAt) {
-            return self::tooEarlyMessage('Time Out', 'First Time Out', $firstOutOpensAt);
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  list<DomainLog>  $windowLogs
-     */
-    private static function workDateForPunch(
-        array $windowLogs,
-        string $logType,
-        CarbonImmutable $now,
-        ShiftGeometry $geometry,
-    ): string {
-        $latest = self::latestLog($windowLogs);
-        if ($logType === DomainLog::TIME_OUT && $latest !== null && $latest->logType === DomainLog::TIME_IN) {
-            return self::workDateForInstant(ManilaClock::instant($latest->loggedAt), $geometry);
-        }
-
-        return self::workDateForInstant($now, $geometry);
-    }
-
-    private static function workDateForInstant(CarbonImmutable $instant, ShiftGeometry $geometry): string
-    {
-        $date = ManilaClock::dayKey($instant);
-
-        if ($geometry->overnight && ManilaClock::minutesOfDay($instant) <= $geometry->rawEnd) {
-            return PayrollPeriod::addCalendarDays($date, -1);
-        }
-
-        return $date;
-    }
-
-    /**
-     * @param  list<DomainLog>  $windowLogs
-     * @return list<DomainLog>
-     */
-    private static function logsForWorkDate(array $windowLogs, string $workDate, ShiftGeometry $geometry): array
-    {
-        $from = $geometry->start - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES;
-        $to = $geometry->end + (12 * 60);
-
-        $logs = [];
-        foreach ($windowLogs as $log) {
-            $minute = self::timelineMinuteForInstant(ManilaClock::instant($log->loggedAt), $workDate);
-            if ($minute >= $from && $minute <= $to) {
-                $logs[] = $log;
-            }
-        }
-
-        usort(
-            $logs,
-            static fn (DomainLog $a, DomainLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
-        );
-
-        return $logs;
-    }
-
-    /**
-     * @param  list<DomainLog>  $windowLogs
-     */
-    private static function latestLog(array $windowLogs): ?DomainLog
-    {
-        if ($windowLogs === []) {
-            return null;
-        }
-
-        usort(
-            $windowLogs,
-            static fn (DomainLog $a, DomainLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
-        );
-
-        return $windowLogs[count($windowLogs) - 1];
-    }
-
-    private static function timelineMinuteForInstant(CarbonImmutable $instant, string $workDate): float
-    {
-        $base = ManilaClock::ms(ManilaClock::instant($workDate.'T00:00:00'));
-
-        return (ManilaClock::ms($instant) - $base) / 60000;
-    }
-
-    private static function tooEarlyMessage(string $action, string $slot, float $opensAt): string
-    {
-        return "{$action} is blocked: too early for {$slot}. Earliest allowed is ".self::slotMinuteLabel($opensAt).'.';
-    }
-
-    private static function slotMinuteLabel(float $minute): string
-    {
-        $whole = (int) Minutes::round($minute);
-        $dayOffset = (int) floor($whole / (24 * 60));
-        $within = (($whole % (24 * 60)) + (24 * 60)) % (24 * 60);
-        $hour24 = intdiv($within, 60);
-        $minutePart = $within % 60;
-        $hour12 = $hour24 % 12 === 0 ? 12 : $hour24 % 12;
-        $suffix = $hour24 < 12 ? 'AM' : 'PM';
-
-        $label = sprintf('%d:%02d %s', $hour12, $minutePart, $suffix);
-        if ($dayOffset < 0) {
-            return $label.' previous day';
-        }
-        if ($dayOffset > 0) {
-            return $label.' next day';
-        }
-
-        return $label;
     }
 
     /** TS: `coordinate(text)` — a typed box as a number, or null for anything else. */

@@ -24,6 +24,7 @@
             <flux:input
                 name="password"
                 :label="__('Password')"
+                :description="__('Use at least :min characters, with uppercase and lowercase letters, a number and a symbol. Choose a password never used for this account.', ['min' => \App\Modules\IdentityAccess\Application\PasswordPolicy::MIN_LENGTH])"
                 type="password"
                 required
                 autocomplete="new-password"

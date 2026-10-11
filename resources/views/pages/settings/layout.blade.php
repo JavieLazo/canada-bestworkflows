@@ -1,3 +1,4 @@
+{{-- Starter-kit settings shell: auth-only, no module gate, no AuditService. Account deletion is Users\Index::deleteAccount, never a settings screen. --}}
 <div class="flex items-start max-md:flex-col">
     <div class="me-10 w-full pb-4 md:w-[220px]">
         <flux:navlist aria-label="{{ __('Settings') }}">

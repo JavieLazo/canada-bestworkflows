@@ -32,19 +32,20 @@ use App\Support\AuditService;
  *   3. `src/lib/seed.ts`, whose four historical `audit_logs` rows use two names
  *      that NO writer in either path ever emits.
  *
- * Every case below was extracted from those three sources, with the computed
+ * The reference cases were extracted from those three sources, with the computed
  * forms (`PUNCH_${log_type}`, `TASK_${status}`, `REQUEST_${next}`, the account
  * PATCH ternary, `projectAuditAction`) expanded to their reachable values. That
- * is 70 cases, against the 43-literals-plus-7-factories estimate in
+ * union is 70 cases, against the 43-literals-plus-7-factories estimate in
  * 01-STARTER-PACK.md §5.4 — the estimate counted the factories instead of the
  * strings they produce, and did not count the demo-only or seed-only names.
+ * The deliberate additions below extend that reference vocabulary.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * THE DIVERGENCES, AND HOW THEY ARE RESOLVED
  * ─────────────────────────────────────────────────────────────────────────────
  * Laravel gets ONE vocabulary. Where the two paths named the same event
  * differently, the SERVER name is canonical — the server path is the one this
- * port reproduces, and the demo path is being deleted. The drifted name is kept
+ * port reproduces, and the demo path is not ported. The drifted name is kept
  * as a case anyway, marked READ-ONLY below, because rows carrying it already
  * exist in the production database and the audit screen has to render them.
  *
@@ -62,10 +63,58 @@ use App\Support\AuditService;
  * Seed-only names, emitted by no writer at all: PAYROLL_POSTED, SHIFT_UPDATED.
  * They exist so the seeded historical rows stay legal. Do not write them.
  *
- * ONE DELIBERATE ADDITION beyond the union: PROJECT_DELETED. The reference
- * had no project delete at all (no DELETE /api/projects/[id], no dialog), so
- * no path ever wrote it; this port adds the action and, with it, the event.
- * It is the only case here with no reference provenance.
+ * DELIBERATE ADDITIONS beyond the union, the only cases here with no
+ * reference provenance:
+ *
+ *   - PROJECT_DELETED. The reference had no project delete at all (no DELETE
+ *     /api/projects/[id], no dialog), so no path ever wrote it; this port adds
+ *     the action and, with it, the event.
+ *   - TASK_RESPONSE_SUBMITTED, TASK_RESPONSE_APPROVED, TASK_RESPONSE_RETURNED.
+ *     The reference has one assignee per task and no per-member response;
+ *     ems's INDIVIDUAL tasks add both, and with them the three events a
+ *     member's own response can go through.
+ *   - ROSTER_LOCATIONS_SET. The reference has one Assigned Worksite per
+ *     employee; ems's weekly locations (work from home or a site per
+ *     weekday) add a roster write the reference never had.
+ *   - ROSTER_SHIFTS_SET. Weekday hours or explicit rest days independently
+ *     override an employee's standing shift.
+ *   - ROSTER_DATE_SET. One date overrides weekly hours or place.
+ *   - ROSTER_PERIOD_SET, ROSTER_PERIOD_CANCELLED, ROSTER_CHANGE_CANCELLED.
+ *     Temporary schedules for a date range, and cancelling a scheduled
+ *     change: schedules are dated history the reference never kept.
+ *   - LEAVE_CREDITS_SET. The reference stored two credit numbers on the
+ *     employee record and never wrote them down; ems's leave credits (a row
+ *     per employee, year and Leave Settings type) add the write that sets
+ *     them.
+ *   - REQUEST_CANCELLED. Leave Management excludes selected future dates
+ *     from approved leave while retaining its original approval evidence.
+ *   - DTR_OVERTIME_APPROVED, DTR_OVERTIME_REJECTED. The reference paid
+ *     overtime once a payroll officer acknowledged it for a whole run; ems
+ *     decides it per day on the Daily Time Record, and each decision is its
+ *     own audit row, written under RequiredAudit because it authorises pay.
+ *   - INCENTIVE_TYPE_CREATED, INCENTIVE_TYPE_UPDATED, INCENTIVE_TYPE_DELETED.
+ *     The reference paid no bonus at all; ems's catalog of incentive and
+ *     bonus types under Records → Payroll Settings adds the three writes
+ *     that maintain it (best-effort AuditService, like every other catalog).
+ *   - COMMUNITY_POST_PINNED, COMMUNITY_POST_UNPINNED, COMMUNITY_POST_REMOVED,
+ *     COMMUNITY_COMMENT_REMOVED, COMMUNITY_GROUP_CREATED, _UPDATED, _DELETED,
+ *     COMMUNITY_MEMBER_REMOVED, COMMUNITY_GROUP_ROLE_CHANGED and
+ *     COMMUNITY_TAG_CREATED, _UPDATED, _DELETED (twelve). The reference had
+ *     no Community at all; the Social module audits its moderation only
+ *     (best-effort AuditService), never posting, commenting or reacting.
+ *     COMMUNITY_POST_REMOVED is READ-ONLY: RemovePost is the author's alone.
+ *
+ *   - SITE_DEACTIVATED, SITE_REACTIVATED. Sites can be withheld from new
+ *     assignments while existing attendance and roster history retain them.
+ *   - STRUCTURE_CREATED, STRUCTURE_UPDATED, STRUCTURE_DELETED. Organization
+ *     owns departments and units independently of the Position reference list.
+ *   - INVENTORY_ITEM_CREATED, _UPDATED, _DELETED; INVENTORY_CATALOG_SAVED,
+ *     _DELETED; INVENTORY_ISSUED, _TRANSFERRED, _RETURNED;
+ *     INVENTORY_RECEIPT_CORRECTED; INVENTORY_INCIDENT_RECORDED, _RESOLVED;
+ *     INVENTORY_DISPOSAL_RECORDED; INVENTORY_COUNT_RECORDED, _RESOLVED;
+ *     INVENTORY_SIGNED_MR_ATTACHED, _DELETED (sixteen). Property custody,
+ *     immutable receipts and their supporting evidence have no reference
+ *     counterpart. Inventory uses the existing best-effort AuditService.
  *
  * TWO CLAIMS WORTH CORRECTING, because they are easy to repeat:
  *
@@ -85,7 +134,7 @@ use App\Support\AuditService;
  * interpolations that were never guaranteed to land on a known name, and an
  * audit helper that throws would defeat the point of a fail-soft trail.
  *
- * `audit_logs.action` is `varchar(80)`; the longest case here is 22 characters.
+ * `audit_logs.action` is `varchar(80)`; the longest case here is 28 characters.
  */
 enum AuditEvent: string
 {
@@ -166,15 +215,24 @@ enum AuditEvent: string
     case GRANT_REMOVED = 'GRANT_REMOVED';
 
     // ── Reference lists and records settings ────────────────────────────────
-    // REFERENCE_* covers every generic list behind `/records` (positions,
-    // employment statuses, leave types, document types, …); the four lists with
-    // their own screens get their own names.
+    // REFERENCE_* covers every generic list behind `/records` (employment
+    // statuses, leave types, document types, …) and the positions, which keep
+    // it on their own page so their trail stays one series; the other lists
+    // with their own screens get their own names.
 
     case REFERENCE_CREATED = 'REFERENCE_CREATED';
 
     case REFERENCE_UPDATED = 'REFERENCE_UPDATED';
 
     case REFERENCE_DELETED = 'REFERENCE_DELETED';
+
+    /** A department or a unit added; the sentence opens with "Department" or "Unit". */
+    case STRUCTURE_CREATED = 'STRUCTURE_CREATED';
+
+    /** A department or unit renamed, described, moved to another department or reordered. */
+    case STRUCTURE_UPDATED = 'STRUCTURE_UPDATED';
+
+    case STRUCTURE_DELETED = 'STRUCTURE_DELETED';
 
     case HOLIDAY_CREATED = 'HOLIDAY_CREATED';
 
@@ -188,6 +246,11 @@ enum AuditEvent: string
 
     case SITE_DELETED = 'SITE_DELETED';
 
+    /** A site withheld from new assignments; existing ones keep it. */
+    case SITE_DEACTIVATED = 'SITE_DEACTIVATED';
+
+    case SITE_REACTIVATED = 'SITE_REACTIVATED';
+
     case SHIFT_TYPE_CREATED = 'SHIFT_TYPE_CREATED';
 
     case SHIFT_TYPE_UPDATED = 'SHIFT_TYPE_UPDATED';
@@ -196,6 +259,15 @@ enum AuditEvent: string
 
     /** Payroll formulas are seeded and edited, never created or deleted — hence one case, not three. */
     case FORMULA_UPDATED = 'FORMULA_UPDATED';
+
+    /** A Contribution & Tax Table version added (RequiredAudit, AddStatutoryTableVersion). */
+    case STATUTORY_TABLE_ADDED = 'STATUTORY_TABLE_ADDED';
+
+    /** A Contribution & Tax Table version's coverage extended (RequiredAudit, ExtendStatutoryCoverage). */
+    case STATUTORY_TABLE_EXTENDED = 'STATUTORY_TABLE_EXTENDED';
+
+    /** A Pay Basis & Rates version saved (RequiredAudit, SavePayRulesVersion). */
+    case PAY_RULES_SAVED = 'PAY_RULES_SAVED';
 
     // ── Attendance, DTR and the roster ──────────────────────────────────────
 
@@ -212,6 +284,17 @@ enum AuditEvent: string
 
     case DTR_REMARK_CLEARED = 'DTR_REMARK_CLEARED';
 
+    /**
+     * Not in the reference vocabulary. An all-data EDTR holder decided one
+     * day's overtime on the Daily Time Record — approved (possibly fewer
+     * minutes than the day computed) or rejected. Entity `overtime_approvals`,
+     * id the EMPLOYEE's; one row per decision, never for a no-op, written with
+     * RequiredAudit so a failed audit cancels the decision. {@see self::dtrOvertime()}
+     */
+    case DTR_OVERTIME_APPROVED = 'DTR_OVERTIME_APPROVED';
+
+    case DTR_OVERTIME_REJECTED = 'DTR_OVERTIME_REJECTED';
+
     case SHIFT_ASSIGNED = 'SHIFT_ASSIGNED';
 
     /**
@@ -221,9 +304,34 @@ enum AuditEvent: string
      */
     case SHIFT_UPDATED = 'SHIFT_UPDATED';
 
+    /**
+     * The Shift Roster's Weekly locations dialog saved: where an employee
+     * works on each weekday, on `roster_locations`. Not in the reference
+     * vocabulary — the reference had one Assigned Worksite per employee and
+     * no such write.
+     * One row per save that changed something, never for a no-op.
+     */
+    case ROSTER_LOCATIONS_SET = 'ROSTER_LOCATIONS_SET';
+
+    /** Weekday hours or explicit rest days were changed in Shift Roster. */
+    case ROSTER_SHIFTS_SET = 'ROSTER_SHIFTS_SET';
+
+    /** A one-date change overrides or returns to the employee's weekly schedule. */
+    case ROSTER_DATE_SET = 'ROSTER_DATE_SET';
+
+    /** A temporary schedule for a date range was saved or changed. */
+    case ROSTER_PERIOD_SET = 'ROSTER_PERIOD_SET';
+
+    /** A temporary schedule was cancelled: before it began, or from the next eligible date. */
+    case ROSTER_PERIOD_CANCELLED = 'ROSTER_PERIOD_CANCELLED';
+
+    /** A default-shift or weekly change was cancelled before it took effect. */
+    case ROSTER_CHANGE_CANCELLED = 'ROSTER_CHANGE_CANCELLED';
+
     // ── Leave and travel requests ───────────────────────────────────────────
     // REQUEST_*, not LEAVE_*: one table, `leave_travel_requests`, carries leave,
-    // official business and travel alike.
+    // official business and travel alike. LEAVE_CREDITS_SET is the one LEAVE_
+    // case: it is on `leave_credits`, not on the requests table.
 
     case REQUEST_FILED = 'REQUEST_FILED';
 
@@ -234,6 +342,19 @@ enum AuditEvent: string
 
     /** Server-only. The filer taking back a still-pending request. */
     case REQUEST_WITHDRAWN = 'REQUEST_WITHDRAWN';
+
+    /** Selected approved leave dates are cancelled; original approval evidence stays. */
+    case REQUEST_CANCELLED = 'REQUEST_CANCELLED';
+
+    /**
+     * Leave Management's Set credits dialog saved: one employee's leave
+     * credits for one year, per Leave Settings type, on `leave_credits`.
+     * Not in the reference vocabulary — the reference carried two credit
+     * numbers on the employee record that nothing ever wrote. Entity id is
+     * the EMPLOYEE's; one row per save that changed something, never for a
+     * no-op.
+     */
+    case LEAVE_CREDITS_SET = 'LEAVE_CREDITS_SET';
 
     // ── Projects ────────────────────────────────────────────────────────────
 
@@ -275,7 +396,11 @@ enum AuditEvent: string
      */
     case TASK_STARTED = 'TASK_STARTED';
 
-    /** Server-only: a reviewer reopening a task back to PENDING. {@see self::taskStatus()} */
+    /**
+     * Server-only: a reviewer reopening a task back to PENDING. Reachable in
+     * ems only as a status set by hand (ChangeTaskStatus), which writes
+     * TASK_IN_PROGRESS the same way. {@see self::taskStatus()}
+     */
     case TASK_PENDING = 'TASK_PENDING';
 
     case TASK_IN_PROGRESS = 'TASK_IN_PROGRESS';
@@ -287,6 +412,21 @@ enum AuditEvent: string
     case TASK_COMPLETED = 'TASK_COMPLETED';
 
     case TASK_CANCELLED = 'TASK_CANCELLED';
+
+    /**
+     * DELIBERATE DIVERGENCE — not in the reference vocabulary (see the
+     * provenance note above). One member's own response on an
+     * INDIVIDUAL task moving: handed in (or resubmitted), approved, or
+     * returned for rework. The entity is the `project_task_submissions` row,
+     * not the task, and `details` never carries the note: a member's response
+     * is private to them and the reviewers, and the trail is not. The task's
+     * own completion is still TASK_COMPLETED. {@see self::taskResponse()}
+     */
+    case TASK_RESPONSE_SUBMITTED = 'TASK_RESPONSE_SUBMITTED';
+
+    case TASK_RESPONSE_APPROVED = 'TASK_RESPONSE_APPROVED';
+
+    case TASK_RESPONSE_RETURNED = 'TASK_RESPONSE_RETURNED';
 
     /** Written by BOTH paths — not demo-only. */
     case TASK_COMMENTED = 'TASK_COMMENTED';
@@ -309,6 +449,13 @@ enum AuditEvent: string
     /** The one irreversible payroll event. */
     case PAYROLL_FINALIZED = 'PAYROLL_FINALIZED';
 
+    /** The incentive and bonus catalog — a deliberate addition. */
+    case INCENTIVE_TYPE_CREATED = 'INCENTIVE_TYPE_CREATED';
+
+    case INCENTIVE_TYPE_UPDATED = 'INCENTIVE_TYPE_UPDATED';
+
+    case INCENTIVE_TYPE_DELETED = 'INCENTIVE_TYPE_DELETED';
+
     /**
      * SEED-ONLY. `src/lib/seed.ts` writes one historical row with this action
      * ("5 payslips posted for the previous cut-off"); finalising a run emits
@@ -316,6 +463,82 @@ enum AuditEvent: string
      * emit it.
      */
     case PAYROLL_POSTED = 'PAYROLL_POSTED';
+
+    // ── Community ───────────────────────────────────────────────────────────
+    // Only moderation goes in the trail. Posting, commenting and reacting are
+    // what the module is for, and a trail full of likes would bury the events
+    // someone actually comes here to find.
+
+    case COMMUNITY_POST_PINNED = 'COMMUNITY_POST_PINNED';
+
+    case COMMUNITY_POST_UNPINNED = 'COMMUNITY_POST_UNPINNED';
+
+    /**
+     * READ-ONLY. A moderator removed someone else's post. Nothing writes it:
+     * RemovePost is the author's alone and is not audited, and posts that go
+     * with their group are recorded as COMMUNITY_GROUP_DELETED. Kept so
+     * existing rows render; do not emit it.
+     */
+    case COMMUNITY_POST_REMOVED = 'COMMUNITY_POST_REMOVED';
+
+    /** A moderator removed someone else's comment, and its replies with it. An author removing their own is not audited. */
+    case COMMUNITY_COMMENT_REMOVED = 'COMMUNITY_COMMENT_REMOVED';
+
+    /** A moderator made a group. Joining one is membership, not moderation, and is not audited. */
+    case COMMUNITY_GROUP_CREATED = 'COMMUNITY_GROUP_CREATED';
+
+    /** A group's name, description, privacy or photo changed, by someone who runs it. */
+    case COMMUNITY_GROUP_UPDATED = 'COMMUNITY_GROUP_UPDATED';
+
+    /** A moderator deleted a group, and every post in it with it. */
+    case COMMUNITY_GROUP_DELETED = 'COMMUNITY_GROUP_DELETED';
+
+    /** Someone who runs a group took a member out of it. Leaving on your own is not audited. */
+    case COMMUNITY_MEMBER_REMOVED = 'COMMUNITY_MEMBER_REMOVED';
+
+    /** A group's owner made someone a moderator, took it back, or handed the group on. */
+    case COMMUNITY_GROUP_ROLE_CHANGED = 'COMMUNITY_GROUP_ROLE_CHANGED';
+
+    case COMMUNITY_TAG_CREATED = 'COMMUNITY_TAG_CREATED';
+
+    case COMMUNITY_TAG_UPDATED = 'COMMUNITY_TAG_UPDATED';
+
+    /** Posts that carried the tag stay, untagged. */
+    case COMMUNITY_TAG_DELETED = 'COMMUNITY_TAG_DELETED';
+
+    // ── Inventory custody and evidence ────────────────────────────────────
+
+    case INVENTORY_ITEM_CREATED = 'INVENTORY_ITEM_CREATED';
+
+    case INVENTORY_ITEM_UPDATED = 'INVENTORY_ITEM_UPDATED';
+
+    case INVENTORY_ITEM_DELETED = 'INVENTORY_ITEM_DELETED';
+
+    case INVENTORY_CATALOG_SAVED = 'INVENTORY_CATALOG_SAVED';
+
+    case INVENTORY_CATALOG_DELETED = 'INVENTORY_CATALOG_DELETED';
+
+    case INVENTORY_ISSUED = 'INVENTORY_ISSUED';
+
+    case INVENTORY_TRANSFERRED = 'INVENTORY_TRANSFERRED';
+
+    case INVENTORY_RETURNED = 'INVENTORY_RETURNED';
+
+    case INVENTORY_RECEIPT_CORRECTED = 'INVENTORY_RECEIPT_CORRECTED';
+
+    case INVENTORY_INCIDENT_RECORDED = 'INVENTORY_INCIDENT_RECORDED';
+
+    case INVENTORY_INCIDENT_RESOLVED = 'INVENTORY_INCIDENT_RESOLVED';
+
+    case INVENTORY_DISPOSAL_RECORDED = 'INVENTORY_DISPOSAL_RECORDED';
+
+    case INVENTORY_COUNT_RECORDED = 'INVENTORY_COUNT_RECORDED';
+
+    case INVENTORY_COUNT_RESOLVED = 'INVENTORY_COUNT_RESOLVED';
+
+    case INVENTORY_SIGNED_MR_ATTACHED = 'INVENTORY_SIGNED_MR_ATTACHED';
+
+    case INVENTORY_SIGNED_MR_DELETED = 'INVENTORY_SIGNED_MR_DELETED';
 
     /*
      |--------------------------------------------------------------------------
@@ -370,6 +593,16 @@ enum AuditEvent: string
     }
 
     /**
+     * No reference counterpart (see the TASK_RESPONSE_* cases). `$state` is
+     * the member state the response moved TO — SUBMITTED, APPROVED or
+     * RETURNED — so this yields one of the three TASK_RESPONSE_* names.
+     */
+    public static function taskResponse(string $state): string
+    {
+        return 'TASK_RESPONSE_'.$state;
+    }
+
+    /**
      * `changedAssignee ? "TASK_REASSIGNED" : "TASK_UPDATED"` — the DEMO's
      * task-review-dialog.tsx:231.
      *
@@ -409,6 +642,12 @@ enum AuditEvent: string
     public static function dtrRemark(bool $hasNote): string
     {
         return $hasNote ? self::DTR_REMARK_SET->value : self::DTR_REMARK_CLEARED->value;
+    }
+
+    /** The overtime decision's event: APPROVED or REJECTED (OvertimeApprovalPolicy::DECISIONS). */
+    public static function dtrOvertime(string $decision): self
+    {
+        return $decision === 'APPROVED' ? self::DTR_OVERTIME_APPROVED : self::DTR_OVERTIME_REJECTED;
     }
 
     /** `on ? "GRANT_ADDED" : "GRANT_REMOVED"` — src/app/(protected)/users/users-page.tsx. */

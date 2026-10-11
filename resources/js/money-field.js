@@ -1,12 +1,12 @@
 /*
  * `moneyField` — comma grouping while an amount is typed, for a bare <input>.
  *
- * The payroll workspace could not use <x-kit.money-input>: that component wraps
- * a Flux input, and a Flux input's wrapper does not fit a 22-column grid cell
- * (see run-workspace.blade.php's fidelity notes). It also could not stay
- * `type="number"`, because a number input refuses to DISPLAY a comma at all —
- * the browser drops any character that is not part of a number. So the cells
- * became `type="text"` and this carries the formatting.
+ * The payroll workspace cannot use <x-kit.money-input>: that component wraps
+ * a Flux input, and a Flux input's wrapper does not fit a grid cell two dozen
+ * columns wide (see run-workspace.blade.php's fidelity notes). Nor can the
+ * cells be `type="number"`, because a number input refuses to DISPLAY a comma
+ * at all — the browser drops any character that is not part of a number. So
+ * the cells are `type="text"` and this carries the formatting.
  *
  * WHAT LEAVES THIS COMPONENT IS ALWAYS COMMA-FREE. `raw` is the plain numeric
  * string ("1000", "1000.50") and is what the wire call must send; `text` is the
@@ -37,7 +37,19 @@ const toRaw = (text) => {
     return /^\d*(\.\d{0,2})?$/.test(cleaned) ? cleaned : null;
 };
 
-export default function moneyField(initial = '') {
+/*
+ * `fallback` is the figure an EMPTIED cell stands for: the computed SSS or
+ * tax, the computed NSD. Emptying such a cell sends '' — the server clears
+ * the override and keeps using the computed figure — but when nothing on
+ * the server changed (the cell held no override) Livewire re-renders the
+ * input byte-identical and Alpine keeps its blank state, so the cell would
+ * look like zero while the payslip deducts the computed amount.
+ * `restoreIfEmpty()`, called right after the wire call, puts the computed
+ * figure back on screen. An overridden cell passes no fallback: clearing it
+ * changes its `wire:key`, so the server's re-render builds a fresh input from
+ * the computed value instead.
+ */
+export default function moneyField(initial = '', fallback = null) {
     return {
         raw: '',
         text: '',
@@ -81,6 +93,12 @@ export default function moneyField(initial = '') {
                 }
                 el.setSelectionRange(at, at);
             });
+        },
+
+        restoreIfEmpty() {
+            if (this.raw !== '' || fallback === null) return;
+            this.raw = toRaw(String(fallback)) ?? '';
+            this.settle();
         },
 
         /* `1,000` settles as `1,000.00`; a leftover that never became a number

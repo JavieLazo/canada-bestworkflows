@@ -20,7 +20,11 @@ use Livewire\Livewire;
  * status, is_paid tri-state, actor columns, audit row and notification.
  */
 
-/** A role holding the given modules. Helpers are leaves-prefixed: Pest loads every test file into one process. */
+/**
+ * A role holding the given modules. Helpers are leaves-prefixed: Pest loads every test file into one process.
+ *
+ * @param  list<string>  $modules  ModuleCode values to grant
+ */
 function leavesRole(array $modules, bool $allData): Role
 {
     $role = new Role;
@@ -34,6 +38,9 @@ function leavesRole(array $modules, bool $allData): Role
     return $role;
 }
 
+/**
+ * @param  list<string>  $modules  ModuleCode values to grant
+ */
 function leavesActor(array $modules, bool $allData = false, ?string $employeeId = null): User
 {
     $user = User::factory()->create([
@@ -61,6 +68,9 @@ function leavesEmployee(string $code, string $first, string $last): EmployeeProf
     return $employee;
 }
 
+/**
+ * @param  array<string, string>  $overrides  column => value, merged over the pending SICK defaults
+ */
 function leavesRequest(EmployeeProfile $employee, string $code, array $overrides = []): LeaveTravelRequest
 {
     $request = new LeaveTravelRequest;
@@ -179,14 +189,14 @@ it('approves a pending leave with pay, recording actor, audit row and notificati
             ->where('action', 'REQUEST_APPROVED')
             ->where('entity', 'leave_travel_requests')
             ->where('entity_id', $request->getKey())
-            ->where('details', 'LR-001 approved')
+            ->where('details', 'Request LR-001 approved')
             ->exists()
     )->toBeTrue();
 
     $notification = Notification::query()->where('user_id', $requester->getKey())->first();
     expect($notification)->not->toBeNull();
     expect($notification->kind)->toBe('LEAVE_REVIEWED');
-    expect($notification->title)->toBe('LR-001 approved');
+    expect($notification->title)->toBe('Request LR-001 approved');
     expect($notification->body)->toBe('Approved with pay');
     expect($notification->href)->toBe('/portal');
 });

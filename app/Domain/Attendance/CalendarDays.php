@@ -58,6 +58,14 @@ final class CalendarDays
             ->format('Y-m-d');
     }
 
+    /** The calendar day before the given bare 'Y-m-d' date. */
+    public static function previous(string $date): string
+    {
+        return (new DateTimeImmutable($date.'T00:00:00.000Z', new DateTimeZone('UTC')))
+            ->sub(new DateInterval('P1D'))
+            ->format('Y-m-d');
+    }
+
     /**
      * TS: `new Date(`${date}T00:00:00.000Z`).getUTCDay()` — dtr.ts:182.
      * 0 is Sunday through 6 Saturday, matching `Shift::$workDays`.

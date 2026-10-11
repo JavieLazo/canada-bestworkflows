@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace App\Livewire\Employees;
 
-use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
+use App\Livewire\Concerns\TableDefaults;
 use App\Livewire\Concerns\WithTableFilters;
-use App\Models\DocumentType;
-use App\Models\EmployeeDocument;
-use App\Models\EmployeeProfile;
-use App\Models\ProjectTaskFile;
+use App\Modules\Workforce\Application\Commands\AttachDocument;
+use App\Modules\Workforce\Application\Commands\DeleteDocument;
+use App\Modules\Workforce\Application\Queries\EmployeeDocuments;
+use App\Modules\Workforce\Application\Queries\EmployeeRecords;
+use App\Platform\Files\AttachmentUsage;
 use App\Support\Access;
-use App\Support\AuditService;
 use Flux\Flux;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use Illuminate\Database\QueryException;
 use Illuminate\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -29,8 +28,10 @@ use Livewire\WithFileUploads;
  *
  * Metadata lives in the row; the bytes live on the private local disk
  * (storage/app/private) and are served by DocumentDownloadController behind
- * an ownership check. 2 MB per file, and a storage ceiling shared with task
- * attachments (BESTWORKFLOWS_STORAGE_CEILING_BYTES, default 1 GB).
+ * an Employee Records management check. The per-file cap (COPEMS_MAX_UPLOAD_BYTES, default
+ * 2 MB) and the storage ceiling shared with task attachments
+ * (COPEMS_STORAGE_CEILING_BYTES, default 1 GB) both come from
+ * `config('copems.uploads.*')` through EmployeeFields.
  */
 class Documents extends Component
 {
@@ -40,7 +41,12 @@ class Documents extends Component
     #[Locked]
     public string $employeeId;
 
+    #[Locked]
+    public bool $own = false;
+
     public bool $adding = false;
+
+    public string $category = '';
 
     /** @var array{document_no: string, name: string, category: string, expires_on: string} */
     public array $form = ['document_no' => '', 'name' => '', 'category' => '', 'expires_on' => ''];
@@ -52,26 +58,31 @@ class Documents extends Component
      */
     public $upload = null;
 
-    public function mount(string $employeeId): void
+    public function mount(string $employeeId, bool $own = false): void
     {
+        $this->own = $own;
         $this->employeeId = $employeeId;
+        abort_unless($this->allowed(app(Access::class)), 403);
     }
 
-    /**
-     * allowed() (api/employees/[id]/documents/route.ts:33-37): the Employees
-     * module with `all_data`, or the caller's own 201 file.
-     */
     private function allowed(Access $access): bool
     {
-        return $access->mayReadAllData(ModuleCode::EMPLOYEES)
-            || $access->employeeId === $this->employeeId;
+        return ! $this->own && $access->mayReadAllData(ModuleCode::EMPLOYEES);
+    }
+
+    public function updatedPerPage(mixed $value): void
+    {
+        $size = (int) $value;
+        $this->perPage = in_array($size, TableDefaults::PAGE_SIZE_OPTIONS, true)
+            ? $size
+            : TableDefaults::DEFAULT_PAGE_SIZE;
+        $this->resetPage('documentsPage');
     }
 
     /** One budget across every employee document AND every task file. */
     private function usedBytes(): int
     {
-        return (int) EmployeeDocument::query()->sum('size')
-            + (int) ProjectTaskFile::query()->sum('size');
+        return AttachmentUsage::bytes();
     }
 
     /** Closing the dialog resets it. */
@@ -94,17 +105,18 @@ class Documents extends Component
      */
     public function updatedUpload(): void
     {
+        abort_unless($this->allowed(app(Access::class)), 403);
         if ($this->upload === null) {
             return;
         }
 
         $size = (int) $this->upload->getSize();
 
-        if ($size > EmployeeFields::MAX_FILE_BYTES) {
+        if ($size > EmployeeFields::maxFileBytes()) {
             // attachmentRejection (attachments.ts:52-57), API-mode wording.
             Flux::toast(
                 text: $this->upload->getClientOriginalName().' is '.EmployeeFields::humanSize($size)
-                    .' — the limit is '.EmployeeFields::humanSize(EmployeeFields::MAX_FILE_BYTES).' per file.',
+                    .' — the limit is '.EmployeeFields::humanSize(EmployeeFields::maxFileBytes()).' per file.',
                 variant: 'danger',
             );
             $this->upload = null;
@@ -121,158 +133,57 @@ class Documents extends Component
     public function submit(): void
     {
         $access = app(Access::class);
-
         if (! $this->allowed($access)) {
             abort(403);
         }
-
-        $employee = EmployeeProfile::query()->find($this->employeeId);
-
-        if ($employee === null) {
-            return;
-        }
-
-        if ($this->upload === null) {
-            Flux::toast(text: 'Choose a file to attach.', variant: 'danger');
-
-            return;
-        }
-
-        if ($this->form['category'] === '') {
-            Flux::toast(text: 'Choose a category.', variant: 'danger');
-
-            return;
-        }
-
-        // The API's own checks (api/employees/[id]/documents/route.ts:60-72).
-        if (DocumentType::query()->where('name', $this->form['category'])->doesntExist()) {
-            Flux::toast(text: 'Choose a category from Document Settings.', variant: 'danger');
-
-            return;
-        }
-
-        $expires = trim($this->form['expires_on']);
-
-        if ($expires !== '' && ! EmployeeFields::isCalendarDay($expires)) {
-            Flux::toast(text: 'Expiration must be a real calendar date.', variant: 'danger');
-
-            return;
-        }
-
-        $size = (int) $this->upload->getSize();
-
-        if ($size > EmployeeFields::MAX_FILE_BYTES) {
-            Flux::toast(text: 'The uploaded file is larger than the 2 MB limit.', variant: 'danger');
-
-            return;
-        }
-
-        if ($this->usedBytes() + $size > EmployeeFields::storageCeilingBytes()) {
-            // assertStorageCeiling (lib/api/storage.ts:18-29).
-            Flux::toast(text: 'The file store is full. Delete old attachments before uploading more.', variant: 'danger');
-
-            return;
-        }
-
-        $originalName = $this->upload->getClientOriginalName();
-        $extension = strtolower((string) $this->upload->getClientOriginalExtension());
-        $storedName = (string) Str::ulid().($extension !== '' ? '.'.$extension : '');
-
-        $path = $this->upload->storeAs('employee-documents', $storedName, 'local');
-
-        if ($path === false) {
+        try {
+            $name = app(AttachDocument::class)->handle($access, $this->employeeId, $this->upload, $this->form);
+        } catch (QueryException $e) {
+            report($e);
             Flux::toast(text: 'Upload failed', variant: 'danger');
 
             return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
+
+            return;
         }
-
-        $name = trim($this->form['name']) !== '' ? trim($this->form['name']) : $originalName;
-
-        $document = new EmployeeDocument;
-        $document->fill([
-            'employee_id' => $this->employeeId,
-            'document_no' => trim($this->form['document_no']) !== '' ? mb_substr(trim($this->form['document_no']), 0, 80) : null,
-            'name' => mb_substr($name, 0, 200),
-            'category' => mb_substr($this->form['category'], 0, 80),
-            'expires_on' => $expires !== '' ? $expires : null,
-            'file_name' => mb_substr($originalName, 0, 300),
-            // The stored file is the truth, not the client's claim.
-            'mime' => mb_substr((string) $this->upload->getMimeType(), 0, 120),
-            'size' => $size,
-            'path' => $path,
-        ]);
-        // Actor column: from the session, never from the request.
-        $document->uploaded_by = $access->userId === null ? null : (int) $access->userId;
-        $document->save();
-
-        AuditService::record(
-            $access,
-            AuditEvent::DOCUMENT_UPLOADED,
-            'employee_documents',
-            $document->id,
-            "{$document->name} attached",
-        );
-
+        if ($name === null) {
+            return;
+        }
         Flux::toast(text: 'Document added.', variant: 'success');
         $this->resetDialog();
         $this->adding = false;
     }
 
-    public function remove(string $documentId): void
+    public function removeDocument(string $documentId): void
     {
         $access = app(Access::class);
-
-        if (! $this->allowed($access)) {
-            abort(403);
+        abort_unless($this->allowed($access), 403);
+        $name = app(DeleteDocument::class)->handle($access, $this->employeeId, $documentId);
+        if ($name !== null) {
+            Flux::toast(text: "{$name} deleted.", variant: 'success');
         }
-
-        // Narrowed to THIS employee's file before the id is honoured.
-        $document = EmployeeDocument::query()
-            ->where('employee_id', $this->employeeId)
-            ->whereKey($documentId)
-            ->first();
-
-        if ($document === null) {
-            return;
-        }
-
-        Storage::disk('local')->delete($document->path);
-        $document->delete();
-
-        AuditService::record(
-            $access,
-            AuditEvent::DOCUMENT_DELETED,
-            'employee_documents',
-            $documentId,
-            "{$document->name} deleted",
-        );
-
-        Flux::toast(text: "{$document->name} deleted.", variant: 'success');
     }
 
     public function render(): View
     {
         $access = app(Access::class);
-        $employee = EmployeeProfile::query()->find($this->employeeId);
-
-        $query = EmployeeDocument::query()
-            ->where('employee_id', $this->employeeId)
-            ->orderByDesc('created_at');
-
-        if (! $this->allowed($access)) {
-            $query->whereRaw('1 = 0');
-        }
-
-        $total = (clone $query)->count();
-        $list = $this->paginateClamped($query, 'documentsPage');
+        abort_unless($this->allowed($access), 403);
+        $employee = app(EmployeeRecords::class)->find($access, $this->employeeId);
+        $documents = app(EmployeeDocuments::class);
+        $list = $this->acceptPage($documents->page($access, $this->employeeId, (int) $this->getPage('documentsPage'), $this->perPage, $this->category), 'documentsPage');
+        $total = $list->total();
 
         return view('livewire.employees.documents', [
             'employee' => $employee,
+            'canEdit' => $this->allowed($access),
             'list' => $list,
             'total' => $total,
             'usedBytes' => $this->usedBytes(),
-            'maxFileBytes' => EmployeeFields::MAX_FILE_BYTES,
-            'categories' => DocumentType::query()->orderBy('name')->pluck('name')->all(),
+            'maxFileBytes' => EmployeeFields::maxFileBytes(),
+            'categories' => $documents->categories($access),
+            'filterCategories' => $documents->filterCategories($access, $this->employeeId),
             'today' => EmployeeFields::todayKey(),
         ]);
     }
