@@ -122,7 +122,7 @@ it('renders branded issued pay and historical lines without using current salary
     preg_match('/<article[^>]*class="[^"]*hris-payslip[^"]*"[^>]*>(.*?)<\/article>/s', $html, $document);
     $printed = payslipDocumentText($document[1] ?? '');
 
-    expect($html)->toContain('bestworkflows-icon-32.png')
+    expect($html)->toContain('bestworkflows-horizontal-view.png')
         ->and($text)->toContain('Fixture Company', 'COP-DOCUMENT-001', 'Alexandria Statement', 'Payroll ID PR-DOCUMENT-001')
         ->toContain('812.34', '1,332.75', '660.66', '672.09')
         ->toContain('Issued equipment installment', '60.06', 'Issued service award', '100.77')
@@ -165,7 +165,7 @@ it('shows yearly pay and tax treatment without an attendance basis on every pays
     $html = payslipDocumentHtml($surface, $run, $payslip);
     $text = payslipDocumentText($html);
 
-    expect($html)->toContain('bestworkflows-icon-32.png')
+    expect($html)->toContain('bestworkflows-horizontal-view.png')
         ->and($text)->toContain('Fixture Company', '13th month pay', '12,345.67', '345.67', '12,000.00')
         ->not->toContain('Work days', 'Absences', 'Daily rate', 'Time and rate details');
     // Every surface keeps the posted exemption split, never a split of the

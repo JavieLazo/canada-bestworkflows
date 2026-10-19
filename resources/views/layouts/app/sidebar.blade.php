@@ -91,15 +91,14 @@
             x-on:click.self.capture="$el.hasAttribute('data-flux-sidebar-collapsed-desktop') && window.matchMedia('(hover: hover)').matches && $event.stopImmediatePropagation()"
         >
             <flux:sidebar.header>
-                <div class="flex min-h-12 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md p-2 sidebar-rail:justify-center sidebar-rail:p-0">
-                    <div class="flex aspect-square size-11 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white sidebar-rail:size-8">
-                        <img src="{{ asset('bestworkflows-icon-32.png') }}" alt="BestWorkflows logo" class="size-11 object-contain sidebar-rail:size-8" />
-                    </div>
-                    {{-- The full company name has to read in one piece, so it wraps
-                         rather than truncating — and disappears in icon mode. --}}
-                    <div class="grid min-w-0 flex-1 leading-tight {{ $hideCollapsed }}">
-                        <span class="text-sm font-bold">BestWorkflows</span>
-                        <span class="text-xs text-sidebar-foreground/70">Management Information System</span>
+                <div class="flex min-h-12 min-w-0 flex-1 items-center overflow-hidden rounded-md sidebar-rail:justify-center">
+                    {{-- The compact mark fits the collapsed rail; hovering the rail
+                         restores the horizontal logo with the rest of the header. --}}
+                    <img src="{{ asset('bestworkflows-icon-32.png') }}" alt="BestWorkflows logo" width="32" height="32"
+                         class="hidden size-8 shrink-0 rounded-md bg-white object-contain sidebar-rail:block" />
+                    <div class="grid min-w-0 flex-1 gap-1 {{ $hideCollapsed }}">
+                        <x-brand-logo class="w-full" />
+                        <span class="text-center text-xs text-sidebar-foreground/70">Management Information System</span>
                     </div>
                 </div>
             </flux:sidebar.header>

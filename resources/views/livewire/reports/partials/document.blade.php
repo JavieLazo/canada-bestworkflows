@@ -6,7 +6,7 @@
     <header @class(['reports-document-header', 'print:hidden' => in_array($type, ['payslips', 'attendance-reports'], true) && $document->sections !== [] && ($generated['view'] ?? '') !== 'analysis'])>
         <div class="reports-document-heading">
             <div class="reports-brand">
-                <img src="{{ asset('bestworkflows-icon-32.png') }}" alt="" width="42" height="42" />
+                <x-brand-logo />
                 <div class="min-w-0">
                     <p class="font-semibold">{{ config('copems.company_name') }}</p>
                     <p class="reports-overline">Management Information System</p>

@@ -715,6 +715,7 @@ select:focus[data-flux-control] {
 
 .reports-brand {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
     min-width: 0;
@@ -722,6 +723,9 @@ select:focus[data-flux-control] {
 }
 
 .reports-brand img {
+    width: 216px;
+    height: auto;
+    max-width: 100%;
     flex-shrink: 0;
     object-fit: contain;
 }
@@ -1100,13 +1104,14 @@ select:focus[data-flux-control] {
 
 @media (max-width: 479px) {
     .reports-brand {
+        flex-direction: column;
+        align-items: flex-start;
         gap: 0.5rem;
         font-size: 0.7rem;
     }
 
     .reports-brand img {
-        width: 32px;
-        height: 32px;
+        width: 192px;
     }
 
     .reports-overline {
@@ -1326,12 +1331,14 @@ select:focus[data-flux-control] {
     }
 
     .reports-brand {
+        flex-direction: row;
+        align-items: center;
         font-size: 9pt;
     }
 
     .reports-brand img {
-        width: 30pt;
-        height: 30pt;
+        width: 108pt;
+        height: auto;
     }
 
     .reports-overline {

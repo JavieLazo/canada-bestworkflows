@@ -57,26 +57,25 @@
 
     {{-- 2. Header / navbar --}}
     <header class="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-sm">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-            <div class="flex items-center gap-3 py-2">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between gap-3">
+            <div class="flex min-w-0 shrink-0 items-center">
                 <a href="/" class="group inline-flex items-center">
-                    <img src="{{ asset('bestworkflows-logo.png') }}" alt="BestWorkflows — Local Compliance, Global Workflows"
-                         class="h-11 md:h-12 w-auto object-contain transition-transform group-hover:scale-[1.02]">
+                    <x-brand-logo class="w-44 sm:w-56 transition-transform group-hover:scale-[1.02]" />
                 </a>
             </div>
 
-            <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
+            <nav class="hidden xl:flex items-center gap-5 text-sm font-medium text-slate-600">
                 <a href="#features" class="hover:text-brand-teal transition">Platform Pillars</a>
                 <a href="#architecture" class="hover:text-brand-teal transition">Edge Resilience</a>
                 <a href="#workflow" class="hover:text-brand-teal transition">Workflow Engine</a>
                 <a href="#deployment" class="hover:text-brand-teal transition">Deployment Models</a>
             </nav>
 
-            <div class="flex items-center gap-3">
-                <a href="{{ route('login') }}" class="inline-flex items-center justify-center px-4 py-2.5 text-sm font-semibold text-brand-teal hover:text-brand-dark transition">
+            <div class="flex shrink-0 items-center gap-3">
+                <a href="{{ route('login') }}" class="inline-flex items-center justify-center whitespace-nowrap px-3 sm:px-4 py-2.5 text-sm font-semibold text-brand-teal hover:text-brand-dark transition">
                     Sign In
                 </a>
-                <a href="#demo" class="inline-flex items-center justify-center px-5 py-2.5 text-sm font-semibold rounded-lg bg-brand-amber hover:bg-brand-amberdark text-slate-950 transition shadow-sm font-display tracking-wide">
+                <a href="#demo" class="hidden sm:inline-flex items-center justify-center whitespace-nowrap px-5 py-2.5 text-sm font-semibold rounded-lg bg-brand-amber hover:bg-brand-amberdark text-slate-950 transition shadow-sm font-display tracking-wide">
                     Request Pilot
                 </a>
             </div>
@@ -388,7 +387,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
             <div class="flex items-center gap-3">
                 <div class="bg-white p-2 rounded-lg inline-flex items-center justify-center shadow-sm">
-                    <img src="{{ asset('bestworkflows-logo.png') }}" alt="BestWorkflows" class="h-8 w-auto object-contain">
+                    <x-brand-logo class="w-56" />
                 </div>
             </div>
 

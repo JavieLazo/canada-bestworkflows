@@ -5,7 +5,7 @@
 <article {{ $attributes->class('hris-payslip') }} @if ($document['yearly']) data-thirteenth-month @endif>
     <header class="hris-payslip-header">
         <div class="hris-payslip-brand">
-            <img class="hris-payslip-logo" src="{{ asset('bestworkflows-icon-32.png') }}" alt="" width="34" height="34" />
+            <x-brand-logo class="hris-payslip-logo" />
             <div>
                 <p class="hris-payslip-company">{{ config('copems.company_name') }}</p>
                 <p class="hris-payslip-subtitle">Employee pay statement</p>

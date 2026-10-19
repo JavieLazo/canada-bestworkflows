@@ -34,13 +34,15 @@ article.hris-payslip .num {
 }
 .hris-payslip-brand {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 9px;
     min-width: 0;
 }
 .hris-payslip-logo {
-    width: 34px;
-    height: 34px;
+    width: 180px;
+    height: auto;
+    max-width: 100%;
     flex-shrink: 0;
     object-fit: contain;
 }
@@ -346,6 +348,14 @@ article.hris-payslip .hris-payslip-table td.line-through {
     .hris-payslip-header {
         align-items: flex-start;
     }
+    .hris-payslip-brand {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+    .hris-payslip-logo {
+        width: 156px;
+    }
     .hris-payslip-document h2 {
         font-size: 21px;
     }
@@ -508,6 +518,13 @@ article.hris-payslip .hris-payslip-table td.line-through {
         page-break-inside: avoid;
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
+    }
+    .hris-payslip-brand {
+        flex-direction: row;
+        align-items: center;
+    }
+    .hris-payslip-logo {
+        width: 108pt;
     }
     article.hris-payslip .hris-table-wrap {
         overflow: visible;

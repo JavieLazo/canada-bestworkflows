@@ -16,7 +16,7 @@ it('serves the preserved BestWorkflows landing and working sign-in destination t
         ->assertSee('data-kit-select', false)
         ->assertSee('Hybrid Sovereign (Recommended)');
     $this->get(route('login'))->assertOk()
-        ->assertSee('bestworkflows-icon-32.png')
+        ->assertSee('bestworkflows-horizontal-view.png')
         ->assertDontSee('CyberOnions');
 });
 
