@@ -95,7 +95,7 @@
                     {{-- The compact mark fits the collapsed rail; hovering the rail
                          restores the horizontal logo with the rest of the header. --}}
                     <img src="{{ asset('bestworkflows-icon-32.png') }}" alt="BestWorkflows logo" width="32" height="32"
-                         class="hidden size-8 shrink-0 rounded-md bg-white object-contain sidebar-rail:block" />
+                         class="hidden size-8 shrink-0 rounded-md object-contain sidebar-rail:block" />
                     <div class="grid min-w-0 flex-1 gap-1 {{ $hideCollapsed }}">
                         <x-brand-logo class="w-full" />
                         <span class="text-center text-xs text-sidebar-foreground/70">Management Information System</span>

@@ -386,7 +386,7 @@
     <footer class="bg-slate-950 text-slate-400 py-12 text-sm border-t border-slate-900">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row items-center justify-between gap-6">
             <div class="flex items-center gap-3">
-                <div class="bg-white p-2 rounded-lg inline-flex items-center justify-center shadow-sm">
+                <div class="p-2 inline-flex items-center justify-center">
                     <x-brand-logo class="w-56" />
                 </div>
             </div>
