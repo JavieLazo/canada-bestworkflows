@@ -13,6 +13,9 @@ use Carbon\CarbonImmutable;
  * comment instead of under it (CommentOnPost). `canDelete` is for its author
  * and for company-wide moderators — wider than a post's, which is offered
  * to its author alone.
+ * Editing is the author's alone (`mine`), the same as a post's, and only
+ * while they can take part in the post's group: the partial checks the
+ * post's `canInteract` too.
  */
 final readonly class CommentView
 {
@@ -36,6 +39,7 @@ final readonly class CommentView
         public array $replies = [],
         public array $photos = [],
         public array $files = [],
+        public ?CarbonImmutable $editedAt = null,
     ) {}
 
     public function reactionTotal(): int

@@ -13,11 +13,13 @@ use App\Modules\Workforce\Application\EmployeeInput;
 use App\Modules\Workforce\Application\EmployeePosition;
 use App\Modules\Workforce\Application\EmployeeSectionWriter;
 use App\Modules\Workforce\Application\EmploymentHistoryRecorder;
+use App\Modules\Workforce\Application\SalaryRates;
 use App\Platform\Records\AccountEmployeeLinks;
 use App\Platform\Retention\EmployeeObligations;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
+use App\Support\ManilaClock;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -69,9 +71,14 @@ final class UpdateEmployee
                 }
             }
             $beforeEmployment = $sectionId === 'employment' ? EmploymentHistoryRecorder::snapshot($employee) : null;
+            $monthlyBefore = $employee->monthly_rate;
+            $dailyBefore = $employee->daily_rate;
             $writer->write($employee, $payload);
             if ($beforeEmployment !== null) {
                 app(EmploymentHistoryRecorder::class)->updated($access, $employee, $beforeEmployment);
+                // A rate edit here is a salary version dated today, so the
+                // salary history stays one (SalaryRates, divergence 18).
+                SalaryRates::recordProfileEdit($access, $employee, $monthlyBefore, $dailyBefore, ManilaClock::todayKey());
             }
 
             return [$employee, $payload, $obligationNote];

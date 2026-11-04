@@ -1,9 +1,9 @@
 {{--
     Community's dialogs: the group form (new or edit, with a photo, and for a
     new group the people to start with), adding people to a group, every
-    group in one searchable list, "Coming up" on a phone, and the tag
-    manager. The commands behind them check who's allowed again, whatever
-    this shows.
+    group in one searchable list, "Coming up" on a phone, the tag manager,
+    and a post's edit history. The commands behind them check who's allowed
+    again, whatever this shows.
 
     The tag manager is one dialog with two pages: the list of tags, each with
     an Edit button, and the form for one tag, reached from Edit or New tag.
@@ -12,10 +12,11 @@
     $directory, $pickedPeople, $activeGroup, $groupsDialog, $groupsTab,
     $groupsSearch, $joinedGroups, $otherGroups, $comingUpDialog,
     $celebrations, $tagsDialog, $tagPage, $editingTagId, $tagForm, $tags,
-    $canModerate, $maxBytes.
+    $canModerate, $maxBytes, $historyDialog, $history, $groupNames, $tagsByCode.
 --}}
 @use('App\Livewire\Community\Support\CommunityLabels')
 @use('App\Modules\Social\Application\SocialRules')
+@use('App\Support\SocialFormat')
 @php
     $avatarStaged = $staged['avatar'][0] ?? null;
     $avatarPreview = null;
@@ -284,3 +285,53 @@
         @endif
     </flux:modal>
 @endif
+
+{{--
+    Newest first: the post as it is now, then as it was before each edit,
+    each with its tag, photos and files. A photo opens in the photo viewer,
+    which sits above this dialog.
+--}}
+<flux:modal wire:model.self="historyDialog" class="w-full max-w-2xl">
+    <div class="space-y-4">
+        <h2 class="text-lg font-semibold leading-none tracking-tight">Edit history</h2>
+        @if ($history !== null)
+            <ol class="max-h-[70vh] space-y-3 overflow-y-auto">
+                @foreach ($history['versions'] as $i => $version)
+                    @php
+                        $versionTag = $version['tag'] !== null ? ($tagsByCode[$version['tag']] ?? null) : null;
+                    @endphp
+                    <li class="space-y-2 rounded-lg border border-border p-3">
+                        <p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                            <span>{{ SocialFormat::stamp($version['at']) }}</span>
+                            @if ($i === 0)
+                                <span aria-hidden="true">&middot;</span>
+                                <span>Current</span>
+                            @endif
+                            @if ($versionTag !== null)
+                                <span class="pill {{ CommunityLabels::pill($versionTag->tone) }} ml-auto max-w-[9rem] truncate">{{ $versionTag->name }}</span>
+                            @endif
+                        </p>
+                        @if (trim($version['body']) !== '')
+                            <x-social.text :body="$version['body']" :names="$history['names']" :groups="$groupNames" class="block text-sm" />
+                        @endif
+                        @if ($version['photos'] !== [])
+                            @php
+                                $versionUrls = array_map(static fn (string $id): string => route('community.photos', ['photo' => $id]), $version['photos']);
+                            @endphp
+                            <div class="flex flex-wrap gap-2">
+                                @foreach ($versionUrls as $k => $url)
+                                    <button type="button" x-on:click="$dispatch('lightbox', { images: @js($versionUrls), index: {{ $k }} })" class="block size-20 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border bg-muted" aria-label="Look at photo {{ $loop->iteration }}">
+                                        <img src="{{ $url }}" alt="" loading="lazy" class="size-full object-cover" />
+                                    </button>
+                                @endforeach
+                            </div>
+                        @endif
+                        <x-social.files :files="$version['files']" route="community.files" compact />
+                    </li>
+                @endforeach
+            </ol>
+        @elseif ($historyDialog)
+            <p class="text-sm text-muted-foreground">That post isn't here anymore.</p>
+        @endif
+    </div>
+</flux:modal>

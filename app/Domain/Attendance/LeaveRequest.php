@@ -17,6 +17,11 @@ final readonly class LeaveRequest
 
     public const DAY_TYPE_HALF = 'HALF_DAY';
 
+    /** Which half of a HALF_DAY is off (divergence 21); null = either, the reference's reading. */
+    public const HALF_AM = 'AM';
+
+    public const HALF_PM = 'PM';
+
     /** @param list<string> $cancelledDates */
     public function __construct(
         public string $requestType,
@@ -34,6 +39,8 @@ final readonly class LeaveRequest
         /** WHOLE_DAY or HALF_DAY. Missing rows are read as a whole day. */
         public ?string $dayType = null,
         public array $cancelledDates = [],
+        /** AM or PM on a half day that says which half is off; null otherwise (divergence 21). */
+        public ?string $half = null,
     ) {}
 
     /**
@@ -61,6 +68,7 @@ final readonly class LeaveRequest
             isPaid: isset($row['is_paid']) ? (bool) $row['is_paid'] : null,
             dayType: isset($row['day_type']) ? (string) $row['day_type'] : null,
             cancelledDates: array_values(array_map(self::dayOnly(...), is_array($row['cancelled_dates'] ?? null) ? $row['cancelled_dates'] : [])),
+            half: in_array($row['half'] ?? null, [self::HALF_AM, self::HALF_PM], true) ? (string) $row['half'] : null,
         );
     }
 

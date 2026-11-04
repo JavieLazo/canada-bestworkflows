@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One incentive or bonus line a posted payslip paid (payslip_incentives,
@@ -31,8 +30,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $over_ceiling
  * @property string|null $tax
  * @property bool $counts_toward_13th
+ * @property string|null $recurring_line_id the recurring line it paid (2026_10_30_0003)
+ * @property string|null $adjustment_id the adjustment it paid (2026_11_02_0005); NULL on a line that pays none
  * @property CarbonImmutable $created_at
- * @property-read Payslip|null $payslip
  */
 class PayslipIncentive extends BaseModel
 {
@@ -53,6 +53,9 @@ class PayslipIncentive extends BaseModel
         'over_ceiling',
         'tax',
         'counts_toward_13th',
+        'recurring_line_id',
+        // The adjustment this line paid (2026_11_02_0005); NULL on a line that pays none.
+        'adjustment_id',
     ];
 
     /** @return array<string, string> */
@@ -66,11 +69,5 @@ class PayslipIncentive extends BaseModel
             'over_ceiling' => 'float',
             'created_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return BelongsTo<Payslip, $this> */
-    public function payslip(): BelongsTo
-    {
-        return $this->belongsTo(Payslip::class, 'payslip_id');
     }
 }

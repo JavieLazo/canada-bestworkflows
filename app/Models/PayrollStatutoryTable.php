@@ -10,9 +10,11 @@ use Carbon\CarbonImmutable;
  * One dated version of one Contribution & Tax Table: the SSS, PhilHealth,
  * Pag-IBIG or withholding figures (`params`, the shape
  * `App\Domain\Payroll\StatutorySchedule` reads) in force from
- * `effective_from` and known good through `covered_through`. A version's
- * figures never change once saved — a change is a new version — and the
- * account that added it is kept by id and by name.
+ * `effective_from` until a later version starts, with its figures last
+ * CONFIRMED good through `covered_through` (a reminder past it, never a
+ * refusal). A version in force never changes — a change is a new version;
+ * only a version that has not taken effect yet is corrected or withdrawn —
+ * and the account that added it is kept by id and by name.
  *
  * `created_by` and `created_by_name` are set by the command, never filled.
  *

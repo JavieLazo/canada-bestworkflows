@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Modules\Payroll\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Models\PayrollIncentiveType;
+use App\Models\PayrollRecurringLine;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
+use App\Modules\Payroll\Application\RecurringLines;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Support\Access;
 use App\Support\AuditService;
@@ -19,8 +21,8 @@ use RuntimeException;
  * Adds or edits one benefit of the Incentives & Bonuses catalog under
  * Records → Payroll Settings.
  *
- * Who: an all-data holder of RECORDS or of PAYROLL, because the payroll
- * officers who pay incentives have no Records access. What: a name
+ * Who: whoever manages Payroll Settings (PayrollSettingsAccess: all-data
+ * PAYROLL), since the page lives under Payroll. What: a name
  * (unique, at most 100 characters), an optional description (at most 500)
  * and the benefit's rule — how the amount is set, how often it is due, who
  * qualifies, the proration, the tax category and whether it counts toward
@@ -50,10 +52,11 @@ final class SaveIncentiveType
      * The toast sentence. Every refusal throws a RuntimeException carrying it, and writes nothing.
      *
      * @param  array<string, mixed>|null  $rule  the benefit's figures in BenefitRule shape; null keeps the typed shape the flag describes
+     * @param  bool  $paysLeaveCashOut  whether leave credit cash-outs are paid as this type (one type at most; a scheduled benefit cannot)
      */
-    public function handle(Access $actor, ?string $id, string $name, ?string $description, bool $isTaxable, ?array $rule = null): string
+    public function handle(Access $actor, ?string $id, string $name, ?string $description, bool $isTaxable, ?array $rule = null, bool $paysLeaveCashOut = false): string
     {
-        if (! $actor->mayReadAllData(ModuleCode::RECORDS) && ! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
+        if (! PayrollSettingsAccess::mayManage($actor)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
 
@@ -80,9 +83,20 @@ final class SaveIncentiveType
         // The rule's columns are written only once the catalog carries them.
         $figures = PayrollData::benefitRulesReady() ? $benefit->toArray() : [];
         $category = self::TAX_LABELS[$benefit->tax];
+        // The cash-out flag: a type payroll schedules cannot carry it (the
+        // cash-out line is priced from the days, never from a rule), and
+        // only once the catalog has the column.
+        if ($paysLeaveCashOut && $benefit->isScheduled()) {
+            throw new RuntimeException('A benefit payroll schedules cannot pay leave credit cash-outs. Use a type whose amount is typed per payroll.');
+        }
+        $cashOutColumn = PayrollData::cashOutTypeReady();
+        if ($paysLeaveCashOut && ! $cashOutColumn) {
+            throw new RuntimeException('Leave credit cash-outs can be set up once this installation\'s upgrade finishes.');
+        }
+        $flagColumns = $cashOutColumn ? ['pays_leave_cash_out' => $paysLeaveCashOut] : [];
 
         if ($id === null) {
-            $created = DB::transaction(static function () use ($name, $description, $isTaxable, $figures): PayrollIncentiveType {
+            $created = DB::transaction(static function () use ($name, $description, $isTaxable, $figures, $flagColumns, $paysLeaveCashOut): PayrollIncentiveType {
                 // FIRST: a locked scan of every code, then the checks and the
                 // insert from it (codes-and-locks guide).
                 $codes = DB::table('payroll_incentive_types')->lockForUpdate()->pluck('code')->all();
@@ -97,13 +111,18 @@ final class SaveIncentiveType
                     'description' => $description,
                     'is_taxable' => $isTaxable,
                     ...$figures,
+                    ...$flagColumns,
                 ])->save();
+                // One type pays cash-outs: the flag moves to this one.
+                if ($paysLeaveCashOut) {
+                    PayrollIncentiveType::query()->whereKeyNot($row->id)->where('pays_leave_cash_out', true)->update(['pays_leave_cash_out' => false]);
+                }
 
                 return $row;
             });
 
             AuditService::record($actor, AuditEvent::INCENTIVE_TYPE_CREATED, 'payroll_incentive_types', $created->id,
-                "Incentive type {$created->code} \"{$name}\" added ({$category}".($benefit->isScheduled() ? ', scheduled' : '').')');
+                "Incentive type {$created->code} \"{$name}\" added ({$category}".($benefit->isScheduled() ? ', scheduled' : '').($paysLeaveCashOut ? ', pays leave credit cash-outs' : '').')');
 
             return "{$name} added.";
         }
@@ -117,19 +136,33 @@ final class SaveIncentiveType
         }
 
         $before = PayrollData::benefitRuleOf($row);
+        // A recurring line pays a type payroll does not schedule; scheduling it would pay it twice.
+        if (! $before->isScheduled() && $benefit->isScheduled() && RecurringLines::ready() && PayrollRecurringLine::query()->where('incentive_type_id', $id)->exists()) {
+            throw new RuntimeException('Employees have recurring lines on this type, so payroll cannot schedule it. End or delete those lines in Employee Pay Settings first.');
+        }
         $flagChanged = $row->is_taxable !== $isTaxable;
         $ruleChanged = $before->toArray() !== $benefit->toArray();
-        if ($row->name === $name && $row->description === $description && ! $flagChanged && ! $ruleChanged) {
+        $cashOutChanged = $cashOutColumn && (bool) ($row->pays_leave_cash_out ?? false) !== $paysLeaveCashOut;
+        if ($row->name === $name && $row->description === $description && ! $flagChanged && ! $ruleChanged && ! $cashOutChanged) {
             return 'Nothing changed.';
         }
 
-        $row->fill(['name' => $name, 'description' => $description, 'is_taxable' => $isTaxable, ...$figures])->save();
+        DB::transaction(static function () use ($row, $name, $description, $isTaxable, $figures, $flagColumns, $paysLeaveCashOut, $id): void {
+            $row->fill(['name' => $name, 'description' => $description, 'is_taxable' => $isTaxable, ...$figures, ...$flagColumns])->save();
+            // One type pays cash-outs: the flag moves to this one.
+            if ($paysLeaveCashOut) {
+                PayrollIncentiveType::query()->whereKeyNot($id)->where('pays_leave_cash_out', true)->update(['pays_leave_cash_out' => false]);
+            }
+        });
 
         $note = '';
         if ($before->tax !== $benefit->tax) {
             $note .= "; now {$category}";
         } elseif ($ruleChanged) {
             $note .= '; rule changed';
+        }
+        if ($cashOutChanged) {
+            $note .= $paysLeaveCashOut ? '; now pays leave credit cash-outs' : '; no longer pays leave credit cash-outs';
         }
         AuditService::record($actor, AuditEvent::INCENTIVE_TYPE_UPDATED, 'payroll_incentive_types', $row->id,
             "Incentive type {$row->code} \"{$name}\" updated{$note}");

@@ -101,7 +101,7 @@
                                 <td class="num whitespace-nowrap">{{ $row->recorded_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') }}</td>
                                 <td class="whitespace-nowrap">{{ $row->label }}</td>
                                 <td class="whitespace-nowrap">
-                                    {{ $row->kind === 'BASELINE' ? 'Existing allocation' : (RecordLeaveCredit::KINDS[$row->kind] ?? $row->kind) }}
+                                    {{ RecordLeaveCredit::LABELS[$row->kind] ?? $row->kind }}
                                     @if ($row->source_year)<span class="num text-xs text-muted-foreground">from {{ $row->source_year }}</span>@endif
                                 </td>
                                 <td class="num whitespace-nowrap text-right">{{ $row->days > 0 ? '+' : '' }}{{ $fmt($row->days) }}</td>
@@ -134,13 +134,13 @@
                     @foreach (RecordLeaveCredit::KINDS as $key => $label)<flux:select.option value="{{ $key }}">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
                 @if ($kind === 'CARRY_FORWARD')
-                    <p class="rounded-md bg-muted p-3 text-sm">Enter the amount HR has approved to carry from {{ $entryYear - 1 }}. No balance is carried automatically.</p>
+                    <p class="rounded-md bg-muted p-3 text-sm">For an employee with a leave policy, {{ $entryYear - 1 }}'s whole balance is carried into {{ $entryYear }} automatically once that year is posted, and a typed carry is refused. Use this only for an employee the posting never reaches; correct a carry with an adjustment.</p>
                 @elseif ($kind === 'ADJUSTMENT')
                     <p class="text-sm text-muted-foreground">Use a positive amount to add credits or a negative amount to correct them. Earlier entries remain in the history.</p>
                 @elseif ($kind === 'OPENING')
                     <p class="text-sm text-muted-foreground">The first allocation for this leave type and year. Use an adjustment to correct an existing allocation.</p>
                 @endif
-                <flux:input label="Days" type="number" step="0.5" max="9999.5" :min="$kind === 'ADJUSTMENT' ? '-9999.5' : '0.5'" wire:model="days" required />
+                <flux:input label="Days" type="number" step="0.0001" max="999999.9999" :min="$kind === 'ADJUSTMENT' ? '-999999.9999' : '0.0001'" wire:model="days" required />
                 <flux:textarea label="Note" placeholder="Reason or reference for this entry" wire:model="note" maxlength="500" rows="3" required />
                 <div class="flex flex-wrap justify-end gap-2">
                     <flux:button variant="outline" type="button" wire:click="$set('entryOpen', false)">Cancel</flux:button>

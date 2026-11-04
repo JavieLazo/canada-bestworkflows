@@ -20,10 +20,12 @@ use App\Livewire\Inventory\Support\ReceiptsExport;
 use App\Livewire\Leaves\Support\LeaveCreditsExport;
 use App\Livewire\Leaves\Support\LeaveLedgerExport;
 use App\Livewire\Leaves\Support\LeaveRequestsExport;
+use App\Livewire\Payroll\Support\AdjustmentsExport;
 use App\Livewire\Payroll\Support\PayrollRunsExport;
 use App\Livewire\Records\ReferenceListPage;
 use App\Livewire\Records\Support\HolidaysExport;
 use App\Livewire\Records\Support\IncentiveTypesExport;
+use App\Livewire\Records\Support\PaySchedulesExport;
 use App\Livewire\Records\Support\ShiftTypesExport;
 use App\Livewire\Records\Support\SitesExport;
 use App\Livewire\Reports\Support\ReportsExport;
@@ -62,11 +64,17 @@ use App\Modules\Payroll\Infrastructure\PostedPayrollDateQuery;
 use App\Modules\Timekeeping\Application\Catalogs\LeaveTypes;
 use App\Modules\Timekeeping\Application\Commands\ImportShiftTypes;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
+use App\Modules\Timekeeping\Contracts\LeaveCashOutPoster;
+use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
+use App\Modules\Timekeeping\Contracts\LeaveChargePoster;
+use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
 use App\Modules\Timekeeping\Contracts\OpenPayrollDrafts;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Contracts\ScheduleNotices;
 use App\Modules\Timekeeping\Infrastructure\AttendanceInputQuery;
+use App\Modules\Timekeeping\Infrastructure\LeaveCashOutQuery;
+use App\Modules\Timekeeping\Infrastructure\LeaveChargeQuery;
 use App\Modules\Timekeeping\Infrastructure\ScheduleNoticeQuery;
 use App\Modules\Workforce\Application\Catalogs\DocumentTypes;
 use App\Modules\Workforce\Application\Catalogs\EmploymentStatuses;
@@ -74,15 +82,18 @@ use App\Modules\Workforce\Application\EmployeeRetention;
 use App\Modules\Workforce\Contracts\AssignmentEmployees;
 use App\Modules\Workforce\Contracts\ColleagueDirectory;
 use App\Modules\Workforce\Contracts\EmployeeDirectory;
+use App\Modules\Workforce\Contracts\EmployeeLeaveFacts;
 use App\Modules\Workforce\Contracts\EmployeeNames;
 use App\Modules\Workforce\Contracts\EmployeePayContexts;
 use App\Modules\Workforce\Contracts\EmployeeReportContext;
 use App\Modules\Workforce\Contracts\InventoryEmployees;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Modules\Workforce\Contracts\PunchEmployees;
+use App\Modules\Workforce\Contracts\SalaryHistory;
 use App\Modules\Workforce\Infrastructure\AssignmentEmployeeQuery;
 use App\Modules\Workforce\Infrastructure\ColleagueDirectoryQuery;
 use App\Modules\Workforce\Infrastructure\EmployeeDirectoryQuery;
+use App\Modules\Workforce\Infrastructure\EmployeeLeaveFactQuery;
 use App\Modules\Workforce\Infrastructure\EmployeeNameQuery;
 use App\Modules\Workforce\Infrastructure\EmployeePayContextQuery;
 use App\Modules\Workforce\Infrastructure\EmployeeReportContextQuery;
@@ -93,6 +104,7 @@ use App\Modules\Workforce\Infrastructure\PositionReferences;
 use App\Modules\Workforce\Infrastructure\PunchEmployeeQuery;
 use App\Modules\Workforce\Infrastructure\RecordChangeStorageUsage;
 use App\Modules\Workforce\Infrastructure\ReminderData;
+use App\Modules\Workforce\Infrastructure\SalaryHistoryQuery;
 use App\Modules\Workforce\Infrastructure\SiteReferences;
 use App\Modules\Workforce\Infrastructure\StorageUsage;
 use App\Modules\WorkManagement\Application\Commands\ImportProjects;
@@ -122,7 +134,7 @@ final class ModulesServiceProvider extends ServiceProvider
         $this->app->tag([\App\Modules\Inventory\Infrastructure\StorageUsage::class], 'stored-file-sources');
         $this->app->tag([\App\Modules\Inventory\Infrastructure\EmployeeReferences::class], 'employee-reference-sources');
         $this->app->tag([\App\Modules\Inventory\Infrastructure\AccountReferences::class], 'account-reference-sources');
-        $this->app->tag([\App\Modules\Inventory\Infrastructure\EmployeeObligations::class], 'employee-obligation-sources');
+        $this->app->tag([\App\Modules\Inventory\Infrastructure\EmployeeObligations::class, \App\Modules\Payroll\Infrastructure\EmployeeObligations::class], 'employee-obligation-sources');
         $this->app->bind(EmployeeObligations::class, fn ($app) => new EmployeeObligations($app->tagged('employee-obligation-sources')));
         $this->app->bind(AccountNames::class, AccountNameQuery::class);
         $this->app->bind(EmployeeNames::class, EmployeeNameQuery::class);
@@ -136,7 +148,7 @@ final class ModulesServiceProvider extends ServiceProvider
         // and Chat are here but not in the budget above: they keep their own
         // (copems.uploads.social_storage_ceiling_bytes).
         $this->app->tag([StorageUsage::class, \App\Modules\WorkManagement\Infrastructure\StorageUsage::class, \App\Modules\Social\Infrastructure\StorageUsage::class], 'stored-file-sources');
-        $this->app->tag([ReminderData::class, \App\Modules\Timekeeping\Infrastructure\ReminderData::class, \App\Modules\WorkManagement\Infrastructure\ReminderData::class], 'reminder-data-sources');
+        $this->app->tag([ReminderData::class, \App\Modules\Timekeeping\Infrastructure\ReminderData::class, \App\Modules\WorkManagement\Infrastructure\ReminderData::class, \App\Modules\Payroll\Infrastructure\ReminderData::class], 'reminder-data-sources');
         $this->app->bind(NotificationRecipients::class, NotificationRecipientQuery::class);
         $this->app->bind(ReminderCatalog::class, fn ($app) => new ReminderCatalog($app->tagged('reminder-data-sources')));
         $this->app->bind(OpenPunchLimit::class, OpenPunchLimitQuery::class);
@@ -165,7 +177,13 @@ final class ModulesServiceProvider extends ServiceProvider
         $this->app->bind(EmployeeDirectory::class, EmployeeDirectoryQuery::class);
         $this->app->bind(EmployeeReportContext::class, EmployeeReportContextQuery::class);
         $this->app->bind(EmployeePayContexts::class, EmployeePayContextQuery::class);
+        $this->app->bind(SalaryHistory::class, SalaryHistoryQuery::class);
+        $this->app->bind(EmployeeLeaveFacts::class, EmployeeLeaveFactQuery::class);
         $this->app->bind(AttendanceSource::class, AttendanceInputQuery::class);
+        $this->app->bind(LeaveChargeSource::class, LeaveChargeQuery::class);
+        $this->app->bind(LeaveChargePoster::class, LeaveChargeQuery::class);
+        $this->app->bind(LeaveCashOutSource::class, LeaveCashOutQuery::class);
+        $this->app->bind(LeaveCashOutPoster::class, LeaveCashOutQuery::class);
         $this->app->bind(ScheduleNotices::class, ScheduleNoticeQuery::class);
         $this->app->bind(HolidayCalendar::class, HolidayCalendarQuery::class);
         $this->app->bind(ModuleAccounts::class, ModuleAccountQuery::class);
@@ -210,6 +228,7 @@ final class ModulesServiceProvider extends ServiceProvider
             'records.holidays' => static fn (): TableExport => new HolidaysExport,
             'records.shifts' => static fn (): TableExport => new ShiftTypesExport,
             'records.incentive-types' => static fn (): TableExport => new IncentiveTypesExport,
+            'records.pay-schedules' => static fn (): TableExport => new PaySchedulesExport,
             'employees' => static fn (): TableExport => new EmployeesExport,
             'employees.history' => static fn (): TableExport => new EmploymentHistoryExport,
             'leaves.credits' => static fn (): TableExport => new LeaveCreditsExport,
@@ -217,6 +236,7 @@ final class ModulesServiceProvider extends ServiceProvider
             'audit' => static fn (): TableExport => new AuditExport,
             'leaves' => static fn (): TableExport => new LeaveRequestsExport,
             'payroll' => static fn (): TableExport => new PayrollRunsExport,
+            'payroll.adjustments' => static fn (): TableExport => new AdjustmentsExport,
             'users' => static fn (): TableExport => new AccountsExport,
             'users.roles' => static fn (): TableExport => new RolesExport,
             'edtr.feed' => static fn (): TableExport => new PunchesExport,

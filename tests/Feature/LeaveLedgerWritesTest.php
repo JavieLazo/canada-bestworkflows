@@ -133,11 +133,11 @@ it('keeps explicit zero allocations distinct and permits only one opening after 
         ->toThrow(RuntimeException::class, 'already exists');
 });
 
-it('refuses unauthorized own-record missing employee invalid year and unknown type writes', function () {
+it('refuses unauthorized missing employee invalid year and unknown type writes', function () {
     ledgerWriteType();
     $employee = ledgerWriteEmployee();
     $command = app(RecordLeaveCredit::class);
-    foreach ([ledgerWriteActor(allData: false), ledgerWriteActor([ModuleCode::ROSTER]), ledgerWriteActor(employeeId: $employee->id)] as $actor) {
+    foreach ([ledgerWriteActor(allData: false), ledgerWriteActor([ModuleCode::ROSTER])] as $actor) {
         expect(fn () => $command->handle($actor, $employee->id, 2026, 'SICK_LEAVE', 'ACCRUAL', 1, 'HR entry', (string) Str::ulid()))->toThrow(RuntimeException::class);
     }
     $actor = ledgerWriteActor();
@@ -155,9 +155,9 @@ it('requires notes valid kinds positive additions and nonzero half-day adjustmen
     foreach ([
         ['BASELINE', 1, 'Not a manual kind'], ['OTHER', 1, 'Not a kind'],
         ['ACCRUAL', 0, 'Zero'], ['OPENING', -1, 'Negative'], ['CARRY_FORWARD', -1, 'Negative'],
-        ['ADJUSTMENT', 0, 'Zero'], ['ACCRUAL', 0.25, 'Quarter'], ['ACCRUAL', ['1'], 'Array'],
+        ['ADJUSTMENT', 0, 'Zero'], ['ACCRUAL', 0.00001, 'Five decimals'], ['ACCRUAL', ['1'], 'Array'],
         ['ACCRUAL', true, 'Boolean'], ['ACCRUAL', '', 'Blank'], ['ACCRUAL', 'NaN', 'Not a number'],
-        ['ACCRUAL', 10000, 'Over limit'], ['ACCRUAL', 1, '  '], ['ACCRUAL', 1, str_repeat('n', 501)],
+        ['ACCRUAL', 1000000, 'Over limit'], ['ACCRUAL', 1, '  '], ['ACCRUAL', 1, str_repeat('n', 501)],
     ] as [$kind, $days, $note]) {
         expect(fn () => $command->handle($actor, $employee->id, 2026, 'SICK_LEAVE', $kind, $days, $note, (string) Str::ulid()))->toThrow(RuntimeException::class);
     }
@@ -168,7 +168,7 @@ it('requires notes valid kinds positive additions and nonzero half-day adjustmen
 it('refuses an out-of-range resulting allocation without adding even a lazy baseline', function () {
     ledgerWriteType();
     $employee = ledgerWriteEmployee();
-    ledgerWriteCredit($employee, 9999.5);
+    ledgerWriteCredit($employee, 999999.9999);
     $actor = ledgerWriteActor();
     $command = app(RecordLeaveCredit::class);
     expect(fn () => $command->handle($actor, $employee->id, 2026, 'SICK_LEAVE', 'ACCRUAL', 0.5, 'Excess', (string) Str::ulid()))->toThrow(RuntimeException::class, 'outside');

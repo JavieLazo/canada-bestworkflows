@@ -38,6 +38,7 @@ use Illuminate\Support\Facades\Schema;
  * @property float|null $cap
  * @property string|null $approval_reference
  * @property bool $counts_toward_13th
+ * @property bool $pays_leave_cash_out
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -63,6 +64,7 @@ class PayrollIncentiveType extends BaseModel
         'cap',
         'approval_reference',
         'counts_toward_13th',
+        'pays_leave_cash_out',
     ];
 
     /**
@@ -98,6 +100,7 @@ class PayrollIncentiveType extends BaseModel
             'min_service_months' => 'integer',
             'cap' => 'float',
             'counts_toward_13th' => 'boolean',
+            'pays_leave_cash_out' => 'boolean',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

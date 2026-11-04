@@ -19,12 +19,15 @@ use RuntimeException;
  * at all.
  *
  * A period is priced by the version in force on its FIRST day — the latest
- * version whose `effective_from` is on or before it — and refused when that
- * version does not exist, is not known good through the period's last day
- * (`covered_through`), or a later version takes effect inside the period: a
- * payslip carries one set of figures, so a change splits payrolls. The 13th
- * month run reads only the withholding table, in force on 31 December of its
- * year.
+ * version whose `effective_from` is on or before it — which stays in force
+ * until a later version starts, with no end of its own. The period is
+ * refused when no version is in force on that day or a later version takes
+ * effect inside the period: a payslip carries one set of figures, so a
+ * change splits payrolls. A version's `covered_through` is the day its
+ * figures were last CONFIRMED good through; a period reaching past it is
+ * still priced, with a reminder to check the figures (`warning`), never a
+ * refusal. The 13th month run reads only the withholding table, in force on
+ * 31 December of its year.
  *
  * Files reach the host before the cron runs their migration, so while the
  * table is absent every reader gets the engine's built-in figures and their
@@ -56,14 +59,40 @@ final class StatutoryTables
         return PayrollPeriod::cutoffError($periodStart, $periodEnd, fn (string $start, string $end): ?string => $this->resolve($start, $end)->error);
     }
 
+    /** The reminder a regular payroll shows when a table is not confirmed as far as the period reaches; null when every table is, or the period is refused anyway. */
+    public function cutoffWarning(string $periodStart, string $periodEnd): ?string
+    {
+        if ($this->cutoffError($periodStart, $periodEnd) !== null) {
+            return null;
+        }
+
+        return $this->resolve($periodStart, $periodEnd)->warning;
+    }
+
     /** The 13th month run's check: the year's withholding table, in force on 31 December. */
     public function yearlyCutoffError(int $year): ?string
     {
         return PayrollPeriod::cutoffError(sprintf('%04d-01-01', $year), sprintf('%04d-12-31', $year), fn (): ?string => $this->resolveYear($year)->error);
     }
 
-    /** The versions in force on the period's first day, or why the period cannot be priced. */
-    public function resolve(string $periodStart, string $periodEnd): StatutoryResolution
+    /** The 13th month run's reminder: the withholding table not confirmed through 31 December; null when it is, or the year is refused anyway. */
+    public function yearlyCutoffWarning(int $year): ?string
+    {
+        if ($this->yearlyCutoffError($year) !== null) {
+            return null;
+        }
+
+        return $this->resolveYear($year)->warning;
+    }
+
+    /**
+     * The versions in force on the period's first day, or why the period
+     * cannot be priced. A payroll made from a pay schedule picks the
+     * withholding table by its pay date and the contribution tables by the
+     * first day of its contribution month (`YYYY-MM`) instead, when given;
+     * the "changes inside the period" refusal stays on the period.
+     */
+    public function resolve(string $periodStart, string $periodEnd, ?string $payDate = null, ?string $contributionMonth = null): StatutoryResolution
     {
         if (! self::ready()) {
             return $this->builtIn(Statutory::scheduleError($periodStart));
@@ -72,32 +101,31 @@ final class StatutoryTables
         $versions = $this->versions();
         $tables = [];
         $error = null;
+        $warning = null;
         foreach (StatutorySchedule::KINDS as $kind) {
             $rows = $versions[$kind] ?? [];
-            $current = $this->inForce($rows, $periodStart);
+            $pick = $kind === StatutorySchedule::WITHHOLDING_TAX
+                ? ($payDate ?? $periodStart)
+                : ($contributionMonth === null ? $periodStart : $contributionMonth.'-01');
+            $current = $this->inForce($rows, $pick);
             $label = self::label($kind);
             if ($current === null) {
                 $error ??= $rows === []
                     ? "The {$label} table has no version. Add one in Contribution & Tax Tables."
-                    : "No {$label} table covers ".self::day($periodStart).'. Add or extend a version in Contribution & Tax Tables.';
+                    : "No {$label} table is in force on ".self::day($periodStart).'. Add a version that starts on or before it in Contribution & Tax Tables.';
                 $tables[$kind] = $this->builtInTable($kind);
 
                 continue;
-            }
-            $through = $current->covered_through->format('Y-m-d');
-            if ($through < $periodStart) {
-                $error ??= "No {$label} table covers ".self::day($periodStart).'. Add or extend a version in Contribution & Tax Tables.';
-            } elseif ($through < $periodEnd) {
-                $error ??= "The {$label} table is known only through ".self::day($through).'. Extend it in Contribution & Tax Tables, or end this payroll by then.';
             }
             $next = $this->after($rows, $current);
             if ($next !== null && $next->effective_from->format('Y-m-d') <= $periodEnd) {
                 $error ??= "The {$label} table changes on ".self::day($next->effective_from->format('Y-m-d')).'. End this payroll before that date, or start it on that date.';
             }
+            $warning ??= self::unconfirmedWarning($current, $periodEnd);
             $tables[$kind] = $this->versionEntry($current);
         }
 
-        return new StatutoryResolution($this->schedule($tables), $tables, $error);
+        return new StatutoryResolution($this->schedule($tables), $tables, $error, $warning);
     }
 
     /** The withholding table in force on 31 December of the year; the other three as in force that day, for completeness. */
@@ -111,28 +139,32 @@ final class StatutoryTables
         $versions = $this->versions();
         $tables = [];
         $error = null;
+        $warning = null;
         foreach (StatutorySchedule::KINDS as $kind) {
             $current = $this->inForce($versions[$kind] ?? [], $day);
-            if ($current === null || $current->covered_through->format('Y-m-d') < $day) {
+            if ($current === null) {
                 if ($kind === StatutorySchedule::WITHHOLDING_TAX) {
-                    $error = 'No Withholding Tax table covers '.self::day($day).'. Add or extend a version in Contribution & Tax Tables.';
+                    $error = 'No Withholding Tax table is in force on '.self::day($day).'. Add a version that starts on or before it in Contribution & Tax Tables.';
                 }
                 $tables[$kind] = $this->builtInTable($kind);
 
                 continue;
             }
+            if ($kind === StatutorySchedule::WITHHOLDING_TAX) {
+                $warning = self::unconfirmedWarning($current, $day);
+            }
             $tables[$kind] = $this->versionEntry($current);
         }
 
-        return new StatutoryResolution($this->schedule($tables), $tables, $error);
+        return new StatutoryResolution($this->schedule($tables), $tables, $error, $warning);
     }
 
     /**
-     * The last day every table is known good for — the latest version of
-     * each, the earliest of their `covered_through` — or null while the
-     * table is absent.
+     * The last day every table's figures are confirmed good through — the
+     * latest version of each, the earliest of their `covered_through` — or
+     * null while a table has no version at all.
      */
-    public function coveredThrough(): ?string
+    public function confirmedThrough(): ?string
     {
         if (! self::ready()) {
             return Statutory::VERIFIED_THROUGH;
@@ -151,14 +183,14 @@ final class StatutoryTables
     }
 
     /**
-     * The tables whose coverage ends on the day `coveredThrough()` names —
-     * what holds payroll back after it.
+     * The tables whose confirmation ends on the day `confirmedThrough()`
+     * names — the ones a payroll past it reminds the officer to check.
      *
      * @return list<string> kinds
      */
-    public function coverageEndsWith(): array
+    public function confirmationEndsWith(): array
     {
-        $through = $this->coveredThrough();
+        $through = $this->confirmedThrough();
         if (! self::ready() || $through === null) {
             return [];
         }
@@ -177,6 +209,17 @@ final class StatutoryTables
     public static function day(string $date): string
     {
         return CarbonImmutable::parse($date, 'UTC')->format('d M Y');
+    }
+
+    /** The reminder for a version whose figures are not confirmed through the day a period reaches, or null. */
+    private static function unconfirmedWarning(PayrollStatutoryTable $current, string $through): ?string
+    {
+        $confirmed = $current->covered_through->format('Y-m-d');
+        if ($confirmed >= $through) {
+            return null;
+        }
+
+        return 'The '.self::label($current->kind).' table has not been confirmed past '.self::day($confirmed).'. Check the current figures, then confirm the table in Contribution & Tax Tables.';
     }
 
     /** @return array<string, list<PayrollStatutoryTable>> kind => versions, oldest first */

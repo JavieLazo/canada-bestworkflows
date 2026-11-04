@@ -16,6 +16,13 @@ use Illuminate\Support\Str;
  * restores it, and the employee foreign key cascades — an entitlement is
  * configuration, not history, like a weekly roster.
  *
+ * The migrated shape is the one 2026_10_31_0003 leaves: `credits` is
+ * DECIMAL(10,4) and `lcr_credits_chk` is symmetric (BETWEEN -999999.9999
+ * AND 999999.9999), because an attendance charge may take a type below
+ * zero to its floor. The create migration's own narrower CHECK comes back
+ * only when its up() re-adds a dropped constraint, which the resume tests
+ * exercise by name, not by bound.
+ *
  * sqlite never creates a CHECK, so only this suite sees the real ALTERs.
  * DatabaseMigrations rolls the whole schema back after each test, so EVERY
  * TEST ENDS MIGRATED: the rollback then runs down() against the state it
@@ -153,39 +160,48 @@ it('applies the migration twice on top of a migrated schema, with each CHECK exa
 it('refuses credits or a year outside the constraints and a second row for one employee, year and type', function () {
     $employee = lctschemaEmployee();
 
-    // Below zero: the CHECK is what says no. Above DECIMAL(6,2)'s ceiling,
-    // STRICT_TRANS_TABLES refuses the value as out of range for the column
-    // (error 1264) before the CHECK is ever evaluated, so only the refusal
-    // itself is pinned there.
-    expect(fn () => lctschemaRow($employee, 2026, 'VACATION_LEAVE', '-1'))->toThrow(QueryException::class, 'lcr_credits_chk');
-    expect(fn () => lctschemaRow($employee, 2026, 'VACATION_LEAVE', '10000'))->toThrow(QueryException::class);
+    // Beyond DECIMAL(10,4)'s range on either side, STRICT_TRANS_TABLES
+    // refuses the value as out of range for the column (error 1264) before
+    // the CHECK is ever evaluated — the CHECK's bounds are the column's —
+    // so only the refusal itself is pinned there. The year CHECK is what
+    // says no to 1999 and 2101.
+    expect(fn () => lctschemaRow($employee, 2026, 'VACATION_LEAVE', '1000000'))->toThrow(QueryException::class);
+    expect(fn () => lctschemaRow($employee, 2026, 'VACATION_LEAVE', '-1000000'))->toThrow(QueryException::class);
     expect(fn () => lctschemaRow($employee, 1999, 'VACATION_LEAVE', '15'))->toThrow(QueryException::class, 'lcr_year_chk');
     expect(fn () => lctschemaRow($employee, 2101, 'VACATION_LEAVE', '15'))->toThrow(QueryException::class, 'lcr_year_chk');
     expect(DB::table('leave_credits')->count())->toBe(0);
 
-    // The edges land: an explicit zero, the ceiling, and both bounding years.
+    // The edges land: an explicit zero, a balance below zero (an attendance
+    // charge past the credits held), four decimals kept exactly, the
+    // column's ceiling, and both bounding years.
     $zero = lctschemaRow($employee, 2026, 'VACATION_LEAVE', '0');
-    $ceiling = lctschemaRow($employee, 2026, 'SICK_LEAVE', '9999.99');
+    $below = lctschemaRow($employee, 2026, 'SICK_LEAVE', '-1.5');
+    $fine = lctschemaRow($employee, 2026, 'EMERGENCY_LEAVE', '1.1667');
+    $ceiling = lctschemaRow($employee, 2026, 'SPECIAL_LEAVE', '999999.9999');
     $first = lctschemaRow($employee, 2000, 'VACATION_LEAVE', '15');
     $last = lctschemaRow($employee, 2100, 'VACATION_LEAVE', '7.5');
-    expect(DB::table('leave_credits')->whereIn('id', [$zero, $ceiling, $first, $last])->count())->toBe(4)
-        ->and((string) DB::table('leave_credits')->where('id', $zero)->value('credits'))->toBe('0.00')
-        ->and((string) DB::table('leave_credits')->where('id', $ceiling)->value('credits'))->toBe('9999.99')
-        ->and((string) DB::table('leave_credits')->where('id', $last)->value('credits'))->toBe('7.50');
+    expect(DB::table('leave_credits')->whereIn('id', [$zero, $below, $fine, $ceiling, $first, $last])->count())->toBe(6)
+        ->and((string) DB::table('leave_credits')->where('id', $zero)->value('credits'))->toBe('0.0000')
+        ->and((string) DB::table('leave_credits')->where('id', $below)->value('credits'))->toBe('-1.5000')
+        ->and((string) DB::table('leave_credits')->where('id', $fine)->value('credits'))->toBe('1.1667')
+        ->and((string) DB::table('leave_credits')->where('id', $ceiling)->value('credits'))->toBe('999999.9999')
+        ->and((string) DB::table('leave_credits')->where('id', $last)->value('credits'))->toBe('7.5000');
 
     // One row per (employee, year, type): the same type in the same year is
     // refused by the unique, in another year it is a different row.
     expect(fn () => lctschemaRow($employee, 2026, 'SICK_LEAVE', '5'))->toThrow(QueryException::class, 'lcr_employee_year_type_unq');
     $nextYear = lctschemaRow($employee, 2027, 'SICK_LEAVE', '5');
     expect(DB::table('leave_credits')->where('id', $nextYear)->exists())->toBeTrue()
-        ->and(DB::table('leave_credits')->where('employee_id', (string) $employee->getKey())->count())->toBe(5);
+        ->and(DB::table('leave_credits')->where('employee_id', (string) $employee->getKey())->count())->toBe(7);
 
-    // An UPDATE meets the same CHECKs as an INSERT.
-    expect(fn () => DB::table('leave_credits')->where('id', $zero)->update(['credits' => '-0.5']))
-        ->toThrow(QueryException::class, 'lcr_credits_chk');
+    // An UPDATE meets the same limits as an INSERT, and a charge may take a
+    // balance below zero in place.
+    expect(fn () => DB::table('leave_credits')->where('id', $zero)->update(['credits' => '1000000']))
+        ->toThrow(QueryException::class);
     expect(fn () => DB::table('leave_credits')->where('id', $zero)->update(['year' => 1999]))
         ->toThrow(QueryException::class, 'lcr_year_chk');
-    expect((string) DB::table('leave_credits')->where('id', $zero)->value('credits'))->toBe('0.00')
+    DB::table('leave_credits')->where('id', $zero)->update(['credits' => '-0.5']);
+    expect((string) DB::table('leave_credits')->where('id', $zero)->value('credits'))->toBe('-0.5000')
         ->and((int) DB::table('leave_credits')->where('id', $zero)->value('year'))->toBe(2026);
 });
 

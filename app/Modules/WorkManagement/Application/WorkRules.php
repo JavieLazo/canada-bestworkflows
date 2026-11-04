@@ -117,8 +117,8 @@ final class WorkRules
      * their ACCOUNT. Keyed on the account, not the employee, exactly like the
      * leader's reminders — another account of the same person leads nothing.
      * Fails closed for a guest (a null id matches no one) and for an account
-     * without PROJECTS. Compares the owned column only: `Project::manager()`
-     * relates to IdentityAccess's User and is never loaded here.
+     * without PROJECTS. Compares the owned column only: the IdentityAccess
+     * account behind `manager_id` is never loaded here.
      *
      * Read it from a row fetched in THIS request — inside a command, from the
      * project row locked after the task (P in the lock protocol above).

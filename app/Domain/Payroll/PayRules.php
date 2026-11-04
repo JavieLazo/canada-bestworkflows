@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Domain\Payroll;
 
 use App\Domain\Attendance\ShiftResolver;
+use App\Support\Money;
 use InvalidArgumentException;
 
 /**
@@ -44,9 +45,29 @@ use InvalidArgumentException;
  * 10% add-on); `unworked` the percent of the daily rate an unworked
  * scheduled day of that type earns (DAILY basis only). Pure: no clock,
  * database or framework.
+ *
+ * DELIBERATE DIVERGENCE 16, three more figures a version may set, each
+ * blank by default so the reference's operations stand:
+ *
+ *  - `hourly_rate.hours`: the hours the daily rate is divided by for the
+ *    hourly rate. Blank = the shift's own paid hours (the reference); a
+ *    figure (8) prices every hour of every shift from it.
+ *  - `rounding.decimals`: the decimals each RATE STEP is rounded to before
+ *    it is multiplied on — the daily rate, the hourly rate and a premium
+ *    hourly rate — the way a payroll register's ROUND(monthly ÷ 22, 2) and
+ *    ROUND(daily ÷ 8, 2) do (`Money::roundTo`). Blank = no rounding (the
+ *    reference prices from the unrounded rates).
+ *  - `overtime.seaport_rate`: the hourly rate, as a fraction of the base
+ *    hourly, for an overtime day the Daily Time Record approved as SEAPORT
+ *    overtime, whatever the day type; a seaport day is never capped.
+ *    Blank = a seaport day is priced as the day type's overtime, still
+ *    uncapped.
  */
 final class PayRules
 {
+    /** The overtime category the Daily Time Record may put a day's approval under. */
+    public const string OVERTIME_SEAPORT = 'SEAPORT';
+
     public const string BASIS_DAILY = 'DAILY';
 
     public const string BASIS_MONTHLY = 'MONTHLY';
@@ -103,7 +124,21 @@ final class PayRules
         public readonly int $nightEnd,
         public readonly bool $nightOnOvertime,
         public readonly array $matrix,
+        public readonly ?float $hourlyHours = null,
+        public readonly ?int $roundingDecimals = null,
+        public readonly ?float $seaportRate = null,
+        /** The net pay a payslip should not fall below, or null for no floor: payroll warns on a draft under it (no money moves). */
+        public readonly ?float $minimumTakeHome = null,
     ) {}
+
+    /**
+     * A derived rate as the version wants it multiplied on: rounded to the
+     * version's decimals, or exactly as derived when it sets none.
+     */
+    public function roundRate(float $rate): float
+    {
+        return $this->roundingDecimals === null ? $rate : Money::roundTo($rate, $this->roundingDecimals);
+    }
 
     /**
      * The reference's rules over its Formulas rows: what every payroll
@@ -158,6 +193,12 @@ final class PayRules
             (int) $data['night']['end'],
             (bool) $data['night']['on_overtime'],
             $matrix,
+            // Divergence 16's figures: a version captured before them has
+            // no key, which reads as blank — the reference's operations.
+            self::nullableFloat($data['hourly_rate']['hours'] ?? null),
+            ($data['rounding']['decimals'] ?? null) === null ? null : (int) $data['rounding']['decimals'],
+            self::nullableFloat($data['overtime']['seaport_rate'] ?? null),
+            self::nullableFloat($data['take_home']['minimum'] ?? null),
         );
     }
 
@@ -168,7 +209,10 @@ final class PayRules
             'basis' => $this->basis,
             'daily_rate' => ['method' => $this->dailyRateMethod, 'value' => $this->dailyRateValue],
             'holiday_needs_attendance' => $this->holidayNeedsAttendance,
-            'overtime' => ['rate' => $this->rates->otRate, 'max_hours' => $this->rates->maxOtHours],
+            'overtime' => ['rate' => $this->rates->otRate, 'max_hours' => $this->rates->maxOtHours, 'seaport_rate' => $this->seaportRate],
+            'hourly_rate' => ['hours' => $this->hourlyHours],
+            'rounding' => ['decimals' => $this->roundingDecimals],
+            'take_home' => ['minimum' => $this->minimumTakeHome],
             'night' => [
                 'rate' => $this->rates->nsdRate, 'max_hours' => $this->rates->maxNsdHours,
                 'start' => $this->nightStart, 'end' => $this->nightEnd, 'on_overtime' => $this->nightOnOvertime,
@@ -276,6 +320,22 @@ final class PayRules
         }
         if (! self::finite($data['holiday_overtime_factor']) || (float) $data['holiday_overtime_factor'] < 0.0 || (float) $data['holiday_overtime_factor'] > 10.0) {
             return 'Enter a holiday overtime factor between 0 and 10.';
+        }
+        $seaport = $data['overtime']['seaport_rate'] ?? null;
+        if ($seaport !== null && (! self::finite($seaport) || (float) $seaport < 0.0 || (float) $seaport > 10.0)) {
+            return 'Seaport overtime: enter a rate between 0% and 1,000%, or leave it blank.';
+        }
+        $hours = $data['hourly_rate']['hours'] ?? null;
+        if ($hours !== null && (! self::finite($hours) || (float) $hours < 1.0 || (float) $hours > 24.0)) {
+            return 'Hours for the hourly rate: enter between 1 and 24, or leave it blank.';
+        }
+        $decimals = $data['rounding']['decimals'] ?? null;
+        if ($decimals !== null && (! is_int($decimals) || $decimals < 0 || $decimals > 4)) {
+            return 'Rounding: choose 0 to 4 decimals, or leave it blank.';
+        }
+        $minimum = $data['take_home']['minimum'] ?? null;
+        if ($minimum !== null && (! self::finite($minimum) || (float) $minimum < 0.0 || (float) $minimum > 99_999_999.0)) {
+            return 'Minimum take-home pay: enter an amount at or above zero, or leave it blank.';
         }
         $matrix = $data['matrix'];
         if (! is_array($matrix)) {

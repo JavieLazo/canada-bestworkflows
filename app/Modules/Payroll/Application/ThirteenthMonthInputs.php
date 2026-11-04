@@ -36,7 +36,7 @@ final readonly class ThirteenthMonthInputs
      * a replay never reads the live tables; schema-2 evidence restores with
      * the built-in figures, which are what those runs computed from.
      */
-    public const int SCHEMA_VERSION = 3;
+    public const int SCHEMA_VERSION = 5;
 
     /**
      * @param  list<string>  $employeeIds
@@ -59,8 +59,21 @@ final readonly class ThirteenthMonthInputs
         public array $exemptBenefitsYearToDate,
         public string $calculatorVersion,
         public array $withholdingTable = [],
+        /**
+         * The yearly tax-free ceiling in force on 31 December, as captured
+         * (schema 4); null = the constant the engine carried.
+         *
+         * @var array{version_id: string, effective_from: string, ceiling: float}|null
+         */
+        public ?array $benefitCeiling = null,
         private int $schemaVersion = self::SCHEMA_VERSION,
     ) {}
+
+    /** The pesos of exempt benefits and 13th month pay the year may hold tax-free. */
+    public function ceiling(): float
+    {
+        return BenefitCeilings::ceilingOf($this->benefitCeiling);
+    }
 
     /** The figures the excess is taxed from: the captured withholding table, or the built-in figures. */
     public function schedule(): StatutorySchedule
@@ -87,11 +100,13 @@ final readonly class ThirteenthMonthInputs
             'schema_version' => $this->schemaVersion, 'kind' => PayrollRunKind::THIRTEENTH_MONTH,
             'calculator_version' => $this->calculatorVersion, 'year' => $this->year,
             'employee_ids' => $this->employeeIds,
-            'employees' => array_map(PayrollInputs::employeeToArray(...), $this->employees),
+            // The employee row as this schema carried it: schema 4 added the salary segments, schema 5 the whole-year keys (the payroll evidence's 19 and 22).
+            'employees' => array_map(fn (EmployeePayData $e): array => PayrollInputs::employeeRowForSchema(PayrollInputs::employeeToArray($e), $this->schemaVersion < 4 ? 18 : ($this->schemaVersion < 5 ? 21 : 22)), $this->employees),
             'basic_pay' => $this->basicPay, 'regular_taxable' => $this->regularTaxable,
             'outside_basic_pay' => $this->outsideBasicPay, 'withholding_overrides' => $this->withholdingOverrides,
             'exempt_benefits_ytd' => $this->exemptBenefitsYearToDate,
             ...($this->schemaVersion >= 3 ? ['withholding_table' => $this->withholdingTable] : []),
+            ...($this->schemaVersion >= 4 ? ['benefit_ceiling' => $this->benefitCeiling] : []),
         ];
     }
 
@@ -105,7 +120,7 @@ final readonly class ThirteenthMonthInputs
     {
         $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         $schemaVersion = is_array($data) ? ($data['schema_version'] ?? null) : null;
-        if (! is_array($data) || ! in_array($schemaVersion, [2, self::SCHEMA_VERSION], true) || ($data['kind'] ?? null) !== PayrollRunKind::THIRTEENTH_MONTH) {
+        if (! is_array($data) || ! in_array($schemaVersion, [2, 3, 4, self::SCHEMA_VERSION], true) || ($data['kind'] ?? null) !== PayrollRunKind::THIRTEENTH_MONTH) {
             throw new RuntimeException('Unsupported 13th month evidence schema.');
         }
         if (! is_int($data['year'] ?? null) || ! is_string($data['calculator_version'] ?? null)
@@ -137,6 +152,7 @@ final readonly class ThirteenthMonthInputs
             self::money($data['exempt_benefits_ytd'] ?? null, $ids),
             $data['calculator_version'],
             $schemaVersion >= 3 ? PayrollInputs::statutoryTableMap($data['withholding_table'] ?? null, [StatutorySchedule::WITHHOLDING_TAX]) : [],
+            $schemaVersion >= 4 ? PayrollInputs::benefitCeilingEntry($data['benefit_ceiling'] ?? null) : null,
             $schemaVersion,
         );
         // Reject missing, coerced or unknown values rather than silently changing saved evidence.

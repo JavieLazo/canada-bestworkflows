@@ -5,9 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A department, or a unit inside one: the two fixed levels positions are
@@ -34,8 +31,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $sort_order
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
- * @property-read OrgNode|null $parent
- * @property-read Collection<int, OrgNode> $children
  */
 class OrgNode extends BaseModel
 {
@@ -72,17 +67,5 @@ class OrgNode extends BaseModel
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return BelongsTo<OrgNode, $this> */
-    public function parent(): BelongsTo
-    {
-        return $this->belongsTo(OrgNode::class, 'parent_id');
-    }
-
-    /** @return HasMany<OrgNode, $this> */
-    public function children(): HasMany
-    {
-        return $this->hasMany(OrgNode::class, 'parent_id');
     }
 }

@@ -245,6 +245,7 @@ final class ChatInbox
                 $message->sender_id === $me,
                 $message->created_at,
                 $files,
+                editedAt: $message->edited_at,
             );
         })->all());
 

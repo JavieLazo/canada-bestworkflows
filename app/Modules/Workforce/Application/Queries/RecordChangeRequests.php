@@ -100,7 +100,7 @@ final class RecordChangeRequests
             'created_at' => $row->created_at, 'submitted_at' => $row->created_at,
             'reviewed_at' => $row->reviewed_at, 'withdrawn_at' => $row->withdrawn_at,
             'changes' => $row->changes,
-            'can_review' => $pending && $access->mayReadAllData(ModuleCode::EMPLOYEES) && ! $own && (string) $row->requested_by !== (string) $access->userId,
+            'can_review' => $pending && $access->mayReadAllData(ModuleCode::EMPLOYEES),
             'can_withdraw' => $pending && $own && ($access->hasModule(ModuleCode::PROFILE) || $access->hasModule(ModuleCode::EMPLOYEES)),
             'has_before_evidence' => $before, 'has_after_evidence' => $after,
         ]);

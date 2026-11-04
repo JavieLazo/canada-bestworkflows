@@ -4,19 +4,23 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records;
 
-use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Livewire\Records\Support\Hris;
 use App\Livewire\Records\Support\IncentiveTypeRows;
+use App\Modules\Payroll\Application\BenefitCeilings;
 use App\Modules\Payroll\Application\Commands\DeleteIncentiveType;
+use App\Modules\Payroll\Application\Commands\SaveBenefitCeiling;
 use App\Modules\Payroll\Application\Commands\SaveIncentiveType;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
+use App\Modules\Payroll\Application\Queries\BenefitCeilingRecords;
 use App\Modules\Payroll\Application\Queries\IncentiveTypeRecords;
 use App\Modules\Payroll\Contracts\Views\IncentiveTypeView;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
+use App\Support\ManilaClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -25,9 +29,10 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
+use RuntimeException;
 
 /**
- * Incentives & Bonuses — the benefits catalog under Records → Payroll
+ * Incentives & Bonuses — the benefits catalog under Payroll → Payroll
  * Settings: the allowances, incentives and bonuses a payroll can pay, each
  * with how much, how often, who qualifies, how it is prorated and how it is
  * taxed (`BenefitRule`). A scheduled benefit is proposed on every draft
@@ -90,6 +95,9 @@ class IncentiveTypesPage extends Component
 
     public bool $formCountsToward13th = false;
 
+    /** Whether leave credit cash-outs are paid as this type (one type at most; the command moves the flag). */
+    public bool $formPaysLeaveCashOut = false;
+
     /** The dialog's inline error. */
     public ?string $formError = null;
 
@@ -103,9 +111,74 @@ class IncentiveTypesPage extends Component
     #[Locked]
     public ?string $deletingId = null;
 
+    /** The tax-free ceiling dialog. Plain UI state. */
+    public bool $ceilingOpen = false;
+
+    /**
+     * The ceiling version as typed: the date, the pesos and the reason.
+     * Free text — no id in it, so not #[Locked]; SaveBenefitCeiling
+     * re-validates every field.
+     *
+     * @var array<string, string>
+     */
+    public array $ceilingForm = ['effective_from' => '', 'amount' => '', 'reason' => ''];
+
+    public ?string $ceilingError = null;
+
     public function mount(): void
     {
         $this->sortKey = 'id';
+    }
+
+    /** Opens the ceiling dialog with the day after the latest version, or today. */
+    public function openCeiling(): void
+    {
+        $access = app(Access::class);
+        if (! PayrollSettingsAccess::mayManage($access)) {
+            return;
+        }
+        $latest = app(BenefitCeilingRecords::class)->versions($access)->first();
+        $today = ManilaClock::todayKey();
+        $this->ceilingForm = [
+            'effective_from' => $latest === null ? $today : max($today, $latest->effective_from->addDay()->format('Y-m-d')),
+            'amount' => $latest === null ? '' : Hris::moneyText($latest->ceiling),
+            'reason' => '',
+        ];
+        $this->ceilingError = null;
+        $this->ceilingOpen = true;
+    }
+
+    public function updatedCeilingOpen(bool $value): void
+    {
+        if (! $value) {
+            $this->ceilingError = null;
+        }
+    }
+
+    /** Saves a dated ceiling version through the audited command. */
+    public function saveCeiling(): void
+    {
+        $access = app(Access::class);
+        if (! PayrollSettingsAccess::mayManage($access)) {
+            Flux::toast(variant: 'danger', text: 'Your role cannot manage payroll settings.');
+
+            return;
+        }
+        try {
+            $message = app(SaveBenefitCeiling::class)->handle($access, (string) ($this->ceilingForm['effective_from'] ?? ''), (string) ($this->ceilingForm['amount'] ?? ''), (string) ($this->ceilingForm['reason'] ?? ''));
+        } catch (QueryException $e) {
+            report($e);
+            $this->ceilingError = 'The version could not be saved. Nothing was changed. Please try again.';
+
+            return;
+        } catch (RuntimeException $e) {
+            $this->ceilingError = $e->getMessage();
+
+            return;
+        }
+        $this->ceilingOpen = false;
+        $this->ceilingError = null;
+        Flux::toast(variant: 'success', text: $message);
     }
 
     /** Any edit clears the last refusal. */
@@ -143,6 +216,7 @@ class IncentiveTypesPage extends Component
         $this->formName = '';
         $this->formDescription = '';
         $this->fillRule(BenefitRule::typed(true));
+        $this->formPaysLeaveCashOut = false;
         $this->formError = null;
         $this->formErrorField = null;
         $this->dialogOpen = true;
@@ -162,6 +236,7 @@ class IncentiveTypesPage extends Component
         $this->formName = $row->name;
         $this->formDescription = (string) ($row->description ?? '');
         $this->fillRule(self::ruleOf($row));
+        $this->formPaysLeaveCashOut = (bool) ($row->pays_leave_cash_out ?? false);
         $this->formError = null;
         $this->formErrorField = null;
         $this->dialogOpen = true;
@@ -191,7 +266,7 @@ class IncentiveTypesPage extends Component
             return;
         }
         try {
-            $message = app(SaveIncentiveType::class)->handle($access, $this->editingId, $this->formName, $this->formDescription, $this->formTax === BenefitRule::TAX_TAXABLE, $rule);
+            $message = app(SaveIncentiveType::class)->handle($access, $this->editingId, $this->formName, $this->formDescription, $this->formTax === BenefitRule::TAX_TAXABLE, $rule, $this->formPaysLeaveCashOut);
         } catch (UniqueConstraintViolationException) {
             $this->refuse('An incentive type with that name already exists.');
 
@@ -201,7 +276,7 @@ class IncentiveTypesPage extends Component
             Flux::toast(variant: 'danger', text: 'The incentive type could not be saved. Nothing was changed. Please try again.');
 
             return;
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
             $this->refuse($e->getMessage());
 
             return;
@@ -233,7 +308,7 @@ class IncentiveTypesPage extends Component
             Flux::toast(variant: 'danger', text: 'The incentive type could not be deleted. It may be on a payroll now.');
 
             return;
-        } catch (\RuntimeException $e) {
+        } catch (RuntimeException $e) {
             Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
@@ -244,7 +319,7 @@ class IncentiveTypesPage extends Component
     public function render(): View
     {
         $access = app(Access::class);
-        $canEdit = $access->mayReadAllData(ModuleCode::RECORDS) || $access->mayReadAllData(ModuleCode::PAYROLL);
+        $canEdit = PayrollSettingsAccess::mayManage($access);
         $usage = app(IncentiveTypeRecords::class)->usage($access);
 
         // Search and sort: one copy shared with the CSV export.
@@ -263,6 +338,10 @@ class IncentiveTypesPage extends Component
             'statuses' => $statuses,
             'statusNames' => array_column($statuses, 'name', 'id'),
             'rulesReady' => PayrollData::benefitRulesReady(),
+            'ceilingReady' => BenefitCeilings::ready(),
+            'ceilings' => $ceilings = app(BenefitCeilingRecords::class)->versions($access),
+            'today' => $today = ManilaClock::todayKey(),
+            'ceilingInForceId' => $ceilings->first(static fn ($v): bool => $v->effective_from->format('Y-m-d') <= $today)?->id,
             'sample' => $this->dialogOpen ? $this->sample() : null,
             // Statuses ticked in the dialog that the Employment list no longer has: saving drops them.
             'removedStatuses' => count(array_filter(array_keys(array_filter($this->formStatuses)), static fn (string $id): bool => ! in_array($id, array_column($statuses, 'id'), true))),

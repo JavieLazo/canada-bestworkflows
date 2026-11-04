@@ -40,6 +40,7 @@ final class PayrollRunRows
                 'id' => CodeSort::compare($a->code, $b->code),
                 'employees' => $a->members_count <=> $b->members_count,
                 'to' => PayrollData::compareText($a->period_end->format('Y-m-d'), $b->period_end->format('Y-m-d')),
+                'pay' => PayrollData::compareText($a->pay_date?->format('Y-m-d') ?? '', $b->pay_date?->format('Y-m-d') ?? ''),
                 'status' => PayrollData::compareText($a->status, $b->status),
                 'name' => PayrollData::compareText($a->name, $b->name),
                 default => PayrollData::compareText($a->period_start->format('Y-m-d'), $b->period_start->format('Y-m-d')),

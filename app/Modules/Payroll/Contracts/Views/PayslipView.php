@@ -56,6 +56,10 @@ use Carbon\CarbonImmutable;
  * @property-read float $late_undertime_deduction
  * @property-read float $absence_deduction
  * @property-read float $unpaid_leave_deduction
+ * @property-read CarbonImmutable|null $attendance_through  the advance payroll's counted date; null when the whole period was read
+ * @property-read float $presumed_days  days paid ahead of their attendance
+ * @property-read float $settlement  the settlement of earlier presumed days inside gross pay, positive or negative
+ * @property-read float $leave_charged_days  the days of leave credits the payslip charged for lateness, undertime and absences
  * @property-read float $exempt_benefits
  * @property-read float $taxable_benefits_excess
  * @property-read float|null $taxable_compensation

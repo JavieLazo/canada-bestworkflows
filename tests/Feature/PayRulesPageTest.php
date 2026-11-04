@@ -18,19 +18,20 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * The Pay Basis & Rates page: any RECORDS holder reads the figures and the
+ * The Pay Basis & Rates page, under Payroll Settings: any PAYROLL holder reads the figures and the
  * versions; only an all-data holder gets the presets and the save, and
  * every save goes through the audited command, which refuses anyone else.
  * A percentage typed as shown keeps the stored fraction; a blank cell
  * stays "as derived"; a rate below the usual minimum is flagged; every
- * version needs a reason and starts on the 1st or the 16th.
+ * version needs a reason and a date (any day: a payroll it falls inside
+ * prices each day by the version in force on it).
  */
 function prpageActor(bool $allData = true): User
 {
     $role = new Role;
     $role->forceFill(['name' => 'Rates page '.Str::random(6), 'all_data' => $allData, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::RECORDS])->save();
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => null]);
     test()->actingAs($user);
     app()->forgetInstance(Access::class);
@@ -46,11 +47,11 @@ function prpageStatus(string $name): EmploymentStatusOption
     return $status;
 }
 
-it('gates the page on the RECORDS grant and shows a read-only form to a holder without all data', function () {
-    $this->get('/records/pay-rates')->assertRedirect(route('login'));
+it('gates the page on the PAYROLL grant and shows a read-only form to a holder without all data', function () {
+    $this->get('/payroll/settings/pay-rates')->assertRedirect(route('login'));
 
     prpageActor(false);
-    $this->get('/records/pay-rates')
+    $this->get('/payroll/settings/pay-rates')
         ->assertOk()
         ->assertSee('Pay Basis &amp; Rates', false)
         ->assertSee('Rates by day type')
@@ -108,8 +109,8 @@ it('saves a new version through the command, keeping a percentage shown unchange
     $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
     prpageActor();
     $page = Livewire::test(PayRulesPage::class)
-        // The next cut-off's first day on or after today.
-        ->assertSet('formEffectiveFrom', '2026-10-16')
+        // Today, the earliest day a version may start.
+        ->assertSet('formEffectiveFrom', '2026-10-12')
         ->set('formMatrix.REST.overtime', '169')
         ->set('formMatrix.REST.night', '143')
         ->set('formMatrix.REGULAR.unworked', '100')
@@ -119,7 +120,7 @@ it('saves a new version through the command, keeping a percentage shown unchange
         ->set('formReason', 'Rates at the minimums')
         ->call('save')
         ->assertSet('formError', null)
-        ->assertSet('formEffectiveFrom', '2026-11-16')
+        ->assertSet('formEffectiveFrom', '2026-11-02')
         ->assertSet('formReason', '');
 
     $saved = PayrollPayRule::query()->where('effective_from', '2026-11-01')->sole();
@@ -158,7 +159,7 @@ it('saves a new version through the command, keeping a percentage shown unchange
         ->assertSee('01 Nov 2026');
 });
 
-it('requires a reason and a cut-off start for every version and refuses a scope that is not on the Employment list', function () {
+it('requires a reason and a date for every version and refuses a scope that is not on the Employment list', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
     prpageActor();
     $page = Livewire::test(PayRulesPage::class)
@@ -169,18 +170,17 @@ it('requires a reason and a cut-off start for every version and refuses a scope 
         ->assertSet('formError', 'Enter the reason for this version.');
     expect(PayrollPayRule::query()->count())->toBe(1);
 
-    // A date inside a payroll period is noted live and refused on save.
+    // A date inside a payroll period is accepted: that payroll prices each day by its version (DIVERGENCE 17).
     $page->set('formReason', 'Managerial staff')
-        ->set('formEffectiveFrom', '2026-11-10')
-        ->assertSee('This date is not the first day of a payroll period. Choose the 1st or the 16th.')
+        ->set('formEffectiveFrom', 'soon')
         ->call('save')
-        ->assertSet('formError', 'A version takes effect on the 1st or the 16th of a month, the first day of a payroll period.');
+        ->assertSet('formError', 'Enter the date the rules take effect.');
     expect(PayrollPayRule::query()->count())->toBe(1);
 
-    $page->set('formEffectiveFrom', '2026-11-01')
+    $page->set('formEffectiveFrom', '2026-11-10')
         ->call('save')
         ->assertSet('formError', null);
-    expect(PayrollPayRule::query()->where('effective_from', '2026-11-01')->sole()->reason)->toBe('Managerial staff');
+    expect(PayrollPayRule::query()->where('effective_from', '2026-11-10')->sole()->reason)->toBe('Managerial staff');
 
     // A scope that is not on the Employment list is ignored: the select stays where it was.
     $page->set('scope', 'not-a-status')
@@ -223,4 +223,45 @@ it('saves an override for one employment status that starts from the company rul
         ->and(PayrollPayRule::query()->where('scope', PayrollPayRule::COMPANY)->count())->toBe(1);
     $page->set('scope', PayrollPayRule::COMPANY)
         ->assertSet('formMethod', PayRules::METHOD_MONTH);
+});
+
+it('saves the hours, rounding and seaport figures as typed and blank as the reference', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
+    prpageActor();
+    $page = Livewire::test(PayRulesPage::class)
+        ->assertSet('formHourlyHours', '')
+        ->assertSet('formRounding', '')
+        ->assertSet('formSeaportRate', '')
+        ->assertSee('an hour on an 8-hour shift')
+        ->set('formHourlyHours', '8')
+        ->set('formRounding', '2')
+        ->set('formSeaportRate', '150')
+        ->set('formEffectiveFrom', '2026-11-01')
+        ->set('formReason', 'Register figures')
+        ->call('save')
+        ->assertSet('formError', null);
+
+    $saved = PayrollPayRule::query()->where('effective_from', '2026-11-01')->sole();
+    expect($saved->params['hourly_rate'])->toEqual(['hours' => 8.0])
+        ->and($saved->params['rounding'])->toEqual(['decimals' => 2])
+        ->and($saved->params['overtime']['seaport_rate'])->toEqual(1.5);
+
+    // Shown again, the figures read as typed; a bad figure is refused before the save.
+    $page->call('loadVersion', $saved->id)
+        ->assertSet('formHourlyHours', '8')
+        ->assertSet('formRounding', '2')
+        ->assertSet('formSeaportRate', '150')
+        ->set('formHourlyHours', '0.5')
+        ->assertSee('Hours for the hourly rate: enter between 1 and 24, or leave it blank.')
+        ->set('formHourlyHours', '')
+        ->set('formRounding', '')
+        ->set('formSeaportRate', '')
+        ->set('formEffectiveFrom', '2026-12-01')
+        ->set('formReason', 'Back to the shift hours')
+        ->call('save')
+        ->assertSet('formError', null);
+    $blank = PayrollPayRule::query()->where('effective_from', '2026-12-01')->sole();
+    expect($blank->params['hourly_rate'])->toEqual(['hours' => null])
+        ->and($blank->params['rounding'])->toEqual(['decimals' => null])
+        ->and($blank->params['overtime']['seaport_rate'])->toBeNull();
 });

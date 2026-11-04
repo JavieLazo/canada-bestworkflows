@@ -33,8 +33,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property bool $is_active
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
- * @property-read Collection<int, EmployeeProfile> $employees
- * @property-read Collection<int, AttendanceLog> $logs
  * @property-read Collection<int, Project> $projects
  */
 class WorkSite extends BaseModel
@@ -66,18 +64,6 @@ class WorkSite extends BaseModel
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return HasMany<EmployeeProfile, $this> */
-    public function employees(): HasMany
-    {
-        return $this->hasMany(EmployeeProfile::class, 'work_site_id');
-    }
-
-    /** @return HasMany<AttendanceLog, $this> */
-    public function logs(): HasMany
-    {
-        return $this->hasMany(AttendanceLog::class, 'site_id');
     }
 
     /** @return HasMany<Project, $this> */

@@ -294,10 +294,11 @@ it('creates a draft with a full member snapshot, then finalizes it into posted p
     expect(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->exists())->toBeTrue();
 });
 
-it('finalizes a period that has not ended yet, paying only the days that have', function () {
+it('finalizes a period that has not ended yet once the officer accepts it, paying only the days that have', function () {
     // Frozen mid-period: 5 Aug Manila, with a run covering the whole month.
     // The reference refuses this outright. Here it finalizes — the days after
-    // today carry no attendance, so they simply pay nothing.
+    // today carry no attendance, so they simply pay nothing — but only once
+    // the officer ticks "Finalize anyway" (OpenAttendanceItems).
     test()->travelTo(new DateTimeImmutable('2026-08-05T12:00:00+08:00'));
 
     $employee = payrollEmployee('EMP-011', 'Caloy', 'Dizon');
@@ -305,8 +306,12 @@ it('finalizes a period that has not ended yet, paying only the days that have', 
 
     $run = payrollDraftRun('PR-009', 'August 2026 — run early', [$employee]);
 
-    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSeeHtml('data-open-period')
         ->call('finalize');
+    expect($run->refresh()->status)->toBe('DRAFT');
+
+    $page->call('toggleOpenItems')->call('finalize');
 
     expect($run->refresh()->status)->toBe('FINALIZED')
         ->and(Payslip::query()->where('run_id', $run->id)->count())->toBe(1);
@@ -457,7 +462,7 @@ it('gives the run code its own sortable ID column instead of a line under the na
 
     // Seven headers, so the empty row must span seven or it stops short of the
     // Action column.
-    $page->set('search', 'zzz-matches-no-payroll')->assertSeeHtml('colspan="7"');
+    $page->set('search', 'zzz-matches-no-payroll')->assertSeeHtml('colspan="8"');
 });
 
 it('deletes a draft run from the list', function () {
@@ -858,7 +863,13 @@ it('finalizes holiday overtime on a rest day with pay only when approved', funct
         $approval->save();
     }
 
-    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
+    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id]);
+    // Undecided overtime is open attendance: it posts unpaid only once the
+    // officer accepts it (OpenAttendanceItems).
+    if (! $approved) {
+        $page->call('toggleOpenItems');
+    }
+    $page->call('finalize');
 
     $posted = Payslip::query()->sole();
     expect($run->refresh()->status)->toBe('FINALIZED')

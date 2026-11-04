@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Portal\Support;
 
+use App\Modules\Timekeeping\Application\LeaveHalves;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
+use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Support\CodeSequence;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
@@ -22,7 +24,6 @@ use App\Support\ManilaClock;
  *   DAY_TYPES                hris.ts:290-293
  *   dayTypeLabel             hris.ts:295-296
  *   leaveRequestDateError    hris.ts:299-317
- *   leaveRangesOverlap       hris.ts:320-325
  *   normalizeRequestType     hris.ts:326-332
  *   requestDescription       hris.ts:340-356
  *   nextCode                 hris.ts:406-414
@@ -60,10 +61,15 @@ final class PortalLabels
 
     private function __construct() {}
 
-    /** hris.ts:295-296 — an unknown or null day type reads as whole day. */
-    public static function dayTypeLabel(?string $value): string
+    /** Which half of a half day is off, with the names on screen (divergence 21). */
+    public const array HALVES = LeaveHalves::HALVES;
+
+    /** hris.ts:295-296 — an unknown or null day type reads as whole day; a half day names its half when it says which. */
+    public static function dayTypeLabel(?string $value, ?string $half = null): string
     {
-        return self::DAY_TYPES[$value] ?? 'Whole day';
+        $label = self::DAY_TYPES[$value] ?? 'Whole day';
+
+        return $value === 'HALF_DAY' && isset(self::HALVES[$half]) ? $label.' · '.self::HALVES[$half] : $label;
     }
 
     /** Stored request types are the normalised form of a Leave Settings name (hris.ts:328), shared through HrisFormat. */
@@ -104,12 +110,6 @@ final class PortalLabels
     public static function leaveRequestDateError(string $start, string $end): ?string
     {
         return AbsencePolicy::dateError($start, $end);
-    }
-
-    /** Inclusive overlap for validated YYYY-MM-DD leave ranges (hris.ts:320-325). */
-    public static function leaveRangesOverlap(string $firstStart, string $firstEnd, string $secondStart, string $secondEnd): bool
-    {
-        return AbsencePolicy::overlaps($firstStart, $firstEnd, $secondStart, $secondEnd);
     }
 
     /**
@@ -160,5 +160,11 @@ final class PortalLabels
     public static function dayCount(float $value): string
     {
         return floor($value) === $value ? (string) (int) $value : number_format($value, 1, '.', '');
+    }
+
+    /** Leave credits as the ledger keeps them: up to four decimals, no trailing zeros (LeaveCreditPolicy::format). */
+    public static function credits(float $value): string
+    {
+        return LeaveCreditPolicy::format($value);
     }
 }

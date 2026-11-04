@@ -21,8 +21,9 @@ use DateTimeInterface;
  * is only written when no notification with that key already exists for that
  * account. Keying on the trigger rather than on today is what makes a task
  * that has been overdue for a fortnight announce itself once, not fourteen
- * times. The (user_id, dedupe_key) unique index is the second half of that
- * guarantee — see fresh() for the first.
+ * times. The first half of that guarantee is the seen-key filter in the
+ * platform's `SweepReminders`; the second is the (user_id, dedupe_key)
+ * unique index.
  *
  * Reminders are generated for ONE account, from data that account can already
  * see, and only ever point at a route it holds. Hence the module gates below:
@@ -80,6 +81,9 @@ final class ReminderSweep
     /** A project is announced this far ahead of its due date. */
     public const PROJECT_DUE_SOON_DAYS = 7;
 
+    /** How many days before a pay date an unfinished payroll is flagged (PAYROLL_DUE). */
+    public const PAYROLL_NOTICE_DAYS = 7;
+
     /**
      * Most rows a single sweep may write.
      *
@@ -97,9 +101,10 @@ final class ReminderSweep
     /**
      * TS: buildReminders(). Every reminder that has come due for ONE account.
      *
-     * Rule order is load-bearing: fresh() keeps the first
-     * MAX_REMINDERS_PER_SWEEP, so the order the rules appear in decides what
-     * gets announced first on a neglected dataset. It is the reference's order
+     * Rule order is load-bearing: the sweep keeps the first
+     * MAX_REMINDERS_PER_SWEEP unseen reminders, walking the rule groups in
+     * this same order, so the order the rules appear in decides what gets
+     * announced first on a neglected dataset. It is the reference's order
      * exactly — assignee work, then handed-out work, then leave, then HR.
      *
      * Row shapes are the database columns, as arrays:
@@ -128,6 +133,7 @@ final class ReminderSweep
      * @param  list<array<string, mixed>>  $documents
      * @param  list<array<string, mixed>>  $leaves
      * @param  string|null  $group  One owner-authorized rule group for bounded callers; null runs all legacy rules.
+     * @param  list<array{schedule_id: string, start: string, end: string, pay_date: string, label: string, deadline: string|null}>  $payrolls  the pay schedule periods not yet finalized, precomputed by Payroll
      * @return list<array{dedupeKey: string, kind: string, title: string, body: string|null, href: string}>
      */
     public static function build(
@@ -141,6 +147,7 @@ final class ReminderSweep
         array $documents = [],
         array $leaves = [],
         ?string $group = null,
+        array $payrolls = [],
     ): array {
         $out = [];
 
@@ -443,58 +450,32 @@ final class ReminderSweep
             }
         }
 
-        return $out;
-    }
-
-    /**
-     * The dedupe-and-cap half of the sweep, ported from useReminders.ts:88
-     * (`due.filter((r) => !seen.has(r.dedupeKey)).slice(0, MAX)`).
-     *
-     * $seenKeys is every dedupe_key already on a notification for THIS
-     * account. This is a courtesy filter, not the guarantee: the guarantee is
-     * the (user_id, dedupe_key) unique index, which makes a concurrent second
-     * sweep a no-op rather than a duplicate.
-     *
-     * @param  list<array{dedupeKey: string, kind: string, title: string, body: string|null, href: string}>  $reminders
-     * @param  list<string>  $seenKeys
-     * @return list<array{dedupeKey: string, kind: string, title: string, body: string|null, href: string}>
-     */
-    public static function fresh(array $reminders, array $seenKeys): array
-    {
-        $seen = array_flip($seenKeys);
-        $out = [];
-
-        foreach ($reminders as $reminder) {
-            if (isset($seen[$reminder['dedupeKey']])) {
+        // PAYROLL_DUE: a pay schedule's period whose pay date, or a deadline
+        // before it, is within PAYROLL_NOTICE_DAYS and whose payroll is not
+        // finalized. Payroll's ReminderData hands in only the periods an
+        // all-data PAYROLL holder may be told about, each with the schedule
+        // id (segment 2, authorized by that group) and the nearest date
+        // still ahead as the trigger; one reminder per period and date.
+        foreach (($group === null || $group === 'payroll') ? $payrolls : [] as $period) {
+            $payDate = (string) $period['pay_date'];
+            $left = self::daysUntil($payDate, $today);
+            if ($left < 0 || $left > self::PAYROLL_NOTICE_DAYS) {
                 continue;
             }
-            $out[] = $reminder;
-            if (count($out) >= self::MAX_REMINDERS_PER_SWEEP) {
-                break;
-            }
+            $out[] = [
+                'dedupeKey' => 'PAYROLL_DUE:'.$period['schedule_id'].':'.$period['start'].':'.$payDate,
+                'kind' => 'PAYROLL_DUE',
+                'title' => $left === 0
+                    ? 'Payroll for '.$period['label'].' is paid today'
+                    : 'Payroll for '.$period['label'].' is paid '.self::inDays($left),
+                'body' => ($period['deadline'] ?? null) === null
+                    ? 'No finalized payroll covers it yet.'
+                    : $period['deadline'].' — no finalized payroll covers it yet.',
+                'href' => '/payroll',
+            ];
         }
 
         return $out;
-    }
-
-    /**
-     * One built reminder as a `notifications` row, matching the mapping
-     * useReminders.ts:94-103 does before the insert. `created_at` and the id
-     * belong to the writer, not here.
-     *
-     * @param  array{dedupeKey: string, kind: string, title: string, body: string|null, href: string}  $reminder
-     * @return array{user_id: string, kind: string, title: string, body: string|null, href: string, dedupe_key: string}
-     */
-    public static function toNotificationRow(array $reminder, string $userId): array
-    {
-        return [
-            'user_id' => $userId,
-            'kind' => $reminder['kind'],
-            'title' => $reminder['title'],
-            'body' => $reminder['body'],
-            'href' => $reminder['href'],
-            'dedupe_key' => $reminder['dedupeKey'],
-        ];
     }
 
     /**

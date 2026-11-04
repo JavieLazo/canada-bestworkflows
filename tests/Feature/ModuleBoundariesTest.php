@@ -10,6 +10,10 @@ use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Organization\Contracts\OrganizationReferences;
 use App\Modules\Organization\Contracts\PunchSites;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
+use App\Modules\Timekeeping\Contracts\LeaveCashOutPoster;
+use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
+use App\Modules\Timekeeping\Contracts\LeaveChargePoster;
+use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
 use App\Modules\Timekeeping\Contracts\OpenPayrollDrafts;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
@@ -17,6 +21,7 @@ use App\Modules\Timekeeping\Contracts\ScheduleNotices;
 use App\Modules\Workforce\Contracts\AssignmentEmployees;
 use App\Modules\Workforce\Contracts\ColleagueDirectory;
 use App\Modules\Workforce\Contracts\EmployeeDirectory;
+use App\Modules\Workforce\Contracts\EmployeeLeaveFacts;
 use App\Modules\Workforce\Contracts\EmployeePayContexts;
 use App\Modules\Workforce\Contracts\InventoryEmployees;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
@@ -48,7 +53,7 @@ function boundaryReferences(): array
         $nodes = $parser->parse((string) file_get_contents($file->getPathname()));
         $nodes = (new NodeTraverser(new NameResolver))->traverse($nodes ?? []);
         $names = $finder->findInstanceOf($nodes, Node\Name::class);
-        $path = substr($file->getPathname(), strlen(app_path('Modules')) + 1);
+        $path = str_replace(DIRECTORY_SEPARATOR, '/', substr($file->getPathname(), strlen(app_path('Modules')) + 1));
         $result[$path] = array_values(array_unique(array_map(static fn (Node\Name $name): string => $name->toString(), $names)));
     }
 
@@ -56,7 +61,7 @@ function boundaryReferences(): array
 }
 
 it('resolves every cross module query contract through the composition root', function () {
-    foreach ([EmployeeDirectory::class, EmployeePayContexts::class, AttendanceSource::class, HolidayCalendar::class,
+    foreach ([EmployeeDirectory::class, EmployeePayContexts::class, EmployeeLeaveFacts::class, AttendanceSource::class, HolidayCalendar::class,
         AssignmentEmployees::class,
         PunchEmployees::class,
         OrganizationReferences::class,
@@ -64,6 +69,10 @@ it('resolves every cross module query contract through the composition root', fu
         ProjectAccounts::class,
         OpenPunchLimit::class,
         PostedPayrollDates::class,
+        LeaveChargeSource::class,
+        LeaveChargePoster::class,
+        LeaveCashOutSource::class,
+        LeaveCashOutPoster::class,
         OpenPayrollDrafts::class,
         ScheduleNotices::class,
         NotificationRecipients::class,

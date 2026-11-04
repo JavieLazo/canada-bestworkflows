@@ -12,7 +12,6 @@ use App\Support\EmployeeName;
 use App\Support\HrisFormat;
 use App\Support\ManilaClock;
 use App\Support\TextSort;
-use Carbon\CarbonImmutable;
 
 /** Compatibility adapter; implementation belongs to \App\Modules\Workforce\Application\EmployeeFields. */
 final class EmployeeFields
@@ -147,18 +146,6 @@ final class EmployeeFields
         return \App\Modules\Workforce\Application\EmployeeFields::section($id);
     }
 
-    /** @return list<string> keys typed number or money (NUMERIC in the source) */
-    public static function numericKeys(): array
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::numericKeys();
-    }
-
-    /** @return list<string> keys typed switch (BOOLEAN in the source) */
-    public static function booleanKeys(): array
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::booleanKeys();
-    }
-
     /** Collapsed into a single "Full Name" row outside edit mode. */
     public const array NAME_PARTS = \App\Modules\Workforce\Application\EmployeeFields::NAME_PARTS;
 
@@ -217,23 +204,6 @@ final class EmployeeFields
         return \App\Modules\Workforce\Application\EmployeeFields::shown($field, $form);
     }
 
-    /** @return array<string, string> */
-    public static function addressParts(EmployeeProfile|EmployeeProfileView $employee, string $type): array
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::addressParts($employee, $type);
-    }
-
-    /** @param  array<string, string>  $parts */
-    public static function addressLine(array $parts): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::addressLine($parts);
-    }
-
-    public static function residentialText(EmployeeProfile|EmployeeProfileView $employee): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::residentialText($employee);
-    }
-
     public static function permanentText(EmployeeProfile|EmployeeProfileView $employee): string
     {
         return \App\Modules\Workforce\Application\EmployeeFields::permanentText($employee);
@@ -249,16 +219,6 @@ final class EmployeeFields
         return \App\Modules\Workforce\Application\EmployeeFields::legacyCitizenship($employee);
     }
 
-    public static function citizenshipText(EmployeeProfile|EmployeeProfileView $employee): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::citizenshipText($employee);
-    }
-
-    public static function civilStatusText(EmployeeProfile|EmployeeProfileView $employee): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::civilStatusText($employee);
-    }
-
     /** @param  array<string, mixed>  $field */
     public static function isAnswer(array $field): bool
     {
@@ -269,12 +229,6 @@ final class EmployeeFields
     public static function isLines(array $field): bool
     {
         return \App\Modules\Workforce\Application\EmployeeFields::isLines($field);
-    }
-
-    /** A stored answer as the form's select holds it: '', 'yes' or 'no'. */
-    public static function answerForm(mixed $stored): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::answerForm($stored);
     }
 
     /**
@@ -291,12 +245,6 @@ final class EmployeeFields
     public static function dateText(mixed $value): string
     {
         return \App\Modules\Workforce\Application\EmployeeFields::dateText($value);
-    }
-
-    /** Whether any of the spouse's parts is typed. */
-    public static function spouseTyped(EmployeeProfile|EmployeeProfileView $employee): bool
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::spouseTyped($employee);
     }
 
     /** The legacy spouse lines as one, while no spouse part is typed; else ''. */
@@ -341,11 +289,6 @@ final class EmployeeFields
     public static function wizard(): array
     {
         return \App\Modules\Workforce\Application\EmployeeFields::wizard();
-    }
-
-    public static function metresText(float $cm): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::metresText($cm);
     }
 
     /** @param  array<string, mixed>  $form */
@@ -418,18 +361,6 @@ final class EmployeeFields
     public static function initials(EmployeeProfile|EmployeeProfileView $employee): string
     {
         return \App\Modules\Workforce\Application\EmployeeFields::initials($employee);
-    }
-
-    /** ageFrom() (employee-fields.tsx:224-236), on the Manila calendar. */
-    public static function ageFrom(?CarbonImmutable $birth): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::ageFrom($birth);
-    }
-
-    /** yearsAndMonths() (employee-fields.tsx:205-222). */
-    public static function yearsAndMonths(?CarbonImmutable $from): string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::yearsAndMonths($from);
     }
 
     /** @param  array<string, mixed>  $field */
@@ -514,23 +445,6 @@ final class EmployeeFields
     public static function compareText(?string $a, ?string $b): int
     {
         return \App\Modules\Workforce\Application\EmployeeFields::compareText($a, $b);
-    }
-
-    /** A real `YYYY-MM-DD` calendar day (lib/payroll-period.ts payrollDate). */
-    public static function isCalendarDay(string $value): bool
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::isCalendarDay($value);
-    }
-
-    /**
-     * employeeDateError() (lib/employee-policy.ts) — the cross-field calendar
-     * rules shared by create and update, message for message.
-     *
-     * @param  array{birth_date?: ?string, date_hired: string, date_regular?: ?string, date_resigned?: ?string}  $value
-     */
-    public static function employeeDateError(array $value, string $today): ?string
-    {
-        return \App\Modules\Workforce\Application\EmployeeFields::employeeDateError($value, $today);
     }
 
     /**

@@ -4,15 +4,12 @@ declare(strict_types=1);
 
 namespace App\Modules\Social\Application\Commands;
 
-use App\Domain\Enums\ModuleCode;
-use App\Domain\Notifications\Notifier;
 use App\Models\ChatAttachment;
 use App\Models\ChatMessage;
 use App\Models\ChatParticipant;
-use App\Modules\IdentityAccess\Contracts\ModuleAccounts;
 use App\Modules\Social\Application\Attachments;
+use App\Modules\Social\Application\ChatMentions;
 use App\Modules\Social\Application\ChatScope;
-use App\Modules\Social\Application\People;
 use App\Modules\Social\Application\SocialRules;
 use App\Modules\Social\Domain\Vocabulary;
 use App\Support\Access;
@@ -53,15 +50,8 @@ final class SendMessage
 
         $members = ChatScope::memberIds($conversation->id);
         $group = $conversation->kind === Vocabulary::GROUP;
-        $names = [];
-        if ($group) {
-            foreach (app(People::class)->cards($actor, array_values(array_diff($members, [$me]))) as $id => $card) {
-                $names[$id] = $card->name;
-            }
-            $text = SocialFormat::tokenize($text, $names, [], true);
-        } else {
-            $text = SocialFormat::disarm($text);
-        }
+        $names = $group ? ChatMentions::names($actor, $me, $members) : [];
+        $text = $group ? SocialFormat::tokenize($text, $names, [], true) : SocialFormat::disarm($text);
 
         // Only a live message in this same conversation can be answered.
         $replyTo = $replyToId === null ? null : ChatMessage::query()
@@ -113,46 +103,11 @@ final class SendMessage
         }
 
         if ($group) {
-            $this->tell($actor, $me, $conversation->id, $message->id, $conversation->title, $text, $members, $names);
+            ChatMentions::tell($actor, $me, $conversation->id, $message->id, $conversation->title, $text, $members, $names);
         }
 
         Realtime::announce(array_map(static fn (int $userId): string => Realtime::account($userId), $members));
 
         return $message->id;
-    }
-
-    /**
-     * Rings the bells of everyone the message mentions: by name, or all of
-     * them for @everyone. Only people still in the chat and still able to
-     * open Chat, since a bell whose link bounces is worse than no bell, and
-     * never someone who muted it without allowing mentions.
-     *
-     * @param  list<int>  $members
-     * @param  array<int, string>  $names
-     */
-    private function tell(Access $actor, int $me, string $conversationId, string $messageId, ?string $title, string $text, array $members, array $names): void
-    {
-        $named = array_values(array_intersect(SocialFormat::mentions($text), $members));
-        $everyone = SocialFormat::mentionsEveryone($text);
-        $reach = array_values(array_diff($everyone ? $members : $named, [$me]));
-        $reach = $reach === [] ? [] : app(ModuleAccounts::class)->filter($actor, ModuleCode::CHAT, $reach);
-
-        if ($reach === []) {
-            return;
-        }
-
-        $silenced = array_map('intval', ChatParticipant::query()
-            ->where('conversation_id', $conversationId)
-            ->where('is_muted', true)
-            ->where('allow_mentions', false)
-            ->pluck('user_id')
-            ->all());
-        $preview = SocialRules::preview(SocialFormat::plain($text, $names + [$me => $actor->fullName]));
-        $where = $title ?? 'a chat';
-
-        foreach (array_diff($reach, $silenced) as $userId) {
-            $who = in_array($userId, $named, true) ? 'you' : 'everyone';
-            Notifier::account($userId, 'CHAT_MENTION', $actor->fullName.' mentioned '.$who.' in '.$where, $preview, '/chat?c='.$conversationId.'&m='.$messageId);
-        }
     }
 }

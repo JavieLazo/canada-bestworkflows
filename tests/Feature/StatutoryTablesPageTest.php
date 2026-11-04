@@ -10,22 +10,24 @@ use App\Models\PayrollStatutoryTable;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
+use App\Modules\Payroll\Application\Commands\AddStatutoryTableVersion;
 use App\Support\Access;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * The Contribution & Tax Tables page: any RECORDS holder reads the versions,
- * the figures and the samples; only an all-data holder gets the Add and
- * Extend dialogs, and every write goes through the audited commands, which
- * refuse anyone else. Percentages typed as shown keep the stored fraction.
+ * The Contribution & Tax Tables page, under Payroll Settings: any PAYROLL
+ * holder reads the versions, the figures and the samples; only an all-data
+ * holder gets the Add, Correct, Withdraw and Confirm dialogs, and every
+ * write goes through the audited commands, which refuse anyone else.
+ * Percentages typed as shown keep the stored fraction.
  */
 function stpActor(bool $allData = true): User
 {
     $role = new Role;
     $role->forceFill(['name' => 'Tables page '.Str::random(6), 'all_data' => $allData, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::RECORDS])->save();
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => null]);
     test()->actingAs($user);
     app()->forgetInstance(Access::class);
@@ -33,14 +35,14 @@ function stpActor(bool $allData = true): User
     return $user;
 }
 
-it('gates the page on the RECORDS grant and lists the seeded version with its figures and samples', function () {
-    $this->get('/records/contribution-tables')->assertRedirect(route('login'));
+it('gates the page on the PAYROLL grant and lists the seeded version with its figures and samples', function () {
+    $this->get('/payroll/settings/contribution-tables')->assertRedirect(route('login'));
 
     stpActor(false);
-    $this->get('/records/contribution-tables')
+    $this->get('/payroll/settings/contribution-tables')
         ->assertOk()
         ->assertSee('Contribution &amp; Tax Tables', false)
-        ->assertSee('Payroll can run for periods through')
+        ->assertSee('tables are confirmed through')
         ->assertSee('31 Dec 2026')
         ->assertSee('SSS versions')
         ->assertSee('01 Jan 2025')
@@ -49,7 +51,7 @@ it('gates the page on the RECORDS grant and lists the seeded version with its fi
         ->assertSee('Lowest salary credit')
         ->assertSee('₱1,500.00')
         ->assertSee('₱3,030.00')
-        ->assertSee('Adding or extending a version requires Records Management access to all data.')
+        ->assertSee('Adding, correcting or confirming a version requires Payroll access to all data.')
         ->assertDontSee('Add new version');
 
     Livewire::test(StatutoryTablesPage::class)
@@ -63,6 +65,8 @@ it('gates the page on the RECORDS grant and lists the seeded version with its fi
 });
 
 it('adds a version from the dialog, converting percentages once, and supersedes the current one', function () {
+    // The default start date is today while the coverage holds, so the clock is pinned.
+    $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
     $actor = stpActor();
     $page = Livewire::test(StatutoryTablesPage::class)
         ->call('openAdd')
@@ -95,7 +99,7 @@ it('adds a version from the dialog, converting percentages once, and supersedes 
     $page->assertSet('dialogOpen', false)->assertSee('Upcoming')->assertSee('Current')->assertSee('New schedule')->assertDontSee('Superseded');
 });
 
-it('refuses a version from a RECORDS holder without all data and leaves no trace', function () {
+it('refuses a version from a PAYROLL holder without all data and leaves no trace', function () {
     stpActor(false);
     $page = Livewire::test(StatutoryTablesPage::class);
     $page->set('tab', StatutorySchedule::PHILHEALTH)
@@ -107,21 +111,79 @@ it('refuses a version from a RECORDS holder without all data and leaves no trace
         ->and(AuditLog::query()->count())->toBe(0);
 });
 
-it('extends the current version and reports a wrong date', function () {
+it('confirms the current version through a later date and reports a wrong one', function () {
+    $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
     stpActor();
     $id = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::PAGIBIG)->value('id');
     Livewire::test(StatutoryTablesPage::class)
         ->set('tab', StatutorySchedule::PAGIBIG)
-        ->call('openExtend', $id)
-        ->assertSet('extendOpen', true)
-        ->assertSet('formExtendThrough', '2027-12-31')
-        ->set('formExtendThrough', '2024-12-31')
-        ->call('saveExtend')
-        ->assertSet('formError', 'The covered-through date cannot fall before the effective date.')
-        ->set('formExtendThrough', '2028-06-30')
-        ->call('saveExtend')
-        ->assertSet('extendOpen', false)
+        ->call('openConfirm', $id)
+        ->assertSet('confirmOpen', true)
+        // Already confirmed through the end of this year, so the next year's end is proposed.
+        ->assertSet('formConfirmThrough', '2027-12-31')
+        ->set('formConfirmThrough', '2024-12-31')
+        ->call('saveConfirm')
+        ->assertSet('formError', 'The confirmed-through date cannot fall before the effective date.')
+        ->set('formConfirmThrough', '2026-06-30')
+        ->call('saveConfirm')
+        ->assertSet('formError', 'The Pag-IBIG table is already confirmed through 31 Dec 2026. Choose a later date.')
+        ->set('formConfirmThrough', '2028-06-30')
+        ->call('saveConfirm')
+        ->assertSet('confirmOpen', false)
         ->assertSee('30 Jun 2028');
     expect(PayrollStatutoryTable::query()->whereKey($id)->sole()->covered_through->format('Y-m-d'))->toBe('2028-06-30')
-        ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_EXTENDED')->count())->toBe(1);
+        ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_CONFIRMED')->count())->toBe(1);
+});
+
+it('corrects and withdraws a version that has not taken effect from its row menu, and never one in force', function () {
+    $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
+    $actor = stpActor();
+    $seeded = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->value('id');
+    app(AddStatutoryTableVersion::class)->handle(Access::forActor($actor), StatutorySchedule::SSS, '2027-01-01', '2027-12-31', 'Typo', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]);
+    $future = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->orderByDesc('effective_from')->value('id');
+
+    $page = Livewire::test(StatutoryTablesPage::class)
+        // The version in force opens nothing.
+        ->call('openEdit', $seeded)
+        ->assertSet('dialogOpen', false)
+        ->call('openEdit', $future)
+        ->assertSet('dialogOpen', true)
+        ->assertSet('editingId', $future)
+        ->assertSet('formEffectiveFrom', '2027-01-01')
+        ->assertSet('formReference', 'Typo')
+        ->assertSee('Correct SSS version from 01 Jan 2027')
+        ->assertSee('Save correction')
+        ->set('formEffectiveFrom', '2027-02-01')
+        ->set('formFigures.msc_max', '40000')
+        ->set('formReference', 'Fixed')
+        ->call('save')
+        ->assertSet('dialogOpen', false)
+        ->assertSet('editingId', null)
+        ->assertSee('01 Feb 2027')
+        ->assertSee('Fixed');
+    $corrected = PayrollStatutoryTable::query()->whereKey($future)->sole();
+    expect($corrected->effective_from->format('Y-m-d'))->toBe('2027-02-01')
+        // JSON drops a whole number's fraction; the engine reads either as the same float.
+        ->and($corrected->params['msc_max'])->toEqual(40000.0)
+        ->and($corrected->reference)->toBe('Fixed')
+        ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_UPDATED')->count())->toBe(1);
+
+    $page->call('openWithdraw', $future)
+        ->assertSet('withdrawOpen', true)
+        ->assertSee('Withdraw the SSS version from 01 Feb 2027?')
+        ->call('confirmWithdraw')
+        ->assertSet('withdrawOpen', false)
+        ->assertSet('withdrawingId', null);
+    expect(PayrollStatutoryTable::query()->whereKey($future)->exists())->toBeFalse()
+        ->and(PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->count())->toBe(1)
+        ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_WITHDRAWN')->count())->toBe(1);
+
+    // The version in force cannot be withdrawn from the second step either, and a reader without all data moves nothing.
+    $page->call('openWithdraw', $seeded)->call('confirmWithdraw');
+    stpActor(false);
+    app(AddStatutoryTableVersion::class)->handle(Access::forActor($actor), StatutorySchedule::SSS, '2027-03-01', '2027-12-31', '', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]);
+    $again = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->orderByDesc('effective_from')->value('id');
+    Livewire::test(StatutoryTablesPage::class)->call('openWithdraw', $again)->call('confirmWithdraw');
+    expect(PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->count())->toBe(2)
+        ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_WITHDRAWN')->count())->toBe(1);
 });

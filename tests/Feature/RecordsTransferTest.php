@@ -219,7 +219,7 @@ it('lets an all-data payroll officer import incentive types by their tax label',
     app(SaveIncentiveType::class)->handle(app(Access::class), null, 'Rice subsidy', null, false);
     $code = (string) PayrollIncentiveType::query()->value('code');
 
-    expect(rxferRows('/records/incentive-types/export'))->toBe([[$code, 'Rice subsidy', 'Tax-exempt', '', 'Typed per payroll', '', 'One-time', '', '0', 'None', '', '', '', 'No']]);
+    expect(rxferRows('/payroll/settings/incentive-types/export'))->toBe([[$code, 'Rice subsidy', 'Tax-exempt', '', 'Typed per payroll', '', 'One-time', '', '0', 'None', '', '', '', 'No']]);
 
     // The rule's columns left blank keep what the row holds; filled, they set it.
     $report = rxferImport('records.incentive-types', ImportIncentiveTypes::COLUMNS, [
@@ -237,31 +237,36 @@ it('lets an all-data payroll officer import incentive types by their tax label',
 
 /* |---| Who sees the buttons |---| */
 
-it('shows Export to every reader and Import only to the table\'s writers', function (string $component) {
-    rxferActor([ModuleCode::RECORDS], allData: false);
+it('shows Export to every reader and Import only to the table\'s writers', function (string $component, string $module) {
+    rxferActor([$module], allData: false);
     Livewire::test($component)->assertSee('Export CSV')->assertDontSee('Import CSV');
 
-    rxferActor([ModuleCode::RECORDS], allData: true);
+    rxferActor([$module], allData: true);
     Livewire::test($component)->assertSee('Export CSV')->assertSee('Import CSV');
 })->with([
-    'sites' => [SitesPage::class],
-    'holidays' => [HolidaysPage::class],
-    'shift types' => [ShiftTypesPage::class],
-    'incentive types' => [IncentiveTypesPage::class],
+    'sites' => [SitesPage::class, ModuleCode::RECORDS],
+    'holidays' => [HolidaysPage::class, ModuleCode::RECORDS],
+    'shift types' => [ShiftTypesPage::class, ModuleCode::RECORDS],
+    // A Payroll Setting: its writers hold PAYROLL (PayrollSettingsAccess).
+    'incentive types' => [IncentiveTypesPage::class, ModuleCode::PAYROLL],
 ]);
 
-it('keeps Export for every reader and Import for the writers on the plain lists that carry a CSV', function (string $slug) {
-    rxferActor([ModuleCode::RECORDS], allData: false);
+it('keeps Export for every reader and Import for the writers on the plain lists that carry a CSV', function (string $slug, string $module) {
+    rxferActor([$module], allData: false);
     Livewire::test(ReferenceListPage::class, ['slug' => $slug])->assertSee('Export CSV')->assertDontSee('Import CSV');
 
-    rxferActor([ModuleCode::RECORDS], allData: true);
+    rxferActor([$module], allData: true);
     Livewire::test(ReferenceListPage::class, ['slug' => $slug])
         ->assertSeeHtml('href="'.e(route("records.{$slug}.export", ['sort' => 'name', 'dir' => 'asc'])).'"')
         ->assertSee('Import CSV');
 
     expect(app(TableTransfers::class)->exports("records.{$slug}"))->toBeTrue()
         ->and(app(TableTransfers::class)->imports("records.{$slug}"))->toBeTrue();
-})->with(['leave-types', 'payroll-deductions']);
+})->with([
+    'leave types' => ['leave-types', ModuleCode::RECORDS],
+    // A Payroll Setting: its writers hold PAYROLL (PayrollSettingsAccess).
+    'payroll deductions' => ['payroll-deductions', ModuleCode::PAYROLL],
+]);
 
 it('has no CSV on a General Records list: no button, no export route, no transfer key', function (string $slug) {
     rxferActor([ModuleCode::RECORDS], allData: true);

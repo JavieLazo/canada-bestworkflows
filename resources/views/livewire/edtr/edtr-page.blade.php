@@ -13,6 +13,7 @@
 @use('App\Domain\Attendance\Shift', 'DomainShift')
 @use('App\Modules\Timekeeping\Domain\Roster\LocationKind')
 @use('App\Modules\Timekeeping\Domain\Attendance\PunchSlots')
+@use('App\Modules\Timekeeping\Domain\Attendance\CorrectionWindow')
 @use('App\Support\HrisFormat')
 @use('App\Domain\Attendance\CalendarDays')
 @use('App\Platform\Files\PortraitUrl')
@@ -423,7 +424,7 @@
                         </table>
                     </div>
                     @if ($canEditRemarks)
-                        <p class="text-xs text-muted-foreground">Approve OT directly in its row. Select the OT amount for details, or the row to correct punches. Unapproved OT does not block payroll finalization.</p>
+                        <p class="text-xs text-muted-foreground">Approve OT directly in its row. Select the OT amount for details, or the row to correct punches. Unapproved OT is not paid, and payroll asks before finalizing a period with OT still undecided.</p>
                     @endif
                 @else
                     <p class="hris-card p-8 text-center text-sm text-muted-foreground">
@@ -618,6 +619,15 @@
 
                 <div id="correction-panel-punches" class="mt-4 bg-inherit">
                     <form wire:submit="saveCorrection" class="flex flex-col gap-4 bg-inherit">
+                        {{-- A day a posted payslip covers is what payroll paid: it can be
+                             read here but not saved (CorrectPunches refuses it too). --}}
+                        @if ($correction->posted)
+                            <div role="status" data-correction-paid class="flex gap-2 rounded-md border border-warning/20 bg-warning-soft px-3 py-2 text-sm text-foreground">
+                                <flux:icon.lock-closed variant="mini" class="mt-0.5 size-4 shrink-0 text-warning" />
+                                <p>{{ CorrectionWindow::PAID_DAY }}</p>
+                            </div>
+                        @endif
+
                         {{-- A slot the DTR shows but this row does not own: left out of
                              the boxes, so a save cannot replace another night's punch. --}}
                         @foreach ($correction->borrowed as $borrowedKey => $borrowedAt)
@@ -869,14 +879,16 @@
                                     </span>
                                 </p>
                                 <flux:button type="button" variant="outline" wire:click="$set('correctionOpen', false)">
-                                    Cancel
+                                    {{ $correction->posted ? 'Close' : 'Cancel' }}
                                 </flux:button>
-                                <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="saveCorrection">
-                                    <span wire:loading wire:target="saveCorrection" class="mr-2 inline-flex">
-                                        <flux:icon.loading class="size-4" />
-                                    </span>
-                                    Save punches
-                                </flux:button>
+                                @unless ($correction->posted)
+                                    <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="saveCorrection">
+                                        <span wire:loading wire:target="saveCorrection" class="mr-2 inline-flex">
+                                            <flux:icon.loading class="size-4" />
+                                        </span>
+                                        Save punches
+                                    </flux:button>
+                                @endunless
                             </div>
                         </div>
                     </form>

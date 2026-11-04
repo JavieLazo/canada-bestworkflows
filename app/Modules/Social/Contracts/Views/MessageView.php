@@ -6,7 +6,7 @@ namespace App\Modules\Social\Contracts\Views;
 
 use Carbon\CarbonImmutable;
 
-/** One message in a thread. `sender` is null on SYSTEM lines. */
+/** One message in a thread. `sender` is null on SYSTEM lines. Only the sender edits a message (`mine`), while it isn't removed. */
 final readonly class MessageView
 {
     /**
@@ -26,6 +26,7 @@ final readonly class MessageView
         public bool $mine,
         public CarbonImmutable $createdAt,
         public array $files = [],
+        public ?CarbonImmutable $editedAt = null,
     ) {}
 
     public function reactionTotal(): int

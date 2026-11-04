@@ -117,9 +117,17 @@ abstract class ReferenceCatalog
             if ($row === null) {
                 throw new RuntimeException("That {$this->noun()} no longer exists.");
             }
-            $row->fill($payload)->save();
+            $from = (string) $row->getAttribute('name');
+            // The rename and the copies an owner keeps of the name land
+            // together or not at all.
+            $copied = DB::transaction(function () use ($row, $payload, $from, $name): int {
+                $row->fill($payload)->save();
+
+                return $from === $name ? 0 : $this->copyRename($row, $from, $name);
+            });
             AuditService::record($actor, AuditEvent::REFERENCE_UPDATED, $row->getTable(), (string) $row->getKey(),
-                ucfirst($this->noun())." {$row->getAttribute('code')} updated to \"{$name}\"");
+                ucfirst($this->noun())." {$row->getAttribute('code')} updated to \"{$name}\""
+                .($copied === 0 ? '' : ', copied onto '.$copied.($copied === 1 ? ' employee record' : ' employee records')));
 
             return "{$name} updated.";
         }
@@ -143,6 +151,13 @@ abstract class ReferenceCatalog
         }
         $code = (string) $row->getAttribute('code');
         $name = (string) $row->getAttribute('name');
+        // The records still carrying the entry are counted by the owner,
+        // UNSCOPED: a settings manager who sees few employees must not be
+        // able to delete a status the ones they cannot see still hold.
+        $inUse = $this->inUse($name);
+        if ($inUse > 0) {
+            throw new RuntimeException(ucfirst($this->noun())." \"{$name}\" is still in use by {$inUse} ".($inUse === 1 ? 'record' : 'records').'. Move them to another entry first.');
+        }
         $row->delete();
         // The noun, then the id: "Leave type 4 \"Sick Leave\" deleted". A sentence
         // opening with a bare number says nothing in an audit trail.
@@ -150,6 +165,49 @@ abstract class ReferenceCatalog
             ucfirst($this->noun())." {$code} \"{$name}\" deleted");
 
         return "{$name} deleted.";
+    }
+
+    /**
+     * What a RENAME does to the records that keep a text copy of the entry's
+     * name, inside the renaming transaction. Option names are stored as
+     * copies, not keys, and most catalogs leave those copies as they were:
+     * the default copies nothing. An owner whose copy decides live behavior
+     * (an Employment status picks pay rules and benefits) overrides this to
+     * rewrite its own records, the way a position rename does, and returns
+     * how many records now carry the new name.
+     */
+    protected function copyRename(Model $row, string $from, string $to): int
+    {
+        return 0;
+    }
+
+    /**
+     * How many records of the OWNER still carry the entry, counted without
+     * the actor's row scope — the delete guard and the list's "in use by N"
+     * label read the same number. The default knows of none; an owner whose
+     * records keep the name or token overrides it.
+     */
+    protected function inUse(string $name): int
+    {
+        return 0;
+    }
+
+    /**
+     * The in-use count of each listed entry, keyed by id: counts only, never
+     * who holds them (the Position page's holder count is the pattern).
+     *
+     * @param  iterable<CatalogEntry>  $rows
+     * @return array<string, int>
+     */
+    public function inUseCounts(Access $actor, iterable $rows): array
+    {
+        abort_if($actor->userId === null, 403);
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(string) $row->getKey()] = $this->inUse((string) $row->name);
+        }
+
+        return $out;
     }
 
     private function authorize(Access $actor): void

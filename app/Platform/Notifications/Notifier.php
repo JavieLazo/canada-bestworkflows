@@ -54,8 +54,9 @@ use Throwable;
  * LEAVE_REVIEWED, PAYSLIP_POSTED, and the nine reminder kinds. ems adds its
  * own on top — among them LEAVE_WITHDRAWN; for a member's response on an
  * INDIVIDUAL task, TASK_RESPONSE_SUBMITTED, TASK_RESPONSE_APPROVED and
- * TASK_RESPONSE_RETURNED; and, for a task status set by hand, TASK_PENDING
- * and TASK_IN_PROGRESS. Kept a plain string on purpose — a kind added later
+ * TASK_RESPONSE_RETURNED; for a task status set by hand, TASK_PENDING
+ * and TASK_IN_PROGRESS; and, to Payroll when a leave is approved onto days
+ * a posted payslip covers, LEAVE_APPROVED_ON_PAID_DAYS. Kept a plain string on purpose — a kind added later
  * must still render, not throw.
  */
 final class Notifier

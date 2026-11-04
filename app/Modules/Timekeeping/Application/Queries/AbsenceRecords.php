@@ -9,6 +9,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveRequestCancellation;
 use App\Models\LeaveTravelRequest;
 use App\Modules\IdentityAccess\Contracts\AccountNames;
+use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Contracts\Views\LeaveCancellationView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveTravelRequestView;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
@@ -24,6 +25,33 @@ final class AbsenceRecords
     public function visible(Access $actor, string $id): bool
     {
         return LeaveTravelRequest::query()->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)->whereKey($id)->exists();
+    }
+
+    /**
+     * The dates of a pending request that a posted payslip already covers,
+     * oldest first, for the reviewer to see before approving: the approval
+     * still lands, but never changes that payslip (Commands\ReviewAbsence,
+     * which asks again under payroll's lock). Empty for anything not
+     * pending or not the actor's to review.
+     *
+     * @return list<string>
+     */
+    public function paidDates(Access $actor, LeaveTravelRequestView $request): array
+    {
+        if ($request->status !== 'PENDING' || ! $actor->mayReadAllData(ModuleCode::LEAVES)) {
+            return [];
+        }
+        $start = $request->start_date->format('Y-m-d');
+        $end = $request->end_date->format('Y-m-d');
+        $dates = [];
+        foreach (app(PostedPayrollDates::class)->coveredPeriods($actor, [$request->employee_id], $start, $end, ModuleCode::LEAVES)[$request->employee_id] ?? [] as $period) {
+            foreach (CalendarDays::each($period['start'], $period['end']) as $date) {
+                $dates[$date] = true;
+            }
+        }
+        ksort($dates, SORT_STRING);
+
+        return array_keys($dates);
     }
 
     /** @return Collection<int, LeaveTravelRequestView> */

@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-
 /**
  * One (role, module) grant. Unique on `(role_id, module)`.
  *
@@ -25,7 +23,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $id
  * @property string $role_id
  * @property string $module
- * @property-read Role|null $role
  */
 class RoleModuleGrant extends BaseModel
 {
@@ -40,10 +37,4 @@ class RoleModuleGrant extends BaseModel
         'role_id',
         'module',
     ];
-
-    /** @return BelongsTo<Role, $this> */
-    public function role(): BelongsTo
-    {
-        return $this->belongsTo(Role::class, 'role_id');
-    }
 }

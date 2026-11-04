@@ -31,7 +31,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-/** Profile proposals need independent review; authorized Employee Records management edits save directly. */
+/** Profile proposals need a management review — the requester's own account included; authorized Employee Records management edits save directly. */
 function ercrEmployee(): EmployeeProfile
 {
     return EmployeeProfile::query()->create([
@@ -140,16 +140,25 @@ it('rejects with a required reason and keeps the official record and employment 
         ->and(EmployeeEmploymentHistory::query()->count())->toBe(0);
 });
 
-it('refuses self approval through the requesting account or another account for the same employee', function () {
+it('lets the requesting account or another account for the same employee approve, and refuses an unlinked one', function () {
     $employee = ercrEmployee();
     $owner = Access::forActor(ercrUser($employee, true, [ModuleCode::PROFILE, ModuleCode::EMPLOYEES]));
     $id = ercrSubmit($owner);
-    $otherAccount = Access::forActor(ercrUser($employee, true, [ModuleCode::EMPLOYEES]));
-    foreach ([$owner, $otherAccount, Access::forActor(ercrUser())] as $reviewer) {
-        expect(fn () => app(ReviewRecordChange::class)->handle($reviewer, $id, true))->toThrow(HttpException::class);
-    }
+    expect(fn () => app(ReviewRecordChange::class)->handle(Access::forActor(ercrUser()), $id, true))->toThrow(HttpException::class);
     expect(EmployeeRecordChangeRequest::query()->findOrFail($id)->status)->toBe('PENDING')
         ->and($employee->refresh()->emergency_name)->toBe('Original Contact');
+
+    // The requester, an all-data Employee Records manager, approves their own proposal.
+    app(ReviewRecordChange::class)->handle($owner, $id, true);
+    expect(EmployeeRecordChangeRequest::query()->findOrFail($id)->status)->toBe('APPROVED')
+        ->and($employee->refresh()->emergency_name)->toBe('Requested Contact');
+
+    // So does another account of the same employee.
+    $otherAccount = Access::forActor(ercrUser($employee, true, [ModuleCode::EMPLOYEES]));
+    $next = ercrSubmit($owner, 'Second Contact');
+    app(ReviewRecordChange::class)->handle($otherAccount, $next, true);
+    expect(EmployeeRecordChangeRequest::query()->findOrFail($next)->status)->toBe('APPROVED')
+        ->and($employee->refresh()->emergency_name)->toBe('Second Contact');
 });
 
 it('rejects stale affected values while preserving unrelated current fields', function () {
@@ -330,7 +339,7 @@ it('scopes request lists and details before exposing personal values and omits p
         ->and($query->page(Access::forActor(ercrUser(null, true, [ModuleCode::PAYROLL])))->total())->toBe(0)
         ->and($query->page(ercrReviewer())->total())->toBe(2);
     $view = $query->find($actor, $own, true);
-    expect($view?->can_review)->toBeFalse()->and($view?->can_withdraw)->toBeTrue()
+    expect($view?->can_review)->toBeTrue()->and($view?->can_withdraw)->toBeTrue()
         ->and($view?->toArray())->not->toHaveKeys(['form', 'baseline', 'proposed']);
 });
 
@@ -403,18 +412,17 @@ it('replays an omitted optional field as the exact clear that was proposed', fun
         ->and(EmployeeRecordChangeRequest::query()->findOrFail($id)->status)->toBe('APPROVED');
 });
 
-it('rechecks current reviewer independence even when Access was created before an account relink', function () {
+it('judges the reviewer on current links even when Access was created before an account relink', function () {
     $employee = ercrEmployee();
     $id = ercrSubmit(Access::forActor(ercrUser($employee)));
     $reviewer = ercrUser(null, true, [ModuleCode::EMPLOYEES]);
     $staleAccess = Access::forActor($reviewer);
+    // Linked meanwhile, to the very employee: the same Access reviews, their own record included.
     $reviewer->employee_id = $employee->id;
     $reviewer->save();
-    expect(fn () => app(ReviewRecordChange::class)->handle($staleAccess, $id, true))->toThrow(HttpException::class);
-    app(UpdateEmployee::class)->handle($staleAccess, $employee->id, 'emergency', ['emergency_name' => 'Management correction']);
-    expect($employee->refresh()->emergency_name)->toBe('Management correction')
-        ->and(EmployeeRecordChangeRequest::query()->findOrFail($id)->status)->toBe('PENDING');
-    expect(fn () => app(ReviewRecordChange::class)->handle(ercrReviewer(), $id, true))->toThrow(RuntimeException::class, RecordChangeData::STALE);
+    app(ReviewRecordChange::class)->handle($staleAccess, $id, true);
+    expect($employee->refresh()->emergency_name)->toBe('Requested Contact')
+        ->and(EmployeeRecordChangeRequest::query()->findOrFail($id)->status)->toBe('APPROVED');
 });
 
 it('lets management save PDS rows and portraits directly on their linked employee', function () {

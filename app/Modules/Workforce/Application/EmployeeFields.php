@@ -393,12 +393,16 @@ final class EmployeeFields
      * four grouping codes, the contribution and withholding switches, the
      * fixed amounts, Percent Tax and the three contribution modes. The
      * record, the hire wizard and the employee CSV carry none of it:
-     * statutory lines are computed from the government tables, and an
-     * exception is typed on the payroll draft, where a typed figure (0.00
-     * included) already wins. The columns exist, and payroll DOES READ the
-     * calculation ones through EmployeePayContextQuery; since no surface
-     * writes them, a new hire gets the column defaults (every switch on, no
-     * fixed amount, no override, SEMI_MONTHLY) — the standard computation.
+     * they are payroll's, not the 201 file's. A new hire gets the column
+     * defaults (every switch on, no fixed amount, no override, SEMI_MONTHLY)
+     * — the standard computation — and a payroll officer changes an
+     * employee's on their pay page under Payroll → Payroll Settings: the
+     * hourly rate in place (UpdateEmployeePaySettings), the contribution and
+     * withholding settings as dated, approved Payroll versions laid over the
+     * columns payroll reads through EmployeePayContextQuery. A one-payroll
+     * exception is still typed on the draft, where a typed figure (0.00
+     * included) wins. The statutory columns and the four grouping codes stay
+     * unwritten.
      *
      * `columns` sets a section's grid on the record page where its `column`
      * would otherwise decide it (left 1, right 2); the wizard is always two.

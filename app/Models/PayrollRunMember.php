@@ -61,6 +61,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property float|null $earning_other
  * @property bool|null $overtime_acknowledged
  * @property float|null $additional_basic_pay 13th month runs: basic pay earned outside EMS (2026_09_26_0011)
+ * @property list<string>|null $skipped_recurring_lines the recurring lines skipped on this payroll (2026_10_30_0004)
  * @property CarbonImmutable $period_start
  * @property CarbonImmutable $period_end
  * @property CarbonImmutable $created_at
@@ -95,6 +96,8 @@ class PayrollRunMember extends BaseModel
         'period_end',
         // 13th month runs only (2026_09_26_0011): basic pay earned outside EMS.
         'additional_basic_pay',
+        // The recurring lines skipped on this payroll (2026_10_30_0004).
+        'skipped_recurring_lines',
     ];
 
     /** @return array<string, string> */
@@ -116,6 +119,7 @@ class PayrollRunMember extends BaseModel
             // switch", which the source distinguishes from an explicit false.
             'overtime_acknowledged' => 'boolean',
             'additional_basic_pay' => 'float',
+            'skipped_recurring_lines' => 'array',
             'period_start' => 'immutable_date:Y-m-d',
             'period_end' => 'immutable_date:Y-m-d',
             'created_at' => 'immutable_datetime',

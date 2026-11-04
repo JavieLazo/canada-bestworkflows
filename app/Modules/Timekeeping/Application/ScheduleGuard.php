@@ -89,11 +89,12 @@ final class ScheduleGuard
             ->all();
         $logs = array_values($logs);
         $leaves = LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')->where('employee_id', $employeeId)
-            ->get(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid'])
+            ->get(LeaveHalves::columns(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid']))
             ->map(static fn (LeaveTravelRequest $leave): DomainLeave => DomainLeave::fromArray([
                 'id' => $leave->id, 'employee_id' => $leave->employee_id, 'request_type' => $leave->request_type, 'day_type' => $leave->day_type,
                 'start_date' => $leave->start_date, 'end_date' => $leave->end_date, 'status' => $leave->status, 'is_paid' => $leave->is_paid,
                 'cancelled_dates' => $leave->cancelledDates(),
+                'half' => LeaveHalves::of($leave->half ?? null),
             ]))->all();
         $leaves = array_values($leaves);
         $holidays = app(HolidayCalendar::class)->all();

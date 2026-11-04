@@ -34,6 +34,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $computed_minutes
  * @property int $approved_minutes
  * @property string|null $note
+ * @property string|null $category NULL = ordinary overtime; SEAPORT = priced at its own rate and never capped (2026_11_02_0006)
+ * @property int $credited_minutes the approved minutes credited as Compensatory Leave instead of paid (2026_11_02_0016); 0 before the column
  * @property int|null $reviewed_by
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
@@ -58,6 +60,10 @@ class OvertimeApproval extends BaseModel
         'computed_minutes',
         'approved_minutes',
         'note',
+        // The overtime category (2026_11_02_0006): NULL, or SEAPORT.
+        'category',
+        // The minutes credited as Compensatory Leave (2026_11_02_0016): 0 = all paid.
+        'credited_minutes',
     ];
 
     /** @return array<string, string> */
@@ -67,6 +73,7 @@ class OvertimeApproval extends BaseModel
             'date' => 'immutable_date:Y-m-d',
             'computed_minutes' => 'integer',
             'approved_minutes' => 'integer',
+            'credited_minutes' => 'integer',
             'reviewed_by' => 'integer',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',

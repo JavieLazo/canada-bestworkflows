@@ -60,12 +60,12 @@ function bencatBenefit(string $name, array $changes = []): PayrollIncentiveType
     return PayrollIncentiveType::query()->where('name', $name)->sole();
 }
 
-function bencatRecordsActor(): User
+function bencatPayrollActor(): User
 {
     $role = new Role;
     $role->forceFill(['name' => 'Benefit catalog '.Str::random(6), 'all_data' => true, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::RECORDS])->save();
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => null]);
     test()->actingAs($user);
     app()->forgetInstance(Access::class);
@@ -80,7 +80,7 @@ function bencatRecordsActor(): User
 */
 
 it('saves a benefit\'s rule through the page and lists it in words', function () {
-    bencatRecordsActor();
+    bencatPayrollActor();
     $regular = bencatStatus('Regular');
     bencatStatus('Contract of Service');
 
@@ -145,7 +145,7 @@ it('saves a benefit\'s rule through the page and lists it in words', function ()
 });
 
 it('keeps the flag and the category one fact on the model and refuses a rule the command cannot read', function () {
-    bencatRecordsActor();
+    bencatPayrollActor();
     $byFlag = PayrollIncentiveType::create(['code' => '1', 'name' => 'Old shape', 'is_taxable' => false]);
     expect($byFlag->fresh()?->tax)->toBe(BenefitRule::TAX_EXEMPT);
     $byFlag->forceFill(['tax' => BenefitRule::TAX_TAXABLE])->save();
@@ -295,7 +295,7 @@ it('captures the rules in the evidence, stales the preview when the catalog chan
 
     $inputs = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor, draftIncentives: [$employee->id => [$typedType->id => 500]])['inputs'];
     $data = $inputs->toArray();
-    expect($data['schema_version'])->toBe(9)
+    expect($data['schema_version'])->toBe(PayrollInputs::SCHEMA_VERSION)
         ->and(array_keys($data['benefit_rules']))->toBe([$pera->id])
         ->and($data['incentives'][$employee->id][0])->toMatchArray(['name' => 'Christmas Bonus', 'tax' => 'EXEMPT', 'counts_toward_13th' => false]);
     $restored = PayrollInputs::restore(PayrollInputs::json($data));
@@ -310,8 +310,9 @@ it('captures the rules in the evidence, stales the preview when the catalog chan
 
     // The shape before the rules: lines with the flag alone, no rules.
     $eight = $data;
-    unset($eight['benefit_rules'], $eight['deduction_rules']);
+    unset($eight['benefit_rules'], $eight['deduction_rules'], $eight['recurring_lines'], $eight['skipped_recurring_lines'], $eight['attendance_through'], $eight['settlements'], $eight['leave_charges'], $eight['leave_cash_outs'], $eight['cash_out_type'], $eight['gov_policies'], $eight['adjustments']);
     $eight['schema_version'] = 8;
+    $eight = PayrollEvidenceFixture::beforeSchema17($eight);
     foreach ($eight['incentives'] as $id => $lines) {
         $eight['incentives'][$id] = array_map(static fn (array $line): array => array_diff_key($line, ['tax' => true, 'counts_toward_13th' => true]), $lines);
     }

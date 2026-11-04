@@ -9,6 +9,8 @@ use App\Domain\Enums\ModuleCode;
 use App\Domain\Notifications\Notifier;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Models\OvertimeApproval;
+use App\Modules\Timekeeping\Application\OvertimeCategoryColumn;
+use App\Modules\Timekeeping\Application\OvertimeCreditColumn;
 use App\Modules\Timekeeping\Application\OvertimeDecisionRefused;
 use App\Modules\Timekeeping\Application\Queries\DayCorrections;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
@@ -54,8 +56,12 @@ final class DecideOvertime
      * `$onlyIfPending` guards bulk and inline approvals: checked under the row
      * lock, it refuses a day someone decided after the bulk action looked,
      * rather than overwriting that decision.
+     *
+     * `$category` is the overtime category: null for ordinary overtime, or
+     * SEAPORT (`OvertimeApprovalPolicy::CATEGORY_SEAPORT`), whose ceiling is
+     * the whole computed day because payroll never caps it.
      */
-    public function handle(Access $actor, string $employeeId, string $date, string $decision, mixed $minutes = null, ?string $note = null, bool $notify = true, bool $onlyIfPending = false): string
+    public function handle(Access $actor, string $employeeId, string $date, string $decision, mixed $minutes = null, ?string $note = null, bool $notify = true, bool $onlyIfPending = false, ?string $category = null, mixed $credited = null): string
     {
         if (! $actor->mayReadAllData(ModuleCode::EDTR)) {
             throw new OvertimeDecisionRefused('You are not allowed to decide overtime.');
@@ -80,13 +86,33 @@ final class DecideOvertime
             throw new OvertimeDecisionRefused('This day computed more overtime than a day holds; correct its punches first.');
         }
 
-        $ceiling = OvertimeApprovalPolicy::ceiling($computedMinutes, app(OpenPunchLimit::class)->hours());
+        $categoryError = OvertimeApprovalPolicy::categoryError($category);
+        if ($categoryError !== null) {
+            throw new OvertimeDecisionRefused($categoryError);
+        }
+        // A rejection carries no category: there is nothing to price.
+        $category = $decision === OvertimeApproval::APPROVED ? $category : null;
+        if ($category !== null && ! OvertimeCategoryColumn::present()) {
+            throw new OvertimeDecisionRefused('Seaport overtime cannot be recorded until the release has finished installing.');
+        }
+
+        $ceiling = OvertimeApprovalPolicy::ceilingFor($computedMinutes, app(OpenPunchLimit::class)->hours(), $category);
         $error = OvertimeApprovalPolicy::error($decision, $minutes, $ceiling);
         if ($error !== null) {
             throw new OvertimeDecisionRefused($error);
         }
 
         $approved = $decision === OvertimeApproval::APPROVED ? (int) OvertimeApprovalPolicy::minutesOf($minutes) : 0;
+        // The part credited as Compensatory Leave instead of paid (pay, credit or split): 0 unless the column exists.
+        $creditError = OvertimeApprovalPolicy::creditError($decision, $credited, $approved);
+        if ($creditError !== null) {
+            throw new OvertimeDecisionRefused($creditError);
+        }
+        $creditedMinutes = $decision === OvertimeApproval::APPROVED && $credited !== null && $credited !== '' ? (int) OvertimeApprovalPolicy::minutesOf($credited) : 0;
+        if ($creditedMinutes > 0 && ! OvertimeCreditColumn::present()) {
+            throw new OvertimeDecisionRefused('Overtime cannot be credited as Compensatory Leave until the release has finished installing.');
+        }
+        $withCredit = OvertimeCreditColumn::present();
         $note = trim((string) $note);
         if (mb_strlen($note) > 500) {
             throw new OvertimeDecisionRefused('Keep the note to 500 characters.');
@@ -96,10 +122,11 @@ final class DecideOvertime
         $name = EmployeeName::display($employee);
         $when = (DateTimeImmutable::createFromFormat('!Y-m-d', $date) ?: new DateTimeImmutable('@0'))->format('M d, Y');
         $what = $decision === OvertimeApproval::APPROVED
-            ? 'approved '.OvertimeApprovalPolicy::duration($approved).' of '.OvertimeApprovalPolicy::duration($computed).' computed'
+            ? 'approved '.OvertimeApprovalPolicy::duration($approved).' of '.OvertimeApprovalPolicy::duration($computed).' computed'.($category === null ? '' : ' as seaport overtime').($creditedMinutes > 0 ? ' ('.OvertimeApprovalPolicy::duration($creditedMinutes).' credited as compensatory leave, '.OvertimeApprovalPolicy::duration($approved - $creditedMinutes).' paid)' : '')
             : 'rejected '.OvertimeApprovalPolicy::duration($computed).' computed';
+        $withCategory = OvertimeCategoryColumn::present();
 
-        $changed = DB::transaction(static function () use ($actor, $employeeId, $date, $decision, $computed, $approved, $note, $name, $when, $what, $onlyIfPending): bool {
+        $changed = DB::transaction(static function () use ($actor, $employeeId, $date, $decision, $computed, $approved, $note, $name, $when, $what, $onlyIfPending, $category, $withCategory, $creditedMinutes, $withCredit): bool {
             // FIRST: payroll's membership lock, then whether the day is paid.
             if (app(PostedPayrollDates::class)->lockAndCovers($employeeId, $date)) {
                 throw new OvertimeDecisionRefused('That day is already on a posted payslip, so its overtime can no longer change.');
@@ -119,7 +146,9 @@ final class DecideOvertime
                 && $row->decision === $decision
                 && $row->approved_minutes === $approved
                 && $row->computed_minutes === $computed
-                && $row->note === $note) {
+                && $row->note === $note
+                && (! $withCategory || $row->category === $category)
+                && (! $withCredit || (int) $row->credited_minutes === $creditedMinutes)) {
                 return false;
             }
 
@@ -131,6 +160,8 @@ final class DecideOvertime
                 'computed_minutes' => $computed,
                 'approved_minutes' => $approved,
                 'note' => $note,
+                ...($withCategory ? ['category' => $category] : []),
+                ...($withCredit ? ['credited_minutes' => $creditedMinutes] : []),
             ]);
             // Actor column: from the session-derived Access, never the request.
             $row->reviewed_by = (int) $actor->userId;

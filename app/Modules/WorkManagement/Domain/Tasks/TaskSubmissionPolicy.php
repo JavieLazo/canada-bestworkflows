@@ -186,15 +186,6 @@ final class TaskSubmissionPolicy
     }
 
     /**
-     * @param  list<string>  $assigneeIds
-     * @param  array<string, string>  $statusByEmployee
-     */
-    public static function canComplete(array $assigneeIds, array $statusByEmployee): bool
-    {
-        return self::completeError($assigneeIds, $statusByEmployee) === null;
-    }
-
-    /**
      * How far an INDIVIDUAL task's responses have got, from the counts a
      * query aggregates. "Not submitted" is whoever is left; it never goes
      * below zero.

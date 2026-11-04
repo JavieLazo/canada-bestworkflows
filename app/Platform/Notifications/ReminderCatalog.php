@@ -12,7 +12,7 @@ use LogicException;
 /** Shared rule ownership for bounded generation and read-time authorization of old reminders. */
 final class ReminderCatalog
 {
-    public const array GROUPS = ['assigned', 'reviews', 'projects', 'leaves', 'documents', 'probation'];
+    public const array GROUPS = ['assigned', 'reviews', 'projects', 'leaves', 'documents', 'probation', 'payroll'];
 
     /**
      * Every kind a reminder source mints, and the group whose owner authorizes
@@ -23,6 +23,7 @@ final class ReminderCatalog
         'TASK_REVIEW_PENDING' => 'reviews', 'TASK_RESPONSES_PENDING' => 'reviews',
         'PROJECT_DUE_SOON' => 'projects', 'PROJECT_OVERDUE' => 'projects', 'LEAVE_PENDING' => 'leaves',
         'DOCUMENT_EXPIRING' => 'documents', 'DOCUMENT_EXPIRED' => 'documents', 'PROBATION_ENDING' => 'probation',
+        'PAYROLL_DUE' => 'payroll',
     ];
 
     /** @var array<string, ReminderSource> */

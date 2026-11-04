@@ -7,7 +7,7 @@ use App\Modules\Organization\Domain\OrgStructure;
 /**
  * The two fixed levels in HR's order: each department followed by its
  * units, siblings by sort_order then name then id; a department filter
- * matches the department and its units, a unit only itself, an unknown id
+ * selects the department and its units, a unit only itself, an unknown id
  * nothing; a corrupt unit (no parent, or a unit for a parent) is left out of
  * every walk; Move up / Move down swaps with a neighbour and does nothing at
  * an end.
@@ -58,20 +58,10 @@ it('names the department a row belongs to', function () {
         ->and($structure->name('people'))->toBe('People Operations');
 });
 
-it('matches a department to itself and its units, a unit to itself, and an unknown id to nothing', function () {
+it('selects a department with its units, a unit alone, nothing for an unknown id, and no list for ALL or NONE', function () {
     $structure = new OrgStructure(orgunitRows());
 
-    expect($structure->matches('dev', 'eng'))->toBeTrue()
-        ->and($structure->matches('eng', 'eng'))->toBeTrue()
-        ->and($structure->matches('people', 'eng'))->toBeFalse()
-        ->and($structure->matches('dev', 'dev'))->toBeTrue()
-        ->and($structure->matches('eng', 'dev'))->toBeFalse()
-        ->and($structure->matches(null, OrgStructure::NONE))->toBeTrue()
-        ->and($structure->matches('eng', OrgStructure::NONE))->toBeFalse()
-        ->and($structure->matches(null, OrgStructure::ALL))->toBeTrue()
-        ->and($structure->matches(null, 'eng'))->toBeFalse()
-        ->and($structure->matches('eng', 'nowhere'))->toBeFalse()
-        ->and($structure->selection('eng'))->toBe(['eng', 'dev', 'qa'])
+    expect($structure->selection('eng'))->toBe(['eng', 'dev', 'qa'])
         ->and($structure->selection('qa'))->toBe(['qa'])
         ->and($structure->selection('nowhere'))->toBe([])
         ->and($structure->selection(OrgStructure::ALL))->toBeNull()

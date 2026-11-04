@@ -61,8 +61,10 @@ it('creates the table once, seeds one company version and resumes from a partial
 
 it('refuses a second version of one scope on the same date', function () {
     expect(in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true))->toBeTrue();
+    // `scope_type` (2026_10_30_0001) must agree with the scope.
     $row = static fn (string $scope, string $from): array => [
-        'id' => (string) Str::ulid(), 'scope' => $scope, 'effective_from' => $from, 'reason' => null, 'params' => '{}',
+        'id' => (string) Str::ulid(), 'scope' => $scope, 'scope_type' => $scope === 'COMPANY' ? 'COMPANY' : 'STATUS',
+        'effective_from' => $from, 'reason' => null, 'params' => '{}',
         'created_by' => null, 'created_by_name' => null,
         'created_at' => now('UTC')->format('Y-m-d H:i:s.v'), 'updated_at' => null,
     ];

@@ -117,6 +117,16 @@ final class PercentDeduction
         return null;
     }
 
+    /**
+     * The same rule with an employee's own share in place of the row's —
+     * the rate they chose (0: not a member; the employer share stays the
+     * row's). Read from the employee's Contributions & tax version.
+     */
+    public function withEmployeeShare(float $percent): self
+    {
+        return new self($percent, $this->employer, $this->base, $this->frequency, $this->cap, $this->beforeTax);
+    }
+
     /** Whether a payroll period is one the deduction is taken on: every payroll, or the month's second cut-off (a period starting after the 15th). */
     public function dueOn(string $periodStart): bool
     {

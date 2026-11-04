@@ -7,25 +7,40 @@ namespace App\Livewire\Payroll;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Enums\PayrollRunStatus;
+use App\Domain\Payroll\PayrollPeriod;
 use App\Domain\Payroll\PayslipDraft;
+use App\Livewire\Payroll\Support\AdvanceText;
+use App\Livewire\Payroll\Support\FigureSources;
+use App\Livewire\Payroll\Support\LeaveChargeText;
 use App\Livewire\Payroll\Support\PayrollData;
 use App\Models\Position;
 use App\Models\User;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
+use App\Modules\Payroll\Application\Adjustments as AdjustmentLedger;
 use App\Modules\Payroll\Application\Commands\FinalizePayroll;
+use App\Modules\Payroll\Application\Commands\MarkPayrollReleased;
 use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\LeaveCancellationWarnings;
+use App\Modules\Payroll\Application\OpenAttendanceItems;
 use App\Modules\Payroll\Application\PayrollDraft;
+use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\PayrollReview;
 use App\Modules\Payroll\Application\PayrollReviewRequired;
+use App\Modules\Payroll\Application\PaySchedules;
 use App\Modules\Payroll\Application\Queries\IncentiveTypeRecords;
 use App\Modules\Payroll\Application\Queries\PayrollRecords;
+use App\Modules\Payroll\Application\Queries\PayScheduleRecords;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
+use App\Modules\Payroll\Application\Queries\RecurringLineRecords;
+use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayrollRunView;
 use App\Modules\Payroll\Contracts\Views\PayslipView as Payslip;
+use App\Modules\Payroll\Contracts\Views\RecurringLineView;
 use App\Modules\Payroll\Domain\CutoffAdvice;
 use App\Modules\Payroll\Domain\DeductionCalculation;
+use App\Modules\Payroll\Domain\PayrollAdvance;
+use App\Modules\Payroll\Domain\Recurring\RecurringLine;
 use App\Modules\Timekeeping\Contracts\ScheduleNotices;
 use App\Modules\Workforce\Application\Queries\PayrollEmployees;
 use App\Modules\Workforce\Contracts\DirectoryEmployee as EmployeeProfile;
@@ -87,6 +102,23 @@ class RunWorkspace extends Component
 
     /** Cut-off end, 'Y-m-d'. */
     public string $end = '';
+
+    /**
+     * The advance payroll's "attendance counted through" date, 'Y-m-d' or
+     * '' for the whole period (PayrollAdvance). Form state driven by the
+     * date field; SavePayroll validates it.
+     */
+    public string $attendanceThrough = '';
+
+    /**
+     * The pay schedule the run's dates come from (PaySchedules), '' for
+     * none. Not Locked: the select binds it, and SavePayroll re-resolves it
+     * against the schedules (a sanctioned wire:model draft).
+     */
+    public string $scheduleId = '';
+
+    /** The pay date, 'Y-m-d' or '' for none. Form state driven by the date field; SavePayroll validates it. */
+    public string $payDate = '';
 
     /**
      * Member employee ids, in the order the grid shows them. Id-bearing →
@@ -152,6 +184,35 @@ class RunWorkspace extends Component
     public array $draftCustomDeductions = [];
 
     /**
+     * The recurring lines skipped on this payroll: employee id => line ids.
+     * Keyed by ids → #[Locked]; written only through
+     * {@see self::toggleRecurringSkip()}, which admits only a live line of
+     * that member, and SavePayroll checks each line's owner again.
+     *
+     * @var array<string, list<string>>
+     */
+    #[Locked]
+    public array $skippedRecurring = [];
+
+    /** The recurring-lines dialog's visibility. Plain UI state. */
+    public bool $recurringOpen = false;
+
+    /** The member whose recurring lines the dialog shows. Id-bearing → #[Locked]. */
+    #[Locked]
+    public ?string $recurringFor = null;
+
+    /** The "Why this amount?" dialog's visibility. Plain UI state. */
+    public bool $whyOpen = false;
+
+    /** The member whose figure the dialog explains. Id-bearing → #[Locked]. */
+    #[Locked]
+    public ?string $whyFor = null;
+
+    /** The cell it explains: a statutory field or `row:{deduction id}`. Names a row → #[Locked]. */
+    #[Locked]
+    public ?string $whyCell = null;
+
+    /**
      * What the database holds, for the `dirty` flag. Empty while creating —
      * a new workspace is dirty by definition (run-workspace.tsx:201-209).
      *
@@ -167,6 +228,15 @@ class RunWorkspace extends Component
     /** A failed stale preview requires a separate review action before another finalization. */
     #[Locked]
     public bool $reviewRequired = false;
+
+    /**
+     * The preview receipt the officer ticked "Finalize anyway" against, or
+     * null: open attendance (OpenAttendanceItems) is accepted only for
+     * exactly the figures it was ticked over, so any change to what is
+     * shown — a punch, a decision, a request — clears it in render().
+     */
+    #[Locked]
+    public ?string $openItemsAcceptedFor = null;
 
     /* ---- Add-employees dialog (add-employees-dialog.tsx) ---- */
 
@@ -219,6 +289,14 @@ class RunWorkspace extends Component
             $month = substr(PayrollData::todayKey(), 0, 7);
             $this->start = "{$month}-01";
             $this->end = "{$month}-15";
+            // A draft opened while its period still runs starts as an
+            // advance payroll counted through yesterday (PayrollAdvance).
+            $this->attendanceThrough = PayrollAdvance::defaultThrough($this->start, $this->end, PayrollData::todayKey()) ?? '';
+            // The company's default pay schedule, and the pay date it gives
+            // these dates (PaySchedules).
+            $default = app(PayScheduleRecords::class)->default(app(Access::class));
+            $this->scheduleId = $default === null ? '' : $default->id;
+            $this->fillPayDate();
 
             return null;
         }
@@ -240,6 +318,9 @@ class RunWorkspace extends Component
         $this->name = $run->name;
         $this->start = $run->period_start->format('Y-m-d');
         $this->end = $run->period_end->format('Y-m-d');
+        $this->attendanceThrough = $run->attendance_through?->format('Y-m-d') ?? '';
+        $this->scheduleId = $run->schedule_id ?? '';
+        $this->payDate = $run->pay_date?->format('Y-m-d') ?? '';
         $this->members = PayrollData::memberIds($run->members);
 
         $overrides = PayrollData::overridesFromMembers($run->members);
@@ -248,10 +329,97 @@ class RunWorkspace extends Component
         $this->draftEarnings = $overrides['earnings'];
         $this->draftIncentives = $overrides['incentives'];
         $this->draftCustomDeductions = $overrides['customDeductions'];
+        $this->skippedRecurring = $overrides['skippedRecurring'];
 
         $this->savedState = $this->currentState();
 
         return null;
+    }
+
+    /**
+     * The pay date the chosen schedule gives the period, filled when the
+     * dates or the schedule change and the dates are one of the schedule's
+     * periods; otherwise the typed date stays.
+     */
+    public function updatedStart(): void
+    {
+        $this->fillPayDate();
+    }
+
+    public function updatedEnd(): void
+    {
+        $this->fillPayDate();
+    }
+
+    public function updatedScheduleId(): void
+    {
+        $this->fillPayDate();
+    }
+
+    /** Marks a finalized payroll released: the pay went out (MarkPayrollReleased). */
+    public function markReleased(): void
+    {
+        $actor = app(Access::class);
+        if ($this->runId === null) {
+            return;
+        }
+        try {
+            $message = app(MarkPayrollReleased::class)->handle($actor, $this->runId);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(text: 'The payroll could not be marked released. Try again.', variant: 'danger');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
+
+            return;
+        }
+        Flux::toast(text: $message, variant: 'success');
+    }
+
+    /**
+     * The schedule's period with the form's dates, with its pay date and deadlines, or null.
+     *
+     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     */
+    private function schedulePeriod(): ?array
+    {
+        if ($this->scheduleId === '' || ! PaySchedules::ready() || ! PayrollPeriod::isPayrollDate($this->start) || ! PayrollPeriod::isPayrollDate($this->end)) {
+            return null;
+        }
+        $schedule = app(PayScheduleRecords::class)->find(app(Access::class), $this->scheduleId);
+        if ($schedule === null) {
+            return null;
+        }
+
+        return PaySchedules::periodForView($schedule, $this->start, $this->end);
+    }
+
+    private function fillPayDate(): void
+    {
+        $period = $this->schedulePeriod();
+        if ($period !== null) {
+            $this->payDate = $period['pay_date'];
+        }
+    }
+
+    /**
+     * The members with an adjustment awaiting approval, by name.
+     *
+     * @param  Collection<string, mixed>  $employees  the calculation's employees, keyed by id
+     * @return list<string>
+     */
+    private function pendingAdjustmentNames(Collection $employees): array
+    {
+        $names = [];
+        foreach (array_keys(AdjustmentLedger::pendingFor($this->members, $this->runId)) as $employeeId) {
+            $employee = $employees->get($employeeId);
+            $names[] = is_object($employee) ? PayrollData::employeeName($employee) : 'An employee';
+        }
+        sort($names, SORT_STRING);
+
+        return $names;
     }
 
     /* ------------------------------------------------------------------ */
@@ -366,7 +534,116 @@ class RunWorkspace extends Component
             $this->draftEarnings[$employeeId],
             $this->draftIncentives[$employeeId],
             $this->draftCustomDeductions[$employeeId],
+            $this->skippedRecurring[$employeeId],
         );
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Recurring lines dialog */
+    /* ------------------------------------------------------------------ */
+
+    /**
+     * Opens "Why this amount?" for one marked figure of one member: a
+     * statutory field or a Payroll Deductions row's cell. Component state
+     * only; the render explains it from the draft's own calculation.
+     */
+    public function openWhy(string $employeeId, string $cell): void
+    {
+        if ($this->isFinalized() || ! in_array($employeeId, $this->members, true)
+            || preg_match('/\A(?:sss|philhealth|pagibig|withholding_tax|settlement|leave|row:[A-Za-z0-9\-]{1,40})\z/', $cell) !== 1) {
+            return;
+        }
+        $this->whyFor = $employeeId;
+        $this->whyCell = $cell;
+        $this->whyOpen = true;
+    }
+
+    /**
+     * The open "Why this amount?" explanation, from the draft's own
+     * calculation; null while the dialog is shut or its figure is gone.
+     *
+     * @param  Collection<string, mixed>  $employees
+     * @param  array<int, mixed>  $lines
+     * @param  array<string, list<array<string, mixed>>>  $customDeductionLines
+     * @param  Collection<int, DeductionColumnView>  $columns
+     * @param  array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>  $settlementLines
+     * @param  array<string, array{lines: list<array{date: string, kind: string, minutes: ?int, days: float, covered: array<string, float>, uncovered_days: float, fraction: float}>, balances: array<string, float>, notes: list<string>}>  $leaveChargeLines
+     * @return array{title: string, amount: float, steps: list<array{label: string, detail: string, state: string}>, unit?: string}|null
+     */
+    private function whyExplanation(?PayrollInputs $inputs, Collection $employees, array $lines, array $customDeductionLines, Collection $columns, array $settlementLines = [], array $leaveChargeLines = []): ?array
+    {
+        if (! $this->whyOpen || $this->whyFor === null || $this->whyCell === null || $inputs === null) {
+            return null;
+        }
+        $employee = $employees->get($this->whyFor);
+        $draft = collect($lines)->first(fn ($line): bool => $line->employee_id === $this->whyFor);
+        if (! $employee instanceof EmployeePayData || $draft === null) {
+            return null;
+        }
+        if ($this->whyCell === 'settlement') {
+            return AdvanceText::explain(PayrollData::employeeName($employee), (float) $draft->settlement, $settlementLines[$this->whyFor] ?? []);
+        }
+        if ($this->whyCell === 'leave') {
+            $names = [];
+            foreach ($inputs->leaveCharges[$this->whyFor]['balances'] ?? [] as $token => $balance) {
+                $names[(string) $token] = (string) ($balance['name'] ?? $token);
+            }
+
+            return LeaveChargeText::explain(PayrollData::employeeName($employee), (float) $draft->leave_charged_days, $leaveChargeLines[$this->whyFor] ?? null, $names);
+        }
+        $column = null;
+        $amount = 0.0;
+        if (isset(FigureSources::STATUTORY[$this->whyCell])) {
+            $amount = (float) $draft->{$this->whyCell};
+        } else {
+            $typeId = substr($this->whyCell, 4);
+            $column = $columns->first(static fn (DeductionColumnView $c): bool => $c->id === $typeId);
+            foreach ($customDeductionLines[$this->whyFor] ?? [] as $line) {
+                if ($line['type_id'] === $typeId) {
+                    $amount = (float) $line['amount'];
+                }
+            }
+        }
+
+        return FigureSources::explain($this->whyCell, $employee, PayrollData::employeeName($employee), $amount, $inputs,
+            $this->draftDeductions, $this->draftCustomDeductions, $customDeductionLines, $column);
+    }
+
+    /** Opens one member's recurring lines on this payroll. Component state only. */
+    public function openRecurring(string $employeeId): void
+    {
+        if ($this->isFinalized() || ! in_array($employeeId, $this->members, true)) {
+            return;
+        }
+        $this->recurringFor = $employeeId;
+        $this->recurringOpen = true;
+    }
+
+    /**
+     * Skips one of the open member's recurring lines on this payroll, or
+     * takes the skip back. Only a line the payroll proposes for them counts;
+     * nothing is written until Save.
+     */
+    public function toggleRecurringSkip(string $lineId): void
+    {
+        $employeeId = $this->recurringFor;
+        $actor = app(Access::class);
+        if ($employeeId === null || $this->isFinalized() || ! $actor->mayReadAllData(ModuleCode::PAYROLL) || ! in_array($employeeId, $this->members, true)) {
+            return;
+        }
+        if ($this->recurringLinesFor($actor, $employeeId)->firstWhere('id', $lineId) === null) {
+            return;
+        }
+        $skipped = $this->skippedRecurring[$employeeId] ?? [];
+        $skipped = in_array($lineId, $skipped, true)
+            ? array_values(array_diff($skipped, [$lineId]))
+            : [...$skipped, $lineId];
+        sort($skipped, SORT_STRING);
+        if ($skipped === []) {
+            unset($this->skippedRecurring[$employeeId]);
+        } else {
+            $this->skippedRecurring[$employeeId] = $skipped;
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -571,7 +848,7 @@ class RunWorkspace extends Component
             }
         }
         try {
-            $result = app(SavePayroll::class)->handle($actor, new PayrollDraft($this->runId, $this->name, $this->start, $this->end, $this->members, $this->activeDeductions(), $this->activeAllowances(), $this->activeEarnings(), $this->activeIncentives(), customDeductions: $this->activeCustomDeductions()));
+            $result = app(SavePayroll::class)->handle($actor, new PayrollDraft($this->runId, $this->name, $this->start, $this->end, $this->members, $this->activeDeductions(), $this->activeAllowances(), $this->activeEarnings(), $this->activeIncentives(), customDeductions: $this->activeCustomDeductions(), skippedRecurring: $this->activeSkippedRecurring(), attendanceThrough: $this->attendanceThrough, scheduleId: $this->scheduleId, payDate: $this->payDate));
         } catch (QueryException $e) {
             report($e);
             Flux::toast(text: str_contains($e->getMessage(), 'payroll_runs_name_unique') ? 'That payroll name is already in use.' : 'That payroll could not be saved. Try again.', variant: 'danger');
@@ -583,6 +860,8 @@ class RunWorkspace extends Component
             return null;
         }
         $this->name = trim($this->name);
+        // The period's last day counts everything, and is stored as nothing.
+        $this->attendanceThrough = PayrollAdvance::normalize($this->attendanceThrough, $this->end) ?? '';
         if ($result['created']) {
             Flux::toast(text: 'Payroll saved as a draft.', variant: 'success');
 
@@ -600,9 +879,11 @@ class RunWorkspace extends Component
 
     /**
      * Finalising posts a payslip per member and locks the run — the port of
-     * POST /api/payroll/runs/[id]/finalize. Every line is recomputed from
-     * captured inputs INSIDE the transaction; the browser's receipt must match
-     * those inputs. Evidence, payslips, status and audit commit together.
+     * POST /api/payroll/runs/[id]/finalize, in Commands\FinalizePayroll.
+     * Every line is captured and computed again INSIDE the transaction,
+     * under the membership lock, and the browser's receipt must match the
+     * inputs captured there (PayrollReview). Evidence, payslips, status and
+     * audit commit together.
      */
     public function finalize(): void
     {
@@ -645,12 +926,14 @@ class RunWorkspace extends Component
         }
 
         try {
-            $count = app(FinalizePayroll::class)->handle($actor, $this->runId, $this->previewReceipt);
+            $count = app(FinalizePayroll::class)->handle($actor, $this->runId, $this->previewReceipt,
+                acceptOpenItems: $this->previewReceipt !== null && $this->openItemsAcceptedFor === $this->previewReceipt);
         } catch (PayrollReviewRequired $e) {
             // Finalize already refused dirty local state, so reloading cannot discard unsaved work.
             $this->mount($this->runId);
             $this->reviewRequired = true;
             $this->previewReceipt = null;
+            $this->openItemsAcceptedFor = null;
             Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
@@ -665,6 +948,19 @@ class RunWorkspace extends Component
             return;
         }
         Flux::toast(text: 'Finalized — '.$count.' payslips posted.', variant: 'success');
+    }
+
+    /**
+     * The "Finalize anyway, pay these as they stand" tick: accepts the open
+     * attendance of exactly the preview on screen, or takes that back.
+     */
+    public function toggleOpenItems(): void
+    {
+        $actor = app(Access::class);
+        if (! $actor->mayReadAllData(ModuleCode::PAYROLL) || $this->isFinalized()) {
+            return;
+        }
+        $this->openItemsAcceptedFor = $this->openItemsAcceptedFor === null ? $this->previewReceipt : null;
     }
 
     /** Acknowledges the newly displayed preview without posting or changing the saved draft. */
@@ -746,6 +1042,11 @@ class RunWorkspace extends Component
             // plus any excess over the PHP 90,000 ceiling), the tax-exempt
             // part, and how much of the taxed part is excess.
             'Incentives taxed', 'Incentives tax-exempt', 'Excess over PHP 90,000',
+            // And the advance payroll: the days paid ahead of attendance and
+            // the settlement of earlier ones, inside Gross income.
+            'Days paid in advance', 'Attendance settlement',
+            // And the days of leave credits charged for lateness, undertime and absences.
+            'Leave credits charged · days',
             // And the typed deduction columns: one per Payroll Deductions
             // row an officer types, headed as the list names it, blank
             // where the employee has no such line.
@@ -772,6 +1073,8 @@ class RunWorkspace extends Component
                 $p->total_deductions, $p->net_pay,
                 $p->sss_er, $p->philhealth_er, $p->pagibig_er,
                 $p->bonus, $p->exempt_benefits, $p->taxable_benefits_excess,
+                (float) ($p->presumed_days ?? 0.0), (float) ($p->settlement ?? 0.0),
+                (float) ($p->leave_charged_days ?? 0.0),
                 ...$typedColumns->map(static fn (DeductionColumnView $c): string|float => $typedAmounts[$p->employee_id][$c->key()] ?? '')->all(),
             ];
         }
@@ -818,11 +1121,37 @@ class RunWorkspace extends Component
         $exemptOrderWarning = false;
         $scheduleWarnings = ['unscheduled' => [], 'changed' => [], 'since' => ''];
         $leaveCancellationWarnings = [];
+        // The members with recurring lines live on this payroll (their dialog opens from the grid).
+        $recurringMembers = [];
+        // Where each draft figure comes from (FigureSources), and the one "Why this amount?" explains.
+        $figureMarks = [];
+        $why = null;
+        // The advance payroll (PayrollAdvance): the counted date in force on
+        // this draft, the days paid ahead of attendance and each member's
+        // settlements of earlier ones (AdvanceSettlements).
+        $attendanceThrough = $finalized ? ($run->attendance_through?->format('Y-m-d') ?? null) : PayrollAdvance::normalize($this->attendanceThrough, $this->end);
+        $advanceError = $finalized ? null : PayrollAdvance::error($attendanceThrough, $this->start, $this->end, PayrollData::todayKey());
+        $settlementLines = [];
+        // What each member's draft charges to leave credits (DIVERGENCE 15).
+        $leaveChargeLines = [];
+        // What attendance has not finished deciding: "Before you finalize".
+        $openItems = OpenAttendanceItems::none();
         $this->previewReceipt = null;
 
+        // The pay schedule's period with these dates, when the dates are one
+        // of its periods: its pay date and deadlines, and the contribution
+        // month the tables are picked by. A finalized run keeps what it
+        // recorded.
+        $schedulePeriod = $finalized ? null : $this->schedulePeriod();
+        $payDate = $finalized ? ($run->pay_date?->format('Y-m-d') ?? null) : (PayrollPeriod::isPayrollDate($this->payDate) ? $this->payDate : null);
+        $contributionMonth = $finalized ? ($run->contribution_month ?? null) : ($schedulePeriod['contribution_month'] ?? null);
         // Non-blocking (Modules\Payroll\Domain\CutoffAdvice): shown beside the
-        // grid, never part of what disables Finalize.
-        $cutoffWarning = $finalized || $cutoffError !== null ? null : CutoffAdvice::warning($this->start, $this->end);
+        // grid, never part of what disables Finalize. A period the schedule
+        // names is a cut-off by definition, so the advice stays silent.
+        $cutoffWarning = $finalized || $cutoffError !== null || $schedulePeriod !== null ? null : CutoffAdvice::warning($this->start, $this->end);
+        // Also non-blocking: a Contribution & Tax Table whose figures are not
+        // confirmed as far as this period reaches — a reminder to check them.
+        $statutoryWarning = $finalized || $cutoffError !== null ? null : app(StatutoryTables::class)->cutoffWarning($this->start, $this->end);
 
         if ($finalized) {
             /** A finalised run shows what it posted, not a fresh computation. */
@@ -836,11 +1165,12 @@ class RunWorkspace extends Component
                 $customDeductionLines[$line->employee_id] = $posted[$line->id] ?? [];
             }
             $deductionColumns = app(PayslipRecords::class)->deductionColumns($actor, $payslipIds);
+            $settlementLines = AdvanceText::postedLines(app(PayslipRecords::class)->settlements($actor, $payslipIds), $lines);
         } elseif ($actor->mayReadAllData(ModuleCode::PAYROLL)) {
             // usePayrollCalculation(cutoffError ? [] : members, …) — a broken
             // cut-off computes nothing and the grid shows the error instead.
             $calculation = PayrollData::calculateDrafts(
-                $cutoffError !== null ? [] : $this->members,
+                $cutoffError !== null || $advanceError !== null ? [] : $this->members,
                 $this->start,
                 $this->end,
                 $this->activeDeductions(),
@@ -848,15 +1178,26 @@ class RunWorkspace extends Component
                 $this->activeEarnings(),
                 draftIncentives: $this->activeIncentives(),
                 draftCustomDeductions: $this->activeCustomDeductions(),
+                draftSkippedRecurring: $this->activeSkippedRecurring(),
+                attendanceThrough: $attendanceThrough,
+                payDate: $payDate,
+                contributionMonth: $contributionMonth,
+                runId: $this->runId,
             );
 
             $lines = $calculation['drafts'];
+            $settlementLines = $calculation['settlementLines'];
+            $leaveChargeLines = $calculation['leaveChargeLines'];
             $leaveCancellationWarnings = LeaveCancellationWarnings::forInputs($calculation['inputs']);
+            $openItems = OpenAttendanceItems::forInputs($calculation['inputs'], ManilaClock::todayKey());
             $employees = $calculation['employees']->keyBy('id');
             $statutory = $calculation['statutory'];
             $incentiveLines = $calculation['incentiveLines'];
             $customDeductionLines = $calculation['customDeductionLines'];
+            $recurringMembers = $calculation['inputs'] === null ? [] : PayrollData::recurringMembers($calculation['inputs']);
             $deductionColumns = PayrollData::deductionColumns($actor);
+            $figureMarks = FigureSources::marks($employees, $this->draftDeductions, $customDeductionLines, $incentiveLines);
+            $why = $this->whyExplanation($calculation['inputs'], $employees, $lines, $customDeductionLines, $deductionColumns, $settlementLines, $leaveChargeLines);
             // The scheduled benefits payroll proposes for the member whose
             // incentives are open, type id => amount; a typed amount replaces one.
             foreach ($this->incentivesFor !== null ? ($calculation['incentiveLines'][$this->incentivesFor] ?? []) : [] as $line) {
@@ -904,6 +1245,12 @@ class RunWorkspace extends Component
             $deductionColumns = new Collection;
         }
 
+        // The "Finalize anyway" tick holds only for the preview it was given
+        // on, and only while something is open.
+        if ($openItems->isEmpty() || $this->openItemsAcceptedFor !== $this->previewReceipt) {
+            $this->openItemsAcceptedFor = null;
+        }
+
         $totals = PayrollData::totals($lines);
         $typedAmounts = PayrollData::typedDeductionAmounts($customDeductionLines);
         $dirty = $this->isDirty();
@@ -931,16 +1278,44 @@ class RunWorkspace extends Component
             'invalidDraft' => $invalidDraft,
             'readinessIssue' => $readinessIssue,
             'cutoffWarning' => $cutoffWarning,
+            'statutoryWarning' => $statutoryWarning,
+            // The pay schedules to pick from, the period the chosen one
+            // gives these dates (its pay date and deadlines), and the
+            // released mark.
+            'schedulesReady' => PaySchedules::ready(),
+            'schedules' => PaySchedules::ready() ? app(PayScheduleRecords::class)->list($actor)->map(static fn ($s): array => ['id' => $s->id, 'name' => $s->name, 'default' => (bool) $s->is_default])->values()->all() : [],
+            'schedulePeriod' => $schedulePeriod,
+            'payDateShown' => $payDate,
+            // Members with an adjustment still awaiting approval: finalize
+            // refuses until it is reviewed or discarded.
+            'pendingAdjustments' => $finalized ? [] : $this->pendingAdjustmentNames($employees),
             'statutory' => $statutory,
             'incentiveLines' => $incentiveLines,
             'customDeductionLines' => $customDeductionLines,
             'exemptOrderWarning' => $exemptOrderWarning,
             'scheduleWarnings' => $scheduleWarnings,
             'leaveCancellationWarnings' => $leaveCancellationWarnings,
+            'openItems' => $openItems,
+            'openItemsAccepted' => $this->openItemsAcceptedFor !== null,
+            // The advance payroll: the counted date, what it refuses, the
+            // days paid ahead of attendance and each member's settlements.
+            'attendanceThrough' => $attendanceThrough,
+            'advanceError' => $advanceError,
+            'advance' => AdvanceText::summary($attendanceThrough, $this->end, $lines),
+            'settlementLines' => $settlementLines,
+            // Which members charged leave credits (a figure opens "Why this amount?").
+            'leaveChargeLines' => $leaveChargeLines,
+            // Each open item links to where it is decided, for whoever may go there.
+            'openItemLinks' => ['dtr' => $actor->hasModule(ModuleCode::EDTR), 'leaves' => $actor->hasModule(ModuleCode::LEAVES)],
             // The catalog, only while the incentives dialog is open.
             'incentiveTypes' => $this->incentivesOpen && ! $finalized ? app(IncentiveTypeRecords::class)->list($actor) : new Collection,
             'incentivesEmployee' => $this->incentivesFor !== null ? $employees->get($this->incentivesFor) : null,
             'proposedIncentives' => $proposedIncentives,
+            'recurringMembers' => $recurringMembers,
+            'figureMarks' => $figureMarks,
+            'why' => $why,
+            'recurringRows' => $this->recurringOpen && $this->recurringFor !== null && ! $finalized ? $this->recurringRows($actor, $this->recurringFor) : [],
+            'recurringEmployee' => $this->recurringFor !== null ? $employees->get($this->recurringFor) : null,
             // The members on a draft whose cut-off is refused: the grid computes nothing, so the banner names them.
             'cutoffMembers' => $cutoffError !== null && ! $finalized ? app(OperationalDirectory::class)->list($actor, $this->members)->map(static fn (EmployeeProfile $e): string => PayrollData::employeeName($e))->values()->all() : [],
             // The Deductions group: one column per Payroll Deductions row —
@@ -954,6 +1329,8 @@ class RunWorkspace extends Component
             'pickerRows' => $pickerRows,
             'pickerPositions' => $pickerPositions,
             'allShown' => $allShown,
+            // Each draft line links to the employee's pay settings for whoever may read them.
+            'paySettingsLinks' => ! $finalized && $actor->mayReadAllData(ModuleCode::PAYROLL),
         ])->title($run !== null ? 'Payroll' : 'Create payroll');
     }
 
@@ -1008,12 +1385,14 @@ class RunWorkspace extends Component
             'name' => $this->name,
             'start' => $this->start,
             'end' => $this->end,
+            'attendanceThrough' => PayrollAdvance::normalize($this->attendanceThrough, $this->end) ?? '',
             'members' => $this->members,
             'allowances' => $this->activeAllowances(),
             'deductions' => $this->activeDeductions(),
             'earnings' => $this->activeEarnings(),
             'incentives' => $this->activeIncentives(),
             'customDeductions' => $this->activeCustomDeductions(),
+            'skippedRecurring' => $this->activeSkippedRecurring(),
         ];
     }
 
@@ -1035,6 +1414,70 @@ class RunWorkspace extends Component
         }
 
         return $active;
+    }
+
+    /**
+     * The recurring-lines dialog's rows for one member: each live line, what
+     * this payroll proposes for it (its amount, or what its total has left
+     * when less), whether this cut-off is one it is due on, and whether it
+     * is skipped here.
+     *
+     * @return list<array{id: string, name: string, kind: string, note: ?string, proposed: float, left: ?float, due: bool, skipped: bool}>
+     */
+    private function recurringRows(Access $actor, string $employeeId): array
+    {
+        $rows = [];
+        foreach ($this->recurringLinesFor($actor, $employeeId) as $line) {
+            $rule = RecurringLine::fromArray([
+                'kind' => $line->kind, 'amount' => $line->amount, 'total' => $line->total, 'frequency' => $line->frequency,
+                'starts_on' => $line->starts_on->format('Y-m-d'), 'ends_on' => $line->ends_on?->format('Y-m-d'),
+            ]);
+            $rows[] = [
+                'id' => $line->id,
+                'name' => $line->type_name,
+                'kind' => $line->kind,
+                'note' => $line->note,
+                'proposed' => $rule->proposed($line->paid),
+                'left' => $line->left,
+                'due' => $rule->dueOn($this->start),
+                'skipped' => in_array($line->id, $this->skippedRecurring[$employeeId] ?? [], true),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * The members' skipped recurring lines, members only.
+     *
+     * @return array<string, list<string>>
+     */
+    private function activeSkippedRecurring(): array
+    {
+        $active = [];
+        foreach ($this->members as $employeeId) {
+            $entry = $this->skippedRecurring[$employeeId] ?? [];
+            if ($entry !== []) {
+                $active[$employeeId] = $entry;
+            }
+        }
+
+        return $active;
+    }
+
+    /**
+     * One member's recurring lines live on this payroll: started, not
+     * ended, not paid off — the ones it proposes or counts.
+     *
+     * @return Collection<int, RecurringLineView>
+     */
+    private function recurringLinesFor(Access $actor, string $employeeId): Collection
+    {
+        if ($this->start === '' || ! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
+            return new Collection;
+        }
+
+        return app(RecurringLineRecords::class)->liveOn($actor, $employeeId, $this->start);
     }
 
     /** @return array<string, array<string, float>> */
@@ -1149,6 +1592,7 @@ class RunWorkspace extends Component
             $this->activeEarnings(),
             draftIncentives: $this->activeIncentives(),
             draftCustomDeductions: $this->activeCustomDeductions(),
+            draftSkippedRecurring: $this->activeSkippedRecurring(),
         );
 
         return [$calculation['drafts'], $calculation['employees']->keyBy(static fn (EmployeePayData $e): string => $e->id), $calculation['customDeductionLines'], PayrollData::deductionColumns($actor)];

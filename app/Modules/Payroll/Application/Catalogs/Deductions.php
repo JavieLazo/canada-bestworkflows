@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Payroll\Application\Catalogs;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Domain\Enums\PayrollRunStatus;
 use App\Models\PayrollDeduction;
+use App\Models\PayrollRecurringLine;
 use App\Models\PayrollRunMember;
 use App\Models\PayrollRunMemberDeduction;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
+use App\Modules\Payroll\Application\RecurringLines;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
 use App\Platform\Audit\RequiredAudit;
@@ -79,10 +81,20 @@ final class Deductions extends ReferenceCatalog
                 if ($computed !== null) {
                     throw new RuntimeException('A computed deduction prices itself; choose another name for a percentage deduction.');
                 }
+                // A recurring line charges a typed amount; a percentage would price it twice.
+                if ($id !== null && self::chargedByRecurringLines($id)) {
+                    throw new RuntimeException('Employees have recurring lines on this deduction, so it cannot become a percentage deduction. End or delete those lines first.');
+                }
             }
         }
 
         return parent::save($actor, $id, $name, $description, $extra);
+    }
+
+    /** Whether any employee's recurring line charges the row (the RESTRICT foreign key is the backstop). */
+    private static function chargedByRecurringLines(string $id): bool
+    {
+        return RecurringLines::ready() && PayrollRecurringLine::query()->where('deduction_id', $id)->exists();
     }
 
     /** The computed deduction a name spells (its default label), or null. */
@@ -98,9 +110,15 @@ final class Deductions extends ReferenceCatalog
         return null;
     }
 
+    /** A Payroll Setting (PayrollSettingsAccess): save, delete and the CSV import all ask this. */
+    public function mayManage(Access $actor): bool
+    {
+        return PayrollSettingsAccess::mayManage($actor);
+    }
+
     public function delete(Access $actor, string $id): string
     {
-        if (! $actor->mayReadAllData(ModuleCode::RECORDS)) {
+        if (! $this->mayManage($actor)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
 
@@ -112,6 +130,9 @@ final class Deductions extends ReferenceCatalog
                 if ($row !== null) {
                     if (self::linesOn($id, PayrollRunStatus::FINALIZED)->exists()) {
                         throw new RuntimeException("{$row->name} is on a finalized payroll, so it cannot be deleted. Rename it instead.");
+                    }
+                    if (self::chargedByRecurringLines($id)) {
+                        throw new RuntimeException("Employees have recurring lines on {$row->name}, so it cannot be deleted. End or delete those lines in Employee Pay Settings, or rename it instead.");
                     }
                     $this->removeDraftLines($actor, $row, 'was deleted');
                     $this->clearDraftOverrides($actor, $row);

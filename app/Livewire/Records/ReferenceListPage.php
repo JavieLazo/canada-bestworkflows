@@ -10,8 +10,6 @@ use App\Livewire\Records\Support\Hris;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\Queries\PayrollRecords;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
-use App\Modules\Timekeeping\Application\Queries\ReferenceData;
-use App\Modules\Workforce\Application\Queries\ReferenceUsage;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
 use Flux\Flux;
@@ -36,9 +34,9 @@ use Livewire\Component;
  *  - READS are open to any session (GET /api/records/[table]);
  *  - every WRITE needs all_data + RECORDS (requireAllDataModule("RECORDS"),
  *    api/records/[table]/route.ts), re-checked inside each action;
- *  - the usage counts read employees / documents / leave requests through the
- *    same row scoping their own APIs apply, so an employee-less actor counts
- *    zero rows rather than everyone's.
+ *  - the "in use by N" counts are the owners' UNSCOPED counts of the records
+ *    still carrying each entry (ReferenceCatalog::inUseCounts) — counts only,
+ *    never who — because the delete refuses on that same number.
  */
 #[Layout('layouts.app')]
 class ReferenceListPage extends Component
@@ -128,6 +126,22 @@ class ReferenceListPage extends Component
     public static function csvLists(): array
     {
         return array_filter(self::LISTS, static fn (array $list): bool => $list['csv']);
+    }
+
+    /** The list this screen shows under Payroll → Payroll Settings, at /payroll/settings/payroll-deductions. */
+    public const string PAYROLL_LIST = 'payroll-deductions';
+
+    /**
+     * The lists that live under Records Management: every one but Payroll
+     * Deductions, a Payroll Setting.
+     *
+     * @return array<string, array{table: string, prefix: string,
+     *     title: string, description: string, noun: string, plural: string,
+     *     nameLabel: string, showDescription: bool, csv: bool}>
+     */
+    public static function recordsLists(): array
+    {
+        return array_diff_key(self::LISTS, [self::PAYROLL_LIST => true]);
     }
 
     /** Which list this page is. Route-supplied and authorization-relevant → #[Locked]. */
@@ -417,85 +431,6 @@ class ReferenceListPage extends Component
         Flux::toast(variant: 'success', text: $message);
     }
 
-    /**
-     * How many records currently carry each option, keyed by normalised name.
-     * Matching is by name because that is what the records store — the forms
-     * select from these lists but save the name, not the id
-     * (reference-list.tsx:139-158). Each source is read through the scoping its
-     * own API applies.
-     *
-     * @return array<string, int>
-     */
-    private function usageCounts(): array
-    {
-        $access = app(Access::class);
-        $counts = [];
-
-        $bump = static function (mixed $value) use (&$counts): void {
-            $key = Hris::normalizeOption($value === null ? null : (string) $value);
-
-            if ($key !== '') {
-                $counts[$key] = ($counts[$key] ?? 0) + 1;
-            }
-        };
-
-        if ($this->slug === 'employment') {
-            foreach ($this->visibleEmployeeValues($access) as $value) {
-                $bump($value);
-            }
-        }
-
-        if ($this->slug === 'documents') {
-            $values = app(ReferenceUsage::class)->documents($access);
-
-            foreach ($values as $value) {
-                $bump($value);
-            }
-        }
-
-        // Payroll member references are counted by deduction id in render().
-
-        return $counts;
-    }
-
-    /**
-     * The employee directory, tiered exactly as GET /api/employees
-     * (employees/route.ts:38-52): the full directory for all_data + EMPLOYEES
-     * or PAYROLL, the operational directory for all_data + an operational
-     * module, otherwise the actor's own row — and no rows at all for an
-     * employee-less account.
-     *
-     * @return list<string|null>
-     */
-    private function visibleEmployeeValues(Access $access): array
-    {
-        return app(ReferenceUsage::class)->employmentStatuses($access);
-    }
-
-    /**
-     * Leave-type usage per row name — a request stores `SICK` or
-     * `EMERGENCY_LEAVE`, never the row's exact name, so it is matched through
-     * the same resolver the screens display with (reference-list.tsx:160-168).
-     *
-     * @param  list<string>  $allNames
-     * @return array<string, int>
-     */
-    private function leaveUsage(array $allNames): array
-    {
-        $access = app(Access::class);
-
-        $requestTypes = app(ReferenceData::class)->requestTypes($access);
-
-        $counts = [];
-
-        foreach ($requestTypes as $type) {
-            $name = Hris::requestDescription((string) $type, $allNames);
-            $counts[$name] = ($counts[$name] ?? 0) + 1;
-        }
-
-        return $counts;
-    }
-
     public function render(): View
     {
         $config = $this->config();
@@ -503,19 +438,12 @@ class ReferenceListPage extends Component
         $catalog = app(ReferenceCatalogs::class)->for($this->slug);
         $rows = $this->acceptPage($catalog->page(app(Access::class), $this->search, $this->sortKey, $this->sortDir, (int) $this->getPage(), $this->perPage));
 
-        // Per-row usage, resolved the way each list's records reference it.
+        // Per-row usage: the owner's UNSCOPED count of the records still
+        // carrying the entry (ReferenceCatalog::inUseCounts), the same number
+        // the delete refuses on — a settings manager who sees few employees
+        // must not read a held status as free to delete.
         $draftUsage = [];
-        if ($this->slug === 'leave-types') {
-            // In list order (name asc), the order listReference serves rows in —
-            // it decides which row wins when two names normalise alike.
-            $allNames = $catalog->names(app(Access::class));
-            $byName = $this->leaveUsage($allNames);
-            $usage = [];
-
-            foreach ($rows as $row) {
-                $usage[$row->getKey()] = $byName[$row->getAttribute('name')] ?? 0;
-            }
-        } elseif ($this->slug === 'payroll-deductions') {
+        if ($this->slug === 'payroll-deductions') {
             $ids = [];
             foreach ($rows as $row) {
                 $ids[] = (string) $row->getKey();
@@ -528,12 +456,7 @@ class ReferenceListPage extends Component
                 $draftUsage[$id] = $counts['drafts'];
             }
         } else {
-            $counts = $this->usageCounts();
-            $usage = [];
-
-            foreach ($rows as $row) {
-                $usage[$row->getKey()] = $counts[Hris::normalizeOption((string) $row->getAttribute('name'))] ?? 0;
-            }
+            $usage = $catalog->inUseCounts(app(Access::class), $rows);
         }
 
         $editing = $this->editingId !== null ? $catalog->find(app(Access::class), $this->editingId) : null;

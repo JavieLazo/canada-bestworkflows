@@ -268,7 +268,7 @@ it('reports only explicitly selected posted loan lines and keeps their issued na
     $rows = payrollReportRows($report);
     expect($rows)->toHaveCount(1)->and($rows[0]['Posted deduction name'])->toBe('Original loan')
         ->and($rows[0]['Amount deducted'])->toBe('276.00')->and($rows[0]['Payslips'])->toBe('2')
-        ->and(implode(' ', $report->notes))->toContain('no loan principal or outstanding-balance ledger');
+        ->and(implode(' ', $report->notes))->toContain('this report infers no remaining balance');
     expect(fn () => $query->generate($actor, payrollReportCriteria('loan-summary')))->toThrow(ValidationException::class);
 });
 

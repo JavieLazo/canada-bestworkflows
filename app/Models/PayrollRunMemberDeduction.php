@@ -21,7 +21,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property float $amount
  * @property CarbonImmutable $created_at
  * @property-read PayrollRunMember|null $member
- * @property-read PayrollDeduction|null $deduction
  */
 class PayrollRunMemberDeduction extends BaseModel
 {
@@ -50,11 +49,5 @@ class PayrollRunMemberDeduction extends BaseModel
     public function member(): BelongsTo
     {
         return $this->belongsTo(PayrollRunMember::class, 'member_id');
-    }
-
-    /** @return BelongsTo<PayrollDeduction, $this> */
-    public function deduction(): BelongsTo
-    {
-        return $this->belongsTo(PayrollDeduction::class, 'deduction_id');
     }
 }

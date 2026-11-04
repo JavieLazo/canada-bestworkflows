@@ -74,8 +74,9 @@ DB::connection()->beforeExecuting(static function (string $sql) use ($operation,
     };
     // A correction queues on the punches it reads FOR UPDATE — the day
     // before, the day and the day after — which the test holds; it takes
-    // the employee row first, so the second of two corrections for one
-    // employee queues there and is ready at that read.
+    // payroll's membership lock first (a paid day is never corrected), then
+    // the employee row, so the second of two corrections queues on the
+    // membership lock and is ready at that read.
     // A task writer reaches its row either through L1 (FOR UPDATE) or through
     // a guarded UPDATE: both queue on the row lock the test holds.
     // A project-lock writer is ready at its FIRST locking read of either
@@ -83,7 +84,7 @@ DB::connection()->beforeExecuting(static function (string $sql) use ($operation,
     // or the whole-table scan of CreateTask and DeleteProject. A lock it is
     // granted there is followed at once by P, which the test holds.
     if ((str_contains($sql, $lockingTable) && (str_contains($lower, 'for update') || ($taskOperation && str_starts_with($lower, 'update'))))
-        || ($operation === 'correct' && str_contains($lower, 'for update') && str_contains($sql, '`employee_profiles`'))
+        || ($operation === 'correct' && str_contains($lower, 'for update') && (str_contains($sql, '`locks`') || str_contains($sql, '`employee_profiles`')))
         || ($projectOperation && str_contains($lower, 'for update') && str_contains($sql, '`project_tasks`'))
         || ($operation === 'reminder' && str_starts_with($lower, 'insert') && str_contains($sql, '`notifications`'))) {
         echo "ready\n";

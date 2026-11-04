@@ -203,7 +203,7 @@ it('assigns every bounded reminder group to exactly one owning module', function
         }
     }
     sort($keys);
-    expect($keys)->toBe(['assigned', 'documents', 'leaves', 'probation', 'projects', 'reviews']);
+    expect($keys)->toBe(['assigned', 'documents', 'leaves', 'payroll', 'probation', 'projects', 'reviews']);
 });
 
 it('notifies every active account of an employee while respecting account exclusions', function () {

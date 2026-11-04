@@ -10,38 +10,75 @@ use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Enums\PayrollRunStatus;
 use App\Domain\Notifications\Notifier;
 use App\Domain\Payroll\PayslipDraft;
+use App\Models\PayrollAdjustment;
 use App\Models\PayrollFinalizationSnapshot;
 use App\Models\PayrollRun;
 use App\Models\Payslip;
 use App\Models\PayslipDeduction;
 use App\Models\PayslipIncentive;
+use App\Models\PayslipSettlement;
+use App\Modules\Payroll\Application\Adjustments;
+use App\Modules\Payroll\Application\AdvanceSettlements;
+use App\Modules\Payroll\Application\ContributionMonthToDate;
 use App\Modules\Payroll\Application\EnsurePayrollMembership;
+use App\Modules\Payroll\Application\LeaveChargeLines;
+use App\Modules\Payroll\Application\OpenAttendanceItems;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollInputs;
+use App\Modules\Payroll\Application\PayrollPeriodText;
 use App\Modules\Payroll\Application\PayrollReadTransaction;
 use App\Modules\Payroll\Application\PayrollReview;
+use App\Modules\Payroll\Application\RecurringLines;
 use App\Modules\Payroll\Application\StatutoryTables;
+use App\Modules\Payroll\Application\TaxYearToDate;
 use App\Modules\Payroll\Application\ThirteenthMonthData;
 use App\Modules\Payroll\Application\ThirteenthMonthInputs;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
+use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\CutoffAdvice;
+use App\Modules\Payroll\Domain\PayrollAdvance;
+use App\Modules\Timekeeping\Contracts\LeaveCashOutPoster;
+use App\Modules\Timekeeping\Contracts\LeaveChargePoster;
+use App\Modules\Workforce\Contracts\EmployeePayContexts;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
+use App\Support\EmployeeName;
+use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
-/** Reviewed inputs, evidence, payslips and mandatory audit must commit together. */
+/**
+ * Reviewed inputs, evidence, payslips and mandatory audit must commit together.
+ *
+ * A regular payroll whose attendance is still open — the period not over,
+ * overtime undecided, a request pending (OpenAttendanceItems) — posts only
+ * when the officer accepted that it pays them as they stand
+ * (`$acceptOpenItems`, the workspace's "Finalize anyway" tick). The items
+ * are read from the verified inputs, so they are the ones the officer saw;
+ * the audit sentence and the evidence record them.
+ *
+ * An ADVANCE PAYROLL (PayrollAdvance, DELIBERATE DIVERGENCE 14) posts with
+ * its counted date on every payslip, so Timekeeping freezes only the counted
+ * days, and with one `payslip_settlements` row for each earlier payslip
+ * whose presumed days it settles (AdvanceSettlements). Both come from the
+ * same verified inputs as the pay.
+ *
+ * What the payroll CHARGES TO LEAVE CREDITS (DELIBERATE DIVERGENCE 15) is
+ * posted here too, through Timekeeping's LeaveChargePoster inside the same
+ * transaction: a charge that cannot be recorded cancels the finalization,
+ * and a day charged twice fails it.
+ */
 final class FinalizePayroll
 {
-    public function handle(Access $actor, string $runId, ?string $reviewReceipt = null): int
+    public function handle(Access $actor, string $runId, ?string $reviewReceipt = null, bool $acceptOpenItems = false): int
     {
         if (! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
-        $result = PayrollReadTransaction::run(function () use ($runId, $actor, $reviewReceipt): array {
+        $result = PayrollReadTransaction::run(function () use ($runId, $actor, $reviewReceipt, $acceptOpenItems): array {
             PayrollData::lockMembership();
 
             $run = PayrollRun::query()->with('members.incentives', 'members.deductions')->whereKey($runId)->lockForUpdate()->first();
@@ -79,14 +116,44 @@ final class FinalizePayroll
                 throw new RuntimeException($cutoffError);
             }
 
-            EnsurePayrollMembership::check($actor, $memberIds, $periodStart, $periodEnd, $run->id);
+            $kind = $run->kind ?? PayrollRunKind::REGULAR;
+            EnsurePayrollMembership::check($actor, $memberIds, $periodStart, $periodEnd, $run->id, $kind);
+
+            // An adjustment still awaiting approval for a member holds the
+            // payroll: it is reviewed or discarded first, never paid or
+            // skipped quietly.
+            if ($kind === PayrollRunKind::REGULAR) {
+                $pending = Adjustments::pendingFor($memberIds, $run->id);
+                if ($pending !== []) {
+                    $names = [];
+                    foreach (app(EmployeePayContexts::class)->get($actor, array_keys($pending)) as $employee) {
+                        $names[] = EmployeeName::display($employee);
+                    }
+                    sort($names, SORT_STRING);
+                    throw new RuntimeException('An adjustment is awaiting approval for '.implode(', ', $names).'. Review or discard it on Adjustments before finalizing.');
+                }
+            }
+
+            // The advance payroll's counted date (PayrollAdvance), checked
+            // again here: the day must still be over, and a 13th month run
+            // never has one.
+            $advance = AdvanceSettlements::ready();
+            $attendanceThrough = $advance && $kind === PayrollRunKind::REGULAR
+                ? PayrollAdvance::normalize($run->attendance_through?->format('Y-m-d'), $periodEnd)
+                : null;
+            $advanceError = PayrollAdvance::error($attendanceThrough, $periodStart, $periodEnd, ManilaClock::todayKey());
+            if ($advanceError !== null) {
+                throw new RuntimeException($advanceError);
+            }
 
             // THE computation — the same domain path the draft grid renders:
             // the cut-off payroll's, or the 13th month run's.
-            $kind = $run->kind ?? PayrollRunKind::REGULAR;
             $yearly = $kind === PayrollRunKind::THIRTEENTH_MONTH;
             $incentiveLines = [];
             $customDeductionLines = [];
+            $settlementLines = [];
+            $leaveChargeLines = [];
+            $presumedLines = [];
             if ($yearly) {
                 $calculation = ThirteenthMonthData::calculateDrafts(
                     $memberIds,
@@ -108,9 +175,17 @@ final class FinalizePayroll
                     actor: $actor,
                     draftIncentives: $overrides['incentives'],
                     draftCustomDeductions: $overrides['customDeductions'],
+                    draftSkippedRecurring: $overrides['skippedRecurring'],
+                    attendanceThrough: $attendanceThrough,
+                    payDate: $run->pay_date?->format('Y-m-d'),
+                    contributionMonth: $run->contribution_month,
+                    runId: $run->id,
                 );
                 $incentiveLines = $calculation['incentiveLines'];
                 $customDeductionLines = $calculation['customDeductionLines'];
+                $settlementLines = $calculation['settlementLines'];
+                $leaveChargeLines = $calculation['leaveChargeLines'];
+                $presumedLines = $calculation['presumedLines'];
             }
 
             $inputs = $calculation['inputs'];
@@ -125,6 +200,13 @@ final class FinalizePayroll
                 $who = $employee !== null ? PayrollData::employeeName($employee) : 'An employee';
 
                 throw new RuntimeException("{$who}: {$issue['message']}");
+            }
+
+            // What attendance has not finished deciding, from the same
+            // verified inputs; a 13th month run pays no attendance.
+            $open = $inputs instanceof PayrollInputs ? OpenAttendanceItems::forInputs($inputs, ManilaClock::todayKey()) : OpenAttendanceItems::none();
+            if (! $open->isEmpty() && ! $acceptOpenItems) {
+                throw new RuntimeException('This payroll has open attendance: '.$open->summary().'. Tick "Finalize anyway" to pay them as they stand.');
             }
 
             // Evidence, payslips, status and the required audit commit as one unit.
@@ -152,6 +234,18 @@ final class FinalizePayroll
                 // which typed rows existed. Evidence beside the results; the
                 // screens read the list, never this.
                 'deduction_columns' => $yearly ? [] : PayrollData::deductionColumns($actor)->map(static fn (DeductionColumnView $c): array => $c->toArray())->values()->all(),
+                // What attendance had not finished deciding when this posted
+                // (OpenAttendanceItems): nothing, or what the officer
+                // accepted paying as it stood.
+                'open_items' => $open->toArray(),
+                // What each member's payroll charged to leave credits
+                // (DIVERGENCE 15), the plan the payslips were priced with.
+                'leave_charges' => $leaveChargeLines,
+                // On an advance payroll, each member's presumed days priced
+                // on their own by this very engine (DIVERGENCE 14): the
+                // frozen figure the settling payroll reads (AdvanceSettlements),
+                // so a later engine never re-prices what was paid.
+                'presumed' => $presumedLines,
             ]);
             $snapshot = new PayrollFinalizationSnapshot;
             $snapshot->run_id = $run->id;
@@ -173,19 +267,85 @@ final class FinalizePayroll
             }
 
             Payslip::query()->where('run_id', $run->id)->delete();
+            // Each posted line names the recurring line it paid: the ledger
+            // a deduction's total is paid off against (RecurringLineLedger).
+            $ledger = RecurringLines::ready();
+            $charging = LeaveChargeLines::ready();
+            $adjusting = Adjustments::ready();
+            $chargedDays = 0.0;
+            $chargedEmployees = 0;
+            $cashedOut = 0;
+            $adjusted = 0;
 
             foreach ($calculation['drafts'] as $draft) {
                 $payslip = new Payslip;
-                $payslip->fill(array_merge($draft->toArray(), [
+                $columns = array_merge($draft->toArray(), [
                     'run_id' => $run->id,
                     // These columns stay pinned to 0 — pay is additive, so
                     // their reductions live inside basic_pay.
                     'late_undertime_deduction' => 0,
                     'absence_deduction' => 0,
                     'unpaid_leave_deduction' => 0,
-                ]));
+                    // The run's counted date, copied onto the payslip so the
+                    // paid-day freeze reads the payslip alone.
+                    'attendance_through' => $attendanceThrough,
+                ]);
+                if (! $advance) {
+                    // The window before the cron migrates 2026_10_31_0001:
+                    // nothing was presumed or settled, and the columns do
+                    // not exist yet.
+                    unset($columns['attendance_through'], $columns['presumed_days'], $columns['settlement']);
+                }
+                if (! $charging) {
+                    // The window before the cron migrates 2026_10_31_0006.
+                    unset($columns['leave_charged_days']);
+                }
+                if (ContributionMonthToDate::ready()) {
+                    // The month this payslip's shares count toward (divergence 19).
+                    $columns['contribution_month'] = $yearly ? null : ($run->contribution_month ?? substr((string) $run->period_start->format('Y-m-d'), 0, 7));
+                } else {
+                    // The window before the cron migrates 2026_11_02_0009.
+                    unset($columns['contribution_base']);
+                }
+                if (TaxYearToDate::ready()) {
+                    // The tax year the withholding counts in: the year of the pay date (divergence 20).
+                    $columns['tax_year'] = TaxYearToDate::yearOf($run->pay_date?->format('Y-m-d'), (string) $run->period_end->format('Y-m-d'));
+                } else {
+                    // The window before the cron migrates 2026_11_02_0011.
+                    unset($columns['tax_year'], $columns['tax_method'], $columns['tax_refund']);
+                }
+                $payslip->fill($columns);
                 if (! $payslip->save()) {
                     throw new RuntimeException('Payroll could not save every payslip. Nothing was finalized.');
+                }
+
+                // What this payslip charged to leave credits (DIVERGENCE 15):
+                // the ledger entries, the allocations and one charge row per
+                // day, under the leave-credits lock, after payroll's own.
+                $plan = $leaveChargeLines[$draft->employee_id] ?? null;
+                if ($plan !== null && $plan['lines'] !== [] && $inputs instanceof PayrollInputs) {
+                    app(LeaveChargePoster::class)->post($actor, $draft->employee_id, $payslip->id, $run->code, $plan['lines'], $inputs->leaveCharges[$draft->employee_id]);
+                    if ($draft->leave_charged_days > 0) {
+                        $chargedDays += $draft->leave_charged_days;
+                        $chargedEmployees++;
+                    }
+                }
+
+                // The settlements this payslip makes (AdvanceSettlements), one
+                // immutable row each, naming the payslip whose days it settled.
+                foreach ($settlementLines[$draft->employee_id] ?? [] as $line) {
+                    PayslipSettlement::create([
+                        'payslip_id' => $payslip->id,
+                        'settled_payslip_id' => $line['payslip_id'],
+                        'employee_id' => $draft->employee_id,
+                        'settled_code' => $line['run_code'],
+                        'from_date' => $line['from'],
+                        'to_date' => $line['to'],
+                        'presumed_amount' => $line['presumed_amount'],
+                        'actual_amount' => $line['actual_amount'],
+                        'amount' => $line['amount'],
+                        'details' => ['presumed' => $line['presumed'], 'actual' => $line['actual']],
+                    ]);
                 }
 
                 // The incentive lines it paid, itemised and COPIED (code,
@@ -201,7 +361,22 @@ final class FinalizePayroll
                         'over_ceiling' => $line['over_ceiling'],
                         'tax' => $line['tax'],
                         'counts_toward_13th' => $line['counts_toward_13th'],
+                        ...($ledger ? ['recurring_line_id' => $line['recurring_line_id'] ?? null] : []),
+                        ...($adjusting ? ['adjustment_id' => $line['adjustment_id'] ?? null] : []),
                     ]);
+                }
+                // The leave credit cash-outs this payslip paid: each request
+                // marked PAID and the days taken off the ledger, through
+                // Timekeeping's LeaveCashOutPoster, inside this transaction.
+                $cashOuts = [];
+                foreach ($incentiveLines[$draft->employee_id] ?? [] as $line) {
+                    if (isset($line['cash_out'])) {
+                        $cashOuts[] = $line['cash_out'];
+                    }
+                }
+                if ($cashOuts !== []) {
+                    app(LeaveCashOutPoster::class)->post($actor, $draft->employee_id, $payslip->id, $run->code, $cashOuts);
+                    $cashedOut += count($cashOuts);
                 }
                 foreach ($customDeductionLines[$draft->employee_id] ?? [] as $position => $line) {
                     PayslipDeduction::create([
@@ -211,7 +386,24 @@ final class FinalizePayroll
                         'name' => $line['name'],
                         'amount' => $line['amount'],
                         'employer_amount' => $line['employer_amount'],
+                        ...($ledger ? ['recurring_line_id' => $line['recurring_line_id'] ?? null] : []),
+                        ...($adjusting ? ['adjustment_id' => $line['adjustment_id'] ?? null] : []),
                     ]);
+                }
+                // The adjustments this payslip paid are POSTED, naming it:
+                // every captured line must still be approved and unposted,
+                // or the evidence no longer matches the ledger.
+                $adjustmentIds = array_values(array_filter(array_map(
+                    static fn (array $line): ?string => $line['adjustment_id'] ?? null,
+                    [...($incentiveLines[$draft->employee_id] ?? []), ...($customDeductionLines[$draft->employee_id] ?? [])],
+                )));
+                if ($adjustmentIds !== []) {
+                    $posted = PayrollAdjustment::query()->whereIn('id', $adjustmentIds)->where('status', AdjustmentRule::APPROVED)->whereNull('payslip_id')
+                        ->update(['status' => AdjustmentRule::POSTED, 'payslip_id' => $payslip->id, 'updated_at' => CarbonImmutable::now('UTC')->format('Y-m-d H:i:s.v')]);
+                    if ($posted !== count($adjustmentIds)) {
+                        throw new RuntimeException('An adjustment changed before finalization completed. Review the payroll again.');
+                    }
+                    $adjusted += $posted;
                 }
             }
 
@@ -230,6 +422,9 @@ final class FinalizePayroll
                 throw new RuntimeException('That payroll changed before finalization completed.');
             }
             $typed = array_sum(array_map(static fn (array $line): int => count($line['overridden']), $calculation['statutory']));
+            // What this payroll paid ahead of attendance, and what it settled.
+            $presumedDays = (int) array_sum(array_map(static fn (PayslipDraft $draft): float => $draft->presumed_days, $calculation['drafts']));
+            $settledEmployees = count($settlementLines);
             RequiredAudit::record($actor, AuditEvent::PAYROLL_FINALIZED, 'payroll_runs', $run->id,
                 "{$run->name} finalized — ".count($calculation['drafts']).($yearly ? ' 13th month payslips' : ' payslips')
                 .match ($typed) {
@@ -237,7 +432,13 @@ final class FinalizePayroll
                     1 => '; 1 statutory line typed over the computed figure',
                     default => "; {$typed} statutory lines typed over the computed figure",
                 }
-                .(! $yearly && CutoffAdvice::warning($periodStart, $periodEnd) !== null ? '; non-standard cut-off' : ''));
+                .(! $yearly && CutoffAdvice::warning($periodStart, $periodEnd) !== null ? '; non-standard cut-off' : '')
+                .($cashedOut === 0 ? '' : "; {$cashedOut} leave credit cash-out".($cashedOut === 1 ? '' : 's').' paid')
+                .($adjusted === 0 ? '' : "; {$adjusted} adjustment".($adjusted === 1 ? '' : 's').' paid')
+                .($attendanceThrough === null ? '' : '; attendance counted through '.PayrollPeriodText::day($attendanceThrough).', '.$presumedDays.($presumedDays === 1 ? ' day' : ' days').' paid in advance')
+                .($settledEmployees === 0 ? '' : '; settles earlier presumed days for '.$settledEmployees.($settledEmployees === 1 ? ' employee' : ' employees'))
+                .($chargedEmployees === 0 ? '' : '; '.number_format($chargedDays, 4, '.', '').' days of leave credits charged for '.$chargedEmployees.($chargedEmployees === 1 ? ' employee' : ' employees'))
+                .($open->isEmpty() ? '' : '; finalized with open attendance: '.$open->summary()));
 
             return [
                 'run' => $run,

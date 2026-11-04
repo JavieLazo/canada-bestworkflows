@@ -13,9 +13,15 @@ use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
 use App\Modules\Payroll\Contracts\Views\PayslipView as Payslip;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Timekeeping\Application\Commands\FileAbsence;
+use App\Modules\Timekeeping\Application\Commands\RequestLeaveCashOut;
 use App\Modules\Timekeeping\Application\Commands\WithdrawAbsence;
+use App\Modules\Timekeeping\Application\Commands\WithdrawLeaveCashOut;
+use App\Modules\Timekeeping\Application\LeaveBalances;
+use App\Modules\Timekeeping\Application\LeaveHalves;
 use App\Modules\Timekeeping\Application\Queries\AbsenceRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveCashOutRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
 use App\Modules\Timekeeping\Application\Queries\ReferenceData;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
@@ -77,6 +83,9 @@ class PortalPage extends Component
     /** WHOLE_DAY | HALF_DAY — defaults to the first entry, like DAY_TYPES[0]. */
     public string $dayType = 'WHOLE_DAY';
 
+    /** Which half is off on a half day: AM, PM or '' for either (divergence 21). Plain form state. */
+    public string $half = '';
+
     /** 'Y-m-d' range, both defaulting to today. Plain form state. */
     public string $start = '';
 
@@ -96,6 +105,19 @@ class PortalPage extends Component
      * reveals nothing — the modal renders only the already-validated id.
      */
     public bool $payslipOpen = false;
+
+    /* ── the leave credit cash-out dialog ───────────────────────────────── */
+
+    /** Whether the cash-out dialog shows. Plain UI state. */
+    public bool $cashOutOpen = false;
+
+    /** The leave type token picked ('' until picked); RequestLeaveCashOut validates it against Leave Credits settings. */
+    public string $cashOutType = '';
+
+    /** The days typed, as text; the command validates them. */
+    public string $cashOutDays = '';
+
+    public string $cashOutNote = '';
 
     public function mount(): void
     {
@@ -142,7 +164,7 @@ class PortalPage extends Component
     {
         $actor = app(Access::class);
         try {
-            app(FileAbsence::class)->handle($actor, $this->type, $this->dayType, $this->start, $this->end, $this->reason);
+            app(FileAbsence::class)->handle($actor, $this->type, $this->dayType, $this->start, $this->end, $this->reason, $this->half === '' ? null : $this->half);
         } catch (QueryException) {
             Flux::toast(text: 'The request could not be saved. Please try again.', variant: 'danger');
 
@@ -155,6 +177,7 @@ class PortalPage extends Component
         $this->reason = '';
         $this->type = '';
         $this->dayType = 'WHOLE_DAY';
+        $this->half = '';
         $this->start = PortalLabels::todayKey();
         $this->end = $this->start;
         Flux::toast(text: 'Request submitted for approval.', variant: 'success');
@@ -179,6 +202,50 @@ class PortalPage extends Component
             return;
         }
         Flux::toast(text: 'Request withdrawn.', variant: 'success');
+    }
+
+    /**
+     * Ask to turn part of MY leave credits into pay (RequestLeaveCashOut):
+     * the command pins the request to the session's own employee and
+     * re-checks the type, the days and the balance for itself.
+     */
+    public function requestCashOut(): void
+    {
+        $actor = app(Access::class);
+        try {
+            $message = app(RequestLeaveCashOut::class)->handle($actor, $this->cashOutType, $this->cashOutDays, $this->cashOutNote);
+        } catch (QueryException) {
+            Flux::toast(text: 'The request could not be saved. Please try again.', variant: 'danger');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
+
+            return;
+        }
+        $this->cashOutOpen = false;
+        $this->cashOutType = '';
+        $this->cashOutDays = '';
+        $this->cashOutNote = '';
+        Flux::toast(text: $message, variant: 'success');
+    }
+
+    /** Take back MY pending cash-out (WithdrawLeaveCashOut). */
+    public function withdrawCashOut(string $id): void
+    {
+        $actor = app(Access::class);
+        try {
+            $message = app(WithdrawLeaveCashOut::class)->handle($actor, $id);
+        } catch (QueryException) {
+            Flux::toast(text: 'The request could not be withdrawn. Please try again.', variant: 'danger');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(text: $e->getMessage(), variant: 'danger');
+
+            return;
+        }
+        Flux::toast(text: $message, variant: 'success');
     }
 
     /**
@@ -246,22 +313,43 @@ class PortalPage extends Component
             ? app(LeaveCreditRecords::class)->own($actor, $creditYear)
             : collect();
         $filingBalances = $balances;
-        if ($this->tab === 'requests' && $dateError === null && trim($this->type) !== '' && LeaveCreditPolicy::isLeave($this->type)) {
-            $filingYear = LeaveCreditPolicy::yearOf($this->start);
+        $filingYear = $creditYear;
+        if ($this->tab === 'requests' && $dateError === null && trim($this->type) !== '' && LeaveCreditPolicy::isLeave($this->type) && $actor->hasEmployeeLink()) {
+            // The year the draft would draw on: its start year moved past
+            // every year the earning job has closed (LeaveBalances).
+            $filingYear = LeaveBalances::liveYear($actor->ownEmployeeId(), $this->start);
             if ($filingYear !== $creditYear) {
                 $filingBalances = app(LeaveCreditRecords::class)->own($actor, $filingYear);
             }
         }
-        $creditHint = $this->tab === 'requests' && $dateError === null ? $this->creditHint($filingBalances) : null;
+        $creditHint = $this->tab === 'requests' && $dateError === null ? $this->creditHint($actor, $filingBalances, $filingYear) : null;
 
         // The open payslip comes from the OWN list, never a fresh unscoped read.
         $viewing = $this->viewingId !== null ? $payslips->firstWhere('id', $this->viewingId) : null;
         $incentives = $viewing !== null ? (app(PayslipRecords::class)->incentives($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $customDeductions = $viewing !== null ? (app(PayslipRecords::class)->customDeductions($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $deductionColumns = $viewing !== null ? app(PayslipRecords::class)->deductionColumns($actor, [$viewing->id]) : collect();
+        $settlements = $viewing !== null ? (app(PayslipRecords::class)->settlements($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $viewingYearly = $viewing !== null && $viewing->thirteenth_month > 0;
 
+        // MY leave credit cash-outs, and the types I may cash out (Leave
+        // Credits settings) among the balances shown — read only while the
+        // Leave & travel tab shows; nothing for an unlinked account.
+        $cashOuts = $this->tab === 'requests' ? app(LeaveCashOutRecords::class)->own($actor) : collect();
+        $cashOutTypes = [];
+        if ($this->tab === 'requests' && $actor->hasEmployeeLink() && LeaveCashOutRecords::ready()) {
+            $cashable = LeaveTypeCreditRecords::cashable();
+            foreach ($balances as $b) {
+                if (in_array($b->request_type, $cashable, true)) {
+                    $cashOutTypes[] = ['value' => $b->request_type, 'label' => $b->label.' · '.PortalLabels::credits((float) ($b->remaining ?? 0.0)).' left'];
+                }
+            }
+        }
+
         return view('livewire.portal.portal-page', [
+            'halvesReady' => LeaveHalves::ready(),
+            'cashOuts' => $cashOuts,
+            'cashOutTypes' => $cashOutTypes,
             'actor' => $actor,
             'employee' => $employee,
             'hasEmployee' => $actor->hasEmployeeLink(),
@@ -278,7 +366,7 @@ class PortalPage extends Component
             'viewing' => $viewing,
             'earnings' => $viewing !== null ? $this->earningLines($viewing, $incentives) : [],
             'deductions' => $viewing !== null ? $this->deductionLines($viewing, $customDeductions, $deductionColumns) : [],
-            'payslipDocument' => $viewing !== null ? PayslipDocument::issued($viewing, $employee, $viewingYearly, $incentives, $customDeductions, $deductionColumns, own: true) : null,
+            'payslipDocument' => $viewing !== null ? PayslipDocument::issued($viewing, $employee, $viewingYearly, $incentives, $customDeductions, $deductionColumns, own: true, settlements: $settlements) : null,
             // A 13th month payslip carries no attendance and no contributions,
             // so its document leaves those blocks out instead of printing
             // zeros. The note explaining it sits in the additional details,
@@ -291,15 +379,17 @@ class PortalPage extends Component
      * What the draft request would cost against MY credits: the balance row
      * the chosen type resolves to (the `_LEAVE` tolerance, against my own
      * rows only, so a client-shaped `$type` can name nothing of anyone
-     * else's), the covered days of the draft, and the year it starts in —
-     * which the view compares with the panel's year before quoting a
-     * number. Missing or insufficient credits disable Submit; the command
-     * repeats the rule against fresh locked data when filing.
+     * else's), the scheduled working days the draft covers (LeaveBalances —
+     * a rest day costs nothing), and the year it draws on — which the view
+     * compares with the panel's year before quoting a number. The figure
+     * judged is what is AVAILABLE: the balance less the days unpaid cash-outs
+     * have claimed. Missing or insufficient credits disable Submit; the
+     * command repeats the rule against fresh locked data when filing.
      *
      * @param  Collection<int, LeaveBalanceView>  $balances
      * @return array{balance: LeaveBalanceView|null, needs: float, year: int, error: string|null}|null
      */
-    private function creditHint(Collection $balances): ?array
+    private function creditHint(Access $actor, Collection $balances, int $year): ?array
     {
         if (trim($this->type) === '' || ! LeaveCreditPolicy::isLeave($this->type)) {
             return null;
@@ -309,14 +399,15 @@ class PortalPage extends Component
             array_values($balances->map(static fn (LeaveBalanceView $row): string => $row->request_type)->all()),
         );
         $balance = $key === null ? null : $balances->first(static fn (LeaveBalanceView $row): bool => $row->request_type === $key);
-        $needs = LeaveCreditPolicy::coveredDays($this->dayType, $this->start, $this->end);
-        $year = LeaveCreditPolicy::yearOf($this->start);
+        $needs = $actor->hasEmployeeLink()
+            ? app(LeaveBalances::class)->cost($actor->ownEmployeeId(), $this->dayType, $this->start, $this->end)['days']
+            : LeaveCreditPolicy::coveredDays($this->dayType, $this->start, $this->end);
 
         return [
             'balance' => $balance,
             'needs' => $needs,
             'year' => $year,
-            'error' => LeaveCreditPolicy::filingError($balance?->remaining, $needs, $year),
+            'error' => LeaveCreditPolicy::filingError($balance?->available, $needs, $year),
         ];
     }
 
@@ -354,6 +445,9 @@ class PortalPage extends Component
         $lines[] = ['label' => 'Night differential', 'value' => $p->night_differential, 'hint' => null];
         $lines[] = ['label' => 'Leave', 'value' => $p->leave_pay, 'hint' => null];
         $lines[] = ['label' => 'Other earnings', 'value' => $p->other_earnings, 'hint' => null];
+        // The settlement of days paid in advance on an earlier payslip; 0 on
+        // every other payslip, so filtered out like the 13th month line.
+        $lines[] = ['label' => 'Attendance settlement', 'value' => (float) ($p->settlement ?? 0.0), 'hint' => null];
         // A 13th month payslip; 0 on every other payslip, so filtered out.
         $lines[] = [
             'label' => '13th month pay',

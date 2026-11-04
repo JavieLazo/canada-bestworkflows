@@ -15,8 +15,8 @@ use Illuminate\Support\Str;
 /**
  * The multi-assignee data layer: the project_task_assignees pivot, the
  * ProjectTask helpers every screen keys on (assigneeIds / hasAssignee /
- * syncAssignees), the inverse taskLoad(), and the migration pair that moves
- * the single assignee_id column into the pivot.
+ * syncAssignees), an employee's task load read from the pivot, and the
+ * migration pair that moves the single assignee_id column into the pivot.
  */
 function ptaEmployee(string $last = 'Garcia'): EmployeeProfile
 {
@@ -130,13 +130,13 @@ it('counts the employee task load through the pivot and cascades on delete', fun
     $one->syncAssignees([$mine->getKey()], null);
     $two->syncAssignees([$mine->getKey()], null);
 
-    expect($mine->taskLoad()->count())->toBe(2);
-    expect($mine->taskLoad()->pluck('project_tasks.id')->sort()->values()->all())
+    expect(ProjectTaskAssignee::query()->where('employee_id', $mine->getKey())->count())->toBe(2);
+    expect(ProjectTaskAssignee::query()->where('employee_id', $mine->getKey())->pluck('task_id')->sort()->values()->all())
         ->toBe(collect([$one->getKey(), $two->getKey()])->sort()->values()->all());
 
     $one->delete();
 
-    expect($mine->taskLoad()->count())->toBe(1);
+    expect(ProjectTaskAssignee::query()->where('employee_id', $mine->getKey())->count())->toBe(1);
     expect(ProjectTaskAssignee::query()->where('task_id', $one->getKey())->count())->toBe(0);
 });
 
@@ -147,7 +147,7 @@ it('keeps the actor column out of the pivot fillable and records the submitter o
     $mine = ptaEmployee();
     $task->fill(['submitted_by' => $mine->getKey()])->save();
 
-    expect($task->fresh()->submitter?->getKey())->toBe($mine->getKey());
+    expect($task->fresh()->submitted_by)->toBe($mine->getKey());
 });
 
 it('backfilled the old single assignee_id into one pivot row, retry-safe', function () {

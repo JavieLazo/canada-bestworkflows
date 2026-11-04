@@ -29,6 +29,7 @@ final class PayrollReports
     private const array REGISTER_AMOUNTS = [
         'basic_pay' => 'Basic pay subtotal', 'allowances' => 'Allowances', 'overtime_pay' => 'Stored overtime pay',
         'night_differential' => 'Night differential', 'leave_pay' => 'Leave pay', 'other_earnings' => 'Other earnings',
+        'settlement' => 'Attendance settlement',
         'bonus' => 'Taxable incentives', 'exempt_benefits' => 'Tax-exempt benefits (tax treatment)', 'thirteenth_month' => '13th month pay',
         'gross_pay' => 'Gross pay', 'sss' => 'SSS employee', 'philhealth' => 'PhilHealth employee',
         'pagibig' => 'Pag-IBIG employee', 'withholding_tax' => 'Withholding tax',
@@ -322,7 +323,7 @@ final class PayrollReports
 
         return new ReportDocument('Loan Summary', ['Employee ID', 'Employee', 'Deduction code', 'Posted deduction name', 'Payslips', 'Amount deducted'], $rows, [
             ...$notes, 'Includes only the selected deduction codes: '.implode(', ', $criteria->deductionCodes).'.',
-            'These are payroll repayments only. EMS has no loan principal or outstanding-balance ledger; no remaining balance is inferred.',
+            'These are payroll repayments only; this report infers no remaining balance. A loan set up as a recurring line with a total shows its paid and remaining balance under Records › Payroll Settings › Employee Pay Settings.',
             'The total payslip count is distinct across selected deductions; a payslip with several selected loan deductions is counted once.',
         ], [], [
             ['label' => 'Employees with deductions', 'value' => (string) count($matchedEmployees)],
@@ -385,7 +386,7 @@ final class PayrollReports
                 // line kind before inspecting any label they can contain.
                 str_starts_with($label, 'Incentive detail:') => 'Earnings',
                 str_starts_with($label, 'Deduction detail:') => 'Deductions',
-                in_array($label, ['Daily rate', 'Work days', 'Holidays worked', 'Rest days worked', 'Absence days', 'Paid leave days', 'Unpaid leave days', 'Overtime hours', 'Late minutes', 'Undertime minutes'], true) => 'Time and rate details',
+                in_array($label, ['Daily rate', 'Work days', 'Holidays worked', 'Rest days worked', 'Absence days', 'Paid leave days', 'Unpaid leave days', 'Days paid in advance', 'Overtime hours', 'Late minutes', 'Undertime minutes'], true) => 'Time and rate details',
                 str_starts_with($label, 'Tax treatment:') || str_starts_with($label, 'Incentive tax treatment:') || in_array($label, ['Stored taxable compensation', 'Overtime included in gross'], true) => 'Tax treatment',
                 in_array($label, ['SSS employer', 'PhilHealth employer', 'Pag-IBIG employer'], true) => 'Employer contributions',
                 in_array($label, ['SSS employee', 'PhilHealth employee', 'Pag-IBIG employee', 'Withholding tax', 'Other deductions', 'Named deductions subtotal', 'Late deduction', 'Undertime deduction', 'Legacy late / undertime deduction', 'Legacy absence deduction', 'Legacy unpaid leave deduction'], true) => 'Deductions',
@@ -415,10 +416,11 @@ final class PayrollReports
         foreach ([
             'daily_rate' => 'Daily rate', 'work_days' => 'Work days', 'holiday_days' => 'Holidays worked', 'rest_days' => 'Rest days worked',
             'absence_days' => 'Absence days', 'paid_leave_days' => 'Paid leave days', 'unpaid_leave_days' => 'Unpaid leave days',
+            'presumed_days' => 'Days paid in advance',
             'work_days_pay' => 'Work days pay', 'holiday_pay' => 'Holiday pay', 'rest_day_pay' => 'Rest day pay',
             'basic_pay' => 'Basic pay subtotal', 'allowances' => 'Allowances', 'total_base_pay' => 'Base pay with allowances subtotal',
             'overtime_hours' => 'Overtime hours', 'overtime_pay' => 'Overtime pay', 'night_differential' => 'Night differential',
-            'leave_pay' => 'Leave pay', 'other_earnings' => 'Other earnings', 'bonus' => 'Taxable incentives',
+            'leave_pay' => 'Leave pay', 'other_earnings' => 'Other earnings', 'settlement' => 'Attendance settlement', 'bonus' => 'Taxable incentives',
             'thirteenth_month' => '13th month pay', 'exempt_benefits' => 'Tax treatment: exempt benefits',
             'taxable_benefits_excess' => 'Tax treatment: benefits over exemption ceiling', 'gross_pay' => 'Gross pay',
             'sss' => 'SSS employee', 'philhealth' => 'PhilHealth employee', 'pagibig' => 'Pag-IBIG employee',

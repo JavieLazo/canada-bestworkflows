@@ -14,8 +14,11 @@ use Carbon\CarbonImmutable;
  * read the post decides who may open the attachment. Photos sit under
  * community-photos/ and files under community-files/ on the private `local`
  * disk, and they're only ever streamed through a permission check. A file
- * keeps the name it was uploaded with. Append-only: deleted with its post or
- * comment, never edited.
+ * keeps the name it was uploaded with. Append-only, apart from `removed_at`
+ * and `position`: an edit can take a post's photo or file off, where it
+ * stays for the post's edit history, or bring one back, and every edit
+ * numbers what's on the post afresh from 0, in the order it shows. A row
+ * taken off goes with its post or comment like the rest.
  *
  * @property string $id
  * @property string $post_id
@@ -26,6 +29,7 @@ use Carbon\CarbonImmutable;
  * @property string $mime
  * @property int $size
  * @property int $position
+ * @property CarbonImmutable|null $removed_at
  * @property CarbonImmutable $created_at
  */
 class CommunityAttachment extends BaseModel
@@ -54,6 +58,7 @@ class CommunityAttachment extends BaseModel
         return [
             'size' => 'integer',
             'position' => 'integer',
+            'removed_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
         ];
     }

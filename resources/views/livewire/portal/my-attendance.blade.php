@@ -38,13 +38,14 @@
         </section>
 
         @if ($attendance !== null)
-            <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <div class="grid grid-cols-2 gap-3 lg:grid-cols-6">
                 @foreach ([
                     ['Days present', (string) $attendance->totals->present, null],
                     ['Worked', Hris::fmtDuration($attendance->totals->regularMinutes()), 'Excludes overtime'],
                     ['Late', Hris::fmtDuration($attendance->totals->lateMinutes), $attendance->unscheduled['late'] > 0 ? Hris::fmtDuration($attendance->unscheduled['late']).' on unscheduled days' : null],
                     ['Undertime', Hris::fmtDuration($attendance->totals->undertimeMinutes), $attendance->unscheduled['undertime'] > 0 ? Hris::fmtDuration($attendance->unscheduled['undertime']).' on unscheduled days' : null],
                     ['Absences', (string) $attendance->absences, $attendance->unscheduled['absences'] > 0 ? $attendance->unscheduled['absences'].' on unscheduled days' : null],
+                    ['Comp. leave earned', Hris::fmtDuration((float) $compMinutes), 'Overtime credited instead of paid, all time'],
                 ] as [$label, $value, $note])
                     <div class="hris-card min-w-0 p-4" wire:key="attendance-stat-{{ $label }}">
                         <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{{ $label }}</p>
@@ -132,7 +133,7 @@
                                                 @endphp
                                                 <div class="mt-1"><span class="pill {{ $decisionTone }}">{{ $decision }}</span></div>
                                                 @if ($overtime->decision === OvertimeApprovalPolicy::APPROVED)
-                                                    <span class="mt-1 block whitespace-nowrap text-xs text-muted-foreground">{{ Hris::fmtDuration((float) $overtime->approved_minutes) }} approved</span>
+                                                    <span class="mt-1 block whitespace-nowrap text-xs text-muted-foreground">{{ Hris::fmtDuration((float) $overtime->approved_minutes) }} approved{{ $overtime->credited_minutes > 0 ? ' · '.Hris::fmtDuration((float) $overtime->credited_minutes).' credited' : '' }}</span>
                                                 @endif
                                             @endif
                                         </td>

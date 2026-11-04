@@ -21,10 +21,10 @@ namespace App\Modules\Payroll\Domain;
  * PayrollRunStatus: the column stays a plain string and
  * `pded_calculation_chk` carries the literal list. Pure.
  *
- * The order of `columns()` is the order the grid falls back to when a
- * calculation has no list row (deleted on an install seeded without this
- * column): the engine still computes that money, so the column still
- * shows, under `defaultLabel()`.
+ * `all()` is the order and `defaultLabel()` the name a column takes when no
+ * list row carries its calculation: a finalized run whose evidence records
+ * no columns shows all five that way (`DeductionColumns::fromPosted`), and
+ * the payroll CSV names a statutory header that way when its row is gone.
  */
 final class DeductionCalculation
 {
@@ -45,17 +45,6 @@ final class DeductionCalculation
     public static function all(): array
     {
         return [self::SSS, self::PHILHEALTH, self::PAGIBIG, self::WITHHOLDING_TAX, self::LATE_UNDERTIME];
-    }
-
-    /**
-     * The calculations that head a column of the grid: the four statutory
-     * tables, in grid order.
-     *
-     * @return list<string>
-     */
-    public static function columns(): array
-    {
-        return [self::SSS, self::PHILHEALTH, self::PAGIBIG, self::WITHHOLDING_TAX];
     }
 
     /**

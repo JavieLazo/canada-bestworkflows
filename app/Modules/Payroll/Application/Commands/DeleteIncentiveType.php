@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Modules\Payroll\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Enums\ModuleCode;
 use App\Models\PayrollIncentiveType;
+use App\Models\PayrollRecurringLine;
 use App\Models\PayrollRunMemberIncentive;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
+use App\Modules\Payroll\Application\RecurringLines;
 use App\Support\Access;
 use App\Support\AuditService;
 use RuntimeException;
@@ -25,7 +27,7 @@ final class DeleteIncentiveType
     /** The deleted type's name. Every refusal throws a RuntimeException carrying the sentence. */
     public function handle(Access $actor, string $id): string
     {
-        if (! $actor->mayReadAllData(ModuleCode::RECORDS) && ! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
+        if (! PayrollSettingsAccess::mayManage($actor)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
 
@@ -35,6 +37,9 @@ final class DeleteIncentiveType
         }
         if (PayrollRunMemberIncentive::query()->where('type_id', $id)->exists()) {
             throw new RuntimeException("{$row->name} is on a payroll, so it cannot be deleted. Rename it instead.");
+        }
+        if (RecurringLines::ready() && PayrollRecurringLine::query()->where('incentive_type_id', $id)->exists()) {
+            throw new RuntimeException("Employees have recurring lines on {$row->name}, so it cannot be deleted. End or delete those lines in Employee Pay Settings, or rename it instead.");
         }
 
         $code = $row->code;

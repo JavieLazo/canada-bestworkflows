@@ -30,12 +30,12 @@ use Tests\Support\PayrollEvidenceFixture;
  * base, lets a typed amount override the employee share, captures the
  * rules in the evidence and posts the employer share with the line.
  */
-function pctdRecordsActor(): User
+function pctdPayrollActor(): User
 {
     $role = new Role;
     $role->forceFill(['name' => 'Percent deductions '.Str::random(6), 'all_data' => true, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::RECORDS])->save();
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => null]);
     test()->actingAs($user);
     app()->forgetInstance(Access::class);
@@ -62,7 +62,7 @@ function pctdRow(string $code, string $name, array $changes = []): PayrollDeduct
 */
 
 it('saves a percentage rule from the Payroll Deductions page and names each row\'s computation', function () {
-    pctdRecordsActor();
+    pctdPayrollActor();
     // The computed rows are seeded by the migration; the typed one is this test's.
     $sss = PayrollDeduction::query()->where('calculation', DeductionCalculation::SSS)->firstOrFail();
     $typed = new PayrollDeduction;
@@ -122,7 +122,7 @@ it('shows a viewer the list and the rule details without any way to change them'
     $role = new Role;
     $role->forceFill(['name' => 'Percent viewer '.Str::random(6), 'all_data' => false, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::RECORDS])->save();
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
     test()->actingAs(User::factory()->create(['role_id' => $role->id, 'employee_id' => null]));
     app()->forgetInstance(Access::class);
     pctdRow('901', 'Provident Fund', ['frequency' => PercentDeduction::FREQUENCY_SECOND, 'cap' => 1500.0, 'before_tax' => true]);
@@ -206,8 +206,9 @@ it('captures the rules in the evidence, stales the preview when a rule changes a
         ->and(PayrollData::calculateInputs($restored, strict: true)['customDeductionLines'][$employee->id][0]['amount'])->toBe(450.0);
 
     $eight = $data;
-    unset($eight['benefit_rules'], $eight['deduction_rules']);
+    unset($eight['benefit_rules'], $eight['deduction_rules'], $eight['recurring_lines'], $eight['skipped_recurring_lines'], $eight['attendance_through'], $eight['settlements'], $eight['leave_charges'], $eight['leave_cash_outs'], $eight['cash_out_type'], $eight['gov_policies'], $eight['adjustments']);
     $eight['schema_version'] = 8;
+    $eight = PayrollEvidenceFixture::beforeSchema17($eight);
     $old = PayrollInputs::restore(PayrollInputs::json($eight));
     expect($old->deductionRules)->toBe([])
         ->and(PayrollData::calculateInputs($old, strict: true)['customDeductionLines'])->toBe([]);

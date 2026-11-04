@@ -13,18 +13,25 @@ use SplFileInfo;
 /** Fingerprints the installed calculation and input-mapping code, including default rules. */
 final class CalculatorVersion
 {
+    /**
+     * The installed version, hashed once per request: the files cannot
+     * change while a request runs, and every preview asks for it at least
+     * twice (the capture and the pricing gate).
+     */
     public static function current(): string
     {
-        $hash = hash_init('sha256');
-        foreach (self::files() as $file) {
-            $digest = hash_file('sha256', $file);
-            if ($digest === false) {
-                throw new RuntimeException('The payroll calculation version could not be verified.');
+        return once(static function (): string {
+            $hash = hash_init('sha256');
+            foreach (self::files() as $file) {
+                $digest = hash_file('sha256', $file);
+                if ($digest === false) {
+                    throw new RuntimeException('The payroll calculation version could not be verified.');
+                }
+                hash_update($hash, str_replace(str_replace(DIRECTORY_SEPARATOR, '/', base_path()).'/', '', $file).':'.$digest.';');
             }
-            hash_update($hash, str_replace(base_path().'/', '', $file).':'.$digest.';');
-        }
 
-        return 'payroll-v1:'.hash_final($hash);
+            return 'payroll-v1:'.hash_final($hash);
+        });
     }
 
     /**
@@ -46,6 +53,8 @@ final class CalculatorVersion
             ...(glob(base_path('app/Domain/Payroll/*.php')) ?: []),
             ...(glob(base_path('app/Domain/Attendance/*.php')) ?: []),
             ...self::phpFilesUnder(base_path('app/Modules/Payroll/Domain')),
+            // The leave-credit charge plan prices lateness and absences (DIVERGENCE 15).
+            ...self::phpFilesUnder(base_path('app/Modules/Timekeeping/Domain/Credits')),
             base_path('app/Support/Money.php'),
             base_path('app/Support/ManilaClock.php'),
             base_path('composer.lock'),
@@ -55,6 +64,9 @@ final class CalculatorVersion
             __DIR__.'/ThirteenthMonthData.php',
             __DIR__.'/ThirteenthMonthInputs.php',
         ];
+        // Forward slashes before sorting, so a Windows checkout fingerprints
+        // the same files in the same order as Linux.
+        $files = array_map(static fn (string $file): string => str_replace(DIRECTORY_SEPARATOR, '/', $file), $files);
         sort($files, SORT_STRING);
 
         return $files;

@@ -9,6 +9,7 @@ use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Payroll\StatutoryLines;
 use App\Models\Payslip;
 use App\Models\PayslipIncentive;
+use App\Modules\Payroll\Application\AdvanceSettlements;
 use App\Support\Access;
 use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
@@ -53,7 +54,10 @@ final class ThirteenthMonthBasis
             ->orderBy('period_end')
             ->orderBy('created_at')
             ->get(['id', 'employee_id', 'period_end', 'work_days_pay', 'leave_pay', 'taxable_compensation', 'created_at',
-                'gross_pay', 'exempt_benefits', 'sss', 'philhealth', 'pagibig', 'late_deduction', 'undertime_deduction']);
+                'gross_pay', 'exempt_benefits', 'sss', 'philhealth', 'pagibig', 'late_deduction', 'undertime_deduction',
+                // The settlement of earlier presumed days is basic pay for
+                // those days (the advance payroll); 0 before the column exists.
+                ...(AdvanceSettlements::ready() ? ['settlement'] : [])]);
 
         // Posted benefit lines the catalog flagged as basic pay when they
         // were paid (the copy on the line, never the catalog as it stands).
@@ -69,7 +73,7 @@ final class ThirteenthMonthBasis
         $latest = [];
         foreach ($rows as $row) {
             $id = (string) $row->employee_id;
-            $sums[$id] = ($sums[$id] ?? 0.0) + $row->work_days_pay + $row->leave_pay + ($counted[(string) $row->id] ?? 0.0);
+            $sums[$id] = ($sums[$id] ?? 0.0) + $row->work_days_pay + $row->leave_pay + ($counted[(string) $row->id] ?? 0.0) + (float) ($row->getAttribute('settlement') ?? 0.0);
             // Ordered oldest first, so the last one read is the latest. A
             // payslip that predates the `taxable_compensation` column
             // (2026_09_26_0004) has it NULL: its base is worked out again from

@@ -35,7 +35,7 @@ function prulesActor(bool $allData = true): User
     $role = new Role;
     $role->forceFill(['name' => 'Pay rules '.Str::random(6), 'all_data' => $allData, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::RECORDS])->save();
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => null]);
     test()->actingAs($user);
     app()->forgetInstance(Access::class);
@@ -137,19 +137,29 @@ it('prices a period by the status override in force on its first day, else the c
         ->and($store->resolve('2026-09-01', '2026-09-15', null)['entry']['scope'])->toBe(PayrollPayRule::COMPANY)
         // Before the override starts, the company rule; a period the override starts inside is refused.
         ->and($store->resolve('2026-08-16', '2026-08-31', $contract->id)['entry']['scope'])->toBe(PayrollPayRule::COMPANY)
+        // The period-level read still names a change inside the period; the timeline splits it instead (DIVERGENCE 17).
         ->and($store->resolve('2026-08-20', '2026-09-05', $contract->id)['error'])->toBe('The Pay Basis & Rates change on 01 Sep 2026. End this payroll before that date, or start it on that date.')
         ->and($store->cutoffError('2026-08-20', '2026-09-05', [$regular->id]))->toBeNull()
-        ->and($store->cutoffError('2026-08-20', '2026-09-05', [$regular->id, $contract->id]))->toBe('The Pay Basis & Rates change on 01 Sep 2026. End this payroll before that date, or start it on that date.')
-        ->and($store->cutoffError('2026-08-20', '2026-09-05', [$regular->id, $contract->id], [$contract->id => 'Contract of Service']))->toBe('The Pay Basis & Rates for Contract of Service employees change on 01 Sep 2026. End this payroll before that date, start it on that date, or take those employees off it.');
+        ->and($store->cutoffError('2026-08-20', '2026-09-05', [$regular->id, $contract->id]))->toBeNull()
+        ->and($store->cutoffError('2026-08-20', '2026-09-05', [$regular->id, $contract->id], [$contract->id => 'Contract of Service']))->toBeNull();
+    $timeline = $store->timeline('2026-08-20', '2026-09-05', $contract->id);
+    expect($timeline['error'])->toBeNull()
+        ->and($timeline['entry']['scope'])->toBe(PayrollPayRule::COMPANY)
+        ->and(array_map(static fn (array $s): array => [$s['from'], $s['scope'], $s['version_id']], $timeline['segments']))->toBe([['2026-09-01', $contract->id, $override->id]])
+        ->and($store->timeline('2026-09-01', '2026-09-15', $contract->id)['segments'])->toBe([]);
 
-    // A company version landing inside a period refuses it for everyone, and a company with no version at all cannot run.
-    prulesVersion(PayrollPayRule::COMPANY, '2026-09-10');
+    // A company version landing inside a period splits it for everyone the company rule prices; a company with no version at all cannot run.
+    $later = prulesVersion(PayrollPayRule::COMPANY, '2026-09-10');
     expect($store->resolve('2026-09-01', '2026-09-15', null)['error'])->toBe('The Pay Basis & Rates change on 10 Sep 2026. End this payroll before that date, or start it on that date.')
         ->and($store->resolve('2026-09-01', '2026-09-15', $contract->id)['error'])->toBeNull()
-        ->and($store->cutoffError('2026-09-01', '2026-09-15', []))->toBe("The company's Pay Basis & Rates change on 10 Sep 2026. End this payroll before that date, or start it on that date.")
-        ->and($store->cutoffError('2026-09-10', '2026-09-15', []))->toBeNull();
+        ->and($store->cutoffError('2026-09-01', '2026-09-15', []))->toBeNull()
+        ->and($store->cutoffError('2026-09-10', '2026-09-15', []))->toBeNull()
+        ->and(array_column($store->timeline('2026-09-01', '2026-09-15', null)['segments'], 'version_id'))->toBe([$later->id])
+        ->and($store->timeline('2026-09-01', '2026-09-15', $contract->id)['segments'])->toBe([]);
     PayrollPayRule::query()->where('scope', PayrollPayRule::COMPANY)->delete();
-    expect($store->resolve('2026-09-01', '2026-09-15', null)['error'])->toBe('The company has no Pay Basis & Rates version covering 01 Sep 2026. Add one in Payroll Settings › Pay Basis & Rates.');
+    expect($store->resolve('2026-09-01', '2026-09-15', null)['error'])->toBe('The company has no Pay Basis & Rates version covering 01 Sep 2026. Add one in Payroll Settings › Pay Basis & Rates.')
+        ->and($store->timeline('2026-09-01', '2026-09-15', null)['error'])->toBe('The company has no Pay Basis & Rates version covering 01 Sep 2026. Add one in Payroll Settings › Pay Basis & Rates.')
+        ->and($store->cutoffError('2026-09-01', '2026-09-15', []))->toBe('The company has no Pay Basis & Rates version covering 01 Sep 2026. Add one in Payroll Settings › Pay Basis & Rates.');
 });
 
 /*
@@ -177,18 +187,26 @@ it('saves a version through the audited command and refuses an earlier date, a m
     // Every version carries a reason, shortfall or not, and starts on a cut-off's first day.
     expect(fn () => app(SavePayRulesVersion::class)->handle($access, PayrollPayRule::COMPANY, '2026-12-01', '  ', $fixed))
         ->toThrow(RuntimeException::class, 'Enter the reason for this version.');
-    expect(fn () => app(SavePayRulesVersion::class)->handle($access, PayrollPayRule::COMPANY, '2026-12-10', 'Mid-period', $fixed))
-        ->toThrow(RuntimeException::class, 'A version takes effect on the 1st or the 16th of a month, the first day of a payroll period.');
     expect(fn () => app(SavePayRulesVersion::class)->handle($access, PayrollPayRule::COMPANY, '2026-12-01', 'wrong', ['basis' => 'DAILY']))
         ->toThrow(RuntimeException::class, 'The pay rules are incomplete');
     expect(fn () => app(SavePayRulesVersion::class)->handle($access, '', '2026-12-01', 'wrong', $fixed))
         ->toThrow(RuntimeException::class, 'Choose who the rules apply to.');
+    // Only the company or an Employment status: an employee's id is pay data this command never writes.
+    expect(fn () => app(SavePayRulesVersion::class)->handle($access, (string) Str::ulid(), '2026-12-01', 'An employee', $fixed))
+        ->toThrow(RuntimeException::class, 'Choose who the rules apply to.')
+        ->and(PayrollPayRule::query()->where('effective_from', '2026-12-01')->exists())->toBeFalse();
+    $status = prulesStatus('Probationary');
+    app(SavePayRulesVersion::class)->handle($access, $status->id, '2026-11-16', 'Probation rates', $fixed);
+    expect(PayrollPayRule::query()->where('scope', $status->id)->sole()->scope_type)->toBe(PayrollPayRule::SCOPE_STATUS);
     expect(fn () => app(SavePayRulesVersion::class)->handle($access, PayrollPayRule::COMPANY, 'soon', 'wrong', $fixed))
         ->toThrow(RuntimeException::class, 'Enter the date the rules take effect.');
     // A shortfall is saved like any version; the reason is on the row and in the audit line.
     app(SavePayRulesVersion::class)->handle($access, PayrollPayRule::COMPANY, '2026-12-01', 'Managerial staff', prulesFigures());
     expect(PayrollPayRule::query()->where('effective_from', '2026-12-01')->sole()->reason)->toBe('Managerial staff')
         ->and(AuditLog::query()->where('action', AuditEvent::PAY_RULES_SAVED->value)->latest('id')->value('details'))->toContain('(Managerial staff)');
+    // A version may start on any day (DIVERGENCE 17): a payroll it falls inside is split, not refused.
+    app(SavePayRulesVersion::class)->handle($access, PayrollPayRule::COMPANY, '2026-12-10', 'Mid-period', $fixed);
+    expect(PayrollPayRule::query()->where('effective_from', '2026-12-10')->exists())->toBeTrue();
 
     $count = PayrollPayRule::query()->count();
     prulesActor(false);
@@ -253,13 +271,80 @@ it('captures each member\'s version in the evidence, stales the preview when a v
 
     // Older evidence carries no versions: the reference's rules over its captured Formulas rows.
     $seven = $inputs->toArray();
-    unset($seven['statutory_tables'], $seven['pay_rules'], $seven['benefit_rules'], $seven['deduction_rules']);
+    unset($seven['statutory_tables'], $seven['pay_rules'], $seven['benefit_rules'], $seven['deduction_rules'], $seven['recurring_lines'], $seven['skipped_recurring_lines'], $seven['attendance_through'], $seven['settlements'], $seven['leave_charges'], $seven['leave_cash_outs'], $seven['cash_out_type'], $seven['gov_policies'], $seven['adjustments']);
     $seven['schema_version'] = 7;
+    $seven = PayrollEvidenceFixture::beforeSchema17($seven);
     expect(PayrollInputs::restore(PayrollInputs::json($seven))->rulesFor($employee->id)->dailyRateMethod)->toBe(PayRules::METHOD_MONTH);
 
-    // A version landing inside the period refuses the calculation and the cut-off alike.
-    prulesVersion($regular->id, '2026-09-10');
-    expect(PayrollData::cutoffError($actor, [$employee->id], '2026-09-01', '2026-09-15'))->toBe('The Pay Basis & Rates for Regular employees change on 10 Sep 2026. End this payroll before that date, start it on that date, or take those employees off it.');
-    expect(fn () => PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor))
-        ->toThrow(RuntimeException::class, 'The Pay Basis & Rates change on 10 Sep 2026.');
+    // A version landing inside the period splits it (DIVERGENCE 17): the
+    // evidence carries the later version as a dated segment, the days before
+    // it stay priced by the first (the company rule again, the override
+    // deleted above), and a replay never reads the live table.
+    $later = prulesVersion($regular->id, '2026-09-10', ['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 25.0]);
+    expect(PayrollData::cutoffError($actor, [$employee->id], '2026-09-01', '2026-09-15'))->toBeNull();
+    $third = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
+    $segments = $third['inputs']->payRules[$employee->id]['segments'] ?? [];
+    expect(array_map(static fn (array $s): array => [$s['from'], $s['version_id']], $segments))->toBe([['2026-09-10', $later->id]])
+        ->and($third['inputs']->payRules[$employee->id]['scope'])->toBe(PayrollPayRule::COMPANY)
+        ->and($third['inputs']->timelineFor($employee->id)->isSingle())->toBeFalse()
+        ->and($third['inputs']->timelineFor($employee->id)->on('2026-09-09')->dailyRateMethod)->toBe(PayRules::METHOD_MONTH)
+        ->and($third['inputs']->timelineFor($employee->id)->on('2026-09-10')->dailyRateValue)->toBe(25.0)
+        ->and($third['inputs']->fingerprint())->not->toBe($inputs->fingerprint())
+        // Both paid days fall before the 10th: at the company's day over September's 22 working days.
+        ->and($third['drafts'][0]->work_days_pay)->toBe(2727.27);
+    $restoredThird = PayrollInputs::restore(PayrollInputs::json($third['inputs']->toArray()));
+    expect($restoredThird->fingerprint())->toBe($third['inputs']->fingerprint())
+        ->and($restoredThird->timelineFor($employee->id)->segments[1]['from'])->toBe('2026-09-10');
+    PayrollPayRule::query()->where('scope', $regular->id)->delete();
+    expect(PayrollData::calculateInputs($restoredThird, strict: true)['drafts'][0]->work_days_pay)->toBe(2727.27);
+    $brokenSegment = $third['inputs']->toArray();
+    $brokenSegment['pay_rules'][$employee->id]['segments'][0]['from'] = '2026-08-01';
+    $brokenSegment['pay_rules'][$employee->id]['segments'][] = $brokenSegment['pay_rules'][$employee->id]['segments'][0];
+    expect(fn () => PayrollInputs::restore(PayrollInputs::json($brokenSegment)))->toThrow(RuntimeException::class, 'Invalid payroll pay rules evidence.');
+});
+
+/*
+|--------------------------------------------------------------------------
+| The rate-step keys (2026_11_02_0007)
+|--------------------------------------------------------------------------
+*/
+
+function prulesRateFiguresMigration(): mixed
+{
+    return require base_path('database/migrations/2026_11_02_0007_add_rate_figures_to_payroll_pay_rules_table.php');
+}
+
+it('adds the three rate-step keys, blank, to every stored version once and takes them away on rollback', function () {
+    // A version saved before the keys existed, and a "follows" row with no figures.
+    $older = prulesFigures();
+    unset($older['hourly_rate'], $older['rounding'], $older['overtime']['seaport_rate']);
+    $legacy = new PayrollPayRule;
+    $legacy->forceFill(['scope' => 'st-legacy', 'effective_from' => '2026-01-01', 'reason' => 'Before', 'params' => $older])->save();
+    $follows = new PayrollPayRule;
+    $follows->forceFill(['scope' => (string) Str::ulid(), 'scope_type' => PayrollPayRule::SCOPE_EMPLOYEE, 'effective_from' => '2026-01-01', 'reason' => 'Follows', 'params' => null])->save();
+    $set = new PayrollPayRule;
+    $set->forceFill(['scope' => 'st-set', 'effective_from' => '2026-01-01', 'reason' => 'Set', 'params' => prulesFigures(['hourly_rate.hours' => 8.0, 'rounding.decimals' => 2, 'overtime.seaport_rate' => 1.5])])->save();
+
+    $migration = prulesRateFiguresMigration();
+    $migration->up();
+    $migration->up();
+
+    $read = $legacy->fresh()->params;
+    expect($read['hourly_rate'])->toBe(['hours' => null])
+        ->and($read['rounding'])->toBe(['decimals' => null])
+        ->and($read['overtime'])->toEqual(['rate' => 1.25, 'max_hours' => 8.0, 'seaport_rate' => null])
+        ->and($read)->toEqual(PayRules::fromFormulas()->toArray())
+        ->and($follows->fresh()->params)->toBeNull()
+        // A figure already set is kept.
+        ->and($set->fresh()->params['hourly_rate']['hours'])->toEqual(8)
+        ->and($set->fresh()->params['rounding']['decimals'])->toBe(2)
+        ->and($set->fresh()->params['overtime']['seaport_rate'])->toEqual(1.5);
+
+    $migration->down();
+    $down = $set->fresh()->params;
+    expect(array_key_exists('hourly_rate', $down))->toBeFalse()
+        ->and(array_key_exists('rounding', $down))->toBeFalse()
+        ->and(array_key_exists('seaport_rate', $down['overtime']))->toBeFalse()
+        // Read without the keys, the version is blank on all three — the reference.
+        ->and(PayRules::fromArray($down)->hourlyHours)->toBeNull();
 });

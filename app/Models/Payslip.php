@@ -9,6 +9,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A posted payslip. Append-only: there is no `updated_at`, because "this row
@@ -111,10 +112,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property float|null $ceiling_benefits
  * @property float $taxable_benefits_excess
  * @property float|null $taxable_compensation
+ * @property CarbonImmutable|null $attendance_through the advance payroll's counted date (PayrollAdvance); null when the whole period was read
+ * @property float $presumed_days days paid ahead of their attendance
+ * @property float $settlement the settlement of earlier presumed days inside gross pay, positive or negative
+ * @property float $leave_charged_days the days of leave credits the payslip charged for lateness, undertime and absences
+ * @property string|null $contribution_month the month ('YYYY-MM') the SSS, PhilHealth and Pag-IBIG shares count toward; null on a payslip posted before 2026_11_02_0009
+ * @property float|null $contribution_base the monthly salary the contribution tables were read at; null on a payslip posted before the column
+ * @property int|null $tax_year the tax year the withholding counts in (the year of the pay date); null on a payslip posted before 2026_11_02_0011
+ * @property string|null $tax_method how the withholding was worked out (TABLE, ANNUALIZED, FIXED, PERCENT, WHOLE_YEAR, NONE); null before the column
+ * @property float $tax_refund the refund the year's last payslip paid back (divergence 20); 0 elsewhere
  * @property CarbonImmutable $created_at
  * @property-read PayrollRun|null $run
  * @property-read EmployeeProfile|null $employee
  * @property-read Collection<int, PayslipDeduction> $deductions
+ * @property-read Collection<int, PayslipSettlement> $settlements
+ * @property-read PayslipSettlement|null $settledBy
  */
 class Payslip extends BaseModel
 {
@@ -180,6 +192,20 @@ class Payslip extends BaseModel
         'ceiling_benefits',
         'taxable_benefits_excess',
         'taxable_compensation',
+        // 2026_10_31_0001, the advance payroll: the run's counted-through
+        // date, the days paid ahead of their attendance and the settlement
+        // of earlier ones (PayslipDraft::toArray carries the last two).
+        'attendance_through',
+        'presumed_days',
+        'settlement',
+        // 2026_10_31_0006: the days of leave credits the payslip charged.
+        'leave_charged_days',
+        // The contribution month and the salary the tables were read at (2026_11_02_0009).
+        'contribution_month',
+        'contribution_base',
+        'tax_year',
+        'tax_method',
+        'tax_refund',
     ];
 
     /**
@@ -236,6 +262,14 @@ class Payslip extends BaseModel
             'ceiling_benefits' => 'float',
             'taxable_benefits_excess' => 'float',
             'taxable_compensation' => 'float',
+            'attendance_through' => 'immutable_date:Y-m-d',
+            'presumed_days' => 'float',
+            'settlement' => 'float',
+            'leave_charged_days' => 'float',
+            'contribution_base' => 'float',
+            'tax_year' => 'integer',
+            'tax_method' => 'string',
+            'tax_refund' => 'float',
             'created_at' => 'immutable_datetime',
         ];
     }
@@ -256,5 +290,25 @@ class Payslip extends BaseModel
     public function deductions(): HasMany
     {
         return $this->hasMany(PayslipDeduction::class, 'payslip_id');
+    }
+
+    /**
+     * The settlements this payslip makes of earlier presumed days.
+     *
+     * @return HasMany<PayslipSettlement, $this>
+     */
+    public function settlements(): HasMany
+    {
+        return $this->hasMany(PayslipSettlement::class, 'payslip_id');
+    }
+
+    /**
+     * The settlement of THIS payslip's presumed days, once a later payslip made it.
+     *
+     * @return HasOne<PayslipSettlement, $this>
+     */
+    public function settledBy(): HasOne
+    {
+        return $this->hasOne(PayslipSettlement::class, 'settled_payslip_id');
     }
 }

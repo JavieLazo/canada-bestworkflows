@@ -89,14 +89,11 @@ function invlifeIssued(): array
     return [$actor, $reviewer, $item->fresh(), $employee, $receipt];
 }
 
-it('records loss and an independent review without changing custody or the issued MR snapshot', function () {
+it('records loss and a review without changing custody or the issued MR snapshot', function () {
     [$actor, $reviewer, $item, $employee, $receipt] = invlifeIssued();
     $original = InventoryReceipt::query()->findOrFail($receipt)->toArray();
     $id = app(RecordIncident::class)->save($actor, ['item_id' => $item->id, 'kind' => 'LOSS', 'reported_on' => '2026-10-02', 'reference' => 'LOSS-1', 'details' => 'Not located after office search.']);
     expect($item->fresh()->condition)->toBe('MISSING')->and($item->fresh()->employee_id)->toBe($employee->id)->and($item->fresh()->current_receipt_id)->toBe($receipt)->and(InventoryReceipt::query()->findOrFail($receipt)->toArray())->toBe($original);
-    expect(fn () => app(ResolveIncident::class)->save($actor, $id, ['condition' => 'SERVICEABLE', 'resolution_reference' => 'REV-1', 'resolution' => 'Located.']))->toThrow(HttpException::class);
-    $affected = Access::forActor(invlifeUser($employee));
-    expect(fn () => app(ResolveIncident::class)->save($affected, $id, ['condition' => 'SERVICEABLE', 'resolution_reference' => 'REV-1', 'resolution' => 'Located.']))->toThrow(HttpException::class);
     app(ResolveIncident::class)->save($reviewer, $id, ['condition' => 'SERVICEABLE', 'resolution_reference' => 'REV-1', 'resolution' => 'Located and verified by the reviewer.']);
     expect($item->fresh()->condition)->toBe('SERVICEABLE')->and($item->fresh()->employee_id)->toBe($employee->id)->and(InventoryIncident::query()->findOrFail($id)->reviewed_by)->toBe((int) $reviewer->userId);
     expect(fn () => app(ResolveIncident::class)->save($reviewer, $id, ['condition' => 'MISSING', 'resolution_reference' => 'REV-2', 'resolution' => 'Duplicate review.']))->toThrow(RuntimeException::class, 'already');
@@ -146,7 +143,7 @@ it('never disposes an item still issued to an employee', function () {
     expect(InventoryDisposal::query()->count())->toBe(0)->and($item->fresh()->status)->toBe('ISSUED');
 });
 
-it('records count discrepancies and independent review without changing item condition or custody', function () {
+it('records count discrepancies and a review without changing item condition or custody', function () {
     $actor = Access::forActor(invlifeUser());
     $reviewer = Access::forActor(invlifeUser());
     $location = InventoryLocation::query()->create(['name' => 'Count office']);
@@ -155,7 +152,6 @@ it('records count discrepancies and independent review without changing item con
     $input = ['location_id' => $location->id, 'counted_on' => '2026-10-02', 'reference' => 'COUNT-1', 'lines' => [['item_id' => $line->id, 'version' => $line->version, 'result' => 'NOT_FOUND', 'notes' => 'Room and cupboard checked.']]];
     $id = app(RecordCount::class)->save($actor, $input);
     expect($item->fresh()->condition)->toBe('SERVICEABLE')->and($item->fresh()->status)->toBe('IN_STOCK')->and(InventoryCountLine::query()->where('count_id', $id)->value('result'))->toBe('NOT_FOUND');
-    expect(fn () => app(ResolveCount::class)->save($actor, $id, ['resolution_reference' => 'CR-1', 'resolution' => 'Reviewed']))->toThrow(HttpException::class);
     app(ResolveCount::class)->save($reviewer, $id, ['resolution_reference' => 'CR-1', 'resolution' => 'Located in adjacent room; move will be recorded separately.']);
     expect(InventoryCount::query()->findOrFail($id)->status)->toBe('RESOLVED')->and($item->fresh()->location_id)->toBe($location->id)->and($item->fresh()->condition)->toBe('SERVICEABLE');
 });
@@ -259,18 +255,18 @@ it('returns forbidden for limited Inventory accounts on manager lifecycle routes
     expect(fn () => app(InventoryLifecycle::class)->counts($actor))->toThrow(HttpException::class);
 });
 
-it('refuses self-review through another account linked to the reporting employee', function () {
+it('lets another account linked to the reporting employee review the report and the count', function () {
     $reporter = invlifeEmployee();
     $actor = Access::forActor(invlifeUser($reporter));
     $samePerson = Access::forActor(invlifeUser($reporter));
     $location = InventoryLocation::query()->create(['name' => 'Two-account review room']);
     $item = invlifeItem($actor, $location);
     $incident = app(RecordIncident::class)->save($actor, ['item_id' => $item->id, 'kind' => 'DAMAGE', 'reported_on' => '2026-10-02', 'reference' => 'TWO-ACCOUNT', 'details' => 'Damage report.']);
-    expect(fn () => app(ResolveIncident::class)->save($samePerson, $incident, ['condition' => 'DAMAGED', 'resolution_reference' => 'SELF', 'resolution' => 'Reviewed through another account.']))->toThrow(HttpException::class);
     $line = app(InventoryLifecycle::class)->countSheet($actor, $location->id)->first();
     $count = app(RecordCount::class)->save($actor, ['location_id' => $location->id, 'counted_on' => '2026-10-02', 'reference' => 'TWO-ACCOUNT-COUNT', 'lines' => [['item_id' => $line->id, 'version' => $line->version, 'result' => 'FOUND', 'notes' => '']]]);
-    expect(fn () => app(ResolveCount::class)->save($samePerson, $count, ['resolution_reference' => 'SELF', 'resolution' => 'Reviewed through another account.']))->toThrow(HttpException::class);
-    expect(InventoryIncident::query()->findOrFail($incident)->status)->toBe('OPEN')->and(InventoryCount::query()->findOrFail($count)->status)->toBe('OPEN');
+    app(ResolveIncident::class)->save($samePerson, $incident, ['condition' => 'DAMAGED', 'resolution_reference' => 'SELF', 'resolution' => 'Reviewed through another account.']);
+    app(ResolveCount::class)->save($samePerson, $count, ['resolution_reference' => 'SELF', 'resolution' => 'Reviewed through another account.']);
+    expect(InventoryIncident::query()->findOrFail($incident)->status)->not->toBe('OPEN')->and(InventoryCount::query()->findOrFail($count)->status)->not->toBe('OPEN');
 });
 
 it('opens an item report from its detail link with locked custody context and preserves the generic report flow', function () {

@@ -8,12 +8,10 @@ use App\Domain\Payroll\PayrollReadiness;
 use App\Domain\Payroll\PayslipCalculator;
 use App\Domain\Payroll\PayslipDraft;
 use App\Models\PayrollRunMember;
-use App\Models\Payslip;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayrollDeductionTypeView;
 use App\Modules\Payroll\Contracts\Views\PayrollRunMemberView;
-use App\Modules\Payroll\Contracts\Views\PayslipView;
 use App\Modules\Workforce\Contracts\EmployeePayData;
 use App\Support\Access;
 use App\Support\CodeSequence;
@@ -139,24 +137,6 @@ final class PayrollData
     /* Draft arithmetic — thin wrappers over the domain layer */
     /* ------------------------------------------------------------------ */
     /**
-     * applyDeductionOverrides (payroll.ts:332-356): a manager-typed figure
-     * replaces the computed statutory line, then the deduction total and net
-     * pay are re-footed through the same normalisation finalize uses.
-     *
-     * @param  array<string, mixed>|null  $overrides
-     */
-    public static function applyDeductionOverrides(PayslipDraft $payslip, ?array $overrides): PayslipDraft
-    {
-        return \App\Modules\Payroll\Application\PayrollData::applyDeductionOverrides($payslip, $overrides);
-    }
-
-    /** payrollDraftError (payroll.ts:325-330). */
-    public static function draftError(PayslipDraft|Payslip|PayslipView $payslip): ?string
-    {
-        return \App\Modules\Payroll\Application\PayrollData::draftError($payslip);
-    }
-
-    /**
      * payrollTotals (use-payroll-lines.ts): a sum over the same keys the body
      * cells read. Works on PayslipDraft DTOs and posted Payslip rows alike.
      *
@@ -172,6 +152,12 @@ final class PayrollData
     public static function incentivesTotal(object $payslip): float
     {
         return \App\Modules\Payroll\Application\PayrollData::incentivesTotal($payslip);
+    }
+
+    /** @return list<string> */
+    public static function recurringMembers(PayrollInputs $inputs): array
+    {
+        return \App\Modules\Payroll\Application\PayrollData::recurringMembers($inputs);
     }
 
     /* ------------------------------------------------------------------ */
@@ -198,6 +184,8 @@ final class PayrollData
      * @param  array<string, array<string, mixed>>  $draftEarnings
      * @param  array<string, array<string, mixed>>  $draftIncentives  employee id => [incentive type id => amount]
      * @param  array<string, array<string, mixed>>  $draftCustomDeductions  employee id => [deduction type id => amount]
+     * @param  array<string, list<string>>  $draftSkippedRecurring  employee id => the recurring lines skipped on this payroll
+     * @param  string|null  $attendanceThrough  the advance payroll's "attendance counted through" date (PayrollAdvance)
      * @return array{
      *     drafts: list<PayslipDraft>,
      *     employees: Collection<int, EmployeePayData>,
@@ -206,13 +194,15 @@ final class PayrollData
      *     combined: list<array{employee_id: string, message: string}>,
      *     inputs: ?PayrollInputs,
      *     statutory: array<string, array{computed: array<string, float>, overridden: list<string>, off: list<string>, withholding_rederived: bool, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}}>,
-     *     incentiveLines: array<string, list<array{type_id: string, code: string, name: string, is_taxable: bool, amount: float, tax: string, counts_toward_13th: bool, automatic: bool, over_ceiling: float}>>,
-     *     customDeductionLines: array<string, list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool}>>,
+     *     incentiveLines: array<string, list<array{type_id: string, code: string, name: string, is_taxable: bool, amount: float, tax: string, counts_toward_13th: bool, automatic: bool, recurring_line_id: ?string, over_ceiling: float, adjustment_id?: string}>>,
+     *     customDeductionLines: array<string, list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool, recurring_line_id: ?string, adjustment_id?: string}>>,
+     *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
+     *     leaveChargeLines: array<string, array{lines: list<array{date: string, kind: string, minutes: ?int, days: float, covered: array<string, float>, uncovered_days: float, fraction: float}>, balances: array<string, float>, notes: list<string>}>,
      * }
      */
-    public static function calculateDrafts(array $employeeIds, string $periodStart, string $periodEnd, array $draftDeductions = [], array $draftAllowances = [], array $draftEarnings = [], bool $strict = false, array $draftIncentives = [], array $draftCustomDeductions = []): array
+    public static function calculateDrafts(array $employeeIds, string $periodStart, string $periodEnd, array $draftDeductions = [], array $draftAllowances = [], array $draftEarnings = [], bool $strict = false, array $draftIncentives = [], array $draftCustomDeductions = [], array $draftSkippedRecurring = [], ?string $attendanceThrough = null, ?string $payDate = null, ?string $contributionMonth = null, ?string $runId = null): array
     {
-        return \App\Modules\Payroll\Application\PayrollData::calculateDrafts($employeeIds, $periodStart, $periodEnd, $draftDeductions, $draftAllowances, $draftEarnings, $strict, draftIncentives: $draftIncentives, draftCustomDeductions: $draftCustomDeductions);
+        return \App\Modules\Payroll\Application\PayrollData::calculateDrafts($employeeIds, $periodStart, $periodEnd, $draftDeductions, $draftAllowances, $draftEarnings, $strict, draftIncentives: $draftIncentives, draftCustomDeductions: $draftCustomDeductions, draftSkippedRecurring: $draftSkippedRecurring, attendanceThrough: $attendanceThrough, payDate: $payDate, contributionMonth: $contributionMonth, runId: $runId);
     }
 
     /** @return Collection<int, PayrollDeductionTypeView> */
@@ -269,25 +259,12 @@ final class PayrollData
      *     incentives: array<string, array<string, float>>,
      *     customDeductions: array<string, array<string, float>>,
      *     additional: array<string, float>,
+     *     skippedRecurring: array<string, list<string>>,
      * }
      */
     public static function overridesFromMembers(iterable $members): array
     {
         return \App\Modules\Payroll\Application\PayrollData::overridesFromMembers($members);
-    }
-
-    /**
-     * The pivot columns one member row snapshots for one employee — the
-     * "full snapshot" a bare attach() cannot write.
-     *
-     * @param  array<string, array<string, mixed>>  $deductions
-     * @param  array<string, mixed>  $allowances
-     * @param  array<string, array<string, mixed>>  $earnings
-     * @return array<string, mixed>
-     */
-    public static function memberColumns(string $runId, string $employeeId, int $position, string $periodStart, string $periodEnd, array $deductions, array $allowances, array $earnings): array
-    {
-        return \App\Modules\Payroll\Application\PayrollData::memberColumns($runId, $employeeId, $position, $periodStart, $periodEnd, $deductions, $allowances, $earnings);
     }
 
     /**
@@ -300,15 +277,5 @@ final class PayrollData
     public static function memberIds(iterable $members): array
     {
         return \App\Modules\Payroll\Application\PayrollData::memberIds($members);
-    }
-
-    /**
-     * The port of `lockPayrollMembership` — the advisory lock every payroll
-     * membership write takes first. An InnoDB row lock on the `locks` sentinel
-     * row, released on COMMIT and on ROLLBACK. Call INSIDE a transaction.
-     */
-    public static function lockMembership(): void
-    {
-        \App\Modules\Payroll\Application\PayrollData::lockMembership();
     }
 }

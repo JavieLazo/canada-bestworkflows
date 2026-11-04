@@ -22,11 +22,11 @@ use App\Modules\Timekeeping\Application\Commands\SaveRosterDate;
 use App\Modules\Timekeeping\Application\Commands\SaveRosterWeek;
 use App\Modules\Timekeeping\Application\Commands\SaveShiftType;
 use App\Modules\Timekeeping\Application\Queries\ReferenceData;
-use App\Modules\Timekeeping\Application\Queries\RosterDates;
 use App\Modules\Timekeeping\Application\RosterChanges;
 use App\Modules\Timekeeping\Application\ShiftPolicy;
 use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
+use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
 use App\Support\ManilaClock;
@@ -338,7 +338,7 @@ it('refuses a one-date change inside a longer assignment, and reads that assignm
     expect($period->fresh()?->status)->toBe('ACTIVE')
         ->and($period->fresh()?->cut_after)->toBeNull()
         ->and(RosterDayOverride::query()->count())->toBe(1)
-        ->and(app(RosterDates::class)->forDate($actor, $employee->id, '2026-10-08')?->id)->toBe($period->id);
+        ->and(app(RosterVersions::class)->assignments([$employee->id], '2026-10-08', '2026-10-08')->pluck('id')->all())->toBe([$period->id]);
 });
 
 it('stores the last date a cancelled assignment applied as a bare calendar day', function () {

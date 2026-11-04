@@ -7,6 +7,4 @@
 *.php diff=php
 *.pdf binary
 
-CHANGELOG.md export-ignore
 README.md export-ignore
-.github/workflows/browser-tests.yml export-ignore

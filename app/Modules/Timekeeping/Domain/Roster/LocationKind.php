@@ -31,17 +31,6 @@ final class LocationKind
 
     private function __construct() {}
 
-    /** @return list<string> */
-    public static function stored(): array
-    {
-        return [self::ONSITE, self::WFH];
-    }
-
-    public static function isStored(string $kind): bool
-    {
-        return in_array($kind, self::stored(), true);
-    }
-
     /**
      * How a feed names where a punch was made: "Work from home", the site's
      * name, or an em dash when an ONSITE row names no site (a correction for

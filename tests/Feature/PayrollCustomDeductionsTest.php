@@ -97,8 +97,8 @@ it('subtracts cash advances and loans from net without changing tax or the gener
     $with = $calculation['drafts'][0];
 
     expect($calculation['customDeductionLines'][$id])->toBe([
-        ['type_id' => $cash->id, 'code' => '6', 'name' => 'Cash Advance', 'amount' => 1200.25, 'employer_amount' => null, 'automatic' => false],
-        ['type_id' => $loan->id, 'code' => '7', 'name' => 'Loan', 'amount' => 350.75, 'employer_amount' => null, 'automatic' => false],
+        ['type_id' => $cash->id, 'code' => '6', 'name' => 'Cash Advance', 'amount' => 1200.25, 'employer_amount' => null, 'automatic' => false, 'recurring_line_id' => null],
+        ['type_id' => $loan->id, 'code' => '7', 'name' => 'Loan', 'amount' => 350.75, 'employer_amount' => null, 'automatic' => false, 'recurring_line_id' => null],
     ])
         ->and($with->custom_deductions)->toBe(1551.0)
         ->and($with->other_deductions)->toBe(45.0)
@@ -222,7 +222,7 @@ it('posts copied deduction names and replays the same payslip after the catalog 
 
     $cash->update(['name' => 'Renamed Advance']);
     $loan->update(['name' => 'Renamed Loan']);
-    $records = pcdActor(['RECORDS']);
+    $records = pcdActor(['PAYROLL']);
     expect(PayslipDeduction::query()->where('payslip_id', $posted->id)->orderBy('position')->pluck('name')->all())
         ->toBe(['Cash Advance', 'Loan'])
         ->and(PayrollInputs::restore(PayrollInputs::json($payload['inputs']))->fingerprint())->toBe($restored->fingerprint())
@@ -254,15 +254,20 @@ it('deletes a typed row off drafts with a required audit, and never off a finali
     ['employee' => $employee, 'run' => $run, 'member' => $member] = PayrollEvidenceFixture::make();
     $cash = pcdType('6', 'Cash Advance');
     PayrollRunMemberDeduction::create(['member_id' => $member->id, 'deduction_id' => $cash->id, 'amount' => 100]);
-    $payrollOnly = pcdActor(['PAYROLL']);
-    expect(app(PayrollRecords::class)->deductionUsage($payrollOnly, [$cash->id]))->toBe([])
-        ->and(fn () => app(Deductions::class)->delete($payrollOnly, $cash->id))
+    // Without all data nobody manages it, nor sees what charges it.
+    $reader = pcdActor(['PAYROLL', 'RECORDS'], allData: false);
+    expect(app(PayrollRecords::class)->deductionUsage($reader, [$cash->id]))->toBe([])
+        ->and(fn () => app(Deductions::class)->delete($reader, $cash->id))
         ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');
     expect(PayrollRunMemberDeduction::query()->count())->toBe(1);
 
+    // Only an all-data PAYROLL holder manages the Payroll Settings
+    // (PayrollSettingsAccess); Records all-data no longer does.
+    expect(app(PayrollRecords::class)->deductionUsage(pcdActor(['RECORDS']), [$cash->id]))->toBe([]);
+
     // On a DRAFT the row only warns; deleting it takes the typed line off
     // the draft in the same transaction and audits that draft like a save.
-    $records = pcdActor(['RECORDS']);
+    $records = pcdActor(['PAYROLL']);
     expect(app(PayrollRecords::class)->deductionUsage($records, [$cash->id]))->toBe([$cash->id => ['drafts' => 1, 'finalized' => 0]]);
     $page = Livewire::test(ReferenceListPage::class, ['slug' => 'payroll-deductions']);
     expect($page->html())->toContain('Delete · on 1 draft')->not->toContain('in use by');
@@ -293,7 +298,7 @@ it('rolls the catalog delete back when the draft audit cannot be written', funct
     ['member' => $member] = PayrollEvidenceFixture::make();
     $cash = pcdType('6', 'Cash Advance');
     PayrollRunMemberDeduction::create(['member_id' => $member->id, 'deduction_id' => $cash->id, 'amount' => 100]);
-    $records = pcdActor(['RECORDS']);
+    $records = pcdActor(['PAYROLL']);
     AuditLog::creating(static function (): void {
         throw new RuntimeException('Synthetic audit failure');
     });

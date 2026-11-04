@@ -27,17 +27,6 @@ use DateTimeZone;
  */
 final class PayrollPeriod
 {
-    /** TS: PAYROLL_TIME_ZONE. The literal string lives in ManilaClock and only there. */
-    public const TIME_ZONE = ManilaClock::TZ;
-
-    /** TS: the two zod messages on `payrollDate`. */
-    public const MESSAGE_FORMAT = 'must be YYYY-MM-DD';
-
-    public const MESSAGE_REAL_DATE = 'must be a real calendar date';
-
-    /** TS: the zod refine on the `payrollPeriod` object, attached to period_end. */
-    public const MESSAGE_PERIOD_ORDER = 'must be on or after period_start';
-
     /**
      * TS: isPayrollDate() — a 'YYYY-MM-DD' string naming a real calendar day.
      *
@@ -84,17 +73,6 @@ final class PayrollPeriod
         $day = (int) substr($date, 8, 2);
 
         return $day === 1 || $day === 16;
-    }
-
-    /**
-     * TS: the `payrollPeriod` zod object's refine.
-     *
-     * Exported by the reference module but not consumed anywhere outside it; kept
-     * so the validation layer has one home for the wording.
-     */
-    public static function periodError(string $periodStart, string $periodEnd): ?string
-    {
-        return $periodStart <= $periodEnd ? null : self::MESSAGE_PERIOD_ORDER;
     }
 
     /**

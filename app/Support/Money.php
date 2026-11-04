@@ -61,4 +61,33 @@ final class Money
         // the "-0" string form is never on the comparison path.
         return $out === 0.0 ? 0.0 : $out;
     }
+
+    /**
+     * The same half-up rounding at a chosen number of decimals — the
+     * spreadsheet's ROUND(n, d) — for a RATE STEP a Pay Basis & Rates
+     * version asks to be rounded before it is multiplied on (the daily
+     * rate, the hourly rate, a premium hourly rate; PayRules
+     * `rounding.decimals`, DIVERGENCE 16). At two decimals it is round()
+     * above, operation for operation. Never a peso line: those stay on
+     * round() at the reference's call sites.
+     */
+    public static function roundTo(mixed $n, int $decimals): float
+    {
+        if ($decimals === 2) {
+            return self::round($n);
+        }
+
+        $f = is_numeric($n) ? (float) $n : 0.0;
+        if (! is_finite($f)) {
+            return 0.0;
+        }
+
+        $scale = 10 ** max(0, min(6, $decimals));
+        $scaled = $f * $scale;
+        $floor = floor($scaled);
+        $rounded = ($scaled - $floor) >= 0.5 ? $floor + 1 : $floor;
+        $out = $rounded / $scale;
+
+        return $out === 0.0 ? 0.0 : $out;
+    }
 }

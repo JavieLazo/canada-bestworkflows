@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Leaves;
 
 use App\Domain\Attendance\DtrCalculator;
+use App\Modules\Timekeeping\Application\LeaveHalves;
 use App\Support\HrisFormat;
 use App\Support\TextSort;
 
@@ -50,10 +51,12 @@ final class LeaveLabels
         'HALF_DAY' => 'Half day',
     ];
 
-    /** hris.ts:295-296 — an unknown or null day type reads as whole day. */
-    public static function dayTypeLabel(?string $value): string
+    /** hris.ts:295-296 — an unknown or null day type reads as whole day; a half day names its half when it says which (divergence 21). */
+    public static function dayTypeLabel(?string $value, ?string $half = null): string
     {
-        return self::DAY_TYPES[$value] ?? 'Whole day';
+        $label = self::DAY_TYPES[$value] ?? 'Whole day';
+
+        return $value === 'HALF_DAY' && isset(LeaveHalves::HALVES[$half]) ? $label.' · '.LeaveHalves::HALVES[$half] : $label;
     }
 
     /** Stored request types are the normalised form of a Leave Settings name (hris.ts:328), shared through HrisFormat. */

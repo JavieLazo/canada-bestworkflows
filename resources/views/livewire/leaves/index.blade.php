@@ -87,11 +87,24 @@
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'ledger' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">
                 Leave Ledger
             </button>
+            <button type="button" role="tab" aria-selected="{{ $tab === 'policies' ? 'true' : 'false' }}"
+                wire:click="$set('tab', 'policies')"
+                class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'policies' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">
+                Leave Policies
+            </button>
+            <button type="button" role="tab" aria-selected="{{ $tab === 'cashouts' ? 'true' : 'false' }}"
+                wire:click="$set('tab', 'cashouts')"
+                class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'cashouts' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">
+                Cash-outs
+            </button>
         </div>
 
         @if ($tab === 'requests')
             <section class="mt-4 hris-card overflow-hidden">
                 <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
+                    @if ($canFile)
+                        <flux:button variant="primary" icon="plus" wire:click="openFile" data-file-for-employee>File for an employee</flux:button>
+                    @endif
                     <flux:input
                         aria-label="Search requests"
                         placeholder="Search ID, employee or description"
@@ -178,7 +191,7 @@
                                         {{ $fmtDate($r->start_date) }}{{ $r->start_date->format('Y-m-d') === $r->end_date->format('Y-m-d') ? '' : ' – '.$fmtDate($r->end_date) }}
                                     </td>
                                     <td class="whitespace-nowrap">{{ $described[$r->id] }}</td>
-                                    <td class="whitespace-nowrap">{{ LeaveLabels::dayTypeLabel($r->day_type) }}</td>
+                                    <td class="whitespace-nowrap">{{ LeaveLabels::dayTypeLabel($r->day_type, $r->half ?? null) }}</td>
                                     <td class="whitespace-nowrap">
                                         <span class="{{ $pill($r->status) }}">{{ $r->status }}</span>
                                         @if ($r->status === 'APPROVED' && $r->cancelled_dates !== [])
@@ -201,6 +214,14 @@
         @elseif ($tab === 'credits')
             <div class="mt-4">
                 <livewire:leaves.leave-credits wire:key="leaves-credits" />
+            </div>
+        @elseif ($tab === 'policies')
+            <div class="mt-4">
+                <livewire:leaves.leave-policies wire:key="leaves-policies" />
+            </div>
+        @elseif ($tab === 'cashouts')
+            <div class="mt-4">
+                <livewire:leaves.leave-cash-outs wire:key="leaves-cash-outs" />
             </div>
         @else
             <div class="mt-4">
@@ -255,7 +276,7 @@
                     </div>
                     <div class="min-w-0 space-y-1">
                         <p class="text-xs uppercase tracking-wide text-muted-foreground">Day type</p>
-                        <div class="break-words text-sm font-medium">{{ LeaveLabels::dayTypeLabel($open->day_type) }}</div>
+                        <div class="break-words text-sm font-medium">{{ LeaveLabels::dayTypeLabel($open->day_type, $open->half ?? null) }}</div>
                     </div>
                     <div class="min-w-0 space-y-1">
                         <p class="text-xs uppercase tracking-wide text-muted-foreground">Duration</p>
@@ -290,7 +311,7 @@
                 @if ($openBalance !== null)
                     @php
                         $needs = LeaveCreditPolicy::format($openNeeds);
-                        $exceeds = $pending && $openBalance->entered() && $openNeeds > $openBalance->remaining;
+                        $exceeds = $pending && $openBalance->entered() && $openNeeds > $openBalance->available;
                     @endphp
                     <p class="text-xs text-muted-foreground" data-credits-line>
                         @if ($openBalance->entered())
@@ -298,6 +319,9 @@
                             <span class="num">{{ LeaveCreditPolicy::format($openBalance->credited) }}</span> credited ·
                             <span class="num">{{ LeaveCreditPolicy::format($openBalance->used) }}</span> used ·
                             <span class="num">{{ LeaveCreditPolicy::format($openBalance->remaining) }}</span> left ·
+                            @if ($openBalance->spoken_for > 0)
+                                <span class="num">{{ LeaveCreditPolicy::format($openBalance->spoken_for) }}</span> set aside for cash-out ·
+                            @endif
                         @else
                             No {{ $openBalance->year }} {{ $openBalance->label }} credits entered ·
                         @endif
@@ -369,11 +393,12 @@
                         @php
                             $selectedDates = array_values(array_intersect($open->cancellable_dates, $cancelDates));
                             $selected = count($selectedDates);
-                            $returned = LeaveCreditPolicy::wouldConsume($open->request_type, $open->is_paid)
-                                ? LeaveCreditPolicy::selectedDays($open->day_type, $selectedDates) : 0.0;
+                            // Only the dates the approval charged give credits back
+                            // (a rest day never cost one): the component counts them.
+                            $returned = $cancelReturned;
                         @endphp
                         <p class="text-xs text-muted-foreground" role="status">
-                            {{ $selected }} {{ $selected === 1 ? 'date' : 'dates' }} selected · {{ LeaveCreditPolicy::format($returned) }} leave {{ $returned === 1.0 ? 'credit' : 'credits' }} returned to {{ $open->start_date->format('Y') }}.
+                            {{ $selected }} {{ $selected === 1 ? 'date' : 'dates' }} selected · {{ LeaveCreditPolicy::format($returned) }} leave {{ $returned === 1.0 ? 'credit' : 'credits' }} returned to {{ $open->credits_year ?? $open->start_date->format('Y') }}.
                             Attendance and draft payroll will recalculate. Any manually entered Leave pay needs payroll review.
                         </p>
                         @if ($cancelError !== '')
@@ -385,6 +410,20 @@
                     </form>
                 @elseif ($cancelError !== '')
                     <p role="alert" class="text-sm text-danger">{{ $cancelError }}</p>
+                @endif
+
+                {{-- Days a posted payslip already paid (as absences): approving
+                     still lands, but that payslip never changes, so the
+                     reviewer is told first and Payroll is notified after. --}}
+                @if ($pending && $openPaidDates !== [])
+                    <div role="status" data-paid-dates-warning class="flex gap-2 rounded-md border border-warning/20 bg-warning-soft px-3 py-2 text-sm text-foreground">
+                        <flux:icon.exclamation-triangle variant="mini" class="mt-0.5 size-4 shrink-0 text-warning" />
+                        <p>
+                            Already on a posted payslip:
+                            <span class="num">{{ implode(', ', array_map(\App\Support\HrisFormat::date(...), $openPaidDates)) }}</span>.
+                            Approving won't change that payslip; Payroll will be notified to settle any difference on the next payroll.
+                        </p>
+                    </div>
                 @endif
 
                 @if ($pending)
@@ -434,4 +473,62 @@
             </div>
         @endif
     </flux:modal>
+
+    {{-- A manager files a request on an employee's behalf, past dates included. --}}
+    @if ($canFile)
+    <flux:modal wire:model.self="fileOpen" class="w-full max-w-lg" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'file-for-heading')">
+        @if ($fileOpen)
+        <form wire:submit="fileForEmployee" class="space-y-4" data-file-for-dialog>
+            <flux:heading size="lg" level="2" id="file-for-heading">File for an employee</flux:heading>
+            <p class="text-sm text-muted-foreground">The request is filed in the employee's name and waits for approval like any other. Dates already past may be filed: a request brought in on paper is recorded as it was.</p>
+            <div class="space-y-2">
+                <p id="file-employee-label" class="text-sm font-medium">Employee</p>
+                <livewire:kit.employee-picker name="file-employee" :value="$fileEmployeeId ?? ''" labelled-by="file-employee-label" wire:key="file-employee-{{ $fileEmployeeId ?? 'none' }}" />
+            </div>
+            <div class="grid gap-3 sm:grid-cols-2">
+                <x-kit.select label="Request type" wire:model="fileForm.type">
+                    <flux:select.option value="">Choose a type</flux:select.option>
+                    @foreach ($requestOptions as $option)
+                        <flux:select.option value="{{ $option['value'] }}">{{ $option['label'] }}</flux:select.option>
+                    @endforeach
+                </x-kit.select>
+                <x-kit.select label="Day type" wire:model.live="fileForm.day_type">
+                    @foreach (LeaveLabels::DAY_TYPES as $value => $label)
+                        <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                    @endforeach
+                </x-kit.select>
+            </div>
+            @if (($fileForm['day_type'] ?? '') === 'HALF_DAY' && $halvesReady)
+                <x-kit.select label="Which half" wire:model="fileForm.half">
+                    <flux:select.option value="">Either half</flux:select.option>
+                    @foreach (\App\Modules\Timekeeping\Application\LeaveHalves::HALVES as $value => $label)
+                        <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                    @endforeach
+                </x-kit.select>
+            @endif
+            <div class="grid gap-3 sm:grid-cols-2">
+                <div class="space-y-2">
+                    <flux:label for="file-start">From</flux:label>
+                    <x-kit.date-field id="file-start" wire:model="fileForm.start" aria-label="From" />
+                </div>
+                <div class="space-y-2">
+                    <flux:label for="file-end">To</flux:label>
+                    <x-kit.date-field id="file-end" wire:model="fileForm.end" aria-label="To" />
+                </div>
+            </div>
+            <div class="space-y-2">
+                <flux:label for="file-reason">Reason (optional)</flux:label>
+                <flux:input id="file-reason" wire:model="fileForm.reason" maxlength="2000" placeholder="As written on the request" />
+            </div>
+            @if ($fileError !== null)
+                <p role="alert" class="text-sm text-danger">{{ $fileError }}</p>
+            @endif
+            <div class="flex justify-end gap-2">
+                <flux:button type="button" variant="outline" wire:click="$set('fileOpen', false)">Cancel</flux:button>
+                <flux:button type="submit" variant="primary">File request</flux:button>
+            </div>
+        </form>
+        @endif
+    </flux:modal>
+    @endif
 </div>

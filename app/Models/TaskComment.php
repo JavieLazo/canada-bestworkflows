@@ -33,7 +33,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $event
  * @property CarbonImmutable $created_at
  * @property-read ProjectTask|null $task
- * @property-read User|null $author
  */
 class TaskComment extends BaseModel
 {
@@ -65,11 +64,5 @@ class TaskComment extends BaseModel
     public function task(): BelongsTo
     {
         return $this->belongsTo(ProjectTask::class, 'task_id');
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function author(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'author_id');
     }
 }

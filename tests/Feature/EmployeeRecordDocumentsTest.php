@@ -21,7 +21,6 @@ use App\Modules\Workforce\Application\Commands\SubmitRecordDocument;
 use App\Modules\Workforce\Application\Commands\WithdrawRecordChange;
 use App\Modules\Workforce\Application\Queries\EmployeeDocuments;
 use App\Modules\Workforce\Application\Queries\RecordChangeRequests;
-use App\Modules\Workforce\Application\RecordDocumentChanges;
 use App\Modules\Workforce\Infrastructure\RecordChangeStorageUsage;
 use App\Support\Access;
 use Illuminate\Http\UploadedFile;
@@ -73,7 +72,10 @@ function recordDocsHistoricalRequest(EmployeeProfile $employee, User $owner, Emp
     $request->forceFill([
         'employee_id' => $employee->id, 'pending_employee_id' => $employee->id, 'employee_name' => 'Record Owner',
         'kind' => 'DOCUMENT', 'section' => 'documents', 'operation' => 'DELETE', 'row_id' => $document->id,
-        'baseline' => RecordDocumentChanges::snapshot($document), 'proposed' => [],
+        'baseline' => ['document_no' => $document->document_no, 'name' => $document->name,
+            'category' => $document->category, 'expires_on' => $document->expires_on?->format('Y-m-d'),
+            'file_name' => $document->file_name, 'mime' => $document->mime, 'size' => $document->size],
+        'proposed' => [],
         'form' => ['document_path' => $document->path, 'document_size' => $document->size,
             'document_file_name' => $document->file_name, 'document_mime' => $document->mime],
         'changes' => [['field' => 'document_name', 'label' => 'Document name', 'before' => $document->name,
@@ -246,7 +248,6 @@ it('keeps historical document requests resolvable without permitting approval or
     $this->get(route('record-changes.evidence', ['request' => $request->id, 'which' => 'before']))->assertOk();
     expect(fn () => app(ReviewRecordChange::class)->handle($managerAccess, $request->id, true))
         ->toThrow(RuntimeException::class, 'Document changes must be made by management.');
-    expect(fn () => app(RecordDocumentChanges::class)->apply($managerAccess, $employee, $request))->toThrow(HttpException::class);
     expect($request->refresh()->status)->toBe('PENDING')->and($document->fresh())->not->toBeNull()
         ->and(EmployeeEmploymentHistory::query()->count())->toBe(0);
     if ($withdraw) {

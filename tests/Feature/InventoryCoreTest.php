@@ -214,8 +214,8 @@ it('keeps item reads scoped and Portal reads pinned even for all-data accounts',
     $unlinked = invcoreActor([ModuleCode::INVENTORY], false);
     expect($records->items($unlinked)->total())->toBe(0)->and($records->receipts($unlinked)->total())->toBe(0);
     $portal = invcoreActor([ModuleCode::PORTAL, ModuleCode::INVENTORY], true, $own);
-    expect($records->employeeHoldings($portal, $own, true)->pluck('id')->all())->toBe([$a])
-        ->and($records->employeeHoldings($portal, $other, true))->toBeEmpty()
+    expect($records->employeeHoldingsPage($portal, $own, true)->pluck('id')->all())->toBe([$a])
+        ->and($records->employeeHoldingsPage($portal, $other, true)->total())->toBe(0)
         ->and($records->receipt($portal, $theirs, true))->toBeNull()
         ->and($records->receipt($portal, $mine, true)->id)->toBe($mine);
     $unrelated = invcoreActor([ModuleCode::PAYROLL], true);

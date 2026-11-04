@@ -89,15 +89,22 @@ final class ThirteenthMonthData
                 throw new RuntimeException($tables->error);
             }
 
+            // Each member's Contributions & tax version in force on the
+            // year's last day laid over their pay context: the withholding
+            // switches the evidence records for them.
+            [$employees] = GovDeductionPolicyStore::overlay(app(EmployeePayContexts::class)->get($actor, $employeeIds), "{$year}-12-31");
+
             return new ThirteenthMonthInputs(
                 $employeeIds, $year,
-                app(EmployeePayContexts::class)->get($actor, $employeeIds),
+                $employees,
                 array_map(static fn (array $row): float => $row['basic_pay'], $basis),
                 array_map(static fn (array $row): ?float => $row['regular_taxable'], $basis),
                 $outside, $overrides,
                 app(ExemptBenefitLedger::class)->usedBefore($actor, $employeeIds, $year),
                 CalculatorVersion::current(),
                 [StatutorySchedule::WITHHOLDING_TAX => $tables->tables[StatutorySchedule::WITHHOLDING_TAX]],
+                // The yearly tax-free ceiling in force on 31 December (TX05).
+                BenefitCeilings::entry("{$year}-12-31"),
             );
         });
 
@@ -148,7 +155,7 @@ final class ThirteenthMonthData
             $outside = Money::round($inputs->outsideBasicPay[$employeeId] ?? 0.0);
             $amount = ThirteenthMonthPay::amount($ems, $outside);
             $ytdBefore = Money::round($inputs->exemptBenefitsYearToDate[$employeeId] ?? 0.0);
-            $split = ExemptBenefitCeiling::split($ytdBefore, $amount);
+            $split = ExemptBenefitCeiling::split($ytdBefore, $amount, $inputs->ceiling());
             $regular = $inputs->regularTaxable[$employeeId] ?? null;
             $computedTax = SupplementaryWithholding::tax($employee, $regular ?? 0.0, $split->taxableExcess, $schedule);
             $typedTax = $inputs->withholdingOverrides[$employeeId] ?? null;

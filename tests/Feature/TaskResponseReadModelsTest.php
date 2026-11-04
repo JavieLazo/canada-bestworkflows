@@ -567,8 +567,9 @@ it('leaves a cancelled individual task with a submitted response out of every re
     // or for her.
     foreach ([[$reviewer, false], [$member, true]] as [$reader, $own]) {
         $entry = app(WorkRecords::class)->responses($reader, $cancelled->id, $own)->get($ana->id);
-        expect($entry?->status)->toBe('SUBMITTED')
-            ->and($entry?->task_status)->toBe('CANCELLED')
-            ->and($entry?->awaitsReview())->toBeFalse();
+        assert($entry instanceof TaskResponseView);
+        expect($entry->status)->toBe('SUBMITTED')
+            ->and($entry->task_status)->toBe('CANCELLED')
+            ->and(TaskSubmissionPolicy::responseAwaitsReview($entry->task_status, $entry->status))->toBeFalse();
     }
 });

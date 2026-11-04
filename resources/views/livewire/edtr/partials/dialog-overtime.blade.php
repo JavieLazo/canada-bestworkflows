@@ -55,9 +55,12 @@
                     >Correct the punches</button>
                 </dd>
 
-                @if ($ot->ceiling < $ot->computed_minutes)
+                {{-- A seaport day has no cap: its ceiling is the whole computed day. --}}
+                @php($seaportDraft = ($overtimeForm['seaport'] ?? false) === true)
+                @php($limit = $seaportDraft ? $ot->computed_minutes : OvertimeApprovalPolicy::ceiling((float) $ot->computed_minutes, $overtimeCap))
+                @if ($limit < $ot->computed_minutes)
                     <dt class="text-muted-foreground">Approvable</dt>
-                    <dd>Up to <span class="num">{{ Hris::fmtDuration($ot->ceiling) }}</span> <span class="text-muted-foreground">— the daily overtime cap set in Pay Basis &amp; Rates</span></dd>
+                    <dd>Up to <span class="num">{{ Hris::fmtDuration($limit) }}</span> <span class="text-muted-foreground">— the daily overtime cap set in Pay Basis &amp; Rates; seaport overtime has none</span></dd>
                 @endif
 
                 <dt class="text-muted-foreground">Decision</dt>
@@ -66,6 +69,12 @@
                         <span class="text-muted-foreground">Not approved — excluded from payroll</span>
                     @else
                         <span class="font-medium">{{ $ot->decision === OvertimeApprovalPolicy::APPROVED ? 'Approved '.Hris::fmtDuration((float) $ot->approved_minutes) : 'Rejected' }}</span>
+                        @if ($ot->credited_minutes > 0)
+                            <span class="pill pill-primary ms-1" data-overtime-credited="{{ $ot->credited_minutes }}">{{ Hris::fmtDuration((float) $ot->credited_minutes) }} credited</span>
+                        @endif
+                        @if ($ot->category === OvertimeApprovalPolicy::CATEGORY_SEAPORT)
+                            <span class="pill pill-info ms-1" data-overtime-category="SEAPORT">Seaport</span>
+                        @endif
                         <span class="block text-xs text-muted-foreground">{{ $ot->reviewer_name ?? 'Unknown reviewer' }} · {{ $ot->decided_at }}</span>
                     @endif
                 </dd>
@@ -91,7 +100,7 @@
                             id="overtime-minutes"
                             type="number"
                             min="1"
-                            max="{{ $ot->ceiling }}"
+                            max="{{ $limit }}"
                             step="1"
                             inputmode="numeric"
                             label="Minutes to approve"
@@ -99,9 +108,32 @@
                             wire:model="overtimeForm.minutes"
                         />
                         <p id="overtime-ceiling" class="text-xs text-muted-foreground">
-                            Up to <span class="num">{{ $ot->ceiling }}</span> min{{ $ot->ceiling >= 60 ? ' ('.Hris::fmtDuration($ot->ceiling).')' : '' }}
+                            Up to <span class="num">{{ $limit }}</span> min{{ $limit >= 60 ? ' ('.Hris::fmtDuration($limit).')' : '' }}
                         </p>
                     </div>
+                    <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-3">
+                        <flux:switch id="overtime-seaport" wire:model.live="overtimeForm.seaport" />
+                        <div>
+                            <flux:label for="overtime-seaport">Seaport overtime</flux:label>
+                            <p class="text-xs text-muted-foreground">Paid at the seaport overtime rate in Pay Basis &amp; Rates, with no daily cap.</p>
+                        </div>
+                    </div>
+                    @if ($overtimeCreditReady)
+                        <div class="flex flex-col gap-1.5" data-overtime-credit>
+                            <flux:input
+                                id="overtime-credited"
+                                type="number"
+                                min="0"
+                                max="{{ $limit }}"
+                                step="1"
+                                inputmode="numeric"
+                                label="Minutes credited as Compensatory Leave"
+                                aria-describedby="overtime-credit-hint"
+                                wire:model="overtimeForm.credited"
+                            />
+                            <p id="overtime-credit-hint" class="text-xs text-muted-foreground">Leave blank to pay every approved minute. Credited minutes are earned as Compensatory Leave hours instead of paid; the rest is paid.</p>
+                        </div>
+                    @endif
                     <flux:input label="Note (optional)" maxlength="500" wire:model="overtimeForm.note" />
                 </div>
             @endif

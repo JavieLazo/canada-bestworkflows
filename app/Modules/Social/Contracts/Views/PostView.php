@@ -11,6 +11,8 @@ use Carbon\CarbonImmutable;
  * files, reactions, the thread, and what the viewer may do with it.
  * `canDelete` is for its author ALONE — a company-wide moderator pins posts
  * (`canPin`) but is never offered the delete on someone else's.
+ * `canEdit` is the author's alone too, and only while they can take part
+ * in the post's group (`canInteract`): nobody else rewords a post.
  */
 final readonly class PostView
 {
@@ -38,6 +40,8 @@ final readonly class PostView
         public bool $canPin,
         public bool $canInteract,
         public array $files = [],
+        public ?CarbonImmutable $editedAt = null,
+        public bool $canEdit = false,
     ) {}
 
     public function reactionTotal(): int

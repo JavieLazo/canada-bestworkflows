@@ -6,7 +6,6 @@ namespace App\Models;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
@@ -46,12 +45,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable $period_end
  * @property string $status
  * @property string $kind REGULAR | THIRTEENTH_MONTH (PayrollRunKind, 2026_09_26_0010); fixed at creation
+ * @property CarbonImmutable|null $attendance_through the advance payroll's counted date (PayrollAdvance); null reads the whole period
+ * @property string|null $schedule_id the pay schedule the run's dates came from (2026_11_02_0004); null on a run made without one
+ * @property CarbonImmutable|null $pay_date when the pay goes out; null on a legacy run
+ * @property string|null $contribution_month `YYYY-MM`, the month whose contribution tables price the run; null reads the period's first day
+ * @property CarbonImmutable|null $released_at the "released" mark (MarkPayrollReleased): the pay went out; locks nothing
+ * @property int|null $released_by
+ * @property string|null $released_by_name
  * @property CarbonImmutable|null $finalized_at
  * @property int|null $finalized_by
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
- * @property-read User|null $finalizer
- * @property-read Collection<int, Payslip> $payslips
  * @property-read Collection<int, PayrollRunMember> $members
  * @property-read Collection<int, EmployeeProfile> $employees
  */
@@ -69,6 +73,8 @@ class PayrollRun extends BaseModel
         'status',
         'finalized_at',
         'kind',
+        // The advance payroll's "attendance counted through" date (PayrollAdvance); NULL reads the whole period.
+        'attendance_through',
     ];
 
     /** @return array<string, string> */
@@ -77,22 +83,14 @@ class PayrollRun extends BaseModel
         return [
             'period_start' => 'immutable_date:Y-m-d',
             'period_end' => 'immutable_date:Y-m-d',
+            'attendance_through' => 'immutable_date:Y-m-d',
+            'pay_date' => 'immutable_date:Y-m-d',
+            'released_at' => 'immutable_datetime',
+            'released_by' => 'integer',
             'finalized_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function finalizer(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'finalized_by');
-    }
-
-    /** @return HasMany<Payslip, $this> */
-    public function payslips(): HasMany
-    {
-        return $this->hasMany(Payslip::class, 'run_id');
     }
 
     /**

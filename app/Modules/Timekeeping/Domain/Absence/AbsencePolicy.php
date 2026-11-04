@@ -35,9 +35,4 @@ final class AbsencePolicy
 
         return $to->lessThan($from) ? 'The end date cannot fall before the start date.' : null;
     }
-
-    public static function overlaps(string $firstStart, string $firstEnd, string $secondStart, string $secondEnd): bool
-    {
-        return $firstStart <= $secondEnd && $secondStart <= $firstEnd;
-    }
 }

@@ -6,6 +6,9 @@
  * double tap or two fingers. Once zoomed, drag to look around. Panning stops
  * at the photo's edges, so it never slides off the screen. The arrows, a
  * swipe, and the thumbnail strip move between photos. Escape closes it.
+ *
+ * It opens as a modal dialog, so it sits above any other dialog (a post's
+ * edit history, say) and stays clickable there.
  */
 
 const MIN = 1;
@@ -37,6 +40,8 @@ export default function photoViewer() {
         moved: false,
         lastTap: null,
         returnFocus: null,
+        // The page's scroll lock before it opened, which may be another dialog's.
+        scrollWas: '',
         // Off for photos that aren't saved yet, like the ones waiting in a post box.
         canDownload: true,
 
@@ -63,6 +68,11 @@ export default function photoViewer() {
 
             if (this.open) {
                 this.returnFocus = document.activeElement;
+                this.scrollWas = document.documentElement.style.overflow;
+                document.documentElement.style.overflow = 'hidden';
+                if (! this.$refs.layer.open) {
+                    this.$refs.layer.showModal();
+                }
                 this.$nextTick(() => {
                     this.$refs.close?.focus();
                     this.reveal();
@@ -71,9 +81,16 @@ export default function photoViewer() {
         },
 
         close() {
+            if (! this.open) {
+                return;
+            }
             this.open = false;
             this.pointers = {};
             this.gesture = null;
+            if (this.$refs.layer.open) {
+                this.$refs.layer.close();
+            }
+            document.documentElement.style.overflow = this.scrollWas;
             this.returnFocus?.focus?.();
         },
 

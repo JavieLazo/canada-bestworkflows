@@ -183,7 +183,7 @@ it('reloads the selected dates own choices instead of carrying another dates dra
         ->assertSet('dateShiftChoice', $night->id)
         ->set('scheduleDate', '2026-09-30')
         ->assertSet('dateShiftChoice', 'DEFAULT')->assertSet('dateLocationChoice', 'DEFAULT')
-        ->call('pickScheduleDate', '2026-09-29')
+        ->set('scheduleDate', '2026-09-29')
         ->assertSet('dateShiftChoice', $night->id)->assertSet('dateLocationChoice', 'WFH');
 });
 

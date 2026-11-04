@@ -8,6 +8,7 @@ use App\Models\AttendanceLog;
 use App\Models\EmployeeProfile;
 use App\Models\OvertimeApproval;
 use App\Models\PayrollFinalizationSnapshot;
+use App\Models\PayrollPayRule;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
 use App\Models\Payslip;
@@ -17,20 +18,25 @@ use App\Models\Shift;
 use App\Models\User;
 use App\Modules\Payroll\Application\Commands\FinalizePayroll;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\PayrollReviewRequired;
 use App\Modules\Timekeeping\Application\Commands\DecideOvertime;
 use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
 
 /**
  * DELIBERATE DIVERGENCE 7: payroll pays overtime only as the Daily Time
  * Record approved it, day by day — min(computed, approved, the Formulas cap)
  * — and never through a run-level switch. Unapproved overtime is excluded by
- * default and never blocks finalization; an explicit rejection is optional.
- * Posted payslips remain immutable.
+ * default; an explicit rejection is optional. It no longer posts unnoticed:
+ * a day still awaiting a decision is open attendance, listed before you
+ * finalize, and posts unpaid only once the officer ticks "Finalize anyway"
+ * (OpenAttendanceItems, PayrollOpenItemsTest). Posted payslips remain
+ * immutable.
  *
  * The hourly rate is pinned at 200 (a stored override), so an overtime hour on
  * a work day is exactly 200 × 125% = 250.00.
@@ -82,11 +88,11 @@ function payotWorked(EmployeeProfile $employee, string $date, string $out = '19:
     }
 }
 
-function payotDecide(EmployeeProfile $employee, string $date, string $decision, int $computed, int $approved): void
+function payotDecide(EmployeeProfile $employee, string $date, string $decision, int $computed, int $approved, ?string $category = null): void
 {
     $row = new OvertimeApproval;
     $row->forceFill(['employee_id' => (string) $employee->getKey(), 'date' => $date, 'decision' => $decision,
-        'computed_minutes' => $computed, 'approved_minutes' => $approved])->save();
+        'computed_minutes' => $computed, 'approved_minutes' => $approved, 'category' => $category])->save();
 }
 
 function payotRun(EmployeeProfile $employee): PayrollRun
@@ -174,8 +180,10 @@ it('finalizes with unapproved overtime excluded and approved overtime paid', fun
         ->and($draft->overtime_pay)->toBe(625.0);
 
     $run = payotRun($employee);
+    // The undecided 8 September is listed, and posts unpaid once accepted.
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->assertDontSee('overtime awaits a decision')
+        ->assertSee('Overtime awaiting a decision for Ramon Aquino:')
+        ->call('toggleOpenItems')
         ->call('finalize');
 
     $posted = Payslip::query()->sole();
@@ -199,7 +207,8 @@ it('finalizes without any overtime decisions and preserves zero overtime in its 
         ->and($draft->overtime_pay)->toBe(0.0)
         ->and($draft->overtime_acknowledged)->toBeFalse();
 
-    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
+    // Accepted as it stands: the day posts with no overtime pay.
+    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id), acceptOpenItems: true);
     $posted = Payslip::query()->sole();
     $snapshot = PayrollFinalizationSnapshot::query()->sole();
     $payload = json_decode($snapshot->payload, true, 512, JSON_THROW_ON_ERROR);
@@ -283,4 +292,47 @@ it('finalizes with the approved overtime pay', function () {
         ->and($payslip->overtime_hours)->toBe(1.5)
         ->and($payslip->overtime_pay)->toBe(375.0)
         ->and($payslip->overtime_acknowledged)->toBeTrue();
+});
+
+it('pays a seaport day uncapped at the version\'s seaport rate, from the captured categories', function () {
+    $employee = payotEmployee();
+    payotWorked($employee, '2026-09-08');
+    // The company rule: overtime capped at one hour, seaport overtime at 150%.
+    $version = PayrollPayRule::query()->sole();
+    $params = $version->params;
+    $params['overtime']['max_hours'] = 1.0;
+    $params['overtime']['seaport_rate'] = 1.5;
+    $version->forceFill(['params' => $params])->save();
+    payotDecide($employee, '2026-09-08', 'APPROVED', 150, 150);
+    $user = payotActor();
+    (new RoleModuleGrant)->forceFill(['role_id' => $user->role_id, 'module' => 'EDTR'])->save();
+
+    // Ordinary overtime: the cap leaves one hour at 200 × 125%.
+    ['drafts' => [$ordinary]] = payotCalculate($employee);
+    expect($ordinary->overtime_hours)->toBe(1.0)
+        ->and($ordinary->overtime_pay)->toBe(250.0);
+
+    // Seaport overtime: every approved minute, at 200 × 150%.
+    OvertimeApproval::query()->update(['category' => 'SEAPORT']);
+    ['drafts' => [$seaport], 'issues' => $issues] = payotCalculate($employee);
+    expect($issues)->toBe([])
+        ->and($seaport->overtime_hours)->toBe(2.5)
+        ->and($seaport->overtime_pay)->toBe(750.0);
+
+    // The category is evidence: captured with the approvals and replayed.
+    $run = payotRun($employee);
+    $actor = app(Access::class);
+    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
+    $payload = json_decode(PayrollFinalizationSnapshot::query()->sole()->payload, true, 512, JSON_THROW_ON_ERROR);
+    expect(Payslip::query()->sole()->overtime_pay)->toBe(750.0)
+        ->and($payload['inputs']['schema_version'])->toBe(PayrollInputs::SCHEMA_VERSION)
+        ->and($payload['inputs']['attendance'][$employee->id]['overtime_approvals'])->toBe(['2026-09-08' => 150])
+        ->and($payload['inputs']['attendance'][$employee->id]['overtime_categories'])->toBe(['2026-09-08' => 'SEAPORT'])
+        ->and(PayrollInputs::restore(PayrollInputs::json($payload['inputs']))->attendance[$employee->id]->overtimeCategories)->toBe(['2026-09-08' => 'SEAPORT']);
+
+    // Evidence from before the categories existed restores with none.
+    $older = $payload['inputs'];
+    $older['schema_version'] = 16;
+    $older = PayrollEvidenceFixture::beforeSchema17($older);
+    expect(PayrollInputs::restore(PayrollInputs::json($older))->attendance[$employee->id]->overtimeCategories)->toBe([]);
 });

@@ -32,10 +32,14 @@ use Carbon\CarbonImmutable;
  * (PayrollStatutoryTest) fails if one goes missing, because the engine reads
  * a missing property as "switched off" and would silently post zero.
  *
- * No screen, hire wizard or CSV import writes them (the employee record has
- * no Payroll Settings section): a row keeps whatever it holds, and a new
- * hire's are the column defaults, i.e. the standard computation. An exception
- * is typed on the payroll draft instead.
+ * The employee record, the hire wizard and the CSV import carry none of them
+ * (the record has no Payroll Settings section): a new hire's are the column
+ * defaults, i.e. the standard computation. The columns are the BASELINE:
+ * Payroll lays the employee's approved Contributions & tax version in force
+ * over this shape before computing (GovDeductionPolicyStore::apply), and a
+ * payroll officer changes them by preparing a version on the employee's pay
+ * page (SaveGovDeductionPolicy). A one-payroll exception is typed on the
+ * draft.
  *
  * `daily_rate` (Rate Per Day) is a calculation input too, and deliberately
  * NOT defaulted: above zero it is the pay per day, otherwise the engine
@@ -78,5 +82,55 @@ final readonly class EmployeePayData
         /** The employment status name the record holds, and the Employment list entry it names (null when none matches). Payroll reads the per-status Pay Basis & Rates override by the id. */
         public ?string $employment_status = null,
         public ?string $employment_status_id = null,
+        /**
+         * The salary versions taking over INSIDE the period being priced,
+         * ascending by date (divergence 18): from that date the engine
+         * prices the day from these rates instead of `monthly_rate` /
+         * `daily_rate`, which are the rates in force on the period's first
+         * day. Empty — the reference's shape — when one salary covers the
+         * whole period.
+         *
+         * @var list<array{from: string, monthly_rate: ?float, daily_rate: ?float}>
+         */
+        public array $salary_rates = [],
+        /** The whole-year withholding estimate (Payroll's divergence 20) and how its remainder is spread; off and null on the reference's methods. */
+        public bool $whole_year_tax = false,
+        public ?string $tax_spread = null,
     ) {}
+
+    /**
+     * The same employee with the salary in force on the period's first day
+     * and the versions taking over inside it.
+     *
+     * @param  list<array{from: string, monthly_rate: ?float, daily_rate: ?float}>  $later
+     */
+    public function withSalary(?float $monthly, ?float $daily, array $later): self
+    {
+        return new self(
+            $this->id, $this->employee_code, $this->first_name, $this->last_name, $this->suffix, $this->position, $this->photo_path,
+            $this->date_hired, $this->date_resigned, $monthly, $daily, $this->hourly_rate, $this->is_active,
+            $this->employee_id_no,
+            allow_sss: $this->allow_sss,
+            allow_philhealth: $this->allow_philhealth,
+            allow_pagibig: $this->allow_pagibig,
+            allow_withholding_tax: $this->allow_withholding_tax,
+            annualize_tax: $this->annualize_tax,
+            fixed_tax: $this->fixed_tax,
+            percent_tax: $this->percent_tax,
+            fixed_sss_ee: $this->fixed_sss_ee,
+            fixed_sss_er: $this->fixed_sss_er,
+            fixed_philhealth_ee: $this->fixed_philhealth_ee,
+            fixed_philhealth_er: $this->fixed_philhealth_er,
+            fixed_pagibig_ee: $this->fixed_pagibig_ee,
+            fixed_pagibig_er: $this->fixed_pagibig_er,
+            sss_mode: $this->sss_mode,
+            philhealth_mode: $this->philhealth_mode,
+            pagibig_mode: $this->pagibig_mode,
+            employment_status: $this->employment_status,
+            employment_status_id: $this->employment_status_id,
+            salary_rates: $later,
+            whole_year_tax: $this->whole_year_tax,
+            tax_spread: $this->tax_spread,
+        );
+    }
 }

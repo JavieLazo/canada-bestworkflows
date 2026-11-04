@@ -42,6 +42,12 @@ use App\Support\ManilaClock;
  */
 final class CorrectionWindow
 {
+    /**
+     * The refusal for a date a posted payslip covers (Commands\CorrectPunches),
+     * which the dialog also shows in place of its Save.
+     */
+    public const string PAID_DAY = 'That day is already on a posted payslip, so its punches can no longer change. Settle any difference on the next payroll.';
+
     private function __construct() {}
 
     /**

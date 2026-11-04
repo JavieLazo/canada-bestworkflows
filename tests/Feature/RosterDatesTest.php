@@ -21,6 +21,7 @@ use App\Modules\Timekeeping\Application\Commands\SaveRosterWeek;
 use App\Modules\Timekeeping\Application\Commands\SaveShiftType;
 use App\Modules\Timekeeping\Application\Queries\ReferenceData;
 use App\Modules\Timekeeping\Application\Queries\RosterDates;
+use App\Modules\Timekeeping\Application\Queries\RosterHistory;
 use App\Modules\Timekeeping\Application\ScheduleImpactPending;
 use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
@@ -149,7 +150,7 @@ it('keeps deleted pattern snapshots when only the date location changes', functi
         ->and(app(ShiftRoster::class)->forDate($employee->id, '2026-09-28')?->startTime)->toBe('22:00:00');
 });
 
-it('scopes date rows and upcoming counts before employee and date filters', function () {
+it('scopes date changes and upcoming counts before the employee filter', function () {
     $own = rdateEmployee();
     $other = rdateEmployee();
     $manager = rdateActor();
@@ -157,14 +158,17 @@ it('scopes date rows and upcoming counts before employee and date filters', func
     $command->handle($manager, $own->id, '2026-09-28', 'REST', 'DEFAULT');
     $command->handle($manager, $own->id, '2026-10-01', 'REST', 'DEFAULT');
     $command->handle($manager, $other->id, '2026-10-01', 'REST', 'DEFAULT');
-    $query = app(RosterDates::class);
-    expect($query->upcomingCounts($manager, [$own->id, $other->id], '2026-09-29'))->toBe([$own->id => 1, $other->id => 1]);
+    $query = app(RosterHistory::class);
+    $empty = ['changes' => [], 'temporary' => [], 'assumed_before' => null, 'may_differ_through' => null];
+    expect($query->upcomingCounts($manager, [$own->id, $other->id]))->toBe([$own->id => 2, $other->id => 1]);
     $self = rdateActor(['ROSTER'], false, $own->id);
-    expect($query->upcomingCounts($self, [$own->id, $other->id], '2026-09-29'))->toBe([$own->id => 1])
-        ->and($query->forEmployee($self, $other->id))->toBe([])
-        ->and($query->forDate($self, $own->id, '2026-10-01')?->is_rest_day)->toBeTrue();
+    expect($query->upcomingCounts($self, [$own->id, $other->id]))->toBe([$own->id => 2])
+        ->and($query->forEmployee($self, $other->id))->toBe($empty)
+        ->and(array_map(static fn ($row): array => [$row->from, $row->shift], $query->forEmployee($self, $own->id)['temporary']))
+        ->toBe([['2026-10-01', 'Rest day'], ['2026-09-28', 'Rest day']]);
     $unlinked = rdateActor(['ROSTER'], false);
-    expect($query->forEmployee($unlinked, $own->id))->toBe([]);
+    expect($query->upcomingCounts($unlinked, [$own->id, $other->id]))->toBe([])
+        ->and($query->forEmployee($unlinked, $own->id))->toBe($empty);
 });
 
 it('loads only date shifts in the requested batch range and ignores location-only rows for hours', function () {

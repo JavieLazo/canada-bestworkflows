@@ -8,7 +8,9 @@ use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
+use App\Models\LeaveEarningPosting;
 use App\Modules\Timekeeping\Application\LeaveCreditWriter;
+use App\Modules\Timekeeping\Application\LeavePolicyStore;
 use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
@@ -29,12 +31,24 @@ use RuntimeException;
  */
 final class RecordLeaveCredit
 {
-    /** @var array<string, string> */
+    /** The kinds HR records by hand. @var array<string, string> */
     public const array KINDS = [
         'OPENING' => 'Opening balance',
         'ACCRUAL' => 'Manual accrual',
         'CARRY_FORWARD' => 'Carry forward',
         'ADJUSTMENT' => 'Adjustment',
+    ];
+
+    /** Every kind the ledger shows, the posted ones included. @var array<string, string> */
+    public const array LABELS = [
+        'BASELINE' => 'Existing allocation',
+        'OPENING' => 'Opening balance',
+        'ACCRUAL' => 'Accrual',
+        'CARRY_FORWARD' => 'Carry forward',
+        'ADJUSTMENT' => 'Adjustment',
+        'CHARGE' => 'Attendance charge',
+        'LAPSE' => 'Lapsed at year end',
+        'CASH_OUT' => 'Cashed out',
     ];
 
     public function __construct(
@@ -46,9 +60,6 @@ final class RecordLeaveCredit
     {
         if (! $actor->mayReadAllData(ModuleCode::LEAVES)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
-        }
-        if ($actor->employeeId !== null && $employeeId === $actor->employeeId) {
-            throw new RuntimeException('You cannot set your own leave credits.');
         }
         $employee = $this->employees->find($actor, $employeeId);
         if ($employee === null) {
@@ -93,9 +104,16 @@ final class RecordLeaveCredit
             if ($kind === 'OPENING' && ($credit !== null || LeaveCreditWriter::hasHistory($employeeId, $year, $requestType))) {
                 throw new RuntimeException('An allocation already exists for this leave type and year. Record an adjustment instead.');
             }
+            // The earning job carries a closed year's whole balance forward
+            // by itself (PostLeaveEarnings::closeYear); a second, typed carry
+            // would count the same credits twice.
+            if ($kind === 'CARRY_FORWARD' && LeavePolicyStore::ready()
+                && LeaveEarningPosting::query()->where('employee_id', $employeeId)->where('period', ($year - 1).'-YE')->where('request_type', $requestType)->exists()) {
+                throw new RuntimeException(($year - 1)."'s balance was already carried into {$year} automatically. Record an adjustment instead.");
+            }
             $total = ($credit->credits ?? 0.0) + $amount;
             if ($total < 0 || $total > LeaveCreditPolicy::MAX_CREDITS) {
-                throw new RuntimeException('This entry would put the annual allocation outside 0 to 9999.99 days.');
+                throw new RuntimeException('This entry would put the annual allocation outside 0 to '.LeaveCreditPolicy::format(LeaveCreditPolicy::MAX_CREDITS).' days.');
             }
             if ($credit !== null) {
                 LeaveCreditWriter::baseline($credit);

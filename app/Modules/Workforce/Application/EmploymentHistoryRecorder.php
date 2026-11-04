@@ -73,6 +73,34 @@ final class EmploymentHistoryRecorder
         $this->append($actor, $employee, self::UPDATED, ManilaClock::todayKey(), $changed, $before);
     }
 
+    /**
+     * A dated salary change (RecordSalaryChange / ReviewSalaryChange): the
+     * rate fields that change, recorded on the change's EFFECTIVE date —
+     * today, a day to come, or a past day approved later — with the rates
+     * the version carries, whether or not the record already shows them.
+     *
+     * @param  array<string, mixed>  $before
+     */
+    public function salaryChanged(Access $actor, EmployeeProfile $employee, array $before, string $effectiveDate, ?float $monthly, ?float $daily): void
+    {
+        $after = clone $employee;
+        $after->setAttribute('monthly_rate', $monthly);
+        $after->setAttribute('daily_rate', $daily);
+        $changed = [];
+        foreach (['monthly_rate', 'daily_rate'] as $field) {
+            $value = $after->getAttribute($field);
+            $text = is_float($value) ? number_format($value, 2, '.', '') : ($value === null ? null : (string) $value);
+            if (($before[$field] ?? null) !== $text) {
+                $changed[] = $field;
+            }
+        }
+        if ($changed === []) {
+            return;
+        }
+
+        $this->append($actor, $after, self::UPDATED, $effectiveDate, $changed, $before);
+    }
+
     /** @return array<string, mixed> */
     public static function snapshot(EmployeeProfile $employee): array
     {

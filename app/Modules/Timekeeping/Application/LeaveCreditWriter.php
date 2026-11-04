@@ -6,8 +6,10 @@ namespace App\Modules\Timekeeping\Application;
 
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\Database\TransactionMutex;
 use App\Support\Access;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
@@ -48,6 +50,28 @@ final class LeaveCreditWriter
         if (! $entry->save()) {
             throw new RuntimeException('The existing allocation could not be recorded in the ledger.');
         }
+    }
+
+    /**
+     * One ledger entry and the allocation it moves, under the lock the
+     * caller holds (`lock()` first): the credit row is locked, baselined and
+     * created on first use. Returns the entry's id.
+     */
+    public static function move(Access $actor, string $employeeId, int $year, string $requestType, string $kind, float $days, string $note): string
+    {
+        $credit = LeaveCredit::query()->where('employee_id', $employeeId)->where('year', $year)->where('request_type', $requestType)->lockForUpdate()->first();
+        if ($credit !== null) {
+            self::baseline($credit);
+        }
+        $credit ??= new LeaveCredit(['employee_id' => $employeeId, 'year' => $year, 'request_type' => $requestType]);
+        $credit->credits = LeaveQuantity::normalize(($credit->credits ?? 0.0) + $days);
+        if (! $credit->save()) {
+            throw new RuntimeException('The leave allocation could not be saved.');
+        }
+        $entryId = (string) Str::ulid();
+        self::append($actor, $employeeId, $year, $requestType, $kind, $days, $note, $entryId);
+
+        return $entryId;
     }
 
     public static function append(Access $actor, string $employeeId, int $year, string $requestType, string $kind, float $days, string $note, ?string $entryId = null): void

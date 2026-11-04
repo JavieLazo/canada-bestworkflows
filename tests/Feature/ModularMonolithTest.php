@@ -6,7 +6,6 @@ use App\Actions\Fortify\ResetUserPassword;
 use App\Domain\Attendance\AttendanceLog as DomainLog;
 use App\Domain\Attendance\DtrCalculator;
 use App\Livewire\Edtr\EdtrPage;
-use App\Livewire\Edtr\Support\CorrectPunches;
 use App\Livewire\Employees\Documents;
 use App\Livewire\Leaves\Index as LeavesPage;
 use App\Livewire\Payroll\Support\PayrollData;
@@ -31,6 +30,7 @@ use App\Modules\IdentityAccess\Application\Commands\ResetAccountPassword;
 use App\Modules\IdentityAccess\Application\Queries\GetAccounts;
 use App\Modules\IdentityAccess\Infrastructure\PasswordWriter;
 use App\Modules\Payroll\Application\Commands\FinalizePayroll;
+use App\Modules\Timekeeping\Application\Commands\CorrectPunches;
 use App\Modules\Timekeeping\Application\Commands\DecideOvertime;
 use App\Modules\Timekeeping\Application\Commands\DecidePendingOvertime;
 use App\Modules\Timekeeping\Application\Commands\FileAbsence;
@@ -121,7 +121,7 @@ it('blocks fresh account data on a real Livewire request after USERS is revoked'
     ], ['X-Livewire' => 'true']);
     expect($response->getStatusCode())->toBeIn([200, 302, 403]);
     expect($response->getContent())->not->toContain('Created After Permission Revocation');
-})->group('assessment-probe');
+});
 
 it('reauthorizes account queries even without route middleware', function () {
     $actor = assessmentActor(['USERS']);
@@ -279,7 +279,7 @@ it('revokes an existing database session after an administrative password reset'
         ->set('resetPasswordConfirm', 'Assessment-Password#2026')->call('resetAccountPassword');
     expect(Hash::check('Assessment-Password#2026', $target->fresh()->password))->toBeTrue();
     expect(DB::table('sessions')->where('id', 'assessment-existing-session')->exists())->toBeFalse();
-})->group('assessment-probe');
+});
 
 it('cleans up an uploaded file when employee document metadata fails', function () {
     assessmentActor(['EMPLOYEES']);
@@ -295,7 +295,7 @@ it('cleans up an uploaded file when employee document metadata fails', function 
     $component->call('submit');
     expect(EmployeeDocument::count())->toBe(0);
     expect(Storage::disk('local')->allFiles('employee-documents'))->toHaveCount(0);
-})->group('assessment-probe');
+});
 
 it('judges each date by the roster that applied to it now that effective dated scheduling is introduced', function () {
     // Schedules are effective-dated: a later assignment adds a row from its
@@ -321,7 +321,7 @@ it('judges each date by the roster that applied to it now that effective dated s
     expect($before[0]->lateMinutes)->toBe(0.0)->and($before[1]->lateMinutes)->toBe(0.0);
     // The earlier date keeps its hours; the date the change took effect uses the new ones.
     expect($after[0]->lateMinutes)->toBe(0.0)->and($after[1]->lateMinutes)->toBe(60.0);
-})->group('assessment-probe');
+});
 
 it('preserves current salary semantics until effective dated compensation is explicitly introduced', function () {
     assessmentActor(['PAYROLL']);
@@ -338,7 +338,7 @@ it('preserves current salary semantics until effective dated compensation is exp
     $after = PayrollData::calculateDrafts([$employee->id], '2026-08-01', '2026-08-15')['drafts'][0];
     expect($before->gross_pay)->toBeGreaterThan(0);
     expect($after->gross_pay)->toBeGreaterThan($before->gross_pay);
-})->group('assessment-probe');
+});
 
 it('includes approved absence facts in an authorized DTR without requiring leave management access', function () {
     $this->travelTo(new DateTimeImmutable('2026-08-20T12:00:00+08:00'));
@@ -359,7 +359,7 @@ it('includes approved absence facts in an authorized DTR without requiring leave
     $after = $component->viewData('rows')[0];
     expect($before->status)->toBe('EXCUSED');
     expect($after->status)->toBe('EXCUSED');
-})->group('assessment-probe');
+});
 
 it('preserves best effort auditing until its durability policy is explicitly changed', function () {
     assessmentActor(['LEAVES']);
@@ -375,7 +375,7 @@ it('preserves best effort auditing until its durability policy is explicitly cha
     Livewire::test(LeavesPage::class)->call('show', $leave->id)->call('review', 'APPROVED', true);
     expect($leave->fresh()->status)->toBe('APPROVED');
     expect(AuditLog::where('entity_id', $leave->id)->count())->toBe(0);
-})->group('assessment-probe');
+});
 
 it('rolls back punch replacements when the correction note cannot be written', function () {
     $actor = assessmentActor(['EDTR']);
@@ -393,4 +393,4 @@ it('rolls back punch replacements when the correction note cannot be written', f
     expect(AttendanceLog::whereKey($old->id)->exists())->toBeTrue();
     expect(AttendanceLog::where('employee_id', $employee->id)->count())->toBe(1);
     expect(AttendanceRemark::count())->toBe(0);
-})->group('assessment-probe');
+});

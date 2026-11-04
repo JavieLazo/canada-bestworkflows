@@ -66,6 +66,8 @@ class IndividualPayslip extends Component
             // the query keeps issued names and ordering from this payslip's
             // snapshot, with a legacy issued-label fallback.
             'deductionColumns' => $payslip === null ? collect() : app(PayslipRecords::class)->deductionColumns($actor, [$payslip->id]),
+            // The settlements of earlier presumed days it made (the advance payroll).
+            'settlements' => $payslip === null ? [] : (app(PayslipRecords::class)->settlements($actor, [$payslip->id])[$payslip->id] ?? []),
             // A 13th month payslip has its own, shorter layout.
             'yearly' => ($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH,
         ]);

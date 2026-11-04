@@ -6,8 +6,6 @@ namespace App\Models;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
@@ -41,7 +39,12 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  *    grouping codes, the `allow_*` switches, the fixed amounts, `percent_tax`
  *    and the three modes) are not on the record, the hire wizard or the CSV,
  *    but stay on the table: payroll reads the calculation ones
- *    (EmployeePayContextQuery), so a new hire keeps the column defaults.
+ *    (EmployeePayContextQuery) as the BASELINE of an employee with no
+ *    approved Contributions & tax version (Payroll's
+ *    PayrollGovDeductionPolicy lays the version in force over them), a new
+ *    hire keeps the column defaults, and only the hourly rate is still
+ *    written in place (UpdateEmployeePaySettings). No surface writes the
+ *    statutory columns or the grouping codes.
  *  - The source's `photo` column held a data: URL. It is a `photo_path` here —
  *    a LONGTEXT costs 788 bytes of inline row width under COMPACT/REDUNDANT
  *    and would fail the CREATE (01-STARTER-PACK.md §6.3).
@@ -69,8 +72,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  *    the parents in parts and the declarations are the one
  *    `employee_pds_details` row (`pdsDetail()`); the schools, eligibilities,
  *    previous jobs, trainings, voluntary work and other information are
- *    rows of their own tables (`educations()`, `eligibilities()`,
- *    `workExperiences()`, `trainings()`, `voluntaryWorks()`, `otherItems()`).
+ *    rows of their own tables. The schools and other information load
+ *    through `educations()` and `otherItems()`; the eligibilities, previous
+ *    jobs, trainings and voluntary work are read by `PdsRows` and written by
+ *    `PdsRowWriter` through their own models.
  *
  * @property string $id
  * @property string $employee_code
@@ -149,27 +154,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $pagibig_mode
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
- * @property-read WorkSite|null $workSite
  * @property-read Shift|null $shift
  * @property-read Collection<int, User> $accounts
  * @property-read Collection<int, AttendanceLog> $logs
  * @property-read Collection<int, AttendanceRemark> $remarks
- * @property-read Collection<int, LeaveTravelRequest> $requests
- * @property-read Collection<int, Payslip> $payslips
  * @property-read Collection<int, EmployeeDocument> $documents
  * @property-read Collection<int, EmployeeChild> $children
  * @property-read EmployeePdsDetail|null $pdsDetail
  * @property-read Collection<int, EmployeeAddress> $addresses
  * @property-read Collection<int, EmployeeEducation> $educations
- * @property-read Collection<int, EmployeeEligibility> $eligibilities
- * @property-read Collection<int, EmployeeWorkExperience> $workExperiences
- * @property-read Collection<int, EmployeeTraining> $trainings
- * @property-read Collection<int, EmployeeVoluntaryWork> $voluntaryWorks
  * @property-read Collection<int, EmployeeOtherItem> $otherItems
- * @property-read Collection<int, EmployeeEmploymentHistory> $employmentHistory
- * @property-read Collection<int, ProjectTask> $taskLoad
- * @property-read Collection<int, PayrollRunMember> $payrollMemberships
- * @property-read Collection<int, PayrollRun> $payrollRuns
  */
 class EmployeeProfile extends BaseModel
 {
@@ -297,12 +291,6 @@ class EmployeeProfile extends BaseModel
         ];
     }
 
-    /** @return BelongsTo<WorkSite, $this> */
-    public function workSite(): BelongsTo
-    {
-        return $this->belongsTo(WorkSite::class, 'work_site_id');
-    }
-
     /**
      * ONE OF the employee's default-shift rows. There is a row per dated
      * change (migration 2026_09_30_0004), so the shift in effect on a date
@@ -335,18 +323,6 @@ class EmployeeProfile extends BaseModel
     public function remarks(): HasMany
     {
         return $this->hasMany(AttendanceRemark::class, 'employee_id');
-    }
-
-    /** @return HasMany<LeaveTravelRequest, $this> */
-    public function requests(): HasMany
-    {
-        return $this->hasMany(LeaveTravelRequest::class, 'employee_id');
-    }
-
-    /** @return HasMany<Payslip, $this> */
-    public function payslips(): HasMany
-    {
-        return $this->hasMany(Payslip::class, 'employee_id');
     }
 
     /** @return HasMany<EmployeeDocument, $this> */
@@ -401,51 +377,6 @@ class EmployeeProfile extends BaseModel
     }
 
     /**
-     * The civil service eligibilities, each with its own license number.
-     * Written only by the Workforce commands that save the record's lists.
-     *
-     * @return HasMany<EmployeeEligibility, $this>
-     */
-    public function eligibilities(): HasMany
-    {
-        return $this->hasMany(EmployeeEligibility::class, 'employee_id');
-    }
-
-    /**
-     * The jobs held before this one; the current job is derived from the
-     * Employee Details, never stored here. Written only by the Workforce
-     * commands that save the record's lists.
-     *
-     * @return HasMany<EmployeeWorkExperience, $this>
-     */
-    public function workExperiences(): HasMany
-    {
-        return $this->hasMany(EmployeeWorkExperience::class, 'employee_id');
-    }
-
-    /**
-     * The learning and development attended. Written only by the Workforce
-     * commands that save the record's lists.
-     *
-     * @return HasMany<EmployeeTraining, $this>
-     */
-    public function trainings(): HasMany
-    {
-        return $this->hasMany(EmployeeTraining::class, 'employee_id');
-    }
-
-    /**
-     * The voluntary work entries. Written only by the Workforce commands that
-     * save the record's lists.
-     *
-     * @return HasMany<EmployeeVoluntaryWork, $this>
-     */
-    public function voluntaryWorks(): HasMany
-    {
-        return $this->hasMany(EmployeeVoluntaryWork::class, 'employee_id');
-    }
-
-    /**
      * The skills, distinctions and memberships, a line per row. Written only
      * by the Workforce commands that save the record's Other info cards.
      *
@@ -454,68 +385,5 @@ class EmployeeProfile extends BaseModel
     public function otherItems(): HasMany
     {
         return $this->hasMany(EmployeeOtherItem::class, 'employee_id');
-    }
-
-    /**
-     * Append-only HR employment timeline, newest effective row first.
-     *
-     * @return HasMany<EmployeeEmploymentHistory, $this>
-     */
-    public function employmentHistory(): HasMany
-    {
-        return $this->hasMany(EmployeeEmploymentHistory::class, 'employee_id')
-            ->orderByDesc('effective_date')
-            ->orderByDesc('created_at');
-    }
-
-    /**
-     * `task_load` in the source: the tasks assigned to this employee. Through
-     * the `project_task_assignees` pivot since a task may have several
-     * assignees; `->count()` answers "how many tasks".
-     *
-     * @return BelongsToMany<ProjectTask, $this>
-     */
-    public function taskLoad(): BelongsToMany
-    {
-        return $this->belongsToMany(ProjectTask::class, 'project_task_assignees', 'employee_id', 'task_id')
-            ->withPivot(['assigned_by', 'created_at']);
-    }
-
-    /**
-     * Membership rows on payroll runs. No equivalent in the source, where the
-     * membership is a Postgres `String[]` on `payroll_runs` with no
-     * referential integrity — MySQL has no array type, and the source schema's
-     * own comment marks that array as worth revisiting.
-     *
-     * @return HasMany<PayrollRunMember, $this>
-     */
-    public function payrollMemberships(): HasMany
-    {
-        return $this->hasMany(PayrollRunMember::class, 'employee_id');
-    }
-
-    /** @return BelongsToMany<PayrollRun, $this> */
-    public function payrollRuns(): BelongsToMany
-    {
-        // No ->using(PayrollRunMember::class): the pivot is a first-class model
-        // with its own ULID and its own uniques, not an Eloquent Pivot subclass.
-        return $this->belongsToMany(PayrollRun::class, 'payroll_run_members', 'employee_id', 'run_id')
-            ->withPivot([
-                'id',
-                'position',
-                'allowance',
-                'deduction_sss',
-                'deduction_philhealth',
-                'deduction_pagibig',
-                'deduction_withholding_tax',
-                'deduction_other',
-                'deduction_absence',
-                'earning_night_differential',
-                'earning_leave_pay',
-                'earning_other',
-                'overtime_acknowledged',
-                'period_start',
-                'period_end',
-            ]);
     }
 }

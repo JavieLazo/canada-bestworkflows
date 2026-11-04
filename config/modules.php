@@ -105,11 +105,17 @@ return [
         'path' => '/payroll',
         'description' => 'Run and review payroll',
         'icon' => 'banknote',
-        // Expands in place like Records Management, with the labels spelled
+        // Expands in place like Records Management, the two run lists labelled
         // exactly as PayrollRunKind::LABELS spells them.
         'groups' => [
             ['label' => 'Basic Payroll', 'path' => '/payroll'],
             ['label' => '13th Month Payroll', 'path' => '/payroll/thirteenth-month'],
+            // The adjustment ledger: differences paid or recovered on a later payroll.
+            ['label' => 'Adjustments', 'path' => '/payroll/adjustments'],
+            // Every page that shapes a payroll: the overview, then a switch to
+            // the rest (/payroll/settings/…). The sidebar lights the longest
+            // path a page is under, so all of them light this entry.
+            ['label' => 'Payroll Settings', 'path' => '/payroll/settings'],
         ],
     ],
     [
@@ -140,17 +146,9 @@ return [
             ],
             ['label' => 'Holiday Settings', 'path' => '/records/holidays'],
             ['label' => 'Leave Settings', 'path' => '/records/leave-types'],
+            ['label' => 'Leave Credits', 'path' => '/records/leave-credits'],
             ['label' => 'Shifting Settings', 'path' => '/records/shifts'],
             ['label' => 'Site Settings', 'path' => '/records/sites'],
-            [
-                'label' => 'Payroll Settings',
-                'items' => [
-                    ['label' => 'Contribution & Tax Tables', 'path' => '/records/contribution-tables'],
-                    ['label' => 'Pay Basis & Rates', 'path' => '/records/pay-rates'],
-                    ['label' => 'Payroll Deductions', 'path' => '/records/payroll-deductions'],
-                    ['label' => 'Incentives & Bonuses', 'path' => '/records/incentive-types'],
-                ],
-            ],
         ],
     ],
     [

@@ -187,7 +187,7 @@ it('completes an INDIVIDUAL task only when every current assignee is approved', 
     // Nobody on the crew: refused, never completed vacuously.
     expect(TaskSubmissionPolicy::completionGaps([], []))->toBe([])
         ->and(TaskSubmissionPolicy::completeError([], []))->toBe('Assign someone before completing this task.')
-        ->and(TaskSubmissionPolicy::canComplete([], ['emp-a' => 'APPROVED']))->toBeFalse();
+        ->and(TaskSubmissionPolicy::completeError([], ['emp-a' => 'APPROVED']))->not->toBeNull();
 
     // A mix: no row, an explicit NONE, returned and submitted all block.
     $crew = ['emp-a', 'emp-b', 'emp-c', 'emp-d', 'emp-e'];
@@ -195,19 +195,17 @@ it('completes an INDIVIDUAL task only when every current assignee is approved', 
     expect(TaskSubmissionPolicy::completionGaps($crew, $states))->toBe([
         'emp-b' => 'NONE', 'emp-c' => 'RETURNED', 'emp-d' => 'SUBMITTED', 'emp-e' => 'NONE',
     ])
-        ->and(TaskSubmissionPolicy::completeError($crew, $states))->toBe("Every assignee's response has to be approved before the task can be completed.")
-        ->and(TaskSubmissionPolicy::canComplete($crew, $states))->toBeFalse();
+        ->and(TaskSubmissionPolicy::completeError($crew, $states))->toBe("Every assignee's response has to be approved before the task can be completed.");
 
     // Everyone approved.
     $approved = ['emp-a' => 'APPROVED', 'emp-b' => 'APPROVED'];
     expect(TaskSubmissionPolicy::completionGaps(['emp-a', 'emp-b'], $approved))->toBe([])
-        ->and(TaskSubmissionPolicy::completeError(['emp-a', 'emp-b'], $approved))->toBeNull()
-        ->and(TaskSubmissionPolicy::canComplete(['emp-a', 'emp-b'], $approved))->toBeTrue();
+        ->and(TaskSubmissionPolicy::completeError(['emp-a', 'emp-b'], $approved))->toBeNull();
 
     // A row for someone no longer assigned neither blocks nor fills a gap.
-    expect(TaskSubmissionPolicy::canComplete(['emp-a'], ['emp-a' => 'APPROVED', 'gone' => 'SUBMITTED']))->toBeTrue()
+    expect(TaskSubmissionPolicy::completeError(['emp-a'], ['emp-a' => 'APPROVED', 'gone' => 'SUBMITTED']))->toBeNull()
         ->and(TaskSubmissionPolicy::completionGaps(['emp-a', 'emp-b'], ['emp-a' => 'APPROVED', 'gone' => 'APPROVED']))->toBe(['emp-b' => 'NONE'])
-        ->and(TaskSubmissionPolicy::canComplete(['emp-a', 'emp-b'], ['emp-a' => 'APPROVED', 'gone' => 'APPROVED']))->toBeFalse();
+        ->and(TaskSubmissionPolicy::completeError(['emp-a', 'emp-b'], ['emp-a' => 'APPROVED', 'gone' => 'APPROVED']))->not->toBeNull();
 });
 
 it('stores INDIVIDUAL only for a crew of two or more', function () {

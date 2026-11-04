@@ -20,10 +20,16 @@
     for company-wide moderators. Its replies go with it, like a post's
     comments go with the post, and the question says so first.
 
-    A comment a notification points at ($focusComment) gets a soft brand
-    background and is scrolled to, and the replies above it unfold on the way.
-    The background sits behind the words and photos only, so it never covers
-    the thread line.
+    For its author, while they can take part in the post's group, the ⋯
+    also edits it: the bubble turns into a box with the words as they show,
+    Enter saves, and Escape or Cancel leaves it as it was. Once edited, it
+    says so beside its time.
+
+    A comment a notification points at ($focusComment) gets a faint brand
+    band and is scrolled to, and the replies above it unfold on the way. The
+    band spans the thread's whole width, however deep the comment sits, but
+    only its own row, not its replies. It's see-through, so thread lines that
+    cross it still show.
 
     The numbers line up with the avatar column: avatars are 32px with a 10px
     gap, so replies sit 42px in, the line runs down the middle at 16px, and a
@@ -51,15 +57,23 @@
     $boxButton = 'inline-flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-default disabled:opacity-40';
     $focusComment ??= null;
     $found = $focusComment !== null && $comment->id === $focusComment;
+    $canEdit = $comment->mine && $canInteract;
+    $editText = $canEdit ? SocialFormat::plain($comment->body, $names, $groupNames) : '';
 @endphp
 
 <div
     id="comment-{{ $comment->id }}"
     class="relative scroll-mt-24"
-    x-data="{ open: @js($focusComment !== null && $comment->holds($focusComment)), replying: false, hover: false }"
+    x-data="{ open: @js($focusComment !== null && $comment->holds($focusComment)), replying: false, hover: false, editing: false }"
     x-on:community-replied.window="if ($event.detail.id === @js($comment->id)) { replying = false; open = true }"
+    x-on:community-edited.window="if ($event.detail.id === @js($comment->id)) editing = false"
 >
-    <div class="flex gap-2.5">
+    {{-- The band runs to the card's edges: the thread sits 20px in from them, and a reply another 42px per level. --}}
+    <div @class([
+        'flex gap-2.5',
+        'relative isolate before:absolute before:-right-5 before:-inset-y-1.5 before:-z-10 before:bg-primary-soft/50' => $found,
+        match ($comment->depth) { 0 => 'before:-left-5', 1 => 'before:-left-[62px]', default => 'before:-left-[104px]' } => $found,
+    ])>
         <div class="flex w-8 shrink-0 flex-col items-center">
             <x-social.avatar :name="$comment->author->name" :photo="$comment->author->photo" size="sm" />
             @if ($hasReplies)
@@ -92,19 +106,41 @@
         </div>
 
         <div
-            @class([
-                'min-w-0 flex-1',
-                'relative isolate before:absolute before:-inset-x-2 before:-inset-y-1.5 before:-z-10 before:rounded-2xl before:bg-primary-soft' => $found,
-            ])
+            class="min-w-0 flex-1"
             @if ($found) x-init="requestAnimationFrame(() => $el.scrollIntoView({ block: 'center', behavior: 'smooth' }))" @endif
         >
             @if (trim($comment->body) !== '')
-                <div class="inline-block max-w-full rounded-2xl bg-muted px-3.5 py-2">
+                <div class="inline-block max-w-full rounded-2xl bg-muted px-3.5 py-2" x-show="! editing">
                     <p class="text-xs font-semibold">{{ $comment->author->name }}</p>
                     <p class="text-sm"><x-social.text :body="$comment->body" :names="$names" :groups="$groupNames" open-group /></p>
                 </div>
             @else
                 <p class="px-1 text-xs font-semibold">{{ $comment->author->name }}</p>
+            @endif
+
+            @if ($canEdit)
+                <form x-show="editing" x-cloak wire:submit="saveCommentEdit('{{ $comment->id }}')" class="space-y-1">
+                    <div
+                        class="relative flex min-w-0 items-center rounded-2xl bg-muted px-3.5 focus-within:ring-2 focus-within:ring-ring"
+                        x-data="mentionPicker({ audience: @js($groupId ?? '') })"
+                    >
+                        <input
+                            data-comment-edit
+                            x-on:keydown.escape="editing = false"
+                            type="text"
+                            wire:model="edits.{{ $comment->id }}"
+                            maxlength="{{ $maxComment }}"
+                            data-paste-limit="A comment"
+                            aria-label="Edit your comment"
+                            class="h-9 min-w-0 flex-1 bg-transparent text-sm outline-hidden"
+                        />
+                        <x-social.mention-list />
+                    </div>
+                    <div class="flex gap-2 px-2 text-xs">
+                        <button type="button" x-on:click="editing = false" class="{{ $linkClasses }} text-muted-foreground">Cancel</button>
+                        <button type="submit" class="{{ $linkClasses }} text-primary">Save</button>
+                    </div>
+                </form>
             @endif
 
             <x-social.photo-grid :urls="$photoUrls" :key="'comment-'.$comment->id.'-img'" compact class="mt-1.5" />
@@ -113,6 +149,10 @@
 
             <div class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 px-2 text-xs text-muted-foreground">
                 <time datetime="{{ $comment->createdAt->toIso8601String() }}" title="{{ SocialFormat::stamp($comment->createdAt) }}">{{ SocialFormat::ago($comment->createdAt, $now) }}</time>
+                @if ($comment->editedAt !== null)
+                    <span aria-hidden="true">&middot;</span>
+                    <span title="Edited {{ SocialFormat::stamp($comment->editedAt) }}">Edited</span>
+                @endif
                 @if ($canInteract)
                     <span aria-hidden="true">&middot;</span>
                     <x-social.react-button method="reactToComment" :target="$comment->id" :mine="$comment->reaction" variant="link" />
@@ -176,6 +216,23 @@
                             <flux:icon.ellipsis-horizontal class="size-4" />
                         </button>
                         <flux:menu>
+                            @if ($canEdit)
+                                <flux:menu.item
+                                    icon="pencil-square"
+                                    x-on:click="
+                                        editing = true;
+                                        $nextTick(() => {
+                                            const box = $root.querySelector('[data-comment-edit]');
+                                            box.value = @js($editText);
+                                            box.dispatchEvent(new Event('input', { bubbles: true }));
+                                            box.focus();
+                                            box.setSelectionRange(box.value.length, box.value.length);
+                                        })
+                                    "
+                                >
+                                    Edit comment
+                                </flux:menu.item>
+                            @endif
                             <flux:menu.item icon="trash" variant="danger" x-on:click="$dispatch('social-confirm', @js($askDelete))">
                                 Delete comment
                             </flux:menu.item>

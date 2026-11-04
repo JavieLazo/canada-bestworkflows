@@ -39,6 +39,12 @@ use App\Support\Money;
  */
 final class StatutoryLines
 {
+    /** Half the month's share on the first cut-off, the rest on the month-ending one (divergence 19). */
+    public const string MODE_HALF_THEN_REST = 'HALF_THEN_REST';
+
+    /** The whole month's share on the first cut-off, the rest (if any) on the month-ending one (divergence 19). */
+    public const string MODE_WHOLE_FIRST = 'WHOLE_FIRST';
+
     private function __construct() {}
 
     /**
@@ -66,6 +72,7 @@ final class StatutoryLines
         float $computedMonthly,
         mixed $mode,
         bool $endsMonth,
+        float $postedSoFar = 0.0,
     ): float {
         if (! self::truthy($allow) || ! $hasGrossPay) {
             return 0.0;
@@ -73,6 +80,21 @@ final class StatutoryLines
 
         $fixed = self::num($fixedMonthly);
         $monthly = $fixed > 0 ? $fixed : $computedMonthly;
+
+        // DELIBERATE DIVERGENCE 19: two more splits of the month's share,
+        // each needing what this month's posted payslips already took
+        // (`$postedSoFar`, from the evidence). HALF_THEN_REST takes half on
+        // the first cut-off and the REST on the month-ending one; WHOLE_FIRST
+        // takes the whole on the first and the rest — nothing, once the
+        // first posted — on the second, so a skipped first still pays the
+        // month by its end. Neither literal reaches the reference's paths
+        // below, which keep its operations.
+        if ($mode === self::MODE_HALF_THEN_REST) {
+            return $endsMonth ? max($monthly - $postedSoFar, 0.0) : $monthly / 2;
+        }
+        if ($mode === self::MODE_WHOLE_FIRST) {
+            return $endsMonth ? max($monthly - $postedSoFar, 0.0) : $monthly;
+        }
 
         if (self::truthy($mode) && $mode !== 'SEMI_MONTHLY') {
             return $endsMonth ? $monthly : 0.0;

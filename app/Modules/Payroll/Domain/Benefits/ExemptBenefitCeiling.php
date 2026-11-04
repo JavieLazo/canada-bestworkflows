@@ -44,13 +44,15 @@ final class ExemptBenefitCeiling
 
     /**
      * Splits one exempt amount into the part still under the ceiling and the
-     * part over it.
+     * part over it. `$ceiling` is the dated figure in force (a
+     * `payroll_benefit_ceilings` version, captured in the evidence); null,
+     * the constant the engine carried.
      */
-    public static function split(mixed $usedBefore, mixed $amount): ExemptBenefitSplit
+    public static function split(mixed $usedBefore, mixed $amount, ?float $ceiling = null): ExemptBenefitSplit
     {
         $used = max(0.0, Money::round($usedBefore));
         $value = max(0.0, Money::round($amount));
-        $allowance = max(0.0, Money::round(self::CEILING - $used));
+        $allowance = max(0.0, Money::round(($ceiling ?? self::CEILING) - $used));
         $exempt = min($value, $allowance);
 
         return new ExemptBenefitSplit(
@@ -69,13 +71,13 @@ final class ExemptBenefitCeiling
      * @param  list<mixed>  $amounts
      * @return list<ExemptBenefitSplit>
      */
-    public static function allocate(mixed $usedBefore, array $amounts): array
+    public static function allocate(mixed $usedBefore, array $amounts, ?float $ceiling = null): array
     {
         $splits = [];
         $used = $usedBefore;
 
         foreach ($amounts as $amount) {
-            $split = self::split($used, $amount);
+            $split = self::split($used, $amount, $ceiling);
             $splits[] = $split;
             $used = $split->usedAfter;
         }

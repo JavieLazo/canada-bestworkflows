@@ -12,7 +12,8 @@
 
     Across the top: which photo and the zoom, then zoom out, zoom in, back to
     100%, download, and close. Livewire is told to leave it alone, since its
-    only state is Alpine's.
+    only state is Alpine's. It's a <dialog> opened as a modal, so it lands on
+    top of any dialog it's opened from and stays clickable there.
 
     Every button lightens on hover, sinks a touch when pressed, and shows a
     ring when reached by keyboard. The arrows' chevrons also lean the way
@@ -31,15 +32,14 @@
     x-data="photoViewer"
     x-on:lightbox.window="show($event.detail)"
     x-on:keydown.window="key($event)"
-    x-effect="document.documentElement.style.overflow = open ? 'hidden' : ''"
 >
-    <div
+    <dialog
+        x-ref="layer"
         x-show="open"
         x-cloak
         x-transition.opacity.duration.150ms
-        class="fixed inset-0 z-50 flex flex-col bg-black/95 text-white"
-        role="dialog"
-        aria-modal="true"
+        x-on:cancel.prevent="close()"
+        class="fixed inset-0 z-50 m-0 flex size-full max-h-none max-w-none flex-col overflow-hidden border-0 bg-black/95 p-0 text-white backdrop:bg-transparent"
         aria-label="Photo viewer"
     >
         <div class="flex shrink-0 items-center gap-1 px-3 py-2 sm:px-4">
@@ -130,5 +130,5 @@
                 </template>
             </div>
         </div>
-    </div>
+    </dialog>
 </div>

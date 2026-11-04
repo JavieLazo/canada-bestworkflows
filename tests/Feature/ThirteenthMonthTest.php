@@ -235,9 +235,9 @@ it('refuses a 13th month run that is not one calendar year, pays incentives, or 
         ->toThrow(RuntimeException::class, 'Type the basic pay earned outside EMS as a peso figure, or leave it empty.')
         ->and(fn () => $save->handle($actor, new PayrollDraft(null, 'Unknown kind', '2026-01-01', '2026-12-31', [$id], [], [], [], [], 'WEEKLY')))
         ->toThrow(RuntimeException::class, 'Choose which payroll this is.')
-        // The statutory tables are verified through 2026 only.
-        ->and(fn () => $save->handle($actor, new PayrollDraft(null, '2027', '2027-01-01', '2027-12-31', [$id], [], [], [], [], 'THIRTEENTH_MONTH')))
-        ->toThrow(RuntimeException::class);
+        // No withholding table is in force before the first version.
+        ->and(fn () => $save->handle($actor, new PayrollDraft(null, '2024', '2024-01-01', '2024-12-31', [$id], [], [], [], [], 'THIRTEENTH_MONTH')))
+        ->toThrow(RuntimeException::class, 'No Withholding Tax table is in force on 31 Dec 2024. Add a version that starts on or before it in Contribution & Tax Tables.');
 
     expect(PayrollRun::query()->count())->toBe(0)
         ->and(AuditLog::query()->count())->toBe(0);

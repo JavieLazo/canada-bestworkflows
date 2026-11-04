@@ -35,7 +35,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read EmployeeProfile|null $employee
- * @property-read User|null $uploader
  */
 class EmployeeDocument extends BaseModel
 {
@@ -74,11 +73,5 @@ class EmployeeDocument extends BaseModel
     public function employee(): BelongsTo
     {
         return $this->belongsTo(EmployeeProfile::class, 'employee_id');
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function uploader(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'uploaded_by');
     }
 }

@@ -47,6 +47,9 @@
         <p class="hris-payslip-net num"><small>PHP</small><span>{{ $document['net'] }}</span></p>
     </section>
 
+    {{-- Who signs the payslip, as the signatories stand when it is printed (Payroll Settings › Signatories). --}}
+    @include('livewire.payroll.partials.signatories', ['signatories' => app(\App\Modules\Payroll\Application\Queries\SignatoryRecords::class)->all(app(\App\Support\Access::class))])
+
 </article>
 
 @if ($details)

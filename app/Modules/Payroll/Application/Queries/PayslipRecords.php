@@ -4,15 +4,21 @@ declare(strict_types=1);
 
 namespace App\Modules\Payroll\Application\Queries;
 
+use App\Domain\Attendance\CalendarDays;
 use App\Domain\Enums\ModuleCode;
+use App\Domain\Enums\PayrollRunKind;
+use App\Domain\Enums\PayrollRunStatus;
 use App\Models\PayrollFinalizationSnapshot;
 use App\Models\Payslip;
 use App\Models\PayslipDeduction;
 use App\Models\PayslipIncentive;
+use App\Models\PayslipSettlement;
+use App\Modules\Payroll\Application\AdvanceSettlements;
 use App\Modules\Payroll\Application\DeductionColumns;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayslipDeductionView;
 use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
+use App\Modules\Payroll\Contracts\Views\PayslipSettlementView;
 use App\Modules\Payroll\Contracts\Views\PayslipView;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
@@ -115,6 +121,72 @@ final class PayslipRecords
         }
 
         return $lines;
+    }
+
+    /**
+     * The settlements each visible posted payslip made of earlier presumed
+     * days (AdvanceSettlements), oldest settled payslip first. Scoped like
+     * `customDeductions()`; nothing before the ledger exists.
+     *
+     * @param  list<string>  $payslipIds
+     * @return array<string, list<PayslipSettlementView>>
+     */
+    public function settlements(Access $actor, array $payslipIds): array
+    {
+        if ($payslipIds === [] || ! AdvanceSettlements::ready()) {
+            return [];
+        }
+
+        $visible = Payslip::query()->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
+            ->whereIn('id', $payslipIds)->pluck('id')->map(static fn (mixed $id): string => (string) $id)->all();
+        if ($visible === []) {
+            return [];
+        }
+
+        $lines = [];
+        foreach (PayslipSettlement::query()->whereIn('payslip_id', $visible)->orderBy('payslip_id')->orderBy('from_date')->get() as $row) {
+            $lines[$row->payslip_id][] = Snapshot::of($row, PayslipSettlementView::class);
+        }
+
+        return $lines;
+    }
+
+    /**
+     * Posted payslips whose presumed days no later payslip has settled yet,
+     * for the Payroll Settings Overview's "needs attention": each with the
+     * employee, the payroll's code and the days. An employee's pay, so
+     * all-data PAYROLL only; nothing before the ledger exists.
+     *
+     * @return list<array{employee_id: string, code: string, from: string, to: string, period_end: string}>
+     */
+    public function unsettledAdvances(Access $actor): array
+    {
+        if (! $actor->mayReadAllData(ModuleCode::PAYROLL) || ! AdvanceSettlements::ready()) {
+            return [];
+        }
+        $rows = Payslip::query()->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
+            ->whereNotNull('attendance_through')
+            ->whereColumn('attendance_through', '<', 'period_end')
+            ->whereHas('run', static fn ($run) => $run->where('kind', PayrollRunKind::REGULAR)->where('status', PayrollRunStatus::FINALIZED))
+            ->whereDoesntHave('settledBy')
+            ->with('run:id,code')
+            ->orderBy('period_start')->orderBy('employee_id')
+            ->get(['id', 'run_id', 'employee_id', 'period_end', 'attendance_through']);
+        $pending = [];
+        foreach ($rows as $row) {
+            if ($row->attendance_through === null) {
+                continue;
+            }
+            $pending[] = [
+                'employee_id' => $row->employee_id,
+                'code' => $row->run->code ?? '',
+                'from' => CalendarDays::next($row->attendance_through->format('Y-m-d')),
+                'to' => $row->period_end->format('Y-m-d'),
+                'period_end' => $row->period_end->format('Y-m-d'),
+            ];
+        }
+
+        return $pending;
     }
 
     /**

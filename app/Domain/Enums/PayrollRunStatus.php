@@ -17,10 +17,4 @@ final class PayrollRunStatus
     public const string DRAFT = 'DRAFT';
 
     public const string FINALIZED = 'FINALIZED';
-
-    /** @return list<string> */
-    public static function all(): array
-    {
-        return [self::DRAFT, self::FINALIZED];
-    }
 }

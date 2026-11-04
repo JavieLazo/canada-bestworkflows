@@ -238,10 +238,7 @@ final class HrisFormat
      * Whether a leave type's normalised key names a stored request token —
      * the `_LEAVE` tolerance of `requestDescription` (hris.ts:340-350) as ONE
      * body: legacy rows hold `SICK` where a filing today stores `SICK_LEAVE`,
-     * so the key `SICK_LEAVE` matches both. Leave credits
-     * (`Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy::matches`)
-     * forward here so a request is counted against a credit by the same rule
-     * that labels it.
+     * so the key `SICK_LEAVE` matches both.
      */
     public static function requestTypeMatches(string $key, string $token): bool
     {

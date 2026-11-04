@@ -65,6 +65,7 @@
                         <x-kit.sort-header field="name" label="Payroll name" />
                         <x-kit.sort-header field="from" label="Date from" />
                         <x-kit.sort-header field="to" label="Date to" />
+                        <x-kit.sort-header field="pay" label="Pay date" />
                         <x-kit.sort-header field="employees" label="No. of employee" />
                         <x-kit.sort-header field="status" label="Status" />
                         <th class="text-right">Action</th>
@@ -73,7 +74,7 @@
                 <tbody>
                     @if ($total === 0)
                         <tr wire:key="empty">
-                            <x-kit.empty-state :colspan="7" title="No payroll yet. Create one to get started." />
+                            <x-kit.empty-state :colspan="8" title="No payroll yet. Create one to get started." />
                         </tr>
                     @endif
                     @foreach ($rows as $r)
@@ -90,11 +91,20 @@
                             <td class="font-medium">{{ $r->name }}</td>
                             <td class="num whitespace-nowrap">{{ PayrollData::fmtDate($r->period_start) }}</td>
                             <td class="num whitespace-nowrap">{{ PayrollData::fmtDate($r->period_end) }}</td>
+                            <td class="num whitespace-nowrap">{{ ($r->pay_date ?? null) === null ? '—' : PayrollData::fmtDate($r->pay_date) }}</td>
                             <td class="num">{{ $r->members_count }}</td>
                             <td class="whitespace-nowrap">
                                 <span class="{{ $r->status === 'FINALIZED' ? 'pill pill-success' : 'pill pill-warning' }}">
                                     {{ $r->status }}
                                 </span>
+                                {{-- An advance payroll: attendance counted through an earlier day, the rest paid as scheduled (PayrollAdvance). --}}
+                                @if (($r->attendance_through ?? null) !== null)
+                                    <span class="pill pill-primary ml-1" data-advance-pill title="Attendance counted through {{ PayrollData::fmtDate($r->attendance_through) }}">Advance</span>
+                                @endif
+                                {{-- The pay went out: a mark (MarkPayrollReleased), never a state. --}}
+                                @if (($r->released_at ?? null) !== null)
+                                    <span class="pill pill-success-strong ml-1" data-released-pill>Released</span>
+                                @endif
                             </td>
                             <td class="text-right">
                                 {{-- Divergence: disabled on FINALIZED — posted payslips must stay. --}}

@@ -7,12 +7,12 @@ declare(strict_types=1);
 return [
     'models' => [
         'IdentityAccess' => ['User', 'UserPasswordHistory', 'Role', 'RoleModuleGrant'],
-        'Workforce' => ['EmployeeRecordChangeRequest', 'EmployeeProfile', 'EmployeeChild', 'EmployeePdsDetail', 'EmployeeAddress', 'EmployeeEducation', 'EmployeeEligibility', 'EmployeeWorkExperience', 'EmployeeTraining', 'EmployeeVoluntaryWork', 'EmployeeOtherItem', 'EmployeeEmploymentHistory', 'EmployeeDocument', 'DocumentType', 'EmploymentStatusOption'],
+        'Workforce' => ['EmployeeRecordChangeRequest', 'EmployeeProfile', 'EmployeeChild', 'EmployeePdsDetail', 'EmployeeAddress', 'EmployeeEducation', 'EmployeeEligibility', 'EmployeeWorkExperience', 'EmployeeTraining', 'EmployeeVoluntaryWork', 'EmployeeOtherItem', 'EmployeeEmploymentHistory', 'EmployeeDocument', 'DocumentType', 'EmploymentStatusOption', 'EmployeeSalaryRate'],
         'Organization' => ['WorkSite', 'Position', 'Holiday', 'OrgNode'],
-        'Timekeeping' => ['AttendanceLog', 'AttendanceRemark', 'Shift', 'ShiftType', 'RosterLocation', 'RosterShift', 'RosterDayOverride', 'RosterScheduleChange', 'LeaveTravelRequest', 'LeaveRequestCancellation', 'LeaveType', 'LeaveCredit', 'LeaveCreditEntry', 'OvertimeApproval'],
+        'Timekeeping' => ['AttendanceLog', 'AttendanceRemark', 'Shift', 'ShiftType', 'RosterLocation', 'RosterShift', 'RosterDayOverride', 'RosterScheduleChange', 'LeaveTravelRequest', 'LeaveRequestCancellation', 'LeaveType', 'LeaveCredit', 'LeaveCreditEntry', 'OvertimeApproval', 'LeaveConversionTable', 'LeavePolicyPreset', 'EmployeeLeavePolicy', 'LeaveEarningPosting', 'LeaveAttendanceCharge', 'LeaveCashOut'],
         'WorkManagement' => ['Project', 'ProjectTask', 'ProjectTaskAssignee', 'ProjectTaskFile', 'ProjectTaskSubmission', 'TaskComment'],
         'Inventory' => ['InventoryItem', 'InventoryCategory', 'InventoryLocation', 'InventoryReceipt', 'InventoryReceiptLine', 'InventoryMovement', 'InventoryIncident', 'InventoryDisposal', 'InventoryCount', 'InventoryCountLine', 'InventoryAttachment'],
-        'Payroll' => ['PayrollRun', 'PayrollRunMember', 'Payslip', 'PayrollFormula', 'PayrollDeduction', 'PayrollFinalizationSnapshot', 'PayrollIncentiveType', 'PayrollRunMemberIncentive', 'PayslipIncentive', 'PayrollRunMemberDeduction', 'PayslipDeduction', 'PayrollStatutoryTable', 'PayrollPayRule'],
+        'Payroll' => ['PayrollRun', 'PayrollRunMember', 'Payslip', 'PayrollFormula', 'PayrollDeduction', 'PayrollFinalizationSnapshot', 'PayrollIncentiveType', 'PayrollRunMemberIncentive', 'PayslipIncentive', 'PayrollRunMemberDeduction', 'PayslipDeduction', 'PayrollStatutoryTable', 'PayrollPayRule', 'PayrollRecurringLine', 'PayslipSettlement', 'PayrollSignatory', 'PayrollGovDeductionPolicy', 'PayrollPaySchedule', 'PayrollAdjustmentCategory', 'PayrollAdjustment', 'PayrollBenefitCeiling', 'PayrollEmployeeBenefit', 'PayrollTaxBalance', 'PayrollRecurringLineEntry'],
         'Social' => [
             'CommunityGroup', 'CommunityGroupMember', 'CommunityPost', 'CommunityAttachment', 'CommunityComment',
             'CommunityReaction', 'CommunityCommentReaction', 'ChatConversation', 'ChatParticipant', 'ChatMessage',

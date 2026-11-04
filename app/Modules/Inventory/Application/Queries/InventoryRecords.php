@@ -133,25 +133,6 @@ final class InventoryRecords
         ]));
     }
 
-    /** @return Collection<int, ItemView> */
-    public function stock(Access $actor, string $search = ''): Collection
-    {
-        $query = $this->itemQuery($actor)->where('status', 'IN_STOCK')->where('condition', 'SERVICEABLE');
-        $this->itemFilters($query, ['search' => $search]);
-        SqlText::order($query, 'code', 'asc');
-
-        return $this->itemViews($actor, $query->limit(200)->get());
-    }
-
-    /** @return Collection<int, ItemView> */
-    public function employeeHoldings(Access $actor, string $employeeId, bool $own = false): Collection
-    {
-        $query = $this->holdingsQuery($actor, $employeeId, $own);
-        SqlText::order($query, 'code', 'asc');
-
-        return $this->itemViews($actor, $query->get());
-    }
-
     /** @return LengthAwarePaginator<int, ItemView> */
     public function employeeHoldingsPage(Access $actor, string $employeeId, bool $own = false, int $page = 1, int $perPage = 20): LengthAwarePaginator
     {

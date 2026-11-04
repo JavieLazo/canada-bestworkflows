@@ -5,18 +5,24 @@ declare(strict_types=1);
 namespace App\Livewire\Records;
 
 use App\Domain\Enums\ModuleCode;
-use App\Domain\Payroll\PayrollPeriod;
 use App\Domain\Payroll\PayRules;
 use App\Livewire\Records\Support\Hris;
+use App\Modules\Payroll\Application\Commands\ApproveEmployeePayRules;
+use App\Modules\Payroll\Application\Commands\DiscardEmployeePayRules;
+use App\Modules\Payroll\Application\Commands\SaveEmployeePayRules;
 use App\Modules\Payroll\Application\Commands\SavePayRulesVersion;
 use App\Modules\Payroll\Application\PayrollPeriodText;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Modules\Payroll\Application\PayRulesStore;
 use App\Modules\Payroll\Application\Queries\PayRuleRecords;
 use App\Modules\Payroll\Contracts\Views\PayRuleView;
+use App\Modules\Workforce\Contracts\EmployeePayContexts;
+use App\Modules\Workforce\Contracts\EmployeePayData;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
+use App\Support\EmployeeName;
 use App\Support\ManilaClock;
-use Carbon\CarbonImmutable;
+use App\Support\Money;
 use Flux\Flux;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Collection;
@@ -30,11 +36,20 @@ use Livewire\Component;
 
 /**
  * Pay Basis & Rates — how a day, an overtime hour and a night hour are
- * priced, under Records → Payroll Settings. One form for one scope at a
- * time (the company rule, or an Employment status's override): the pay
- * basis, the daily-rate method, the night window, the daily caps and the
+ * priced, under Payroll → Payroll Settings. One form for one scope at a
+ * time (the company rule, an Employment status's override, or — opened
+ * from Employee Pay Settings — one employee's own rates): the pay basis,
+ * the daily-rate method, the night window, the daily caps and the
  * rates-by-day-type table, filled from the version IN FORCE for that scope
- * (an upcoming version is listed but prices nothing yet) or a preset.
+ * (an upcoming version is listed but prices nothing yet), else from what
+ * the scope falls back to — an employee's status override, else the
+ * company rule — or a preset.
+ *
+ * The page opens for PAYROLL. The company's and the statuses' versions are
+ * saved by whoever manages the Payroll Settings (SavePayRulesVersion); one
+ * employee's are pay data, read and saved by all-data PAYROLL only
+ * (SaveEmployeePayRules), which can also date their return to the status
+ * or company rules.
  * Every save is a NEW dated version through the audited command; a saved
  * version never changes. Percentages are typed as shown; the three base
  * rates (an ordinary overtime hour, an ordinary night hour, a worked rest
@@ -72,11 +87,12 @@ class PayRulesPage extends Component
     private const int SAMPLE_MONTH_DAYS = 22;
 
     /**
-     * Who the figures on screen apply to: COMPANY, or an Employment list
-     * entry's id. Client-chosen, like a filter: it only picks which
-     * versions are shown and which scope a save names, and save()
-     * re-resolves it against the Employment list before writing. Not Locked
-     * because the select binds it.
+     * Who the figures on screen apply to: COMPANY, an Employment list
+     * entry's id, or an employee's id (for an all-data PAYROLL holder).
+     * Client-chosen, like a filter: it only picks which versions are shown
+     * and which scope a save names, and save() re-resolves it against the
+     * Employment list and the employees before writing. Not Locked because
+     * the select binds it.
      */
     #[Url(as: 'for', except: PayRulesStore::COMPANY)]
     public string $scope = PayRulesStore::COMPANY;
@@ -121,6 +137,18 @@ class PayRulesPage extends Component
     /** The holiday overtime factor as a percentage of the holiday's rate. */
     public string $formHolidayOvertime = '';
 
+    /** Hours for the hourly rate; blank = the shift's paid hours. */
+    public string $formHourlyHours = '';
+
+    /** Decimals each rate step is rounded to; blank = no rounding. */
+    public string $formRounding = '';
+
+    /** Seaport overtime hour as a percent of the hourly rate; blank = the day's overtime. */
+    public string $formSeaportRate = '';
+
+    /** The net pay a payslip should not fall below, as typed; blank = no floor. */
+    public string $formMinimumTakeHome = '';
+
     /**
      * The rates-by-day-type cells as typed, type => cell => text. A blank
      * is "as derived". Client-editable, so read defensively.
@@ -135,6 +163,14 @@ class PayRulesPage extends Component
 
     /** The save's inline error — a refusal of the last save, cleared by the next edit. */
     public ?string $formError = null;
+
+    /**
+     * The employees a scope was looked up as, this request only (never sent
+     * to the browser).
+     *
+     * @var array<string, EmployeePayData|null>
+     */
+    private array $employees = [];
 
     public function mount(): void
     {
@@ -236,6 +272,11 @@ class PayRulesPage extends Component
 
             return;
         }
+        if ($row->params === null) {
+            Flux::toast(variant: 'danger', text: 'That version holds no figures: from its date the employee follows the general rules.');
+
+            return;
+        }
         $this->loadedId = $row->id;
         $this->formError = null;
         $this->fillFrom($row->params);
@@ -246,12 +287,13 @@ class PayRulesPage extends Component
     {
         $this->formError = null;
         $access = app(Access::class);
-        if (! $access->mayReadAllData(ModuleCode::RECORDS)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+        $scope = $this->resolvedScope($access);
+        $employee = $scope === null ? null : $this->scopeEmployee($access, $scope);
+        if (! $this->canManage($access, $employee)) {
+            Flux::toast(variant: 'danger', text: $employee !== null ? 'Your role cannot manage employee pay settings.' : 'Your role cannot manage organization-wide data.');
 
             return;
         }
-        $scope = $this->resolvedScope($access);
         if ($scope === null) {
             $this->formError = 'Choose who the rules apply to.';
 
@@ -263,21 +305,24 @@ class PayRulesPage extends Component
 
             return;
         }
-        try {
-            $message = app(SavePayRulesVersion::class)->handle($access, $scope, $this->formEffectiveFrom, $this->formReason, $figures);
-        } catch (QueryException $e) {
-            report($e);
-            Flux::toast(variant: 'danger', text: 'The version could not be saved. Nothing was changed. Please try again.');
+        $this->write($access, $scope, $employee, $figures);
+    }
 
-            return;
-        } catch (\RuntimeException $e) {
-            $this->formError = self::humanize($e->getMessage());
-
+    /**
+     * End an employee's own rates: from the date in the form they follow
+     * their status's override, else the company rule, again. A new
+     * ("follows") version, with the reason in the form.
+     */
+    public function returnToGeneral(): void
+    {
+        $this->formError = null;
+        $access = app(Access::class);
+        $scope = $this->resolvedScope($access);
+        $employee = $scope === null ? null : $this->scopeEmployee($access, $scope);
+        if ($scope === null || $employee === null || ! $this->canManage($access, $employee)) {
             return;
         }
-        Flux::toast(variant: 'success', text: $message);
-        $this->loadedId = null;
-        $this->loadForm($access);
+        $this->write($access, $scope, $employee, null);
     }
 
     public function render(): View
@@ -285,13 +330,15 @@ class PayRulesPage extends Component
         $access = app(Access::class);
         $records = app(PayRuleRecords::class);
         $versions = $records->versions($access, $this->scope);
-        $latest = $versions->first();
+        $latest = $records->latest($access, $this->scope);
         $today = ManilaClock::todayKey();
         $inForce = self::inForce($versions, $today);
         $loaded = $this->loadedId === null ? $inForce : $versions->first(fn (PayRuleView $row): bool => $row->id === $this->loadedId) ?? $inForce;
-        $companyVersions = $this->scope === PayRulesStore::COMPANY ? $versions : $records->versions($access, PayRulesStore::COMPANY);
-        $companyInForce = self::inForce($companyVersions, $today);
-        $stored = $loaded->params ?? $companyInForce->params ?? PayRules::fromFormulas()->toArray();
+        // What prices the scope when its own version does not (or, for an
+        // employee, when their own in force is a "follows" one).
+        $inherited = $this->inheritedInForce($access, $this->scope, $today);
+        $stored = $loaded->params ?? $inherited->params ?? PayRules::fromFormulas()->toArray();
+        $employee = $this->scopeEmployee($access, $this->scope);
 
         $figures = $this->engineFigures($stored);
         $figuresError = is_string($figures) ? $figures : self::humanize(PayRules::error($figures));
@@ -311,8 +358,11 @@ class PayRulesPage extends Component
             'inForce' => $inForce,
             'upcoming' => $upcoming,
             'loaded' => $loaded,
-            'companyInForce' => $companyInForce,
-            'canManage' => $access->mayReadAllData(ModuleCode::RECORDS),
+            'inherited' => $inherited,
+            'inheritedName' => $this->inheritedName($access, $this->scope, $today),
+            'employee' => $employee,
+            'employeeName' => $employee === null ? '' : EmployeeName::display($employee),
+            'canManage' => $this->canManage($access, $employee),
             'ready' => PayRulesStore::ready(),
             'dayTypes' => self::DAY_TYPES,
             'derived' => $this->derivedText($placeholderRules),
@@ -320,10 +370,9 @@ class PayRulesPage extends Component
             'shortfalls' => $this->shortfallText($placeholderRules),
             'figuresError' => $figuresError,
             'invalidCell' => self::invalidCell($figuresError),
-            'dirty' => is_string($figures) || json_encode($figures) !== json_encode($stored),
+            'dirty' => is_string($figures) || json_encode($figures) !== json_encode(self::canonical($stored)),
             'today' => $today,
             'effectiveText' => $this->formEffectiveFrom !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $this->formEffectiveFrom) === 1 ? PayrollPeriodText::day($this->formEffectiveFrom) : '',
-            'cutoffNote' => self::cutoffNote($this->formEffectiveFrom),
             'pendingScopeName' => $this->pendingScope === null ? '' : (array_column($this->scopeOptions($access), 'name', 'id')[$this->pendingScope] ?? ''),
         ]);
     }
@@ -336,47 +385,105 @@ class PayRulesPage extends Component
      */
     private static function inForce(Collection $versions, string $today): ?PayRuleView
     {
-        return $versions->first(static fn (PayRuleView $row): bool => $row->effective_from->format('Y-m-d') <= $today);
+        return $versions->first(static fn (PayRuleView $row): bool => $row->status !== PayRulesStore::DRAFT && $row->effective_from->format('Y-m-d') <= $today);
     }
 
-    /** Fill the form from the scope's version in force, else the company's, else the reference's rules. */
+    /** Approve an employee's draft: someone other than the preparer. */
+    public function approveVersion(string $id): void
+    {
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
+            Flux::toast(variant: 'danger', text: 'Your role cannot manage employee pay settings.');
+
+            return;
+        }
+        try {
+            $message = app(ApproveEmployeePayRules::class)->handle($access, $id);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The version could not be approved. Try again.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        Flux::toast(variant: 'success', text: $message);
+        $this->loadedId = null;
+        $this->loadForm($access);
+    }
+
+    /** Discard an employee's draft. */
+    public function discardVersion(string $id): void
+    {
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
+            Flux::toast(variant: 'danger', text: 'Your role cannot manage employee pay settings.');
+
+            return;
+        }
+        try {
+            $message = app(DiscardEmployeePayRules::class)->handle($access, $id);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The draft could not be discarded. Try again.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        Flux::toast(variant: 'success', text: $message);
+        if ($this->loadedId === $id) {
+            $this->loadedId = null;
+            $this->loadForm($access);
+        }
+    }
+
+    /**
+     * Save the version through the command the scope's owner holds, and
+     * reload the form from what is in force.
+     *
+     * @param  array<string, mixed>|null  $figures  null: an employee's return to the general rules
+     */
+    private function write(Access $access, string $scope, ?EmployeePayData $employee, ?array $figures): void
+    {
+        try {
+            $message = $employee !== null
+                ? app(SaveEmployeePayRules::class)->handle($access, $employee->id, $this->formEffectiveFrom, $this->formReason, $figures)
+                : app(SavePayRulesVersion::class)->handle($access, $scope, $this->formEffectiveFrom, $this->formReason, $figures ?? []);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The version could not be saved. Nothing was changed. Please try again.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            $this->formError = self::humanize($e->getMessage());
+
+            return;
+        }
+        Flux::toast(variant: 'success', text: $message);
+        $this->loadedId = null;
+        $this->loadForm($access);
+    }
+
+    /** Fill the form from the scope's version in force, else what it falls back to, else the reference's rules. */
     private function loadForm(Access $access): void
     {
         $records = app(PayRuleRecords::class);
         $today = ManilaClock::todayKey();
         $versions = $records->versions($access, $this->scope);
-        $latest = $versions->first();
+        $latest = $records->latest($access, $this->scope);
         $inForce = self::inForce($versions, $today);
-        $base = $inForce ?? ($this->scope === PayRulesStore::COMPANY ? null : self::inForce($records->versions($access, PayRulesStore::COMPANY), $today));
-        $this->fillFrom($base->params ?? PayRules::fromFormulas()->toArray());
+        $this->fillFrom($inForce->params ?? $this->inheritedInForce($access, $this->scope, $today)->params ?? PayRules::fromFormulas()->toArray());
         $this->formScope = $this->scope;
-        // The next version starts on a cut-off's first day (the 1st or the
-        // 16th) on or after today and after every version of the scope: a
-        // version starting inside a payroll period blocks that payroll.
-        $after = $latest === null ? $today : max($today, $latest->effective_from->addDay()->format('Y-m-d'));
-        $this->formEffectiveFrom = self::nextCutoffStart($after);
+        // The next version starts on any day on or after today and after
+        // every version of the scope: a payroll whose period it falls inside
+        // prices each day by the version in force on it.
+        $this->formEffectiveFrom = $latest === null ? $today : max($today, $latest->effective_from->addDay()->format('Y-m-d'));
         $this->formReason = '';
-    }
-
-    /** The 1st or the 16th on or after a day. */
-    private static function nextCutoffStart(string $day): string
-    {
-        $date = CarbonImmutable::parse($day, 'UTC');
-        if ($date->day === 1 || $date->day === 16) {
-            return $date->format('Y-m-d');
-        }
-
-        return ($date->day < 16 ? $date->day(16) : $date->addMonthNoOverflow()->day(1))->format('Y-m-d');
-    }
-
-    /** A live note while the chosen date is not a cut-off's first day — the command refuses it on save. */
-    private static function cutoffNote(string $day): ?string
-    {
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $day) !== 1) {
-            return null;
-        }
-
-        return PayrollPeriod::isCutoffStart($day) ? null : 'This date is not the first day of a payroll period. Choose the 1st or the 16th.';
     }
 
     /**
@@ -398,6 +505,14 @@ class PayRulesPage extends Component
         $this->formNightMax = Hris::moneyText($figures['night']['max_hours'] ?? 8);
         $this->formRestMax = Hris::moneyText($figures['rest_day']['max_hours'] ?? 8);
         $this->formHolidayOvertime = Hris::percentText($figures['holiday_overtime_factor'] ?? 1.3);
+        $hours = $figures['hourly_rate']['hours'] ?? null;
+        $this->formHourlyHours = is_numeric($hours) ? Hris::moneyText($hours) : '';
+        $decimals = $figures['rounding']['decimals'] ?? null;
+        $this->formRounding = is_int($decimals) ? (string) $decimals : '';
+        $seaport = $figures['overtime']['seaport_rate'] ?? null;
+        $this->formSeaportRate = is_numeric($seaport) ? Hris::percentText($seaport) : '';
+        $minimum = $figures['take_home']['minimum'] ?? null;
+        $this->formMinimumTakeHome = is_numeric($minimum) ? Hris::moneyText($minimum) : '';
         $matrix = [];
         foreach (PayRules::DAY_TYPES as $type) {
             $row = is_array($figures['matrix'][$type] ?? null) ? $figures['matrix'][$type] : [];
@@ -459,6 +574,34 @@ class PayRulesPage extends Component
         if ($holidayOvertime === null) {
             return 'Holiday overtime: enter a percent of the holiday rate.';
         }
+        $hourlyHours = null;
+        if (trim($this->formHourlyHours) !== '') {
+            $hourlyHours = self::number($this->formHourlyHours);
+            if ($hourlyHours === null) {
+                return 'Hours for the hourly rate: enter a number, or leave it blank.';
+            }
+        }
+        $rounding = null;
+        if (trim($this->formRounding) !== '') {
+            if (preg_match('/^[0-4]$/', trim($this->formRounding)) !== 1) {
+                return 'Rounding: choose 0 to 4 decimals, or leave it blank.';
+            }
+            $rounding = (int) trim($this->formRounding);
+        }
+        $seaportRate = null;
+        if (trim($this->formSeaportRate) !== '') {
+            $seaportRate = self::number($this->formSeaportRate);
+            if ($seaportRate === null) {
+                return 'Seaport overtime: enter a percentage, or leave it blank.';
+            }
+        }
+        $minimumTakeHome = null;
+        if (trim($this->formMinimumTakeHome) !== '') {
+            $minimumTakeHome = self::number($this->formMinimumTakeHome);
+            if ($minimumTakeHome === null) {
+                return 'Minimum take-home pay: enter an amount, or leave it blank.';
+            }
+        }
         $otPercent = self::number($this->formMatrix['ORDINARY']['overtime'] ?? null);
         $nightPercent = self::number($this->formMatrix['ORDINARY']['night'] ?? null);
         $restPercent = self::number($this->formMatrix['REST']['worked'] ?? null);
@@ -500,7 +643,14 @@ class PayRulesPage extends Component
             'basis' => $this->formBasis,
             'daily_rate' => ['method' => $this->formMethod, 'value' => $this->formMethod === PayRules::METHOD_MONTH ? 0.0 : self::amount($divisor, $stored['daily_rate']['value'] ?? null)],
             'holiday_needs_attendance' => $this->formHolidayNeedsAttendance,
-            'overtime' => ['rate' => self::rate($otPercent, $stored['overtime']['rate'] ?? null), 'max_hours' => self::amount($caps['formOvertimeMax'], $stored['overtime']['max_hours'] ?? null)],
+            'overtime' => [
+                'rate' => self::rate($otPercent, $stored['overtime']['rate'] ?? null),
+                'max_hours' => self::amount($caps['formOvertimeMax'], $stored['overtime']['max_hours'] ?? null),
+                'seaport_rate' => $seaportRate === null ? null : self::rate($seaportRate, $stored['overtime']['seaport_rate'] ?? null),
+            ],
+            'hourly_rate' => ['hours' => $hourlyHours === null ? null : self::amount($hourlyHours, $stored['hourly_rate']['hours'] ?? null)],
+            'rounding' => ['decimals' => $rounding],
+            'take_home' => ['minimum' => $minimumTakeHome === null ? null : self::amount($minimumTakeHome, $stored['take_home']['minimum'] ?? null)],
             'night' => [
                 'rate' => self::rate($nightPercent - 100, $stored['night']['rate'] ?? null),
                 'max_hours' => self::amount($caps['formNightMax'], $stored['night']['max_hours'] ?? null),
@@ -541,26 +691,45 @@ class PayRulesPage extends Component
         $today = ManilaClock::todayKey();
         $versions = $records->versions($access, $this->formScope);
         $loaded = $this->loadedId === null ? self::inForce($versions, $today) : $versions->first(fn (PayRuleView $row): bool => $row->id === $this->loadedId);
-        $stored = $loaded->params ?? self::inForce($records->versions($access, PayRulesStore::COMPANY), $today)->params ?? PayRules::fromFormulas()->toArray();
+        $stored = $loaded->params ?? $this->inheritedInForce($access, $this->formScope, $today)->params ?? PayRules::fromFormulas()->toArray();
         $figures = $this->engineFigures($stored);
 
-        return is_string($figures) || json_encode($figures) !== json_encode($stored);
+        return is_string($figures) || json_encode($figures) !== json_encode(self::canonical($stored));
     }
 
     /**
-     * The scope's latest figures, else the company's, else null.
+     * Stored figures in the engine's own key order, for the dirty compare:
+     * a version whose later-added keys sit at the end, or are absent, reads
+     * the same as the form filled from it.
+     *
+     * @param  array<string, mixed>  $stored
+     * @return array<string, mixed>
+     */
+    private static function canonical(array $stored): array
+    {
+        return PayRules::error($stored) === null ? PayRules::fromArray($stored)->toArray() : $stored;
+    }
+
+    /**
+     * The scope's latest figures, else those of what it falls back to,
+     * else null.
      *
      * @return array<string, mixed>|null
      */
     private function latestFigures(Access $access): ?array
     {
         $records = app(PayRuleRecords::class);
-        $latest = $records->latest($access, $this->scope) ?? ($this->scope === PayRulesStore::COMPANY ? null : $records->latest($access, PayRulesStore::COMPANY));
+        foreach ([$this->scope, ...$this->fallbacks($access, $this->scope)] as $scope) {
+            $figures = $records->latest($access, $scope)?->params;
+            if ($figures !== null) {
+                return $figures;
+            }
+        }
 
-        return $latest?->params;
+        return null;
     }
 
-    /** COMPANY, or the Employment list id the select named, re-resolved against the list. */
+    /** COMPANY, the Employment list id the select named, or the employee the scope names — re-resolved against the list and the employees. */
     private function resolvedScope(Access $access): ?string
     {
         if ($this->scope === PayRulesStore::COMPANY) {
@@ -577,7 +746,9 @@ class PayRulesPage extends Component
 
     /**
      * The Applies-to options: the company rule, then every Employment
-     * status, marked when it carries an override.
+     * status, marked when it carries an override, then the employee on
+     * screen when the scope is one (the employees are never all listed:
+     * one is opened from Employee Pay Settings).
      *
      * @return list<array{id: string, name: string, override: bool}>
      */
@@ -588,8 +759,85 @@ class PayRulesPage extends Component
         foreach (app(ReferenceCatalogs::class)->for('employment')->options($access) as $status) {
             $options[] = ['id' => $status['id'], 'name' => $status['name'], 'override' => in_array($status['id'], $overridden, true)];
         }
+        foreach (array_unique(array_filter([$this->scope, $this->formScope, $this->pendingScope])) as $scope) {
+            if (in_array($scope, array_column($options, 'id'), true)) {
+                continue;
+            }
+            $employee = $this->scopeEmployee($access, $scope);
+            if ($employee !== null) {
+                $options[] = ['id' => $employee->id, 'name' => EmployeeName::display($employee).' (this employee)', 'override' => false];
+            }
+        }
 
         return $options;
+    }
+
+    /**
+     * The employee a scope names, for an all-data PAYROLL holder: null for
+     * the company, a status, anyone else, or before employee rates exist.
+     * Read once per request per scope.
+     */
+    private function scopeEmployee(Access $access, string $scope): ?EmployeePayData
+    {
+        if ($scope === PayRulesStore::COMPANY || ! PayRulesStore::employeeScopesReady() || ! $access->mayReadAllData(ModuleCode::PAYROLL)) {
+            return null;
+        }
+        if (! array_key_exists($scope, $this->employees)) {
+            $this->employees[$scope] = app(EmployeePayContexts::class)->get($access, [$scope])[0] ?? null;
+        }
+
+        return $this->employees[$scope];
+    }
+
+    /**
+     * Who may save a version of the scope: an all-data PAYROLL holder for
+     * an employee's rates, whoever manages the Payroll Settings
+     * (PayrollSettingsAccess) for the company's and the statuses'.
+     */
+    private function canManage(Access $access, ?EmployeePayData $employee): bool
+    {
+        return $employee !== null ? $access->mayReadAllData(ModuleCode::PAYROLL) : PayrollSettingsAccess::mayManage($access);
+    }
+
+    /**
+     * What prices a scope when its own versions do not, nearest first: an
+     * employee's status, then the company; a status's company.
+     *
+     * @return list<string>
+     */
+    private function fallbacks(Access $access, string $scope): array
+    {
+        if ($scope === PayRulesStore::COMPANY) {
+            return [];
+        }
+        $statusId = $this->scopeEmployee($access, $scope)?->employment_status_id;
+
+        return $statusId === null ? [PayRulesStore::COMPANY] : [$statusId, PayRulesStore::COMPANY];
+    }
+
+    /** The version in force today that prices the scope when its own does not. */
+    private function inheritedInForce(Access $access, string $scope, string $today): ?PayRuleView
+    {
+        foreach ($this->fallbacks($access, $scope) as $next) {
+            $inForce = self::inForce(app(PayRuleRecords::class)->versions($access, $next), $today);
+            if ($inForce !== null) {
+                return $inForce;
+            }
+        }
+
+        return null;
+    }
+
+    /** What the scope falls back to, in a phrase: "the company rule", "the Regular override". */
+    private function inheritedName(Access $access, string $scope, string $today): string
+    {
+        $employee = $this->scopeEmployee($access, $scope);
+        $inherited = $this->inheritedInForce($access, $scope, $today);
+        if ($employee !== null && $inherited !== null && $inherited->scope !== PayRulesStore::COMPANY) {
+            return 'the '.($employee->employment_status ?? 'status').' override';
+        }
+
+        return 'the company rule';
     }
 
     /**
@@ -636,7 +884,7 @@ class PayRulesPage extends Component
      * The daily-rate card's sample: what the method makes of the sample
      * salary, a day and an hour on an 8-hour shift.
      *
-     * @return array{daily: string, hourly: string, note: string}|null
+     * @return array{daily: string, hourly: string, hours: string, note: string}|null
      */
     private function sample(): ?array
     {
@@ -649,10 +897,18 @@ class PayRulesPage extends Component
         if ($daily === null) {
             return null;
         }
+        // The sample follows the rounding and the fixed hours as typed, so
+        // the officer sees the figures a payslip would start from.
+        $decimals = preg_match('/^[0-4]$/', trim($this->formRounding)) === 1 ? (int) trim($this->formRounding) : null;
+        $round = static fn (float $rate): float => $decimals === null ? $rate : Money::roundTo($rate, $decimals);
+        $hours = self::number($this->formHourlyHours);
+        $hours = $hours !== null && $hours >= 1 && $hours <= 24 ? $hours : 8.0;
+        $daily = $round($daily);
 
         return [
             'daily' => Hris::peso($daily),
-            'hourly' => Hris::peso($daily / 8),
+            'hourly' => Hris::peso($round($daily / $hours)),
+            'hours' => Hris::moneyText($hours),
             'note' => $this->formMethod === PayRules::METHOD_MONTH ? 'in a month with '.self::SAMPLE_MONTH_DAYS.' working days' : '',
         ];
     }

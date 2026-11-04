@@ -137,6 +137,43 @@ final class PayslipCalculator
      *                                                      what every golden vector passes. With a map, a day
      *                                                      pays min(computed, approved, the Formulas cap) and
      *                                                      an undecided day pays nothing.
+     * @param  string|null  $attendanceThrough  DELIBERATE DIVERGENCE 14, the advance payroll: the last
+     *                                          'Y-m-d' whose attendance this payslip reads. Every later
+     *                                          scheduled working day inside the period is PRESUMED — a
+     *                                          full day at its own rate, with no lateness, undertime,
+     *                                          overtime or night pay, whatever punches it carries — and
+     *                                          counted in `presumed_days`. Null, the reference: every day
+     *                                          is read from its attendance.
+     * @param  float  $settlement  DIVERGENCE 14: what presumed days on an earlier payslip turned out
+     *                             to be worth less what was presumed, already Money::round-ed, and
+     *                             negative when they were worth less. It joins gross pay before the
+     *                             tax; 0.0 (the reference) adds nothing.
+     * @param  array{late: array<string, float>, absence: array<string, float>, late_days: float}|null  $leaveCharges  DELIBERATE DIVERGENCE 15, attendance charged to leave credits:
+     *                                                                                                                 the covered FRACTION of each late day's lateness and undertime minutes
+     *                                                                                                                 (date => 0..1), the covered part of each absent day (date => days, paid
+     *                                                                                                                 as leave), and the late days charged in all (reported). Null, the
+     *                                                                                                                 reference: every minute and every absence is priced to pay.
+     * @param  array<string, string>|null  $overtimeCategories  DELIBERATE DIVERGENCE 16: the Daily Time Record's
+     *                                                          overtime CATEGORY per approved day, shift-start date =>
+     *                                                          PayRules::OVERTIME_SEAPORT; a day with no entry is
+     *                                                          ordinary overtime. A seaport day is never capped and is
+     *                                                          priced at the version's seaport rate when it has one.
+     *                                                          Null or empty (the reference, every golden vector):
+     *                                                          every day is the day type's overtime under the cap.
+     * @param  PayRulesTimeline|null  $timeline  DELIBERATE DIVERGENCE 17: the version in force on EACH day,
+     *                                           when one changes inside the period. Every figure a day is
+     *                                           priced by — its rate, hours, rounding, matrix cells, night
+     *                                           window, caps — comes from that day's version; the paid-day
+     *                                           buckets, the leave carve-out and the monthly residual are
+     *                                           kept per month AND per version. Null, or a single-version
+     *                                           timeline: `$rules` for every day, the reference's operations
+     *                                           exactly (the golden guard recomputes every vector so).
+     * @param  array<string, float>|null  $contributionPosted  DELIBERATE DIVERGENCE 19: what this contribution month's
+     *                                                         POSTED payslips already took of each share (keys `sss`,
+     *                                                         `sss_er`, `philhealth`, `philhealth_er`, `pagibig`,
+     *                                                         `pagibig_er`), read only by the HALF_THEN_REST and
+     *                                                         WHOLE_FIRST schedules. Null, the reference: nothing posted,
+     *                                                         and the reference's two schedules never read it.
      */
     public static function compute(
         object $employee,
@@ -152,39 +189,55 @@ final class PayslipCalculator
         ?array $overtimeApprovals = null,
         ?StatutorySchedule $statutory = null,
         ?PayRules $rules = null,
+        ?string $attendanceThrough = null,
+        float $settlement = 0.0,
+        ?array $leaveCharges = null,
+        ?array $overtimeCategories = null,
+        ?PayRulesTimeline $timeline = null,
+        ?array $contributionPosted = null,
     ): PayslipDraft {
         // DELIBERATE DIVERGENCE 13: the Pay Basis & Rates version in force,
         // or — for a caller that hands none in, the golden vectors included —
         // the reference's rules over the settings' Formulas rows, which
         // perform the reference's exact operations at every switch below.
-        $rules ??= PayRules::fromFormulas(is_array($settings['formulas'] ?? null) ? $settings['formulas'] : []);
-        $r = $rules->rates;
+        // DIVERGENCE 17: with a timeline, the version in force on the
+        // period's first day is `$rules`, and `$rulesOn` answers each day's.
+        $timeline ??= PayRulesTimeline::single($rules ?? PayRules::fromFormulas(is_array($settings['formulas'] ?? null) ? $settings['formulas'] : []));
+        $rules = $timeline->on($periodStart);
+        $rulesOn = static fn (string $date): PayRules => $timeline->on($date);
+        // DIVERGENCE 18: the salary versions taking over inside the period
+        // (`$employee->salary_rates`, ascending by date); `monthly_rate` /
+        // `daily_rate` are the salary in force on the first day. With none
+        // — the reference, every golden vector — one salary prices every day.
+        $salarySegments = [];
+        foreach (is_array($employee->salary_rates ?? null) ? $employee->salary_rates : [] as $segment) {
+            if (is_array($segment) && is_string($segment['from'] ?? null)) {
+                $salarySegments[] = ['from' => $segment['from'], 'monthly' => self::num($segment['monthly_rate'] ?? null), 'daily' => self::num($segment['daily_rate'] ?? null)];
+            }
+        }
+        $salaryStart = static function (string $date) use ($salarySegments): string {
+            $from = PayRulesTimeline::ALWAYS;
+            foreach ($salarySegments as $segment) {
+                if ($segment['from'] > $date) {
+                    break;
+                }
+                $from = $segment['from'];
+            }
+
+            return $from;
+        };
+        // The date a day is priced AS: the first day of its month, or of its
+        // rules version or salary version when one started later. One
+        // version, one month: the month's first day, the reference's one
+        // rate per month.
+        $priceDateFor = static fn (string $date): string => max(substr($date, 0, 7).'-01', $timeline->segmentStart($date), $salaryStart($date));
 
         /** @var list<HolidaySetting> $holidays */
         $holidays = is_array($settings['holidays'] ?? null) ? $settings['holidays'] : [];
 
-        /*
-         * The employment window clips the DTR range. Both comparisons are plain
-         * lexicographic comparisons on 'Y-m-d', exactly as the reference does
-         * them — strcmp() rather than PHP's `>` so a numeric-looking value can
-         * never trip PHP's string-to-number comparison rules.
-         *
-         * A missing date_hired reproduces JS `undefined > "2025-01-01"` ===
-         * false, which selects periodStart; a null-or-empty date_resigned is
-         * falsy in the reference and selects periodEnd.
-         */
-        $hired = self::dateKey($employee->date_hired ?? null) ?? $periodStart;
-        $resigned = self::dateKey($employee->date_resigned ?? null);
-
-        $effectiveStart = strcmp($hired, $periodStart) > 0 ? $hired : $periodStart;
-        $effectiveEnd = ($resigned !== null && strcmp($resigned, $periodEnd) < 0)
-            ? $resigned
-            : $periodEnd;
-
-        /** @var list<DayRecord> $days */
-        $days = strcmp($effectiveStart, $effectiveEnd) <= 0
-            ? DtrCalculator::compute($logs, $shift, $leaves, $effectiveStart, $effectiveEnd, $holidays)
-            : [];
+        // The DTR rows this payslip prices, and the presumed dates among them
+        // (attendanceDays: the employment window, then divergence 14).
+        [$days, $presumed] = self::attendanceDays($employee, $logs, $shift, $leaves, $periodStart, $periodEnd, $holidays, $attendanceThrough);
 
         /** @var DtrSummary $s */
         $s = DtrCalculator::summarize($days);
@@ -211,6 +264,22 @@ final class PayslipCalculator
          * value.
          */
         $storedDaily = self::num($employee->daily_rate ?? null);
+
+        // DIVERGENCE 18: the salary in force on a date — the first day's
+        // (`$monthly`, `$storedDaily`) until a version taking over inside the
+        // period reaches it. With no segments both answer the same figures
+        // for every date, so the reference's operations stand.
+        $salaryOn = static function (string $date) use ($salarySegments, $monthly, $storedDaily): array {
+            $current = ['monthly' => $monthly, 'daily' => $storedDaily];
+            foreach ($salarySegments as $segment) {
+                if ($segment['from'] > $date) {
+                    break;
+                }
+                $current = ['monthly' => $segment['monthly'], 'daily' => $segment['daily']];
+            }
+
+            return $current;
+        };
 
         /*
          * payroll.ts:415 calls workWeek(shift) inline for the divisor and again
@@ -284,17 +353,23 @@ final class PayslipCalculator
         // DIVERGENCE 13: the daily-rate method. The month's working days is
         // the reference's division, character for character; a yearly
         // factor or a fixed divisor gives one rate for every month.
-        $dailyFor = static function (string $date) use ($scheduledFor, $monthly, $storedDaily, $rules): float {
+        // DIVERGENCE 16: the derived day is rounded to the version's
+        // decimals before anything is priced from it (`roundRate` is the
+        // identity when the version sets none); an entered Rate Per Day is
+        // not derived and is never rounded.
+        $dailyFor = static function (string $date) use ($scheduledFor, $salaryOn, $rulesOn): float {
             $scheduled = $scheduledFor($date);
+            ['monthly' => $monthly, 'daily' => $storedDaily] = $salaryOn($date);
             if ($storedDaily > 0) {
                 return $storedDaily;
             }
+            $rules = $rulesOn($date);
 
-            return match ($rules->dailyRateMethod) {
+            return $rules->roundRate(match ($rules->dailyRateMethod) {
                 PayRules::METHOD_FACTOR => $monthly * 12 / $rules->dailyRateValue,
                 PayRules::METHOD_DIVISOR => $monthly / $rules->dailyRateValue,
                 default => $monthly / $scheduled,
-            };
+            });
         };
 
         // The rate the payslip reports, and the one every figure that is not
@@ -311,11 +386,26 @@ final class PayslipCalculator
         // DELIBERATE DIVERGENCE 8: weekday choices price each date from its
         // own paid hours. An unchanged weekly schedule keeps the same float
         // operations and aggregation order as the reference path.
-        $dailyHoursFor = static function (string $date) use ($schedule): float {
+        // DIVERGENCE 16: a version may fix the hours instead, for every date.
+        $dailyHoursFor = static function (string $date) use ($schedule, $rulesOn): float {
+            $hours = $rulesOn($date)->hourlyHours;
+            if ($hours !== null) {
+                return $hours;
+            }
             $minutes = ShiftResolver::paidShiftMinutes($schedule->forDate($date));
 
             return $minutes > 0 ? $minutes / 60 : self::DEFAULT_WORKING_HOURS;
         };
+
+        // The hourly rate the day's rate derives — DIVERGENCE 16: rounded to
+        // the version's decimals, the identity when it sets none. Every
+        // per-hour figure that ignores the stored hourly override (the night
+        // add-on, a rest day) prices from it.
+        $derivedHourlyFor = static fn (string $date): float => $rulesOn($date)->roundRate($dailyFor($date) / $dailyHoursFor($date));
+        // A premium hourly rate (the hourly times a factor) as the version
+        // wants it multiplied by hours: rounded when it rounds, else the
+        // reference's own `(hours) * hourly * factor` left-to-right.
+        $roundsOn = static fn (string $date): bool => $rulesOn($date)->roundingDecimals !== null;
 
         // The stored hourly rate may be an intentional override, but it is
         // rounded to cents. Do not multiply that rounded value back into the
@@ -323,7 +413,7 @@ final class PayslipCalculator
         $storedHourly = self::num($employee->hourly_rate ?? null);
         $hourlyFor = static fn (string $date): float => $storedHourly > 0
             ? $storedHourly
-            : $dailyFor($date) / $dailyHoursFor($date);
+            : $derivedHourlyFor($date);
 
         // The override does not move month to month, which is the point of it.
         $hourly = $hourlyFor($periodStart);
@@ -345,12 +435,13 @@ final class PayslipCalculator
         // night rate on the base hourly rate unless the day type's matrix
         // cell says otherwise (`night − worked`, percents of the base hourly).
         $nightHoursFor = static fn (string $date): float => min(
-            ShiftResolver::nightShiftMinutes($schedule->forDate($date), $rules->nightStart, $rules->nightEnd) / 60,
-            $r->maxNsdHours,
+            ShiftResolver::nightShiftMinutes($schedule->forDate($date), $rulesOn($date)->nightStart, $rulesOn($date)->nightEnd) / 60,
+            $rulesOn($date)->rates->maxNsdHours,
             $dailyHoursFor($date),
         );
-        $nsdPerNight = static fn (string $date, float $addOn): float => ($dailyFor($date) / $dailyHoursFor($date))
-            * $addOn * $nightHoursFor($date);
+        $nsdPerNight = static fn (string $date, float $addOn): float => $roundsOn($date)
+            ? $rulesOn($date)->roundRate($derivedHourlyFor($date) * $addOn) * $nightHoursFor($date)
+            : $derivedHourlyFor($date) * $addOn * $nightHoursFor($date);
         $holidayTypes = [];
         $holidayCount = [];
         foreach ($days as $day) {
@@ -361,12 +452,12 @@ final class PayslipCalculator
         // The day type the matrix prices a date as. A double holiday is one
         // only while the version prices it; otherwise it is the first
         // holiday, as the reference reads it.
-        $dayTypeFor = static function (string $date, bool $onWorkDay) use ($rules, $holidayTypes, $holidayCount): string {
+        $dayTypeFor = static function (string $date, bool $onWorkDay) use ($rulesOn, $holidayTypes, $holidayCount): string {
             $base = $holidayTypes[$date];
             if ($base === null) {
                 return $onWorkDay ? 'ORDINARY' : 'REST';
             }
-            if ($holidayCount[$date] >= 2 && $rules->prices($onWorkDay ? 'DOUBLE' : 'DOUBLE_REST')) {
+            if ($holidayCount[$date] >= 2 && $rulesOn($date)->prices($onWorkDay ? 'DOUBLE' : 'DOUBLE_REST')) {
                 $base = 'DOUBLE';
             }
 
@@ -375,20 +466,23 @@ final class PayslipCalculator
         // What the matrix's worked cell shows for a day type when it is left
         // as the reference derives it, as a percent: the night add-on is
         // measured from it.
-        $derivedWorkedPercent = static function (string $type, ?HolidaySetting $holiday) use ($r): float {
+        $derivedWorkedPercent = static function (string $date, string $type, ?HolidaySetting $holiday) use ($rulesOn): float {
+            $restDayRate = $rulesOn($date)->rates->restDayRate;
+
             return match ($type) {
                 'ORDINARY' => 100.0,
-                'REST' => $r->restDayRate * 100,
+                'REST' => $restDayRate * 100,
                 'SPECIAL', 'REGULAR', 'DOUBLE' => self::num($holiday?->percent),
-                default => self::num($holiday?->percent) * max(1.0, $r->restDayRate),
+                default => self::num($holiday?->percent) * max(1.0, $restDayRate),
             };
         };
-        $nightAddOnFor = static function (string $type, ?HolidaySetting $holiday) use ($rules, $r, $derivedWorkedPercent): float {
+        $nightAddOnFor = static function (string $date, string $type, ?HolidaySetting $holiday) use ($rulesOn, $derivedWorkedPercent): float {
+            $rules = $rulesOn($date);
             $cell = $rules->matrix[$type]['night'];
             if ($cell === null) {
-                return $r->nsdRate;
+                return $rules->rates->nsdRate;
             }
-            $worked = $rules->matrix[$type]['worked'] ?? $derivedWorkedPercent($type, $holiday);
+            $worked = $rules->matrix[$type]['worked'] ?? $derivedWorkedPercent($date, $type, $holiday);
 
             return max(0.0, ($cell - $worked) / 100);
         };
@@ -457,21 +551,32 @@ final class PayslipCalculator
             return $previous->workedMinutes > 0 || $previous->excusePaid === true || $previous->status === DayRecord::OFFICIAL_BUSINESS;
         };
         $nightAddOns = [];
+        // DIVERGENCE 15: the absent days, or parts of them, credits paid for.
+        $chargedAbsenceDays = 0.0;
 
         foreach ($days as $day) {
             $holiday = HolidaySetting::on($day->date, $holidays);
-            $dayMonth = substr($day->date, 0, 7);
+            // DIVERGENCE 17: the bucket a day's pay joins — its month, and
+            // its version when one started inside the month.
+            $dayMonth = $priceDateFor($day->date);
+            $dayRules = $rulesOn($day->date);
+            $dayRates = $dayRules->rates;
             $dayDaily = $dailyFor($day->date);
             $onWorkDay = ShiftResolver::worksOnDate($day->date, $schedule);
             $dayType = $dayTypeFor($day->date, $onWorkDay);
 
             if ($day->workedMinutes > 0) {
-                $nightsWorked += 1;
-                $addOn = $nightAddOnFor($dayType, $holiday);
-                $nightKey = $dayMonth.'|'.$dailyHoursFor($day->date).'|'.$nightHoursFor($day->date).'|'.$addOn;
-                $nightGroups[$nightKey] = ($nightGroups[$nightKey] ?? 0) + 1;
-                $nightDates[$nightKey] = $day->date;
-                $nightAddOns[$nightKey] = $addOn;
+                // DIVERGENCE 14: a presumed day earns its day, never a night
+                // nobody has worked yet; the night pay, if any, comes with
+                // the settlement.
+                if (! isset($presumed[$day->date])) {
+                    $nightsWorked += 1;
+                    $addOn = $nightAddOnFor($day->date, $dayType, $holiday);
+                    $nightKey = $dayMonth.'|'.$dailyHoursFor($day->date).'|'.$nightHoursFor($day->date).'|'.$addOn;
+                    $nightGroups[$nightKey] = ($nightGroups[$nightKey] ?? 0) + 1;
+                    $nightDates[$nightKey] = $day->date;
+                    $nightAddOns[$nightKey] = $addOn;
+                }
 
                 // A worked holiday outranks a rest day: it is priced from its
                 // own percent, and pricing it twice is exactly what these
@@ -522,12 +627,12 @@ final class PayslipCalculator
                     // that percent of the daily rate (a rest-day type's cell
                     // already carries its uplift); a null cell is the
                     // reference's derivation above.
-                    $workedCell = $rules->matrix[$dayType]['worked'];
+                    $workedCell = $dayRules->matrix[$dayType]['worked'];
                     if ($workedCell === null) {
                         $dayHolidayPay = ($dayDaily * self::num($holiday->percent)) / 100;
 
                         if (! $onWorkDay) {
-                            $dayHolidayPay *= max(1.0, $r->restDayRate);
+                            $dayHolidayPay *= max(1.0, $dayRates->restDayRate);
                         }
                     } else {
                         $dayHolidayPay = ($dayDaily * $workedCell) / 100;
@@ -542,11 +647,13 @@ final class PayslipCalculator
                      * hours beyond it are already overtime, and overtime on a
                      * rest day carries the same premium through `$dayRate`.
                      */
-                    $restHours = min($day->workedMinutes / 60, $r->maxRestDayHours);
+                    $restHours = min($day->workedMinutes / 60, $dayRates->maxRestDayHours);
                     // DIVERGENCE 13: the REST matrix cell, else the Rest Day rate.
-                    $restCell = $rules->matrix['REST']['worked'];
-                    $restFactor = $restCell === null ? $r->restDayRate : $restCell / 100;
-                    $restDayEarnings += ($dayDaily / $dailyHoursFor($day->date)) * $restFactor * $restHours;
+                    $restCell = $dayRules->matrix['REST']['worked'];
+                    $restFactor = $restCell === null ? $dayRates->restDayRate : $restCell / 100;
+                    $restDayEarnings += $roundsOn($day->date)
+                        ? $dayRules->roundRate($derivedHourlyFor($day->date) * $restFactor) * $restHours
+                        : $derivedHourlyFor($day->date) * $restFactor * $restHours;
                 } else {
                     $workedDays += 1;
                     $paidDaysByMonth[$dayMonth] = ($paidDaysByMonth[$dayMonth] ?? 0.0) + 1;
@@ -559,6 +666,21 @@ final class PayslipCalculator
                 $leaveDays += $day->excuseDays;
                 $paidDaysByMonth[$dayMonth] = ($paidDaysByMonth[$dayMonth] ?? 0.0) + $day->excuseDays;
                 $leaveDaysByMonth[$dayMonth] = ($leaveDaysByMonth[$dayMonth] ?? 0.0) + $day->excuseDays;
+            } elseif ($leaveCharges !== null && isset($leaveCharges['absence'][$day->date]) && $day->isAbsenceDay($schedule)) {
+                /*
+                 * DELIBERATE DIVERGENCE 15: the part of an absent day that
+                 * leave credits covered is PAID AS LEAVE — the same buckets an
+                 * approved paid leave fills, so [R02] and the carve-out below
+                 * price it exactly as a leave day; the rest of the day stays
+                 * unpaid. The absence count beside it is still the attendance
+                 * fact: the day was absent, and `leave_charged_days` says
+                 * how much of it credits paid for.
+                 */
+                $coveredAbsence = min(1.0, max(0.0, self::num($leaveCharges['absence'][$day->date])));
+                $leaveDays += $coveredAbsence;
+                $chargedAbsenceDays += $coveredAbsence;
+                $paidDaysByMonth[$dayMonth] = ($paidDaysByMonth[$dayMonth] ?? 0.0) + $coveredAbsence;
+                $leaveDaysByMonth[$dayMonth] = ($leaveDaysByMonth[$dayMonth] ?? 0.0) + $coveredAbsence;
             } elseif ($holiday !== null && $onWorkDay) {
                 /*
                  * DIVERGENCE 13: an UNWORKED holiday on a scheduled workday.
@@ -568,11 +690,11 @@ final class PayslipCalculator
                  * the daily rate (0 by default — the reference), when the
                  * attendance rule, if on, is met.
                  */
-                if ($rules->basis === PayRules::BASIS_MONTHLY) {
+                if ($dayRules->basis === PayRules::BASIS_MONTHLY) {
                     $paidDaysByMonth[$dayMonth] = ($paidDaysByMonth[$dayMonth] ?? 0.0) + 1;
                 } else {
-                    $unworked = $rules->matrix[$dayType]['unworked'];
-                    if ($unworked > 0.0 && (! $rules->holidayNeedsAttendance || $holidayEligible($day->date))) {
+                    $unworked = $dayRules->matrix[$dayType]['unworked'];
+                    if ($unworked > 0.0 && (! $dayRules->holidayNeedsAttendance || $holidayEligible($day->date))) {
                         $holidayEarnings += ($dayDaily * $unworked) / 100;
                     }
                 }
@@ -600,9 +722,13 @@ final class PayslipCalculator
          * holds exactly what the reference's `workedDays` holds, punched days
          * and paid leave together, so [R02] is the reference's arithmetic.
          */
+        // DIVERGENCE 17: the buckets are keyed by the pricing date (the
+        // month's first day, or the version's first day inside it), so each
+        // is priced by its own version; with one version the key IS the
+        // month's first day and this is the reference's loop.
         $paidDayEarnings = 0.0;
-        foreach ($paidDaysByMonth as $ym => $count) {
-            $paidDayEarnings += Money::round($count) * $dailyFor($ym.'-01');
+        foreach ($paidDaysByMonth as $priceDate => $count) {
+            $paidDayEarnings += Money::round($count) * $dailyFor($priceDate);
         }
 
         /*
@@ -616,17 +742,19 @@ final class PayslipCalculator
          * and is not added, so that path keeps the reference's operations.
          * A Rate Per Day employee is paid by the day whatever the basis.
          */
-        if ($rules->basis === PayRules::BASIS_MONTHLY && $rules->dailyRateMethod !== PayRules::METHOD_MONTH && $storedDaily <= 0) {
-            $scheduledInPeriod = [];
-            foreach ($days as $day) {
-                if (ShiftResolver::worksOnDate($day->date, $schedule)) {
-                    $ym = substr($day->date, 0, 7);
-                    $scheduledInPeriod[$ym] = ($scheduledInPeriod[$ym] ?? 0) + 1;
-                }
+        // DIVERGENCE 17 and 18: counted per pricing date, so each version's
+        // days carry their own residual under their own basis, method and
+        // salary; a Rate Per Day in force on the date is paid by the day.
+        $scheduledInPeriod = [];
+        foreach ($days as $day) {
+            $priceDate = $priceDateFor($day->date);
+            $dayRules = $rulesOn($priceDate);
+            if ($salaryOn($priceDate)['daily'] <= 0 && $dayRules->basis === PayRules::BASIS_MONTHLY && $dayRules->dailyRateMethod !== PayRules::METHOD_MONTH && ShiftResolver::worksOnDate($day->date, $schedule)) {
+                $scheduledInPeriod[$priceDate] = ($scheduledInPeriod[$priceDate] ?? 0) + 1;
             }
-            foreach ($scheduledInPeriod as $ym => $k) {
-                $paidDayEarnings += $monthly * $k / $scheduledFor($ym.'-01') - $k * $dailyFor($ym.'-01');
-            }
+        }
+        foreach ($scheduledInPeriod as $priceDate => $k) {
+            $paidDayEarnings += $salaryOn($priceDate)['monthly'] * $k / $scheduledFor($priceDate) - $k * $dailyFor($priceDate);
         }
 
         $paid_day_pay = Money::round($paidDayEarnings);                           // [R02] payroll.ts:497
@@ -642,8 +770,8 @@ final class PayslipCalculator
          * subtract to one: 2045.45 - 681.82 is 1363.6299999999999.
          */
         $leaveEarnings = 0.0;
-        foreach ($leaveDaysByMonth as $ym => $count) {
-            $leaveEarnings += Money::round($count) * $dailyFor($ym.'-01');
+        foreach ($leaveDaysByMonth as $priceDate => $count) {
+            $leaveEarnings += Money::round($count) * $dailyFor($priceDate);
         }
 
         $computedLeavePay = Money::round($leaveEarnings);                         // [R02a] DIVERGENCE 6
@@ -737,15 +865,21 @@ final class PayslipCalculator
          */
         $overtimeMinutes = 0.0;
         $overtimeEarnings = 0.0;
-
-        $cap = Minutes::round($r->maxOtHours * 60);
+        // DIVERGENCE 17: whether any day's version pays night on overtime.
+        $nightOnOvertime = false;
 
         foreach ($days as $day) {
+            $dayRules = $rulesOn($day->date);
+            $dayRates = $dayRules->rates;
+            $cap = Minutes::round($dayRates->maxOtHours * 60);
+            // DIVERGENCE 16: a day approved as seaport overtime has no cap.
+            $seaport = ($overtimeCategories[$day->date] ?? null) === PayRules::OVERTIME_SEAPORT;
+            $dayCap = $seaport ? 1440.0 : $cap;
             // DIVERGENCE 7: under per-day approval a day pays only the minutes
             // the DTR approved, and never more than it computed or the cap.
             $minutes = $overtimeApprovals === null
-                ? min($day->overtimeMinutes, $cap)
-                : min($day->overtimeMinutes, (float) ($overtimeApprovals[$day->date] ?? 0), $cap);
+                ? min($day->overtimeMinutes, $dayCap)
+                : min($day->overtimeMinutes, (float) ($overtimeApprovals[$day->date] ?? 0), $dayCap);
             if ($minutes <= 0) {
                 continue;
             }
@@ -762,37 +896,48 @@ final class PayslipCalculator
             // DIVERGENCE 13: an explicit matrix cell is the overtime hour's
             // percent of the base hourly rate; a null cell is the reference's
             // derivation, with the version's holiday overtime factor (1.3).
-            $overtimeCell = $rules->matrix[$dayType]['overtime'];
-            if ($overtimeCell !== null) {
+            // DIVERGENCE 16: a seaport day takes the version's seaport rate,
+            // whatever the day type, when the version has one.
+            $overtimeCell = $dayRules->matrix[$dayType]['overtime'];
+            if ($seaport && $dayRules->seaportRate !== null) {
+                $dayRate = $dayRules->seaportRate;
+            } elseif ($overtimeCell !== null) {
                 $dayRate = $overtimeCell / 100;
             } elseif ($holiday !== null) {
-                $dayRate = (self::num($holiday->percent) / 100) * $rules->holidayOvertimeFactor;
+                $dayRate = (self::num($holiday->percent) / 100) * $dayRules->holidayOvertimeFactor;
 
                 // Overtime is priced off the day's own rate, so if the day
                 // compounded above, its overtime compounds with it — by the
                 // same floored factor, for the same reason.
                 if (! $onWorkDay) {
-                    $dayRate *= max(1.0, $r->restDayRate);
+                    $dayRate *= max(1.0, $dayRates->restDayRate);
                 }
             } else {
-                $dayRate = $onWorkDay ? $r->otRate : $r->restDayRate * $r->otRate;
+                $dayRate = $onWorkDay ? $dayRates->otRate : $dayRates->restDayRate * $dayRates->otRate;
             }
 
             $overtimeMinutes += $minutes;
-            $overtimeEarnings += ($minutes / 60) * $hourlyFor($day->date) * $dayRate;
+            // DIVERGENCE 16: the overtime hour's rate rounded before the hours
+            // multiply it, when the version rounds.
+            $overtimeEarnings += $roundsOn($day->date)
+                ? ($minutes / 60) * $dayRules->roundRate($hourlyFor($day->date) * $dayRate)
+                : ($minutes / 60) * $hourlyFor($day->date) * $dayRate;
 
             // DIVERGENCE 13: the overtime hours that fall in the night
             // window, after the scheduled shift ends, earn the night add-on.
-            if ($rules->nightOnOvertime) {
+            if ($dayRules->nightOnOvertime) {
+                $nightOnOvertime = true;
                 $span = ShiftResolver::shiftSpan($schedule->forDate($day->date));
                 if ($span !== null) {
-                    $nightOvertime = ShiftResolver::nightMinutesBetween($span[1], $span[1] + $minutes, $rules->nightStart, $rules->nightEnd);
-                    $nightOvertimeEarnings += ($dailyFor($day->date) / $dailyHoursFor($day->date)) * $nightAddOnFor($dayType, $holiday) * ($nightOvertime / 60);
+                    $nightOvertime = ShiftResolver::nightMinutesBetween($span[1], $span[1] + $minutes, $dayRules->nightStart, $dayRules->nightEnd);
+                    $nightOvertimeEarnings += $roundsOn($day->date)
+                        ? $dayRules->roundRate($derivedHourlyFor($day->date) * $nightAddOnFor($day->date, $dayType, $holiday)) * ($nightOvertime / 60)
+                        : $derivedHourlyFor($day->date) * $nightAddOnFor($day->date, $dayType, $holiday) * ($nightOvertime / 60);
                 }
             }
         }
 
-        $night_differential ??= Money::round($rules->nightOnOvertime             // [R08] payroll.ts:528
+        $night_differential ??= Money::round($nightOnOvertime                    // [R08] payroll.ts:528
             ? $computedNsd + $nightOvertimeEarnings
             : $computedNsd);
 
@@ -822,6 +967,22 @@ final class PayslipCalculator
             + $other_earnings
             + $bonus,
         );
+        // DIVERGENCE 14: the settlement of earlier presumed days is pay for
+        // those days, so it joins gross — and so the taxable base — as one
+        // more term of [R12]. Only when it is something: a payslip that
+        // settles nothing keeps the reference's sum above, operation for
+        // operation.
+        if ($settlement !== 0.0) {
+            $gross_pay = Money::round(                                            // [R12] again, one term longer
+                $total_base_pay
+                + ($overtime_acknowledged ? $overtime_pay : 0.0)
+                + $night_differential
+                + $leave_pay
+                + $other_earnings
+                + $bonus
+                + $settlement,
+            );
+        }
 
         // An incomplete punch is treated as an absence. Do not also charge the
         // late minutes from its unmatched TIME_IN.
@@ -832,10 +993,16 @@ final class PayslipCalculator
             if ($day->status !== DayRecord::PRESENT && $day->status !== DayRecord::LATE) {
                 continue;
             }
-            $key = substr($day->date, 0, 7).'|'.($storedHourly > 0 ? 'override' : $dailyHoursFor($day->date));
+            // DIVERGENCE 17: keyed by the pricing date, so a version change
+            // inside the month prices each side's minutes at its own hour.
+            $key = $priceDateFor($day->date).'|'.($storedHourly > 0 ? 'override' : $dailyHoursFor($day->date));
             $rateDates[$key] = $day->date;
-            $lateByRate[$key] = ($lateByRate[$key] ?? 0.0) + $day->lateMinutes;
-            $undertimeByRate[$key] = ($undertimeByRate[$key] ?? 0.0) + $day->undertimeMinutes;
+            // DIVERGENCE 15: the part of the day's minutes leave credits covered
+            // is not priced; with no charges (the reference) the factor is
+            // exactly 1.0, and the reference's addition is kept as it is.
+            $uncovered = $leaveCharges === null ? 1.0 : 1.0 - min(1.0, max(0.0, self::num($leaveCharges['late'][$day->date] ?? 0.0)));
+            $lateByRate[$key] = ($lateByRate[$key] ?? 0.0) + ($uncovered === 1.0 ? $day->lateMinutes : $day->lateMinutes * $uncovered);
+            $undertimeByRate[$key] = ($undertimeByRate[$key] ?? 0.0) + ($uncovered === 1.0 ? $day->undertimeMinutes : $day->undertimeMinutes * $uncovered);
         }
 
         // The payslip reports one figure for each. With a single month in the
@@ -913,30 +1080,33 @@ final class PayslipCalculator
         $pagibigTable = Statutory::pagibig($contributionBase, $statutory);
         $endsMonth = StatutoryLines::endsMonth($periodEnd);                      // payroll.ts:587
         $hasGrossPay = $gross_pay > 0.0;                                          // payroll.ts:588
+        // DIVERGENCE 19: what the month's posted payslips already took of
+        // each share; 0 on the reference path, which never reads it.
+        $posted = static fn (string $key): float => self::num($contributionPosted[$key] ?? 0.0);
 
         $rawSss = Money::round(StatutoryLines::contribution(                     // [R15] payroll.ts:589
             $employee->allow_sss ?? null, $hasGrossPay, $employee->fixed_sss_ee ?? null,
-            $sssTable['employee'], $employee->sss_mode ?? null, $endsMonth,
+            $sssTable['employee'], $employee->sss_mode ?? null, $endsMonth, $posted('sss'),
         ));
         $sss_er = Money::round(StatutoryLines::contribution(                     // [R16] payroll.ts:598
             $employee->allow_sss ?? null, $hasGrossPay, $employee->fixed_sss_er ?? null,
-            $sssTable['employer'], $employee->sss_mode ?? null, $endsMonth,
+            $sssTable['employer'], $employee->sss_mode ?? null, $endsMonth, $posted('sss_er'),
         ));
         $rawPhilhealth = Money::round(StatutoryLines::contribution(              // [R17] payroll.ts:607
             $employee->allow_philhealth ?? null, $hasGrossPay, $employee->fixed_philhealth_ee ?? null,
-            $philhealthTable['employee'], $employee->philhealth_mode ?? null, $endsMonth,
+            $philhealthTable['employee'], $employee->philhealth_mode ?? null, $endsMonth, $posted('philhealth'),
         ));
         $philhealth_er = Money::round(StatutoryLines::contribution(              // [R18] payroll.ts:616
             $employee->allow_philhealth ?? null, $hasGrossPay, $employee->fixed_philhealth_er ?? null,
-            $philhealthTable['employer'], $employee->philhealth_mode ?? null, $endsMonth,
+            $philhealthTable['employer'], $employee->philhealth_mode ?? null, $endsMonth, $posted('philhealth_er'),
         ));
         $rawPagibig = Money::round(StatutoryLines::contribution(                 // [R19] payroll.ts:625
             $employee->allow_pagibig ?? null, $hasGrossPay, $employee->fixed_pagibig_ee ?? null,
-            $pagibigTable['employee'], $employee->pagibig_mode ?? null, $endsMonth,
+            $pagibigTable['employee'], $employee->pagibig_mode ?? null, $endsMonth, $posted('pagibig'),
         ));
         $pagibig_er = Money::round(StatutoryLines::contribution(                 // [R20] payroll.ts:634
             $employee->allow_pagibig ?? null, $hasGrossPay, $employee->fixed_pagibig_er ?? null,
-            $pagibigTable['employer'], $employee->pagibig_mode ?? null, $endsMonth,
+            $pagibigTable['employer'], $employee->pagibig_mode ?? null, $endsMonth, $posted('pagibig_er'),
         ));
 
         $taxable = StatutoryLines::taxable(                                       // payroll.ts:644-647
@@ -1001,7 +1171,169 @@ final class PayslipCalculator
             total_deductions: $total_deductions,
             // Deliberately unclamped. This CAN be negative.
             net_pay: Money::round($gross_pay - $total_deductions),                // [R26] payroll.ts:717
+            // DIVERGENCE 14: counts and a settled amount, reported beside
+            // the day buckets; 0 on the reference path.
+            presumed_days: (float) count($presumed),
+            settlement: $settlement,
+            // DIVERGENCE 15: the days of leave credits this payslip charged,
+            // absences and converted lateness together; 0 on the reference path.
+            leave_charged_days: $chargedAbsenceDays + ($leaveCharges === null ? 0.0 : self::num($leaveCharges['late_days'])),
+            // DIVERGENCE 19: the salary the tables were read at, reported.
+            contribution_base: Money::round($contributionBase),
         );
+    }
+
+    /**
+     * The DTR rows a payslip prices, and the presumed dates among them: the
+     * reference's employment window over the period, then divergence 14's
+     * presumption after the counted date. Public so the payroll application
+     * can read the SAME rows the engine prices — for what a day's lateness
+     * and absences charge to leave credits (divergence 15) — without a
+     * second reading of the attendance.
+     *
+     * The employment window clips the DTR range. Both comparisons are plain
+     * lexicographic comparisons on 'Y-m-d', exactly as the reference does
+     * them — strcmp() rather than PHP's `>` so a numeric-looking value can
+     * never trip PHP's string-to-number comparison rules. A missing
+     * date_hired reproduces JS `undefined > "2025-01-01"` === false, which
+     * selects periodStart; a null-or-empty date_resigned is falsy in the
+     * reference and selects periodEnd.
+     *
+     * DELIBERATE DIVERGENCE 14 — THE ADVANCE PAYROLL. A payroll processed
+     * before its period ends reads attendance only through
+     * `$attendanceThrough`; the days after it are paid as they are
+     * scheduled, and what they turn out to be worth is settled on the next
+     * payroll (`$settlement` in compute()). The DTR rows of those days are
+     * REPLACED here, before anything is priced, so every rule sees a full
+     * worked day and never the punches the day happens to carry: the
+     * presumption is a decision about the days, not a reading of them. Null
+     * — the reference, and every golden vector — replaces nothing, and the
+     * rows are the DTR's own.
+     *
+     * @param  list<AttendanceLog>  $logs
+     * @param  list<LeaveRequest>  $leaves
+     * @param  list<HolidaySetting>  $holidays
+     * @return array{0: list<DayRecord>, 1: array<string, true>} the rows, and the presumed dates
+     */
+    public static function attendanceDays(object $employee, array $logs, ?Shift $shift, array $leaves, string $periodStart, string $periodEnd, array $holidays, ?string $attendanceThrough): array
+    {
+        $hired = self::dateKey($employee->date_hired ?? null) ?? $periodStart;
+        $resigned = self::dateKey($employee->date_resigned ?? null);
+
+        $effectiveStart = strcmp($hired, $periodStart) > 0 ? $hired : $periodStart;
+        $effectiveEnd = ($resigned !== null && strcmp($resigned, $periodEnd) < 0)
+            ? $resigned
+            : $periodEnd;
+
+        /** @var list<DayRecord> $days */
+        $days = strcmp($effectiveStart, $effectiveEnd) <= 0
+            ? DtrCalculator::compute($logs, $shift, $leaves, $effectiveStart, $effectiveEnd, $holidays)
+            : [];
+
+        /** @var array<string, true> $presumed */
+        $presumed = [];
+        if ($attendanceThrough !== null && strcmp($attendanceThrough, $effectiveEnd) < 0) {
+            $days = self::presumeDays($days, $attendanceThrough, $shift ?? Shift::default(), $holidays, $presumed);
+        }
+
+        return [$days, $presumed];
+    }
+
+    /**
+     * What one day of `$date` pays this employee, exactly as compute()
+     * prices a paid day: an entered Rate Per Day as it stands (DIVERGENCE
+     * 10), else the monthly rate by the rules' daily-rate method over the
+     * month's scheduled working days (DIVERGENCE 13) — the same operations
+     * `$dailyFor` performs inside compute(), restated here for a caller
+     * that prices days outside a payslip's attendance: the leave credit
+     * cash-out, which pays days of credits at this rate. Never used by
+     * compute() itself.
+     */
+    public static function dailyRateOn(object $employee, string $date, ?Shift $shift, PayRules $rules): float
+    {
+        $storedDaily = self::num($employee->daily_rate ?? null);
+        $monthly = self::num($employee->monthly_rate ?? null);
+        // DIVERGENCE 18: the salary version in force on the date, when one
+        // took over after the first day.
+        foreach (is_array($employee->salary_rates ?? null) ? $employee->salary_rates : [] as $segment) {
+            if (is_array($segment) && is_string($segment['from'] ?? null) && $segment['from'] <= $date) {
+                $monthly = self::num($segment['monthly_rate'] ?? null);
+                $storedDaily = self::num($segment['daily_rate'] ?? null);
+            }
+        }
+        if ($storedDaily > 0) {
+            return $storedDaily;
+        }
+        $range = PayrollPeriod::calendarMonthRange($date);
+        $scheduled = ShiftResolver::scheduledWorkDaysForShift($range['from'], $range['to'], $shift ?? Shift::default());
+        if ($scheduled === 0) {
+            throw new RuntimeException('The weekly shift roster needs at least one working day.');
+        }
+
+        // DIVERGENCE 16: rounded as compute() rounds its own daily rate.
+        return $rules->roundRate(match ($rules->dailyRateMethod) {
+            PayRules::METHOD_FACTOR => $monthly * 12 / $rules->dailyRateValue,
+            PayRules::METHOD_DIVISOR => $monthly / $rules->dailyRateValue,
+            default => $monthly / $scheduled,
+        });
+    }
+
+    /**
+     * DIVERGENCE 14: the DTR rows after `$attendanceThrough`, each scheduled
+     * working day among them replaced by a PRESUMED day — present for the
+     * paid shift, nothing late, nothing short, no overtime, no night (the
+     * night loop skips it) — and recorded in `$presumed`. The rule is about
+     * the DAYS: a punch the day already carries, complete or open, is set
+     * aside, so finalizing on the 12th prices the 12th to the 15th the same
+     * whoever is at work right now.
+     *
+     * Three kinds of day keep the DTR's own row: a rest day (nothing is
+     * owed for it), a holiday (an unworked holiday is priced by its own
+     * rule, as the reference prices it) and a whole day of approved leave
+     * without a punch (leave is priced as leave). Official business is kept
+     * as the DTR credits it — the paid shift, nothing late — with any
+     * overtime its punches carried set aside like every other presumed
+     * day's.
+     *
+     * @param  list<DayRecord>  $days
+     * @param  list<HolidaySetting>  $holidays
+     * @param  array<string, true>  $presumed  filled with the presumed dates
+     * @return list<DayRecord>
+     */
+    private static function presumeDays(array $days, string $attendanceThrough, Shift $schedule, array $holidays, array &$presumed): array
+    {
+        $result = [];
+        foreach ($days as $day) {
+            if (strcmp($day->date, $attendanceThrough) <= 0
+                || ! ShiftResolver::worksOnDate($day->date, $schedule)
+                || HolidaySetting::on($day->date, $holidays) !== null
+                || ($day->status === DayRecord::EXCUSED && $day->excuseDays >= 1.0)) {
+                $result[] = $day;
+
+                continue;
+            }
+            $presumed[$day->date] = true;
+            $officialBusiness = $day->status === DayRecord::OFFICIAL_BUSINESS;
+            $result[] = new DayRecord(
+                date: $day->date,
+                timeIn: null,
+                breakOut: null,
+                breakIn: null,
+                timeOut: null,
+                workedMinutes: ShiftResolver::paidShiftMinutes($schedule->forDate($day->date)),
+                lateMinutes: 0.0,
+                undertimeMinutes: 0.0,
+                overtimeMinutes: 0.0,
+                excused: $officialBusiness,
+                excuseType: $officialBusiness ? $day->excuseType : null,
+                excusePaid: null,
+                breakMinutes: 0.0,
+                excuseDays: 0.0,
+                status: $officialBusiness ? DayRecord::OFFICIAL_BUSINESS : DayRecord::PRESENT,
+            );
+        }
+
+        return $result;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

@@ -36,6 +36,7 @@ use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
 
 /** Credits, filing, reports, attendance and captured payroll facts all subtract exactly the same cancelled dates. */
@@ -218,9 +219,10 @@ it('preserves schema-six evidence bytes and fingerprints without inferring live 
     $inputs = PayrollData::calculateDrafts([$employee->id], '2026-10-12', '2026-10-14', actor: $actor)['inputs'];
     $legacy = $inputs->toArray();
     $legacy['schema_version'] = 6;
+    $legacy = PayrollEvidenceFixture::beforeSchema17($legacy);
     unset($legacy['attendance'][$employee->id]['leaves'][0]['cancelled_dates']);
     // Schema 6 evidence carries no Contribution & Tax Table versions either (schema 8).
-    unset($legacy['statutory_tables'], $legacy['pay_rules'], $legacy['benefit_rules'], $legacy['deduction_rules']);
+    unset($legacy['statutory_tables'], $legacy['pay_rules'], $legacy['benefit_rules'], $legacy['deduction_rules'], $legacy['recurring_lines'], $legacy['skipped_recurring_lines'], $legacy['attendance_through'], $legacy['settlements'], $legacy['leave_charges'], $legacy['leave_cash_outs'], $legacy['cash_out_type'], $legacy['gov_policies'], $legacy['adjustments']);
     $json = PayrollInputs::json($legacy);
     $restored = PayrollInputs::restore($json);
 

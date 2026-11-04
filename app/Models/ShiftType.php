@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Collection;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A shift pattern that can be assigned to an employee (Shifting Settings).
@@ -38,7 +36,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property bool $requires_break_punch
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
- * @property-read Collection<int, Shift> $shifts
  */
 class ShiftType extends BaseModel
 {
@@ -82,11 +79,5 @@ class ShiftType extends BaseModel
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return HasMany<Shift, $this> */
-    public function shifts(): HasMany
-    {
-        return $this->hasMany(Shift::class, 'shift_type_id');
     }
 }

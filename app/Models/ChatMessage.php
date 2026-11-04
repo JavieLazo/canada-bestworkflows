@@ -11,8 +11,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * One message in a Chat conversation. TEXT from a person, or SYSTEM ("created
  * the group") with no sender. Removing a message keeps the row with
  * `removed_at` set and the body cleared, so the thread shows a placeholder.
+ * Its sender can edit the text, and `edited_at` says when.
  *
- * `sender_id` comes from the session, so it is not mass-assignable.
+ * `sender_id` comes from the session and `edited_at` only from its sender's
+ * edit, so neither is mass-assignable.
  *
  * @property string $id
  * @property string $conversation_id
@@ -21,6 +23,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $body
  * @property string|null $reply_to_id
  * @property CarbonImmutable|null $removed_at
+ * @property CarbonImmutable|null $edited_at
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -44,6 +47,7 @@ class ChatMessage extends BaseModel
         return [
             'sender_id' => 'integer',
             'removed_at' => 'immutable_datetime',
+            'edited_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];

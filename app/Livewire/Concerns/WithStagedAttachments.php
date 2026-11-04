@@ -17,7 +17,8 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  * take them the same way, so they share this.
  *
  * Each draft has a slot: `post`, `chat`, `c-<post id>` for a comment,
- * `r-<comment id>` for a reply, `avatar` for a group photo. The picker
+ * `r-<comment id>` for a reply, `e-<post id>` for what an edit adds to a
+ * post, `avatar` for a group photo. The picker
  * (resources/js/attachment-picker.js) uploads each file into
  * `picked.<slot>`, and updatedPicked() checks it and moves it onto
  * `staged[<slot>]`, so a second pick adds to the first instead of replacing
@@ -47,7 +48,7 @@ trait WithStagedAttachments
     {
         foreach ($this->picked as $slot => $files) {
             // A slot is a draft this page has, never a path of the browser's choosing.
-            if (! is_string($slot) || preg_match('/^(post|chat|avatar|[cr]-[A-Za-z0-9-]{1,40})$/', $slot) !== 1) {
+            if (! is_string($slot) || preg_match('/^(post|chat|avatar|[cre]-[A-Za-z0-9-]{1,40})$/', $slot) !== 1) {
                 continue;
             }
 

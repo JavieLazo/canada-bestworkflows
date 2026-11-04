@@ -8,9 +8,12 @@ use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveCredit;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
+use App\Modules\Timekeeping\Application\LeaveBalances;
+use App\Modules\Timekeeping\Application\LeaveCashOuts;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveCreditView;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\HrisFormat;
@@ -22,10 +25,12 @@ use Illuminate\Support\Collection;
  * derived from them.
  *
  * A balance is never stored: it is this year's entered credit minus the
- * covered days of the APPROVED, with-pay requests of the same type whose
- * start date falls in the year (Domain\Absence\LeaveCreditPolicy), computed
- * here from ONE batched read of each table for a whole page of employees,
- * never a query per row. Both tables are read behind the leave list's scope
+ * credits the APPROVED, with-pay requests drawing on the year used
+ * (LeaveBalances: the working days frozen on each approval, the calendar
+ * days of an older row), computed here from ONE batched read of each table
+ * for a whole page of employees, never a query per row — plus what the
+ * employee's unpaid cash-outs have spoken for, so `available` is what filing
+ * judges by. Both tables are read behind the leave list's scope
  * — all_data + LEAVES sees everyone, a linked account its own rows, an
  * unlinked account nothing — and `own()` pins the actor's own employee on
  * top of it for My Portal, so an all_data holder's "mine" stays theirs.
@@ -93,6 +98,7 @@ final class LeaveCreditRecords
         $names = $this->typeNames($actor);
         $credits = $this->forYear($actor, $year, $employeeIds);
         $requests = $this->requestQuery($actor, $year)->whereIn('employee_id', $employeeIds)->get()->groupBy('employee_id');
+        $spoken = LeaveCashOuts::spokenForMany($employeeIds);
 
         $out = [];
         foreach ($employeeIds as $employeeId) {
@@ -101,7 +107,7 @@ final class LeaveCreditRecords
                 $entered[$key] = (float) $view->credits;
             }
             $keys = $this->keysFor(array_keys($types), array_keys($entered));
-            $out[$employeeId] = $this->rows($keys, $entered, $requests->get($employeeId, new Collection), $year, $types, $names);
+            $out[$employeeId] = $this->rows($keys, $entered, $requests->get($employeeId, new Collection), $year, $types, $names, $spoken[$employeeId] ?? []);
         }
 
         return $out;
@@ -146,7 +152,7 @@ final class LeaveCreditRecords
         $keys = array_values(array_filter($this->keysFor(array_keys($types), array_keys($entered)), static fn (string $key): bool => isset($entered[$key])));
         $requests = $this->requestQuery($actor, $year)->where('employee_id', '=', $actor->ownEmployeeId())->get();
 
-        return collect($this->rows($keys, $entered, $requests, $year, $types, $this->typeNames($actor)));
+        return collect($this->rows($keys, $entered, $requests, $year, $types, $this->typeNames($actor), LeaveCashOuts::spokenFor($actor->ownEmployeeId())));
     }
 
     /** @return Builder<LeaveCredit> */
@@ -156,18 +162,19 @@ final class LeaveCreditRecords
     }
 
     /**
-     * The year's approved requests — the policy decides which of them draw
-     * on a credit and by how much.
+     * The approved requests drawing on the year — the policy decides which
+     * of them draw on a credit and by how much.
      *
      * @return Builder<LeaveTravelRequest>
      */
     private function requestQuery(Access $actor, int $year): Builder
     {
-        return LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')
+        $query = LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')
             ->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
             ->where('status', 'APPROVED')
-            ->whereBetween('start_date', [sprintf('%04d-01-01', $year), sprintf('%04d-12-31', $year)])
-            ->select(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid']);
+            ->select(LeaveBalances::columns());
+
+        return LeaveBalances::drawingOn($query, $year);
     }
 
     /**
@@ -192,37 +199,27 @@ final class LeaveCreditRecords
      * @param  Collection<int, LeaveTravelRequest>  $requests  the year's approved requests of this employee
      * @param  array<string, string>  $types  token => name
      * @param  list<string>  $names
+     * @param  array<string, float>  $spoken  token => days claimed by unpaid cash-outs
      * @return list<LeaveBalanceView>
      */
-    private function rows(array $keys, array $entered, Collection $requests, int $year, array $types, array $names): array
+    private function rows(array $keys, array $entered, Collection $requests, int $year, array $types, array $names, array $spoken = []): array
     {
-        $used = array_fill_keys($keys, 0.0);
-        foreach ($requests as $request) {
-            if (! LeaveCreditPolicy::consumes($request->status, $request->request_type, $request->is_paid)) {
-                continue;
-            }
-            $key = LeaveCreditPolicy::resolveKey($request->request_type, $keys);
-            if ($key === null) {
-                continue;
-            }
-            $used[$key] += LeaveCreditPolicy::coveredDays(
-                $request->day_type,
-                $request->start_date->format('Y-m-d'),
-                $request->end_date->format('Y-m-d'),
-                $request->cancelledDates(),
-            );
-        }
+        $used = LeaveBalances::usage($requests, $keys, $year);
 
         $rows = [];
         foreach ($keys as $key) {
             $credited = $entered[$key] ?? null;
+            $remaining = $credited === null ? null : LeaveQuantity::normalize($credited - $used[$key]);
+            $claimed = LeaveQuantity::normalize($spoken[$key] ?? 0.0);
             $rows[] = new LeaveBalanceView(
                 request_type: $key,
                 label: $types[$key] ?? self::staleLabel($key, $types, $names),
                 year: $year,
                 credited: $credited,
                 used: $used[$key],
-                remaining: $credited === null ? null : $credited - $used[$key],
+                remaining: $remaining,
+                spoken_for: $claimed,
+                available: $remaining === null ? null : LeaveQuantity::normalize($remaining - $claimed),
             );
         }
 

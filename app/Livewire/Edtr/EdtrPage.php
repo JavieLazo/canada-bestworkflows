@@ -11,13 +11,14 @@ use App\Domain\Attendance\HolidaySetting;
 use App\Domain\Attendance\Shift as DomainShift;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
-use App\Livewire\Edtr\Support\CorrectPunches;
 use App\Livewire\Edtr\Support\Hris;
 use App\Livewire\Kit\Support\DepartmentFilter;
 use App\Modules\Organization\Contracts\HolidayCalendar;
+use App\Modules\Timekeeping\Application\Commands\CorrectPunches;
 use App\Modules\Timekeeping\Application\Commands\DecideOvertime;
 use App\Modules\Timekeeping\Application\Commands\DecidePendingOvertime;
 use App\Modules\Timekeeping\Application\Commands\SaveRemark;
+use App\Modules\Timekeeping\Application\OvertimeCreditColumn;
 use App\Modules\Timekeeping\Application\Queries\AttendanceRemarks;
 use App\Modules\Timekeeping\Application\Queries\DayCorrections;
 use App\Modules\Timekeeping\Application\Queries\OvertimeDecisions;
@@ -176,13 +177,16 @@ class EdtrPage extends Component
     public bool $overtimeOpen = false;
 
     /**
-     * The per-day dialog's overtime draft: minutes to approve and a note.
-     * Free text the approver edits — no id in it, so not #[Locked];
-     * DecideOvertime re-validates both against the day it recomputes.
+     * The per-day dialog's overtime draft: minutes to approve, a note,
+     * whether the day is seaport overtime (priced at its own rate, never
+     * capped) and the minutes credited as Compensatory Leave instead of
+     * paid. Free text and a tick the approver edits — no id in it, so not
+     * #[Locked]; DecideOvertime re-validates all four against the day it
+     * recomputes.
      *
-     * @var array<string, string>
+     * @var array<string, string|bool>
      */
-    public array $overtimeForm = ['minutes' => '', 'note' => ''];
+    public array $overtimeForm = ['minutes' => '', 'note' => '', 'seaport' => false, 'credited' => ''];
 
     public ?string $overtimeError = null;
 
@@ -450,6 +454,8 @@ class EdtrPage extends Component
                 ? $view->overtime->approved_minutes
                 : $view->overtime->ceiling),
             'note' => (string) ($view->overtime->note ?? ''),
+            'seaport' => $view->overtime->category === OvertimeApprovalPolicy::CATEGORY_SEAPORT,
+            'credited' => $view->overtime->credited_minutes > 0 ? (string) $view->overtime->credited_minutes : '',
         ];
         $this->overtimeError = null;
     }
@@ -466,7 +472,7 @@ class EdtrPage extends Component
     {
         $this->overtimeOpen = false;
         $this->overtimeDate = null;
-        $this->overtimeForm = ['minutes' => '', 'note' => ''];
+        $this->overtimeForm = ['minutes' => '', 'note' => '', 'seaport' => false, 'credited' => ''];
         $this->overtimeError = null;
     }
 
@@ -506,6 +512,8 @@ class EdtrPage extends Component
                 $decision,
                 $this->overtimeForm['minutes'] ?? '',
                 (string) ($this->overtimeForm['note'] ?? ''),
+                category: ($this->overtimeForm['seaport'] ?? false) === true ? OvertimeApprovalPolicy::CATEGORY_SEAPORT : null,
+                credited: $this->overtimeForm['credited'] ?? '',
             );
         } catch (QueryException) {
             $this->overtimeError = 'The decision could not be saved. Nothing was changed.';
@@ -699,6 +707,9 @@ class EdtrPage extends Component
             'selfName' => $selfOnly ? Hris::employeeName($this->visibleEmployee($actor, $targetId)) : '',
             'correction' => $correction,
             'overtimeReview' => $overtimeReview,
+            // The dialog's ceiling follows the seaport tick before the save.
+            'overtimeCap' => $overtimeReview === null ? 0.0 : app(OpenPunchLimit::class)->hours(),
+            'overtimeCreditReady' => OvertimeCreditColumn::present(),
             'overtimeByDate' => $overtimeByDate,
             'correctionAutoRemark' => $correctionAutoRemark,
             'correctionStaleTick' => $correctionStaleTick,

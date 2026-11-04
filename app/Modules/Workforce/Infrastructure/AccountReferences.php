@@ -6,6 +6,8 @@ namespace App\Modules\Workforce\Infrastructure;
 
 use App\Models\EmployeeDocument;
 use App\Models\EmployeeRecordChangeRequest;
+use App\Models\EmployeeSalaryRate;
+use App\Modules\Workforce\Application\SalaryRates;
 use App\Platform\Retention\AccountReferenceSource;
 use Illuminate\Support\Facades\Schema;
 
@@ -15,6 +17,7 @@ final class AccountReferences implements AccountReferenceSource
     public function references(int|string $accountId): bool
     {
         return EmployeeDocument::query()->where('uploaded_by', $accountId)->exists()
+            || (SalaryRates::ready() && EmployeeSalaryRate::query()->where(static fn ($query) => $query->where('prepared_by', $accountId)->orWhere('approved_by', $accountId))->exists())
             || (Schema::hasTable('employee_record_change_requests') && EmployeeRecordChangeRequest::query()->where(static fn ($query) => $query->where('requested_by', $accountId)->orWhere('reviewed_by', $accountId)->orWhere('withdrawn_by', $accountId))->exists());
     }
 }

@@ -8,6 +8,7 @@ use App\Domain\Attendance\CalendarDays;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Livewire\Edtr\Support\Hris;
+use App\Modules\Timekeeping\Application\Queries\CompensatoryHours;
 use App\Modules\Timekeeping\Application\Queries\OwnAttendance;
 use App\Support\Access;
 use App\Support\ManilaClock;
@@ -77,6 +78,8 @@ class MyAttendance extends Component
 
         return view('livewire.portal.my-attendance', [
             'attendance' => $attendance,
+            // Compensatory Leave hours earned: the overtime minutes credited instead of paid, the employee's own rows.
+            'compMinutes' => $access->hasEmployeeLink() ? app(CompensatoryHours::class)->earnedMinutes($access, $access->ownEmployeeId()) : 0,
             'linked' => $access->hasEmployeeLink(),
             'today' => ManilaClock::todayKey(),
         ]);

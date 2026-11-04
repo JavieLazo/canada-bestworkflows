@@ -34,9 +34,9 @@ final class EmployeePayContextQuery implements EmployeePayContexts
             $e->employee_id_no,
             // The statutory switches and overrides the engine reads. Named, so
             // none can land in another's slot; every one is a calculation
-            // input. No screen edits them (the record has no Payroll
-            // Settings section): a row keeps what it holds, which for a new
-            // hire is the column default.
+            // input. The columns are the baseline: Payroll lays an employee's
+            // approved Contributions & tax version over them before computing;
+            // a new hire holds the column defaults.
             allow_sss: (bool) $e->allow_sss,
             allow_philhealth: (bool) $e->allow_philhealth,
             allow_pagibig: (bool) $e->allow_pagibig,

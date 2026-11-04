@@ -79,7 +79,7 @@ function convPhp(array $roots, array $except = []): array
             }
         }
         foreach ($paths as $path) {
-            $rel = substr($path, strlen($base));
+            $rel = str_replace(DIRECTORY_SEPARATOR, '/', substr($path, strlen($base)));
             if (in_array($rel, $except, true)) {
                 continue;
             }
@@ -118,7 +118,7 @@ function convBlade(array $dirs): array
                 static fn (array $m): string => str_repeat("\n", substr_count($m[0], "\n")),
                 $src,
             );
-            $files[substr($file->getPathname(), strlen($base))] = $src;
+            $files[str_replace(DIRECTORY_SEPARATOR, '/', substr($file->getPathname(), strlen($base)))] = $src;
         }
     }
     ksort($files);
@@ -443,7 +443,7 @@ it('resolves Access inside every Livewire action that writes', function () {
     // lifecycle hooks are not actions.
     $lifecycle = ['mount', 'render', 'boot', 'booted', 'hydrate', 'dehydrate', 'rendering', 'rendered', 'exception'];
     $writes = '/->(handle|save|saveQuietly|update|updateOrCreate|updateOrInsert|upsert|delete|forceDelete|insert|create|firstOrCreate|sync\w*|attach|detach|touch)\(|DB::transaction\(|\bStorage::|::create\(|AuditService::record\(|CorrectPunches::apply\(|PasswordWriter::class/';
-    $appRoot = rtrim(app_path(), '/').'/';
+    $appRoot = str_replace(DIRECTORY_SEPARATOR, '/', rtrim(app_path(), '/')).'/';
 
     /** @var array<string, list<string>> $lines comment-stripped source lines, by file */
     $lines = [];
@@ -475,7 +475,7 @@ it('resolves Access inside every Livewire action that writes', function () {
             if (! $method->isPublic() || $method->isStatic() || in_array($name, $lifecycle, true)) {
                 continue;
             }
-            if (! str_starts_with((string) $method->getFileName(), $appRoot)) {
+            if (! str_starts_with(str_replace(DIRECTORY_SEPARATOR, '/', (string) $method->getFileName()), $appRoot)) {
                 continue;
             }
             $source = $body($method);

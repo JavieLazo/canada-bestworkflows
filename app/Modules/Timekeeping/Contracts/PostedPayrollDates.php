@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Timekeeping\Contracts;
 
+use App\Domain\Enums\ModuleCode;
 use App\Support\Access;
 
 /**
@@ -25,14 +26,16 @@ use App\Support\Access;
 interface PostedPayrollDates
 {
     /**
-     * Read-only coverage for the DTR's approval controls, scoped to the
-     * actor's EDTR rows. Unlike the write guards below, this does not
-     * acquire locks. The write still checks under its lock.
+     * Read-only coverage for the screens' controls, scoped to the actor's
+     * rows on `$module`: EDTR for the DTR's approval and correction
+     * controls, LEAVES for a leave review. Unlike the write guards below,
+     * this does not acquire locks. The write still checks under its lock.
      *
      * @param  list<string>  $employeeIds
+     * @param  string  $module  a ModuleCode value
      * @return array<string, list<array{start: string, end: string}>>
      */
-    public function coveredPeriods(Access $actor, array $employeeIds, string $start, string $end): array;
+    public function coveredPeriods(Access $actor, array $employeeIds, string $start, string $end, string $module = ModuleCode::EDTR): array;
 
     /** Takes payroll's membership lock, held until the caller's transaction ends. */
     public function lock(): void;
@@ -48,4 +51,14 @@ interface PostedPayrollDates
      * it refuses the change as a whole.
      */
     public function lockAndPaidThrough(string $employeeId, string $from, ?string $to = null): ?string;
+
+    /**
+     * Takes the lock and answers which dates from `$from` through `$to` a
+     * posted payslip of this employee already covers, oldest first — empty
+     * when none. A leave approved onto those dates changes the DTR but never
+     * the payslip, so ReviewAbsence says so and tells payroll.
+     *
+     * @return list<string>
+     */
+    public function lockAndPaidDates(string $employeeId, string $from, string $to): array;
 }

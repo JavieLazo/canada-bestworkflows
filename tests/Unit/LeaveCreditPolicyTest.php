@@ -116,31 +116,6 @@ it('would still consume a pending request once approved, which is what the revie
 
 /* |---| Which credit a request is charged to |---| */
 
-it('matches a stored token to a credit key exactly or through the _LEAVE spelling, one way only', function () {
-    expect(LeaveCreditPolicy::matches('SICK_LEAVE', 'SICK'))->toBeTrue()
-        ->and(LeaveCreditPolicy::matches('SICK_LEAVE', 'SICK_LEAVE'))->toBeTrue()
-        ->and(LeaveCreditPolicy::matches('SICK', 'SICK'))->toBeTrue()
-        ->and(LeaveCreditPolicy::matches('SICK', 'SICK_LEAVE'))->toBeFalse()
-        ->and(LeaveCreditPolicy::matches('VACATION_LEAVE', 'SICK'))->toBeFalse()
-        ->and(LeaveCreditPolicy::matches('SICK_LEAVE', 'sick'))->toBeFalse();
-});
-
-it('forwards matches to HrisFormat::requestTypeMatches so a request is counted by the rule that labels it', function () {
-    $pairs = [
-        ['SICK_LEAVE', 'SICK'],
-        ['SICK_LEAVE', 'SICK_LEAVE'],
-        ['SICK', 'SICK_LEAVE'],
-        ['VACATION_LEAVE', 'VACATION'],
-        ['EMERGENCY_LEAVE', 'SICK'],
-        ['LEAVE_WITHOUT_PAY', 'LEAVE'],
-    ];
-
-    foreach ($pairs as [$key, $token]) {
-        expect(LeaveCreditPolicy::matches($key, $token))
-            ->toBe(HrisFormat::requestTypeMatches($key, $token), "matches({$key}, {$token}) no longer forwards");
-    }
-});
-
 it('matches the bare LEAVE token of the payroll fixtures to no seeded credit key — a deliberate gap', function () {
     // PayrollLeavePayTest and PaidLeaveDaysTest file under 'LEAVE', a token no
     // Leave Settings name normalises to. Credits are display only, so those
@@ -151,10 +126,6 @@ it('matches the bare LEAVE token of the payroll fixtures to no seeded credit key
         'VACATION_LEAVE', 'SICK_LEAVE', 'BUSINESS_TRAVEL_OB', 'EMERGENCY_LEAVE',
         'MATERNITY_LEAVE', 'PATERNITY_LEAVE', 'LEAVE_WITHOUT_PAY',
     ]);
-
-    foreach ($keys as $key) {
-        expect(LeaveCreditPolicy::matches($key, 'LEAVE'))->toBeFalse("{$key} matched the bare LEAVE token");
-    }
 
     expect(LeaveCreditPolicy::resolveKey('LEAVE', $keys))->toBeNull();
 });
@@ -171,6 +142,7 @@ it('resolves a request to its exact credit key before the _LEAVE spelling, and t
         'no matching key' => ['SICK', ['VACATION_LEAVE', 'EMERGENCY_LEAVE'], null],
         'official business is never charged' => ['BUSINESS_TRAVEL', ['BUSINESS_TRAVEL_OB', 'SICK_LEAVE'], null],
         'comparison is strict' => ['SICK', ['sick', 'Sick_Leave'], null],
+        'a lower-case token matches no key' => ['sick', ['SICK', 'SICK_LEAVE'], null],
     ];
 
     foreach ($cases as $case => [$requestType, $creditKeys, $resolved]) {
@@ -180,7 +152,7 @@ it('resolves a request to its exact credit key before the _LEAVE spelling, and t
 
 /* |---| What a typed credit may be |---| */
 
-it('refuses a typed credit that is not whole or half days between 0 and 9999.99, and lets a blank through', function (mixed $value, ?string $error) {
+it('refuses a typed credit that is not a number of days with up to four decimals between 0 and 999999.9999, and lets a blank through', function (mixed $value, ?string $error) {
     expect(LeaveCreditPolicy::creditError($value))->toBe($error);
 })->with([
     'blank means no row' => ['', null],
@@ -188,25 +160,28 @@ it('refuses a typed credit that is not whole or half days between 0 and 9999.99,
     'an explicit zero is a row' => ['0', null],
     'a half step' => ['12.5', null],
     'a bare half' => ['.5', null],
-    'exponent notation is numeric and lands on a whole day' => ['1e3', null],
+    'a quarter day' => ['0.25', null],
+    'a month\'s earning' => ['1.167', null],
+    'four decimals' => ['43.3025', null],
+    'five decimals' => ['1.16675', LeaveCreditPolicy::STEP_ERROR],
+    'exponent notation is not a credit' => ['1e3', LeaveCreditPolicy::STEP_ERROR],
     'a comma is not a decimal point' => ['12,5', LeaveCreditPolicy::STEP_ERROR],
     'letters' => ['abc', LeaveCreditPolicy::STEP_ERROR],
     'negative' => ['-1', LeaveCreditPolicy::RANGE_ERROR],
-    'above the column ceiling' => ['10000', LeaveCreditPolicy::RANGE_ERROR],
-    'the ceiling itself' => ['9999.99', LeaveCreditPolicy::STEP_ERROR],
-    'a quarter day' => ['0.25', LeaveCreditPolicy::STEP_ERROR],
+    'above the column ceiling' => ['1000000', LeaveCreditPolicy::RANGE_ERROR],
+    'the ceiling itself' => ['999999.9999', null],
     'an int' => [12, null],
     'a float on the half' => [7.5, null],
-    'a float off the half' => [7.25, LeaveCreditPolicy::STEP_ERROR],
+    'a float off the half' => [7.25, null],
     'null is not a value' => [null, LeaveCreditPolicy::STEP_ERROR],
     'an array is not a value' => [[], LeaveCreditPolicy::STEP_ERROR],
     'a bool is not a value' => [true, LeaveCreditPolicy::STEP_ERROR],
 ]);
 
 it('spells the two refusals the way the dialog shows them and pins the range', function () {
-    expect(LeaveCreditPolicy::STEP_ERROR)->toBe('Enter a number of days in half-day steps.')
-        ->and(LeaveCreditPolicy::RANGE_ERROR)->toBe('Credits must be between 0 and 9999.99.')
-        ->and(LeaveCreditPolicy::MAX_CREDITS)->toBe(9999.99)
+    expect(LeaveCreditPolicy::STEP_ERROR)->toBe('Enter a number of days with up to four decimals.')
+        ->and(LeaveCreditPolicy::RANGE_ERROR)->toBe('Credits must be between 0 and 999999.9999.')
+        ->and(LeaveCreditPolicy::MAX_CREDITS)->toBe(999999.9999)
         ->and(LeaveCreditPolicy::YEAR_MIN)->toBe(2000)
         ->and(LeaveCreditPolicy::YEAR_MAX)->toBe(2100);
 });

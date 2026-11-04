@@ -111,6 +111,9 @@
                                 <h2 class="text-base font-bold">Leave credits · {{ $creditYear }}</h2>
                                 <div class="flex flex-wrap items-center gap-3">
                                     <p class="text-xs text-muted-foreground">Used days come from approved leave with pay.</p>
+                                    @if ($cashOutTypes !== [])
+                                        <flux:button size="sm" variant="outline" icon="banknotes" wire:click="$set('cashOutOpen', true)" data-cash-out-button>Cash out credits</flux:button>
+                                    @endif
                                 </div>
                             </div>
                             @if ($balances->isEmpty())
@@ -130,17 +133,58 @@
                                             @foreach ($balances as $b)
                                                 <tr wire:key="credit-{{ $b->request_type }}">
                                                     <td>{{ $b->label }}</td>
-                                                    <td class="num text-right">{{ PortalLabels::dayCount($b->credited) }}</td>
-                                                    <td class="num text-right">{{ PortalLabels::dayCount($b->used) }}</td>
+                                                    <td class="num text-right">{{ PortalLabels::credits($b->credited) }}</td>
+                                                    <td class="num text-right">{{ PortalLabels::credits($b->used) }}</td>
                                                     <td class="num text-right">
-                                                        <span @class(['pill pill-caution' => $b->remaining <= 0])>{{ PortalLabels::dayCount($b->remaining) }}</span>
+                                                        <span @class(['pill pill-caution' => $b->remaining <= 0])>{{ PortalLabels::credits($b->remaining) }}</span>
                                                     </td>
                                                 </tr>
                                             @endforeach
                                         </tbody>
                                     </table>
                                 </div>
+                                @php $setAside = $balances->sum(static fn ($b) => $b->spoken_for); @endphp
+                                <p class="px-5 pb-3 text-xs text-muted-foreground" data-credit-note>
+                                    Lateness and absences are charged to these credits first, so a balance can go below zero.
+                                    @if ($setAside > 0)
+                                        <span class="num">{{ PortalLabels::credits($setAside) }}</span> {{ $setAside === 1.0 ? 'day is' : 'days are' }} set aside for cash-out requests and cannot be filed.
+                                    @endif
+                                </p>
                             @endif
+                            {{-- MY cash-out requests (LeaveCashOutRecords::own): what was asked, decided and paid. --}}
+                            @if ($cashOuts->isNotEmpty())
+                                <div class="border-t border-border px-5 py-3" data-cash-outs>
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash-out requests</p>
+                                    <ul class="mt-2 space-y-1 text-sm">
+                                        @foreach ($cashOuts as $c)
+                                            <li class="flex flex-wrap items-center justify-between gap-2" wire:key="cash-out-{{ $c->id }}" data-cash-out="{{ $c->status }}">
+                                                <span>{{ $c->type_name }} · <span class="num">{{ PortalLabels::credits($c->days) }}</span> {{ $c->days === 1.0 ? 'day' : 'days' }} · {{ $c->requested_at->setTimezone(\App\Support\ManilaClock::TZ)->format('M d, Y') }}@if ($c->amount !== null) · <span class="num">₱{{ number_format($c->amount, 2) }}</span>@endif</span>
+                                                <span class="flex items-center gap-2">
+                                                    <span class="pill {{ match ($c->status) { 'PENDING' => 'pill-caution', 'APPROVED' => 'pill-primary', 'PAID' => 'pill-success-strong', default => 'pill-muted' } }}">{{ ucfirst(strtolower($c->status)) }}</span>
+                                                    @if ($c->status === 'PENDING')
+                                                        <flux:button size="xs" variant="ghost" wire:click="withdrawCashOut('{{ $c->id }}')">Withdraw</flux:button>
+                                                    @endif
+                                                </span>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                </div>
+                            @endif
+                            <flux:modal wire:model.self="cashOutOpen" class="w-full max-w-md" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'cash-out-heading')">
+                                <div class="space-y-4" data-cash-out-dialog>
+                                    <flux:heading size="lg" id="cash-out-heading">Cash out leave credits</flux:heading>
+                                    <flux:text class="text-sm text-muted-foreground">Turn part of your credits into pay, in whole or half days. A leave manager approves it, and it is paid on your next regular payroll at your daily rate.</flux:text>
+                                    <x-kit.select label="Leave type" wire:model="cashOutType" placeholder="Choose a leave type">
+                                        @foreach ($cashOutTypes as $option)<flux:select.option value="{{ $option['value'] }}">{{ $option['label'] }}</flux:select.option>@endforeach
+                                    </x-kit.select>
+                                    <flux:input label="Days" type="number" min="0.5" step="0.5" wire:model="cashOutDays" />
+                                    <flux:textarea label="Note (optional)" wire:model="cashOutNote" rows="2" maxlength="500" />
+                                    <div class="flex flex-wrap justify-end gap-2">
+                                        <flux:button variant="ghost" wire:click="$set('cashOutOpen', false)">Cancel</flux:button>
+                                        <flux:button variant="primary" icon="check" wire:click="requestCashOut">Send request</flux:button>
+                                    </div>
+                                </div>
+                            </flux:modal>
                         </div>
                     @endif
 
@@ -164,6 +208,17 @@
                                     @endforeach
                                 </x-kit.select>
                             </div>
+                            @if ($dayType === 'HALF_DAY' && $halvesReady)
+                                <div class="space-y-2">
+                                    <flux:label for="portal-half">Which half</flux:label>
+                                    <x-kit.select id="portal-half" wire:model.live="half">
+                                        <flux:select.option value="">Either half</flux:select.option>
+                                        @foreach (PortalLabels::HALVES as $value => $label)
+                                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                                        @endforeach
+                                    </x-kit.select>
+                                </div>
+                            @endif
                         </div>
 
                         <div class="grid grid-cols-2 gap-3">
@@ -198,9 +253,10 @@
                             @elseif ($hintBalance !== null)
                                 <p class="text-sm text-muted-foreground" data-credit-hint>
                                     This request needs
-                                    <span @class(['num', 'pill pill-caution' => $creditHint['needs'] > $hintBalance->remaining])>{{ $hintNeeds }} {{ $creditHint['needs'] === 1.0 ? 'day' : 'days' }}</span>;
-                                    you have <span class="num">{{ PortalLabels::dayCount($hintBalance->remaining) }}</span>
-                                    {{ $hintBalance->label }} {{ $hintBalance->remaining === 1.0 ? 'credit' : 'credits' }} left.
+                                    <span @class(['num', 'pill pill-caution' => $creditHint['needs'] > $hintBalance->available])>{{ $hintNeeds }} {{ $creditHint['needs'] === 1.0 ? 'day' : 'days' }}</span>
+                                    (rest days and holidays cost nothing);
+                                    you have <span class="num">{{ PortalLabels::credits((float) $hintBalance->available) }}</span>
+                                    {{ $hintBalance->label }} {{ $hintBalance->available === 1.0 ? 'credit' : 'credits' }} available{{ $hintBalance->spoken_for > 0 ? ', with '.PortalLabels::credits($hintBalance->spoken_for).' set aside for cash-out' : '' }}.
                                 </p>
                             @endif
                         @endif
@@ -251,7 +307,7 @@
                                 @foreach ($mine as $r)
                                     <tr wire:key="req-{{ $r->id }}">
                                         <td>{{ PortalLabels::describe($r->request_type, $leaveTypeNames) }}</td>
-                                        <td class="whitespace-nowrap">{{ PortalLabels::dayTypeLabel($r->day_type) }}</td>
+                                        <td class="whitespace-nowrap">{{ PortalLabels::dayTypeLabel($r->day_type, $r->half ?? null) }}</td>
                                         <td class="num">{{ $r->start_date->format('M d, Y') }}</td>
                                         <td class="num">{{ $r->end_date->format('M d, Y') }}</td>
                                         <td>

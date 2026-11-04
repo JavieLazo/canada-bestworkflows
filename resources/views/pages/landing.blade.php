@@ -37,7 +37,6 @@
     <link rel="icon" href="/bestworkflows-icon-32.png" type="image/png" sizes="32x32">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    @fonts
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-brand-surface text-brand-slate font-body antialiased selection:bg-brand-amber selection:text-white">

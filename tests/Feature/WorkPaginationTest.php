@@ -198,10 +198,10 @@ it('keeps project task sorting filtering and aggregate policies equivalent to th
     expect($summary->total)->toBe(18)
         ->and($summary->progress())->toBe(ProjectPolicy::progress(ProjectsData::taskShapes($tasks)))
         ->and($summary->health($view, '2026-09-17'))->toBe(ProjectPolicy::health(ProjectsData::projectShape($view), ProjectsData::taskShapes($tasks), '2026-09-17'));
-    // Both status questions, for every current status, with and without a
-    // Task Leader, on a project with open tasks, one whose tasks are all
-    // closed and one with none: the aggregate's stand-in task must answer as
-    // the full task list does. An unknown target is asked too.
+    // The hand-set status question, for every current status, with and
+    // without a Task Leader, on a project with open tasks, one whose tasks
+    // are all closed and one with none: the aggregate's stand-in task must
+    // answer as the full task list does. An unknown target is asked too.
     $closed = Project::create(['code' => 'PRJ-002', 'name' => 'All closed', 'status' => 'PLANNING', 'start_date' => '2026-09-01']);
     foreach (['COMPLETED', 'CANCELLED'] as $i => $status) {
         ProjectTask::create(['code' => sprintf('TSK-C%02d', $i), 'project_id' => $closed->id, 'title' => 'Closed', 'status' => $status, 'priority' => 'NORMAL']);
@@ -219,15 +219,15 @@ it('keeps project task sorting filtering and aggregate policies equivalent to th
                 foreach ([...array_keys(ProjectPolicy::STATUSES), 'UNKNOWN'] as $next) {
                     $reference = ProjectPolicy::statusError(ProjectsData::projectShape($rowView), ProjectsData::taskShapes($rowTasks), $next);
                     $manual = ManualProjectStatus::error(ProjectsData::projectShape($rowView), ProjectsData::taskShapes($rowTasks), $next);
-                    expect($totals->statusError($rowView, $next))->toBe($reference, $row->code.' '.$current.' → '.$next)
-                        ->and($totals->manualStatusError($rowView, $next))->toBe($manual, $row->code.' '.$current.' → '.$next.' (by hand)');
+                    expect($totals->manualStatusError($rowView, $next))->toBe($manual, $row->code.' '.$current.' → '.$next.' (by hand)');
                     $diverged += $reference === $manual ? 0 : 1;
                 }
             }
         }
     }
     // The hand-set map really differs from the reference one (a completed
-    // project can be reopened), so the loop above compares two questions.
+    // project can be reopened), so the loop above does not merely restate
+    // the reference map.
     expect($diverged)->toBeGreaterThan(0);
     $workload = app(WorkSummary::class)->workload($actor, $project->id, '2026-09-17');
     foreach ($workload as $row) {

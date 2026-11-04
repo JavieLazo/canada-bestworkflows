@@ -10,6 +10,7 @@ use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
 use App\Models\PayrollRunMemberDeduction;
 use App\Models\PayrollRunMemberIncentive;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Modules\Payroll\Contracts\Views\PayrollRunMemberView;
 use App\Modules\Payroll\Contracts\Views\PayrollRunView;
 use App\Platform\ReadModels\Snapshot;
@@ -99,7 +100,7 @@ final class PayrollRecords
     }
 
     /**
-     * How many payrolls type each Records Management deduction, DRAFT and
+     * How many payrolls type each Payroll Deductions row, DRAFT and
      * FINALIZED apart: a draft's lines leave with a deleted row, a
      * finalized run's keep it on the list. Posted payslips copy names, so a
      * later catalog edit cannot rewrite one.
@@ -109,7 +110,7 @@ final class PayrollRecords
      */
     public function deductionUsage(Access $actor, array $deductionIds): array
     {
-        if (! $actor->mayReadAllData(ModuleCode::RECORDS) || $deductionIds === []) {
+        if (! PayrollSettingsAccess::mayManage($actor) || $deductionIds === []) {
             return [];
         }
 

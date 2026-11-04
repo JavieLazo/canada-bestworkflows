@@ -263,6 +263,18 @@ final class Attachments
         }
     }
 
+    /** A stored file's SHA-256, or null when it's gone. Lets an edit spot a photo or file the post already had. */
+    public static function fingerprint(string $path): ?string
+    {
+        $disk = Storage::disk('local');
+        if ($path === '' || ! $disk->exists($path)) {
+            return null;
+        }
+        $hash = hash_file('sha256', $disk->path($path));
+
+        return $hash === false ? null : $hash;
+    }
+
     /**
      * A stored photo or file, streamed to someone the caller has already
      * cleared to see it. A photo shows in the page, or downloads for the

@@ -121,6 +121,12 @@
                 {{ $cutoffError }}
             </p>
         @endif
+        {{-- A warning, never a block: the withholding table's figures are not confirmed through 31 December (StatutoryTables). --}}
+        @if ($statutoryWarning)
+            <p role="status" data-statutory-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
+                {{ $statutoryWarning }}
+            </p>
+        @endif
         @if ($issue)
             <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
                 {{ $issue['employee'] }}: {{ $issue['message'] }}

@@ -541,8 +541,26 @@ final class DtrCalculator
                 // back from `shiftEnd`, so it is forgiven half the RAW span.
                 // Halving the raw span for both hands back half the break a
                 // second time on a half-day that is also late.
-                $lateMinutes = max(0.0, $lateMinutes - Minutes::round($paidShiftLength / 2));
-                $undertimeMinutes = max(0.0, $undertimeMinutes - Minutes::round($shiftLength / 2));
+                //
+                // DELIBERATE DIVERGENCE 21: a half day that SAYS which half is
+                // off is forgiven only when the punches show THAT half was the
+                // one taken — the morning off (AM) needs the first punch at or
+                // after the day's midpoint, the afternoon off (PM) the last punch
+                // at or before it. Worked on the wrong half, nothing is forgiven:
+                // the day reads as a plain day. A half day that says neither, a
+                // flexible shift and an overnight one keep the reference's
+                // reading, both halves forgiven whichever was taken.
+                $honoured = true;
+                if ($excuse->half !== null && ! $s->isFlexible() && ! $overnight) {
+                    $midpoint = $shiftStart + $shiftLength / 2;
+                    $honoured = $excuse->half === LeaveRequest::HALF_AM
+                        ? $this->minutesOfDay($punchIn) >= $midpoint
+                        : ($punchOut === null || $this->minutesOfDay($punchOut) <= $midpoint);
+                }
+                if ($honoured) {
+                    $lateMinutes = max(0.0, $lateMinutes - Minutes::round($paidShiftLength / 2));
+                    $undertimeMinutes = max(0.0, $undertimeMinutes - Minutes::round($shiftLength / 2));
+                }
             }
 
             $records[] = new DayRecord(

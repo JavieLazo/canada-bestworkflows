@@ -28,7 +28,7 @@ use Carbon\CarbonImmutable;
  *
  * @property-read string $employee_id
  * @property-read string $status NONE (no row), SUBMITTED, RETURNED or APPROVED
- * @property-read string $task_status the task's own status — content-free, and what awaitsReview() needs
+ * @property-read string $task_status the task's own status — content-free; with `status` it is what TaskSubmissionPolicy::responseAwaitsReview() reads
  * @property-read bool $is_self
  * @property-read bool $content_visible
  * @property-read string|null $id content — null while the member has no row
@@ -87,15 +87,5 @@ final readonly class TaskResponseView extends Record
     public function pill(): string
     {
         return TaskSubmissionPolicy::memberStatusPill($this->status);
-    }
-
-    /**
-     * Whether this response sits with the reviewer — submitted while its task
-     * is still in progress. A response left submitted on a closed task waits
-     * on nobody ({@see TaskSubmissionPolicy::responseAwaitsReview()}).
-     */
-    public function awaitsReview(): bool
-    {
-        return TaskSubmissionPolicy::responseAwaitsReview($this->task_status, $this->status);
     }
 }

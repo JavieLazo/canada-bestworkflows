@@ -50,12 +50,6 @@ final class TableTransfers
     }
 
     /** @return list<string> */
-    public function exportKeys(): array
-    {
-        return array_keys($this->exports);
-    }
-
-    /** @return list<string> */
     public function importKeys(): array
     {
         return array_keys($this->imports);

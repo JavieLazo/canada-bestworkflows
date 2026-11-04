@@ -93,8 +93,6 @@
                     </div>
                 @elseif ($own && $open->can_withdraw)
                     <div class="flex justify-end"><flux:button variant="outline" wire:click="withdraw">Withdraw request</flux:button></div>
-                @elseif (! $own && $open->status === 'PENDING')
-                    <p class="text-sm text-muted-foreground">Another employee records manager must review this request.</p>
                 @endif
                 <div class="flex justify-end"><flux:modal.close><flux:button variant="ghost">Close</flux:button></flux:modal.close></div>
             </div>

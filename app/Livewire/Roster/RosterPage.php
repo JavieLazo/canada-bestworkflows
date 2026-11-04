@@ -527,13 +527,6 @@ class RosterPage extends Component
         }
     }
 
-    /** A saved date button is still untrusted form input; the command checks it. */
-    public function pickScheduleDate(string $date): void
-    {
-        $this->scheduleDate = $date;
-        $this->updatedScheduleDate();
-    }
-
     /**
      * Load one saved temporary schedule into the dialog to change it. The id
      * is a client argument, so it is matched against the schedules the

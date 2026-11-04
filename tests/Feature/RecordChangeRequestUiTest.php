@@ -24,7 +24,7 @@ use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
-/** My Profile submits proposals for independent review; Employee Records writes require management access. */
+/** My Profile submits proposals for management review, the requester's own management account included; Employee Records writes require management access. */
 function recuiEmployee(string $name = 'Requester'): EmployeeProfile
 {
     return EmployeeProfile::query()->create([
@@ -221,16 +221,16 @@ it('requires a rejection explanation and retains the official data when rejected
         ->and(EmployeeEmploymentHistory::query()->where('employee_id', $employee->id)->exists())->toBeFalse();
 });
 
-it('keeps another account of the same employee from self-approving', function () {
+it('lets another account of the same employee approve from the queue', function () {
     $employee = recuiEmployee();
     $request = recuiRequest(recuiActor($employee));
     recuiSignIn(recuiActor($employee, true, [ModuleCode::EMPLOYEES, ModuleCode::PROFILE]));
     Livewire::test(ChangeRequests::class)
         ->call('show', $request)
-        ->assertDontSee('Approve changes')
+        ->assertSee('Approve changes')
         ->call('review', true);
-    expect(EmployeeRecordChangeRequest::query()->findOrFail($request)->status)->toBe('PENDING')
-        ->and($employee->fresh()->emergency_name)->toBeNull();
+    expect(EmployeeRecordChangeRequest::query()->findOrFail($request)->status)->toBe('APPROVED')
+        ->and($employee->fresh()->emergency_name)->not->toBeNull();
 });
 
 it('shows only own requests and withdraws without editing the official record', function () {

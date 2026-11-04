@@ -39,7 +39,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read WorkSite|null $site
- * @property-read User|null $manager
  * @property-read Collection<int, ProjectTask> $tasks
  */
 class Project extends BaseModel
@@ -76,12 +75,6 @@ class Project extends BaseModel
     public function site(): BelongsTo
     {
         return $this->belongsTo(WorkSite::class, 'site_id');
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function manager(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'manager_id');
     }
 
     /** @return HasMany<ProjectTask, $this> */

@@ -29,7 +29,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * request is re-reviewed or withdrawn. `SaveLeaveCredits` and
  * `RecordLeaveCredit` preserve each allocation change in LeaveCreditEntry.
  *
- * `credits` is DECIMAL(6,2) cast `float`, never `decimal:N`. `employee()`
+ * `credits` is DECIMAL(10,4), signed cast `float`, never `decimal:N`. `employee()`
  * exists for scoping and tests. Row scoping widens on LEAVES alone, exactly
  * as `leave_travel_requests` does — and the My Portal read pins the actor's
  * own row on top of it.

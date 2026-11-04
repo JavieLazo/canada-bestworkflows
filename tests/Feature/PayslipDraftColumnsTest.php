@@ -78,7 +78,7 @@ it('casts the exempt-benefit columns to float and keeps the taxable base nullabl
 });
 
 it('fingerprints the Payroll module\'s own rules along with the engines', function () {
-    $files = array_map(static fn (string $path): string => str_replace(base_path().'/', '', $path), CalculatorVersion::files());
+    $files = array_map(static fn (string $path): string => str_replace(str_replace(DIRECTORY_SEPARATOR, '/', base_path()).'/', '', $path), CalculatorVersion::files());
 
     expect($files)->toContain('app/Modules/Payroll/Domain/Benefits/ExemptBenefitCeiling.php')
         ->toContain('app/Modules/Payroll/Domain/Benefits/ExemptBenefitSplit.php')

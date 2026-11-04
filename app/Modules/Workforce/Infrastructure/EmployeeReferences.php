@@ -6,6 +6,8 @@ namespace App\Modules\Workforce\Infrastructure;
 
 use App\Models\EmployeeDocument;
 use App\Models\EmployeeRecordChangeRequest;
+use App\Models\EmployeeSalaryRate;
+use App\Modules\Workforce\Application\SalaryRates;
 use App\Platform\Retention\EmployeeReferenceSource;
 use Illuminate\Support\Facades\Schema;
 
@@ -15,6 +17,7 @@ final class EmployeeReferences implements EmployeeReferenceSource
     public function references(string $employeeId): bool
     {
         return EmployeeDocument::query()->where('employee_id', $employeeId)->exists()
+            || (SalaryRates::ready() && EmployeeSalaryRate::query()->where('employee_id', $employeeId)->exists())
             || (Schema::hasTable('employee_record_change_requests') && EmployeeRecordChangeRequest::query()->where('employee_id', $employeeId)->exists());
     }
 }

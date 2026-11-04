@@ -20,10 +20,11 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * The incentive and bonus catalog under Records → Payroll Settings. The page
- * opens for RECORDS or PAYROLL — payroll officers pay the incentives and hold
- * no Records grant — and every write needs all-data in either, checked inside
- * the Payroll module's commands. Ids are minted as bare numbers under a locked
+ * The incentive and bonus catalog under Payroll → Payroll Settings. The page
+ * opens for PAYROLL holders and every write needs all-data PAYROLL
+ * (PayrollSettingsAccess: whoever manages payroll manages its settings),
+ * checked inside the Payroll module's commands; a Records holder without
+ * Payroll is turned away, its old address included. Ids are minted as bare numbers under a locked
  * scan; a type named by any payroll line cannot be deleted; the seeder only
  * ever adds.
  */
@@ -59,17 +60,23 @@ function inctypeUsed(PayrollIncentiveType $type): void
 
 /* |---| The page |---| */
 
-it('opens the page for RECORDS or PAYROLL holders and nobody else', function () {
-    $this->get('/records/incentive-types')->assertRedirect(route('login'));
+it('opens the page under Payroll Settings for PAYROLL holders and nobody else', function () {
+    $this->get('/payroll/settings/incentive-types')->assertRedirect(route('login'));
 
     inctypeActor(['PORTAL']);
-    $this->get('/records/incentive-types')->assertRedirect();
+    $this->get('/payroll/settings/incentive-types')->assertRedirect();
 
     inctypeActor(['PAYROLL'], allData: false);
-    $this->get('/records/incentive-types')->assertOk()->assertSee('Incentives &amp; Bonuses', false);
+    $this->get('/payroll/settings/incentive-types')->assertOk()->assertSee('Incentives &amp; Bonuses', false);
 
+    // Records Management alone opens neither the page nor its former address.
     inctypeActor(['RECORDS'], allData: false);
-    $this->get('/records/incentive-types')->assertOk();
+    $this->get('/payroll/settings/incentive-types')->assertRedirect();
+    $this->get('/records/incentive-types')->assertRedirect('/records/positions');
+
+    // A PAYROLL holder's old bookmark forwards.
+    inctypeActor(['PAYROLL'], allData: false);
+    $this->get('/records/incentive-types')->assertRedirect('/payroll/settings/incentive-types');
 });
 
 it('lists the catalog and offers edits only to an all-data holder', function () {
@@ -87,7 +94,7 @@ it('lists the catalog and offers edits only to an all-data holder', function () 
 });
 
 it('adds, edits and deletes a type through the page', function () {
-    inctypeActor(['RECORDS']);
+    inctypeActor(['PAYROLL']);
 
     Livewire::test(IncentiveTypesPage::class)
         ->call('openAdd')
@@ -118,7 +125,7 @@ it('adds, edits and deletes a type through the page', function () {
 
 /* |---| The commands, with no screen |---| */
 
-it('lets an all-data RECORDS or PAYROLL holder write, and refuses everyone else', function (string $who, bool $allowed) {
+it('lets an all-data PAYROLL holder write, and refuses everyone else, Records all-data included', function (string $who, bool $allowed) {
     $actor = match ($who) {
         'RECORDS all-data' => inctypeActor(['RECORDS']),
         'PAYROLL all-data' => inctypeActor(['PAYROLL']),
@@ -142,7 +149,7 @@ it('lets an all-data RECORDS or PAYROLL holder write, and refuses everyone else'
     expect(PayrollIncentiveType::query()->count())->toBe(1)
         ->and(AuditLog::query()->count())->toBe(0);
 })->with([
-    'RECORDS all-data' => ['RECORDS all-data', true],
+    'RECORDS all-data' => ['RECORDS all-data', false],
     'PAYROLL all-data' => ['PAYROLL all-data', true],
     'RECORDS without all-data' => ['RECORDS without all-data', false],
     'PAYROLL without all-data' => ['PAYROLL without all-data', false],
@@ -162,7 +169,7 @@ it('mints the next bare number over the whole catalog and never reuses a live on
 });
 
 it('refuses a blank, long or duplicate name and a long description', function () {
-    $actor = inctypeActor(['RECORDS']);
+    $actor = inctypeActor(['PAYROLL']);
     $existing = PayrollIncentiveType::create(['code' => '1', 'name' => 'Commission', 'is_taxable' => true]);
     $other = PayrollIncentiveType::create(['code' => '2', 'name' => 'Other Incentive', 'is_taxable' => true]);
     $save = app(SaveIncentiveType::class);

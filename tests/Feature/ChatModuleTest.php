@@ -19,11 +19,13 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Social\Application\Commands\AddChatMembers;
 use App\Modules\Social\Application\Commands\ChangeConversationPhoto;
+use App\Modules\Social\Application\Commands\EditMessage;
 use App\Modules\Social\Application\Commands\LeaveConversation;
 use App\Modules\Social\Application\Commands\MuteConversation;
 use App\Modules\Social\Application\Commands\ReactToMessage;
 use App\Modules\Social\Application\Commands\ReadConversation;
 use App\Modules\Social\Application\Commands\RemoveChatMember;
+use App\Modules\Social\Application\Commands\RemoveMessage;
 use App\Modules\Social\Application\Commands\RenameConversation;
 use App\Modules\Social\Application\Commands\SendMessage;
 use App\Modules\Social\Application\Commands\SetChatAdmin;
@@ -32,7 +34,9 @@ use App\Modules\Social\Application\Queries\ChatInbox;
 use App\Modules\Social\Application\SocialRules;
 use App\Support\Access;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -43,11 +47,14 @@ use Livewire\Livewire;
  *
  * Gated on the module grant; behind it, being in a conversation is the whole
  * permission model, and these tests hold every path to it: the list, the
- * thread, sending, reacting, removing and the photos all refuse an outsider
- * whatever id the client sends. Then the behaviour people notice: one direct
- * chat per pair, unread counts and "Seen" from one read position, viewing is
- * reading, mentions only in groups and never through a mute, a removal leaves
- * a tombstone, and the last person out of a group takes it with them.
+ * thread, sending, reacting, editing, removing and the photos all refuse an
+ * outsider whatever id the client sends. Then the behaviour people notice: one
+ * direct chat per pair, unread counts and "Seen" from one read position,
+ * viewing is reading, mentions only in groups and never through a mute, a
+ * removal leaves a tombstone, and the last person out of a group takes it with
+ * them. ONLY THE SENDER EDITS A MESSAGE, and A REMOVED MESSAGE STAYS REMOVED:
+ * no edit brings its text back, not even one a removal overtakes. An edit
+ * tells only the people it newly mentions and moves nobody's unread count.
  */
 
 /** @param list<string> $modules ModuleCode constants to grant */
@@ -580,6 +587,136 @@ it('removes only the sender\'s own message, leaving a tombstone without its phot
 
     expect(fn () => app(ReactToMessage::class)->handle(chatAccess($andrea), $mine, 'LIKE'))
         ->toThrow(RuntimeException::class, 'That message can no longer be reacted to.');
+});
+
+it('lets the sender edit their own message with no time limit, says so, and tells only the people the edit newly mentions', function () {
+    $andrea = chatUser('Andrea Lim');
+    $jose = chatUser('Jose Rivera');
+    $me = chatActor();
+    $id = chatStart($me, [$andrea, $jose], 'Depot');
+    $message = chatSay($me, $id, '@Andrea Lim, the gate is open.');
+    $unread = chatUnread($andrea, $id);
+    $stamp = app(ChatInbox::class)->stamp(chatAccess($andrea));
+
+    // A month later is fine: like Teams, an edit has no time limit.
+    $this->travel(30)->days();
+    Livewire::test(ChatPage::class)
+        ->call('openConversation', $id)
+        ->set('edits.'.$message, '@Andrea Lim and @Jose Rivera, the gate is open.')
+        ->call('saveEdit', $message)
+        ->assertDispatched('chat-edited', id: $message)
+        ->assertSeeText('Edited');
+
+    $edited = ChatMessage::query()->find($message);
+    expect($edited?->body)->toBe('@['.$andrea->getKey().'] and @['.$jose->getKey().'], the gate is open.')
+        ->and($edited?->edited_at)->not->toBeNull()
+        ->and(Notification::query()->where('user_id', $andrea->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $jose->getKey())->value('title'))->toBe('Kim Reyes mentioned you in Depot')
+        // An edit isn't a new message: nobody's unread count moves, but their page notices the change.
+        ->and(chatUnread($andrea, $id))->toBe($unread)
+        ->and(app(ChatInbox::class)->stamp(chatAccess($andrea)))->not->toBe($stamp);
+});
+
+it('refuses an edit to someone else\'s message, a system line, a removed message, and one that would leave it empty', function () {
+    $andrea = chatUser('Andrea Lim');
+    $me = chatActor();
+    $id = chatStart($me, [$andrea, chatUser('Jose Rivera')], 'Depot');
+    $theirs = chatSay($andrea, $id, 'Mine, not yours');
+    $mine = chatSay($me, $id, 'Mine');
+    $gone = chatSay($me, $id, 'Oops');
+    app(RemoveMessage::class)->handle(chatAccess($me), $gone);
+    $line = (string) ChatMessage::query()->where('kind', 'SYSTEM')->value('id');
+    $lineBefore = ChatMessage::query()->find($line)?->getAttributes();
+    $edit = app(EditMessage::class);
+
+    expect(fn () => $edit->handle(chatAccess($me), $theirs, 'Reworded'))
+        ->toThrow(RuntimeException::class, 'You can only edit your own messages.');
+    expect(fn () => $edit->handle(chatAccess($me), $line, 'Reworded'))
+        ->toThrow(RuntimeException::class, 'You can only edit your own messages.');
+    expect(fn () => $edit->handle(chatAccess($me), $gone, 'Back again'))
+        ->toThrow(RuntimeException::class, 'That message was removed.');
+    expect(fn () => $edit->handle(chatAccess($me), $mine, '  '))
+        ->toThrow(RuntimeException::class, 'Write something, or remove the message instead.');
+    expect(fn () => $edit->handle(chatAccess(chatUser('Grace Mendoza')), $mine, 'Hi'))
+        ->toThrow(RuntimeException::class, 'That message was not found.');
+
+    $removed = ChatMessage::query()->find($gone);
+    expect(ChatMessage::query()->find($theirs)?->body)->toBe('Mine, not yours')
+        ->and(ChatMessage::query()->find($mine)?->body)->toBe('Mine')
+        ->and(ChatMessage::query()->find($mine)?->edited_at)->toBeNull()
+        // The removed message keeps its tombstone: no text, never edited.
+        ->and($removed?->body)->toBeNull()
+        ->and($removed?->edited_at)->toBeNull()
+        ->and(ChatMessage::query()->find($line)?->getAttributes())->toBe($lineBefore);
+});
+
+it('refuses an edit that a removal overtakes, so the text never comes back', function () {
+    Event::fake([RealtimeChange::class]);
+    $this->withoutDefer();
+    config()->set('copems.realtime.enabled', true);
+    $andrea = chatUser('Andrea Lim');
+    $me = chatActor();
+    $id = chatStart($me, [$andrea, chatUser('Jose Rivera')], 'Depot');
+    $message = chatSay($me, $id, 'Oops');
+    $announced = Event::dispatched(RealtimeChange::class)->count();
+
+    // The removal commits after the edit has read the message and passed its
+    // removed_at check: just as the edit looks up the conversation.
+    $overtaken = false;
+    DB::listen(static function (QueryExecuted $query) use (&$overtaken, $message): void {
+        if (! $overtaken && str_contains($query->sql, 'chat_conversations')) {
+            $overtaken = true;
+            ChatMessage::query()->whereKey($message)->update(['body' => null, 'removed_at' => CarbonImmutable::now()->utc()->format('Y-m-d H:i:s.v')]);
+        }
+    });
+
+    expect(fn () => app(EditMessage::class)->handle(chatAccess($me), $message, '@Andrea Lim, never mind'))
+        ->toThrow(RuntimeException::class, 'That message was removed.');
+
+    $gone = ChatMessage::query()->find($message);
+    expect($overtaken)->toBeTrue()
+        ->and($gone?->removed_at)->not->toBeNull()
+        ->and($gone?->body)->toBeNull()
+        ->and($gone?->edited_at)->toBeNull()
+        ->and(Notification::query()->count())->toBe(0)
+        ->and(Event::dispatched(RealtimeChange::class)->count())->toBe($announced);
+});
+
+it('leaves a direct chat\'s edited text as typed, and tells nobody', function () {
+    $andrea = chatUser('Andrea Lim');
+    $me = chatActor();
+    $id = chatStart($me, [$andrea]);
+    $message = chatSay($me, $id, 'Thanks');
+
+    app(EditMessage::class)->handle(chatAccess($me), $message, 'Thanks @Andrea Lim, and @['.$andrea->getKey().']');
+
+    $edited = ChatMessage::query()->find($message);
+    expect($edited?->body)->toBe("Thanks @Andrea Lim, and @\u{2060}[".$andrea->getKey().']')
+        ->and($edited?->edited_at)->not->toBeNull()
+        ->and(Notification::query()->count())->toBe(0);
+});
+
+it('clears a message\'s text when its photos stay, keeping them and saying it was edited', function () {
+    Storage::fake('local');
+    $me = chatActor();
+    $id = chatStart($me, [chatUser('Andrea Lim')]);
+    $message = chatSay($me, $id, 'Look at the gate', photos: [
+        UploadedFile::fake()->image('gate.png', 20, 20),
+        UploadedFile::fake()->image('fence.png', 20, 20),
+    ]);
+    $paths = array_map('strval', ChatAttachment::query()->where('message_id', $message)->pluck('path')->all());
+
+    app(EditMessage::class)->handle(chatAccess($me), $message, '  ');
+
+    $edited = ChatMessage::query()->find($message);
+    expect($edited?->body)->toBeNull()
+        ->and($edited?->edited_at)->not->toBeNull()
+        ->and($edited?->removed_at)->toBeNull()
+        ->and($paths)->toHaveCount(2)
+        ->and(ChatAttachment::query()->where('message_id', $message)->count())->toBe(2);
+    foreach ($paths as $path) {
+        Storage::disk('local')->assertExists($path);
+    }
 });
 
 /*

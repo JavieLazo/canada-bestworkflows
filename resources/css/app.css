@@ -53,13 +53,10 @@
     --color-muted-foreground: var(--muted-foreground);
     --color-accent: var(--accent);
     --color-accent-foreground: var(--accent-foreground);
-    --color-destructive: var(--destructive);
-    --color-destructive-foreground: var(--destructive-foreground);
     --color-success: var(--success);
     --color-success-foreground: var(--success-foreground);
     --color-success-soft: var(--success-soft);
     --color-warning: var(--warning);
-    --color-warning-foreground: var(--warning-foreground);
     --color-warning-soft: var(--warning-soft);
     --color-danger: var(--danger);
     --color-danger-foreground: var(--danger-foreground);
@@ -67,20 +64,11 @@
     --color-border: var(--border);
     --color-input: var(--input);
     --color-ring: var(--ring);
-    --color-ring-offset-background: var(--background);
-    --color-chart-1: var(--chart-1);
-    --color-chart-2: var(--chart-2);
-    --color-chart-3: var(--chart-3);
-    --color-chart-4: var(--chart-4);
-    --color-chart-5: var(--chart-5);
     --color-sidebar: var(--sidebar);
     --color-sidebar-foreground: var(--sidebar-foreground);
-    --color-sidebar-primary: var(--sidebar-primary);
-    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
     --color-sidebar-accent: var(--sidebar-accent);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
     --color-sidebar-border: var(--sidebar-border);
-    --color-sidebar-ring: var(--sidebar-ring);
 
     --shadow-card: 0 1px 2px oklch(0.2 0.04 255 / 0.06), 0 8px 24px -12px oklch(0.2 0.04 255 / 0.14);
     --shadow-lift: 0 2px 4px oklch(0.2 0.04 255 / 0.06), 0 18px 40px -18px oklch(0.2 0.04 255 / 0.28);
@@ -118,34 +106,21 @@
     --success-soft: oklch(0.95 0.04 163);
 
     --warning: oklch(0.72 0.15 72);
-    --warning-foreground: oklch(0.26 0.06 72);
     --warning-soft: oklch(0.96 0.05 85);
 
     --danger: oklch(0.6 0.19 15);
     --danger-foreground: oklch(0.99 0.01 15);
     --danger-soft: oklch(0.955 0.03 15);
 
-    --destructive: oklch(0.6 0.19 15);
-    --destructive-foreground: oklch(0.99 0.01 15);
-
     --border: oklch(0.915 0.01 252);
     --input: oklch(0.915 0.01 252);
     --ring: oklch(0.55 0.19 258);
 
-    --chart-1: oklch(0.55 0.19 258);
-    --chart-2: oklch(0.6 0.13 163);
-    --chart-3: oklch(0.72 0.15 72);
-    --chart-4: oklch(0.6 0.19 15);
-    --chart-5: oklch(0.55 0.1 285);
-
     --sidebar: oklch(1 0 0);
     --sidebar-foreground: oklch(0.23 0.035 260);
-    --sidebar-primary: oklch(0.55 0.19 258);
-    --sidebar-primary-foreground: oklch(0.99 0.005 250);
     --sidebar-accent: oklch(0.95 0.03 258);
     --sidebar-accent-foreground: oklch(0.36 0.09 258);
     --sidebar-border: oklch(0.915 0.01 252);
-    --sidebar-ring: oklch(0.55 0.19 258);
 }
 
 .dark {
@@ -168,24 +143,18 @@
     --success-foreground: oklch(0.16 0.03 160);
     --success-soft: oklch(0.3 0.05 163);
     --warning: oklch(0.78 0.14 75);
-    --warning-foreground: oklch(0.2 0.04 72);
     --warning-soft: oklch(0.32 0.06 75);
     --danger: oklch(0.68 0.17 18);
     --danger-foreground: oklch(0.16 0.03 15);
     --danger-soft: oklch(0.32 0.07 18);
-    --destructive: oklch(0.68 0.17 18);
-    --destructive-foreground: oklch(0.16 0.03 15);
     --border: oklch(1 0 0 / 12%);
     --input: oklch(1 0 0 / 16%);
     --ring: oklch(0.66 0.16 258);
     --sidebar: oklch(0.22 0.03 260);
     --sidebar-foreground: oklch(0.96 0.006 250);
-    --sidebar-primary: oklch(0.66 0.16 258);
-    --sidebar-primary-foreground: oklch(0.16 0.03 260);
     --sidebar-accent: oklch(0.3 0.06 258);
     --sidebar-accent-foreground: oklch(0.93 0.02 258);
     --sidebar-border: oklch(1 0 0 / 12%);
-    --sidebar-ring: oklch(0.66 0.16 258);
 }
 
 @layer base {
@@ -704,7 +673,6 @@ select:focus[data-flux-control] {
 
 .reports-document-heading,
 .reports-document-title,
-.reports-statement-heading,
 .reports-section-heading,
 .reports-sheet-brand {
     display: flex;
@@ -921,22 +889,6 @@ select:focus[data-flux-control] {
     border-radius: var(--radius-lg);
 }
 
-.reports-statement-sequence {
-    display: grid;
-    gap: 0.15rem;
-    flex-shrink: 0;
-    text-align: right;
-    font-size: 0.7rem;
-}
-
-.reports-statement-title {
-    margin: 1.2rem 0 1rem;
-    overflow-wrap: anywhere;
-    font-size: 1rem;
-    font-weight: 700;
-    letter-spacing: -0.025em;
-}
-
 .reports-sheet-identity {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -954,87 +906,6 @@ select:focus[data-flux-control] {
     margin-top: 0.1rem;
     overflow-wrap: anywhere;
     font-weight: 500;
-}
-
-.reports-statement-totals {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem;
-    padding: 0;
-    background: var(--color-muted);
-}
-
-.reports-statement-totals > div {
-    padding: 0.9rem 0.75rem;
-}
-
-.reports-statement-totals .reports-net-pay {
-    background: var(--color-primary-soft);
-    color: var(--color-primary);
-}
-
-.reports-net-pay dt {
-    color: var(--color-primary);
-}
-
-.reports-statement-groups {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 1.25rem;
-    padding-top: 1.25rem;
-}
-
-.reports-statement-group {
-    grid-column: span 2;
-    min-width: 0;
-}
-
-.reports-statement-primary-group {
-    grid-column: span 3;
-}
-
-.reports-statement-group h4 {
-    padding-bottom: 0.45rem;
-    border-bottom: 2px solid var(--color-border);
-    font-size: 0.75rem;
-    font-weight: 700;
-}
-
-.reports-statement-group dl > div,
-.reports-statement-fallback > div {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.38rem 0;
-    border-bottom: 1px solid var(--color-border);
-    font-size: 0.67rem;
-    line-height: 1.45;
-}
-
-.reports-statement-group dt {
-    color: var(--color-muted-foreground);
-    overflow-wrap: anywhere;
-}
-
-.reports-statement-group dd {
-    max-width: 55%;
-    text-align: right;
-    overflow-wrap: anywhere;
-    font-weight: 500;
-}
-
-.reports-statement-group-note,
-.reports-statement-footer {
-    margin-top: 0.7rem;
-    color: var(--color-muted-foreground);
-    font-size: 0.6rem;
-    line-height: 1.6;
-    overflow-wrap: anywhere;
-}
-
-.reports-statement-footer {
-    padding-top: 0.7rem;
-    border-top: 1px solid var(--color-border);
 }
 
 .reports-sheet-brand {
@@ -1096,10 +967,6 @@ select:focus[data-flux-control] {
     .reports-statement {
         padding: 1rem;
     }
-
-    .reports-statement-group {
-        grid-column: span 3;
-    }
 }
 
 @media (max-width: 479px) {
@@ -1126,27 +993,6 @@ select:focus[data-flux-control] {
 
     .reports-sheet-identity {
         grid-template-columns: minmax(0, 1fr);
-    }
-
-    .reports-statement-totals {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 0;
-    }
-
-    .reports-statement-totals > div {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1rem;
-        padding: 0.65rem;
-    }
-
-    .reports-statement-totals dd {
-        margin-top: 0;
-    }
-
-    .reports-statement-group {
-        grid-column: 1 / -1;
     }
 }
 
@@ -1475,11 +1321,6 @@ select:focus[data-flux-control] {
         break-before: page;
     }
 
-    .reports-statement-title {
-        margin: 10pt 0 8pt;
-        font-size: 11pt;
-    }
-
     .reports-sheet-identity {
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 5pt 12pt;
@@ -1489,55 +1330,6 @@ select:focus[data-flux-control] {
 
     .reports-sheet-identity dt {
         font-size: 6.5pt;
-    }
-
-    .reports-statement-totals {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0;
-        padding: 0;
-    }
-
-    .reports-statement-totals > div {
-        display: block;
-        padding: 7pt;
-    }
-
-    .reports-statement-groups {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 12pt;
-        padding-top: 11pt;
-    }
-
-    .reports-statement-group {
-        grid-column: span 2;
-    }
-
-    .reports-statement-primary-group {
-        grid-column: span 3;
-    }
-
-    .reports-statement-group h4 {
-        font-size: 8pt;
-        padding-bottom: 4pt;
-        break-after: avoid;
-    }
-
-    .reports-statement-group dl > div {
-        gap: 6pt;
-        padding: 3pt 0;
-        font-size: 7pt;
-        line-height: 1.4;
-        break-inside: avoid;
-    }
-
-    .reports-statement-group-note,
-    .reports-statement-footer {
-        font-size: 6.5pt;
-        line-height: 1.45;
-    }
-
-    .reports-statement-footer {
-        break-inside: avoid;
     }
 
     .reports-attendance-sheet + .reports-attendance-sheet {

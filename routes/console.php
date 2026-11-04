@@ -1,12 +1,5 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
-
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
-
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
@@ -38,3 +31,23 @@ Schedule::call(function (): void {
         ->where('last_activity', '<', now()->subDay()->timestamp)
         ->delete();
 })->dailyAt('03:20')->name('prune-sessions')->withoutOverlapping();
+
+// The month-end leave earning: each employee's approved leave policy earns
+// credits for every month whose posting day has passed. The same window and
+// shape as the reminder sweep, for the same reason, and idempotent by the
+// (employee, month, leave type) unique key — an extra run writes nothing.
+Schedule::command('leave:post-earnings')
+    ->everyThirtyMinutes()
+    ->between('06:00', '20:00')
+    ->timezone('Asia/Manila')
+    ->withoutOverlapping();
+
+// An approved salary version dated ahead becomes the record's rates on its
+// day (SalaryRates::applyDue). Idempotent: a record already at its version's
+// rates is left alone, so the every-half-hour cadence is safe; the window
+// opens at midnight so the day's rates are on the record before anyone
+// reads it.
+Schedule::command('salary:apply-due')
+    ->everyThirtyMinutes()
+    ->timezone('Asia/Manila')
+    ->withoutOverlapping();

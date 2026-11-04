@@ -6,14 +6,13 @@ namespace App\Modules\Inventory\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
 use App\Models\InventoryCount;
-use App\Models\InventoryCountLine;
 use App\Modules\Inventory\Application\InventoryWrite;
 use App\Support\Access;
 use App\Support\AuditService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
-/** An independent reviewer closes count evidence; separate commands handle custody or condition. */
+/** A reviewer closes count evidence — any Inventory manager, the counter included; separate commands handle custody or condition. */
 final class ResolveCount
 {
     /** @param array<string, mixed> $input */
@@ -24,9 +23,6 @@ final class ResolveCount
         DB::transaction(function () use ($access, $id, $data): void {
             InventoryWrite::lock();
             $row = InventoryCount::query()->lockForUpdate()->findOrFail($id);
-            if ((string) $row->actor_id === $access->userId || ($access->hasEmployeeLink() && $row->actor_employee_id === $access->ownEmployeeId()) || ($access->hasEmployeeLink() && InventoryCountLine::query()->where('count_id', $id)->where('employee_id', $access->ownEmployeeId())->where('result', '!=', 'FOUND')->exists())) {
-                abort(403, 'Another Inventory manager must review this count.');
-            }
             if ($row->status !== 'OPEN') {
                 throw new \RuntimeException('This count has already been reviewed.');
             }

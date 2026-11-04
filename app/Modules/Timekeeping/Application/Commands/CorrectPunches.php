@@ -10,6 +10,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Models\AttendanceLog;
 use App\Models\AttendanceRemark;
+use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Domain\Attendance\CorrectionWindow;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Modules\Timekeeping\Domain\Roster\ResolvedLocation;
@@ -85,16 +86,26 @@ use RuntimeException;
  * instead. Database-engine concurrency guarantees must be tested separately
  * from SQLite behavior.
  *
+ * A DAY ALREADY PAID IS NOT CORRECTED. Once a posted payslip covers the
+ * date, its punches are what payroll paid: a correction would make the DTR
+ * disagree with the payslip, and nothing would ever pay or recover the
+ * difference. The refusal comes from PostedPayrollDates, the same guard the
+ * day's overtime decision and a schedule change take, and is checked under
+ * payroll's membership lock, taken FIRST in the transaction (the port's rule:
+ * before any other read). Only the corrected date is asked about —
+ * CorrectionWindow::misattribution already refuses a save that would move a
+ * punch onto any other date's row.
+ *
  * THE TRANSACTION IS RETRIED ON A DEADLOCK. Corrections of two neighbouring
  * dates lock overlapping attendance spans, and each inserts inside
- * its span: on MariaDB 11.4 the one that waited is chosen as the victim of a
- * 1213 when the other's insert lands next to its queued lock
- * (DatabaseConcurrencyTest, back-to-back nights). The closure touches nothing
- * but the database — the audit and the realtime knock run after it returns —
- * so it is simply run again against the committed rows, as InnoDB's own
- * guidance says; a refusal is never retried. A dedicated sentinel row taken
- * first would serialise them instead, but that is a new `locks` row and a
- * migration.
+ * its span: on MariaDB 11.4 the one that waited was chosen as the victim of a
+ * 1213 when the other's insert landed next to its queued lock
+ * (DatabaseConcurrencyTest, back-to-back nights). Payroll's membership lock,
+ * taken first, serialises two corrections before either reaches those rows,
+ * so the retry is a backstop. The closure touches nothing but the
+ * database — the audit and the realtime knock run after it returns — so it
+ * is simply run again against the committed rows, as InnoDB's own guidance
+ * says; a refusal is never retried.
  */
 final class CorrectPunches
 {
@@ -173,7 +184,12 @@ final class CorrectPunches
             $actor,
             $days,
         ): array {
-            // The employee row first, as every schedule change takes it, then
+            // FIRST: payroll's membership lock, then whether the day is paid.
+            if (app(PostedPayrollDates::class)->lockAndCovers($employeeId, $date)) {
+                throw new RuntimeException(CorrectionWindow::PAID_DAY);
+            }
+
+            // The employee row next, as every schedule change takes it, then
             // the schedule again under that lock: a correction judged by a
             // schedule that changed while its dialog was open is refused
             // rather than saved against hours the date no longer has.

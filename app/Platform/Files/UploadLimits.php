@@ -12,11 +12,6 @@ final class UploadLimits
         return (int) config('copems.uploads.max_file_bytes', 2_000_000);
     }
 
-    public static function maxFileKilobytes(): int
-    {
-        return (int) ceil(self::maxFileBytes() / 1024);
-    }
-
     public static function storageCeilingBytes(): int
     {
         return (int) config('copems.uploads.storage_ceiling_bytes', 1_000_000_000);

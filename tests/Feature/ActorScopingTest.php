@@ -6,13 +6,22 @@ use App\Models\AttendanceLog;
 use App\Models\AttendanceRemark;
 use App\Models\Concerns\ScopesToActor;
 use App\Models\EmployeeDocument;
+use App\Models\EmployeeLeavePolicy;
 use App\Models\EmployeeProfile;
+use App\Models\EmployeeSalaryRate;
 use App\Models\InventoryItem;
 use App\Models\InventoryReceipt;
+use App\Models\LeaveAttendanceCharge;
+use App\Models\LeaveCashOut;
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
+use App\Models\LeaveEarningPosting;
 use App\Models\LeaveTravelRequest;
 use App\Models\OvertimeApproval;
+use App\Models\PayrollAdjustment;
+use App\Models\PayrollEmployeeBenefit;
+use App\Models\PayrollRecurringLineEntry;
+use App\Models\PayrollTaxBalance;
 use App\Models\Payslip;
 use App\Models\Project;
 use App\Models\ProjectTask;
@@ -46,7 +55,7 @@ use Illuminate\Support\Str;
 /**
  * Every directly scoped model, with its employee foreign key and module code.
  *
- * @return array<string, array{class-string<AttendanceLog|AttendanceRemark|Shift|RosterLocation|RosterShift|RosterDayOverride|RosterScheduleChange|LeaveTravelRequest|LeaveCredit|LeaveCreditEntry|OvertimeApproval|EmployeeDocument|Payslip|InventoryItem|InventoryReceipt>, string, string}>
+ * @return array<string, array{class-string<AttendanceLog|AttendanceRemark|Shift|RosterLocation|RosterShift|RosterDayOverride|RosterScheduleChange|LeaveTravelRequest|LeaveCredit|LeaveCreditEntry|OvertimeApproval|EmployeeDocument|Payslip|InventoryItem|InventoryReceipt|EmployeeLeavePolicy|LeaveEarningPosting|LeaveAttendanceCharge|LeaveCashOut|PayrollAdjustment|EmployeeSalaryRate|PayrollEmployeeBenefit|PayrollTaxBalance|PayrollRecurringLineEntry>, string, string}>
  */
 function scopedModels(): array
 {
@@ -55,12 +64,21 @@ function scopedModels(): array
         'AttendanceRemark' => [AttendanceRemark::class, 'employee_id', 'EDTR'],
         'Shift' => [Shift::class, 'employee_id', 'ROSTER'],
         'RosterLocation' => [RosterLocation::class, 'employee_id', 'ROSTER'],
+        'EmployeeSalaryRate' => [EmployeeSalaryRate::class, 'employee_id', 'EMPLOYEES'],
         'RosterShift' => [RosterShift::class, 'employee_id', 'ROSTER'],
         'RosterDayOverride' => [RosterDayOverride::class, 'employee_id', 'ROSTER'],
         'RosterScheduleChange' => [RosterScheduleChange::class, 'employee_id', 'ROSTER'],
         'LeaveTravelRequest' => [LeaveTravelRequest::class, 'employee_id', 'LEAVES'],
         'LeaveCredit' => [LeaveCredit::class, 'employee_id', 'LEAVES'],
         'LeaveCreditEntry' => [LeaveCreditEntry::class, 'employee_id', 'LEAVES'],
+        'EmployeeLeavePolicy' => [EmployeeLeavePolicy::class, 'employee_id', 'LEAVES'],
+        'LeaveEarningPosting' => [LeaveEarningPosting::class, 'employee_id', 'LEAVES'],
+        'LeaveAttendanceCharge' => [LeaveAttendanceCharge::class, 'employee_id', 'LEAVES'],
+        'LeaveCashOut' => [LeaveCashOut::class, 'employee_id', 'LEAVES'],
+        'PayrollAdjustment' => [PayrollAdjustment::class, 'employee_id', 'PAYROLL'],
+        'PayrollEmployeeBenefit' => [PayrollEmployeeBenefit::class, 'employee_id', 'PAYROLL'],
+        'PayrollTaxBalance' => [PayrollTaxBalance::class, 'employee_id', 'PAYROLL'],
+        'PayrollRecurringLineEntry' => [PayrollRecurringLineEntry::class, 'employee_id', 'PAYROLL'],
         'OvertimeApproval' => [OvertimeApproval::class, 'employee_id', 'EDTR'],
         'EmployeeDocument' => [EmployeeDocument::class, 'employee_id', 'EMPLOYEES'],
         'Payslip' => [Payslip::class, 'employee_id', 'PAYROLL'],

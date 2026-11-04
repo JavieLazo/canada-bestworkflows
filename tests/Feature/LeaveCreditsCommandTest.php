@@ -264,21 +264,20 @@ it('refuses a LEAVES holder without all_data and an all_data holder without LEAV
         ->and(AuditLog::query()->count())->toBe(0);
 });
 
-it("refuses a linked actor setting their own credits while letting them set anyone else's", function () {
+it("lets a linked all-data actor set their own credits as well as anyone else's", function () {
     lcredType('Sick Leave');
     $liza = lcredEmployee();
     $ramon = lcredEmployee('Ramon', 'Cruz');
     $actor = lcredActor([ModuleCode::LEAVES], allData: true, employeeId: (string) $liza->getKey());
     $command = app(SaveLeaveCredits::class);
 
-    expect(fn () => $command->handle($actor, (string) $liza->getKey(), 2026, ['SICK_LEAVE' => '5']))
-        ->toThrow(RuntimeException::class, 'You cannot set your own leave credits.');
-    expect(LeaveCredit::query()->count())->toBe(0)
-        ->and(AuditLog::query()->count())->toBe(0);
+    // Their own: one administrator runs the whole flow.
+    $command->handle($actor, (string) $liza->getKey(), 2026, ['SICK_LEAVE' => '7']);
+    expect(lcredStored($liza, 2026))->toBe(['SICK_LEAVE' => 7.0]);
 
     $command->handle($actor, (string) $ramon->getKey(), 2026, ['SICK_LEAVE' => '5']);
     expect(lcredStored($ramon, 2026))->toBe(['SICK_LEAVE' => 5.0])
-        ->and(lcredStored($liza, 2026))->toBe([]);
+        ->and(lcredStored($liza, 2026))->toBe(['SICK_LEAVE' => 7.0]);
 });
 
 it('refuses a token that is neither a creditable type nor one the employee already holds', function () {
@@ -318,14 +317,14 @@ it('refuses a bad value before writing, so a valid one sent with it never lands'
     $command = app(SaveLeaveCredits::class);
     $id = (string) $liza->getKey();
 
-    $step = 'Vacation Leave: Enter a number of days in half-day steps.';
-    $range = 'Vacation Leave: Credits must be between 0 and 9999.99.';
+    $step = 'Vacation Leave: Enter a number of days with up to four decimals.';
+    $range = 'Vacation Leave: Credits must be between 0 and 999999.9999.';
     foreach ([
         ['12,5', $step],
-        ['1.25', $step],
+        ['1.16675', $step],
         ['ten', $step],
         ['-1', $range],
-        ['10000', $range],
+        ['1000000', $range],
         // A non-scalar: a shape only the wire can deliver.
         [['15'], $step],
     ] as [$value, $error]) {

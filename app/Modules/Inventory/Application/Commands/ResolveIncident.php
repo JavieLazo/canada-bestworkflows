@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
-/** Independent review records the evidence decision without deciding financial liability. */
+/** Review records the evidence decision without deciding financial liability; any Inventory manager, the reporter included, may review. */
 final class ResolveIncident
 {
     /** @param array<string, mixed> $input */
@@ -30,9 +30,6 @@ final class ResolveIncident
         DB::transaction(function () use ($access, $id, $data): void {
             InventoryWrite::lock();
             $row = InventoryIncident::query()->lockForUpdate()->findOrFail($id);
-            if ((string) $row->actor_id === $access->userId || ($access->hasEmployeeLink() && $row->actor_employee_id === $access->ownEmployeeId()) || ($access->hasEmployeeLink() && $row->employee_id === $access->ownEmployeeId())) {
-                abort(403, 'Another Inventory manager must review this report.');
-            }
             if ($row->status !== 'OPEN') {
                 throw new \RuntimeException('This report has already been reviewed.');
             }

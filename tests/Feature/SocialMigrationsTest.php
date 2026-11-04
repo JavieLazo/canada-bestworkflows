@@ -20,7 +20,10 @@ use Illuminate\Support\Str;
  * group chat whose admins changed gets its creator promoted again.
  *
  * THIS FILE ALWAYS ENDS MIGRATED, pass or fail: each `finally` re-runs the
- * whole chain before anything else, then deletes the rows seeded here by
+ * whole chain and then the later migrations that extend it — the Reports
+ * and Inventory grants in the CHECK (2026_10_02_0007, 2026_10_08_0003) and
+ * the five edit columns on the tables the chain recreates (2026_10_15_0001
+ * … 0005) — before anything else, then deletes the rows seeded here by
  * key. On MySQL/MariaDB DDL commits implicitly, so RefreshDatabase's
  * transaction cannot roll either back (the RosterLocationsMigrationTest
  * pattern). The CHECKs are MySQL/MariaDB only and belong to
@@ -63,10 +66,28 @@ function socmigUpAll(): void
         $migration->up();
     }
 
-    // The Social CHECK is historical. Restore its later Reports extension
-    // after testing the old chain so MySQL's committed DDL cannot leak out.
-    $reports = require base_path('database/migrations/2026_10_02_0007_add_reports_to_role_module_grants_table.php');
-    $reports->up();
+    // The Social CHECK is historical. Restore its later Reports and
+    // Inventory extensions, in order, after testing the old chain so MySQL's
+    // committed DDL cannot leak out: each reissues the whole list.
+    foreach ([
+        '2026_10_02_0007_add_reports_to_role_module_grants_table',
+        '2026_10_08_0003_add_inventory_to_role_module_grants_table',
+    ] as $file) {
+        (require base_path("database/migrations/{$file}.php"))->up();
+    }
+
+    // A rollback drops the posts, comments, attachments and messages tables
+    // and the chain recreates them bare, so put back the edit columns later
+    // migrations add to them, oldest first (0004 sits after 0001's column).
+    foreach ([
+        '2026_10_15_0001_add_edited_at_to_community_posts_table',
+        '2026_10_15_0002_add_edited_at_to_community_comments_table',
+        '2026_10_15_0003_add_edited_at_to_chat_messages_table',
+        '2026_10_15_0004_add_earlier_versions_to_community_posts_table',
+        '2026_10_15_0005_add_removed_at_to_community_attachments_table',
+    ] as $file) {
+        (require base_path("database/migrations/{$file}.php"))->up();
+    }
 }
 
 function socmigOnMySql(): bool

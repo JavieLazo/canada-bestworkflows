@@ -13,7 +13,6 @@ use App\Livewire\Roster\Hris as RosterHris;
 use App\Livewire\Tasks\MyTasksPage;
 use App\Modules\Timekeeping\Contracts\Views\ShiftTypeView;
 use App\Modules\Timekeeping\Contracts\Views\ShiftView;
-use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Support\HrisFormat;
 use App\Support\ManilaClock;
@@ -32,10 +31,8 @@ use Carbon\CarbonImmutable;
  * the roster's Hours cell and dialog summary forward to it so they cannot
  * drift from the audit sentence the Timekeeping command writes.
  *
- * `requestTypeMatches()` is the one body of the `_LEAVE` tolerance;
- * `requestDescription()`'s loop and leave credits
- * (`LeaveCreditPolicy::matches`) both forward to it, so a request is counted
- * against a credit by the same rule that labels it.
+ * `requestTypeMatches()` is the one body of the `_LEAVE` tolerance that
+ * `requestDescription()`'s loop labels a request by.
  *
  * Pure PHP; no container, so this runs under tests/Unit.
  */
@@ -102,7 +99,7 @@ it('describes a request type from the configured names, then the built-ins, then
         ->and(HrisFormat::requestDescription('EMERGENCY_LEAVE'))->toBe('Emergency Leave');
 });
 
-it('matches a stored token to a leave-type key exactly or through its _LEAVE spelling, and leave credits forward to it', function () {
+it('matches a stored token to a leave-type key exactly or through its _LEAVE spelling', function () {
     // The ONE body of requestDescription's tolerance: legacy rows hold SICK
     // where a filing today stores SICK_LEAVE, so the key SICK_LEAVE names both.
     expect(HrisFormat::requestTypeMatches('SICK_LEAVE', 'SICK'))->toBeTrue()
@@ -117,14 +114,6 @@ it('matches a stored token to a leave-type key exactly or through its _LEAVE spe
     expect(HrisFormat::requestDescription('SICK', ['Sick Leave']))->toBe('Sick Leave')
         ->and(HrisFormat::requestDescription('SICK_LEAVE', ['Sick Leave']))->toBe('Sick Leave')
         ->and(HrisFormat::requestDescription('SICK_LEAVE', ['Sick']))->toBe('Sick Leave');
-
-    foreach ([
-        ['SICK_LEAVE', 'SICK'], ['SICK_LEAVE', 'SICK_LEAVE'], ['SICK', 'SICK_LEAVE'],
-        ['VACATION_LEAVE', 'VACATION'], ['EMERGENCY_LEAVE', 'SICK'], ['LEAVE_WITHOUT_PAY', 'LEAVE'],
-    ] as [$key, $token]) {
-        expect(LeaveCreditPolicy::matches($key, $token))
-            ->toBe(HrisFormat::requestTypeMatches($key, $token), "LeaveCreditPolicy::matches({$key}, {$token}) does not forward");
-    }
 });
 
 it('prints daily hours the way the reference template literal did', function (float|int|null $hours, string $label) {

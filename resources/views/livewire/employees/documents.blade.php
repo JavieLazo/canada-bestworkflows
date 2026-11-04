@@ -72,7 +72,7 @@
                             <td class="num whitespace-nowrap">
                                 @if ($doc->expires_on !== null)
                                     <span class="{{ $doc->expires_on->format('Y-m-d') < $today ? 'text-danger' : '' }}">
-                                        {{ \App\Livewire\Kit\DateText::toDisplay($doc->expires_on->format('Y-m-d')) }}
+                                        {{ \App\Support\DateText::toDisplay($doc->expires_on->format('Y-m-d')) }}
                                     </span>
                                 @else
                                     <span class="text-muted-foreground">—</span>

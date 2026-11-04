@@ -112,6 +112,11 @@
         @endif
     </div>
 
+    {{-- The register is signed before it leaves Finance: the signatories as they stand when printed (Payroll Settings › Signatories). --}}
+    @if ($type === 'payroll-register')
+        @include('livewire.payroll.partials.signatories', ['signatories' => app(\App\Modules\Payroll\Application\Queries\SignatoryRecords::class)->all(app(\App\Support\Access::class))])
+    @endif
+
     @if ($document->notes !== [])
         <footer @class(['reports-source-notes', 'reports-statement-appendix' => $type === 'payslips' && $document->sections !== []])>
             <h3>Source and coverage notes</h3>

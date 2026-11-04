@@ -241,8 +241,9 @@ it('serializes corrections of two back-to-back nights that share a morning', fun
         DtrCalculator::rowPunches($domain, $night, $date),
     );
 
-    // Both corrections take the employee row first, so they simply queue
-    // and neither is picked as a deadlock victim (1213). Both succeed:
+    // Both corrections take payroll's membership lock first (a paid day is
+    // never corrected), then the employee row, so they simply queue and
+    // neither is picked as a deadlock victim (1213). Both succeed:
     // whichever ran second reads the other's committed night, still owns its
     // own, and replaces only that. Wednesday keeps its Time Out on Thursday
     // morning, and nothing is written twice.

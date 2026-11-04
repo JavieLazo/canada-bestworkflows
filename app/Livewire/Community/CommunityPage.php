@@ -15,6 +15,8 @@ use App\Modules\Social\Application\Commands\CreateTag;
 use App\Modules\Social\Application\Commands\DecideJoinRequest;
 use App\Modules\Social\Application\Commands\DeleteGroup;
 use App\Modules\Social\Application\Commands\DeleteTag;
+use App\Modules\Social\Application\Commands\EditComment;
+use App\Modules\Social\Application\Commands\EditPost;
 use App\Modules\Social\Application\Commands\PinPost;
 use App\Modules\Social\Application\Commands\PublishPost;
 use App\Modules\Social\Application\Commands\ReactToComment;
@@ -145,6 +147,15 @@ class CommunityPage extends Component
 
     /** @var array<string, string> Comment and reply drafts, keyed by the post or comment they answer. */
     public array $drafts = [];
+
+    /** @var array<string, string> Edits to the viewer's own posts and comments, keyed by their id. Each edit box fills its own when it opens. */
+    public array $edits = [];
+
+    public bool $historyDialog = false;
+
+    /** The post whose edit history is open. An id, so it is #[Locked]: only openHistory() sets it. */
+    #[Locked]
+    public ?string $historyPostId = null;
 
     // Groups: the form, adding people, and the list of every group.
 
@@ -313,6 +324,40 @@ class CommunityPage extends Component
         $this->dispatch('community-posted', id: $id);
     }
 
+    /**
+     * Saves an edit to the viewer's own post: the text in its box, the tag
+     * picked ('' for none), the photos and files taken off, and whatever
+     * was added. EditPost checks every part of it again.
+     *
+     * @param  array<array-key, mixed>  $remove
+     */
+    public function saveEdit(string $postId, string $tag, array $remove = []): void
+    {
+        $actor = app(Access::class);
+        $body = self::field($this->edits, $postId);
+        $remove = array_values(array_filter($remove, 'is_string'));
+        $files = $this->stagedFor('e-'.$postId);
+
+        if ($this->attempt(static fn () => app(EditPost::class)->handle($actor, $postId, $body, $tag === '' ? null : $tag, $remove, $files))) {
+            unset($this->edits[$postId]);
+            $this->clearStaged('e-'.$postId);
+            $this->dispatch('community-edited', id: $postId);
+        }
+    }
+
+    /** Lets go of anything added to an edit that was cancelled. */
+    public function cancelEdit(string $postId): void
+    {
+        $this->clearStaged('e-'.$postId);
+    }
+
+    /** Opens a post's earlier versions. CommunityFeed::history() checks the viewer can see the post. */
+    public function openHistory(string $postId): void
+    {
+        $this->historyPostId = $postId;
+        $this->historyDialog = true;
+    }
+
     /** Writes the first line of a greeting for whatever is coming up on the rail. */
     public function greet(int $index): void
     {
@@ -381,6 +426,17 @@ class CommunityPage extends Component
             $this->drafts[$commentId] = '';
             $this->clearStaged('r-'.$commentId);
             $this->dispatch('community-replied', id: $commentId);
+        }
+    }
+
+    public function saveCommentEdit(string $commentId): void
+    {
+        $actor = app(Access::class);
+        $body = self::field($this->edits, $commentId);
+
+        if ($this->attempt(static fn () => app(EditComment::class)->handle($actor, $commentId, $body))) {
+            unset($this->edits[$commentId]);
+            $this->dispatch('community-edited', id: $commentId);
         }
     }
 
@@ -743,6 +799,7 @@ class CommunityPage extends Component
             'filter' => $filter,
             'authors' => $this->filterAuthor > 0 || $page !== null ? app(People::class)->holders($actor, ModuleCode::COMMUNITY) : [],
             'directory' => $directory,
+            'history' => $this->historyDialog && $this->historyPostId !== null ? $feed->history($actor, $this->historyPostId) : null,
             'canModerate' => SocialRules::moderates($actor),
             'maxAttachments' => SocialRules::MAX_ATTACHMENTS,
             'maxBytes' => $this->stagedFileLimit(),

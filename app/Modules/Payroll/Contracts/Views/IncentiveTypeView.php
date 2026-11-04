@@ -28,6 +28,7 @@ use Carbon\CarbonImmutable;
  * @property-read float|null $cap
  * @property-read string|null $approval_reference
  * @property-read bool|null $counts_toward_13th
+ * @property-read bool|null $pays_leave_cash_out  the one type leave credit cash-outs are paid as; null before the column exists
  * @property-read CarbonImmutable $created_at
  * @property-read CarbonImmutable|null $updated_at
  */

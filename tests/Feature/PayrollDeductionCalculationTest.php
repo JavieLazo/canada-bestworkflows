@@ -36,7 +36,7 @@ use Livewire\Livewire;
  * never delete it, and the database keeps each calculation on one row.
  */
 /** @param list<string> $modules */
-function pdcActor(array $modules = ['RECORDS'], bool $allData = true): Access
+function pdcActor(array $modules = ['PAYROLL'], bool $allData = true): Access
 {
     $role = Role::create(['name' => 'Deduction calculation '.Str::random(6), 'all_data' => $allData, 'is_system' => false]);
     foreach ($modules as $module) {
@@ -124,7 +124,7 @@ it('tags the seeded rows once, by id or by the seeded name, puts a missing one b
     $m->up();
 });
 
-it('lets Records rename a computed row, delete it to switch the deduction off, and add it back by name', function () {
+it('lets a payroll manager rename a computed row, delete it to switch the deduction off, and add it back by name', function () {
     $actor = pdcActor();
     $sss = PayrollDeduction::query()->findOrFail('ded-1');
     $catalog = app(Deductions::class);
@@ -182,9 +182,9 @@ it('lets Records rename a computed row, delete it to switch the deduction off, a
         ->toThrow(UniqueConstraintViolationException::class);
 });
 
-it('refuses every delete to an actor without organization-wide Records access', function () {
+it('refuses every delete to an actor without organization-wide Payroll access', function () {
     $loan = PayrollDeduction::create(['code' => '7', 'name' => 'SSS Loan']);
-    $actor = pdcActor(['RECORDS'], allData: false);
+    $actor = pdcActor(['PAYROLL'], allData: false);
 
     expect(fn () => app(Deductions::class)->delete($actor, $loan->id))
         ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');

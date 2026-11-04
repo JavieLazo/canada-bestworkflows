@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Domain\Attendance;
 
 use App\Domain\Attendance\Minutes;
+use App\Domain\Payroll\PayRules;
 use App\Support\HrisFormat;
 
 /**
@@ -45,7 +46,29 @@ final class OvertimeApprovalPolicy
     /** The two decisions a row can hold. */
     public const array DECISIONS = [self::APPROVED, self::REJECTED];
 
+    /**
+     * Seaport overtime, the one category a day may be approved under beside
+     * ordinary overtime: payroll prices it at its own rate and NEVER caps it
+     * (PayslipCalculator divergence 16), so its ceiling is the whole day.
+     */
+    public const string CATEGORY_SEAPORT = PayRules::OVERTIME_SEAPORT;
+
+    /** The hours a seaport day is "capped" at: a whole day, so never. */
+    public const float NO_CAP_HOURS = 24.0;
+
     private function __construct() {}
+
+    /** The ceiling for a day under its category: uncapped when seaport. */
+    public static function ceilingFor(float $computed, float $maxOtHours, ?string $category): int
+    {
+        return self::ceiling($computed, $category === self::CATEGORY_SEAPORT ? self::NO_CAP_HOURS : $maxOtHours);
+    }
+
+    /** The sentence that refuses a category, or null when it is one a day may carry. */
+    public static function categoryError(?string $category): ?string
+    {
+        return $category === null || $category === self::CATEGORY_SEAPORT ? null : 'Choose ordinary or seaport overtime.';
+    }
 
     /** A day's computed overtime as whole minutes, never negative. */
     public static function wholeMinutes(float $computed): int
@@ -115,6 +138,31 @@ final class OvertimeApprovalPolicy
         }
 
         return null;
+    }
+
+    /**
+     * The sentence that refuses a credit, or null: on an approval, whole
+     * minutes between 0 and the approved minutes; a rejection credits
+     * nothing (PAY, CREDIT or SPLIT is what the figure says against the
+     * approval — Compensatory Leave).
+     */
+    public static function creditError(string $decision, mixed $credited, int $approved): ?string
+    {
+        if ($decision !== self::APPROVED) {
+            return null;
+        }
+        $whole = $credited === null || $credited === '' ? 0 : self::minutesOf($credited);
+        if ($whole === null || $whole < 0 || $whole > $approved) {
+            return 'Credit between 0 and '.self::duration($approved).' of the approved overtime as Compensatory Leave.';
+        }
+
+        return null;
+    }
+
+    /** The approved minutes payroll pays: the approval less what was credited as Compensatory Leave, never negative. */
+    public static function paidMinutes(?int $approved, int $credited): int
+    {
+        return max(0, ($approved ?? 0) - max(0, $credited));
     }
 
     /** The sentence that refuses a decision, or null when it is acceptable. */

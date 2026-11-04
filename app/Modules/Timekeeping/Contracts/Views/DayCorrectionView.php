@@ -49,5 +49,7 @@ final readonly class DayCorrectionView
         public array $borrowed = [],
         /** How many punches on this calendar date belong to the previous date's record (a night's after-midnight punches). */
         public int $previous_day_punches = 0,
+        /** Whether a posted payslip covers this date: a correction would be refused (CorrectionWindow::PAID_DAY), so the dialog offers none. */
+        public bool $posted = false,
     ) {}
 }

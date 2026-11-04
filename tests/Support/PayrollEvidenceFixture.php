@@ -56,4 +56,94 @@ final class PayrollEvidenceFixture
         PayrollFormula::create(['code' => 'F-EVID', 'key' => 'OT', 'name' => 'Synthetic overtime', 'expression' => 'Display only',
             'params' => [['key' => 'working_hours', 'value' => 8], ['key' => 'percentage', 'value' => 1.25], ['key' => 'max_ot', 'value' => 4]]]);
     }
+
+    /**
+     * A current capture as evidence of a schema before 17 would carry it:
+     * without the overtime categories (schema 17) and the pay-rule
+     * segments (schema 18), which those schemas never recorded. A test
+     * that lowers `schema_version` on a current `toArray()` calls this, or
+     * the strict restore refuses a key the schema never wrote.
+     *
+     * @param  array<string, mixed>  $inputs
+     * @return array<string, mixed>
+     */
+    public static function beforeSchema17(array $inputs): array
+    {
+        return self::asSchema($inputs, 16);
+    }
+
+    /**
+     * A current capture shaped as the given schema carried it: the overtime
+     * categories go below 17, the pay-rule segments below 18, the salary
+     * segments below 19, the contribution month and posted shares below 20,
+     * the tax-free ceiling and benefit assignments below 21, the tax year and
+     * the whole-year keys below 22, a leave's half below 23.
+     *
+     * @param  array<string, mixed>  $inputs
+     * @return array<string, mixed>
+     */
+    public static function asSchema(array $inputs, int $schema): array
+    {
+        if ($schema < 17) {
+            foreach ($inputs['attendance'] ?? [] as $id => $facts) {
+                unset($inputs['attendance'][$id]['overtime_categories']);
+            }
+            foreach ($inputs['settlements'] ?? [] as $id => $rows) {
+                foreach ($rows as $i => $row) {
+                    unset($inputs['settlements'][$id][$i]['actual']['overtime_categories']);
+                }
+            }
+        }
+        if ($schema < 18) {
+            foreach ($inputs['pay_rules'] ?? [] as $id => $entry) {
+                unset($inputs['pay_rules'][$id]['segments']);
+            }
+        }
+        if ($schema < 19) {
+            foreach ($inputs['employees'] ?? [] as $i => $employee) {
+                unset($inputs['employees'][$i]['salary_rates']);
+            }
+            foreach ($inputs['settlements'] ?? [] as $id => $rows) {
+                foreach ($rows as $i => $row) {
+                    unset($inputs['settlements'][$id][$i]['employee']['salary_rates']);
+                }
+            }
+        }
+        if ($schema < 20) {
+            unset($inputs['contribution_month'], $inputs['contribution_posted']);
+        }
+        if ($schema < 21) {
+            unset($inputs['benefit_ceiling'], $inputs['benefit_assignments']);
+        }
+        if ($schema < 23) {
+            foreach ($inputs['attendance'] ?? [] as $id => $facts) {
+                foreach ($facts['leaves'] ?? [] as $i => $leave) {
+                    unset($inputs['attendance'][$id]['leaves'][$i]['half']);
+                }
+            }
+            foreach ($inputs['settlements'] ?? [] as $id => $rows) {
+                foreach ($rows as $i => $row) {
+                    foreach ($row['actual']['leaves'] ?? [] as $j => $leave) {
+                        unset($inputs['settlements'][$id][$i]['actual']['leaves'][$j]['half']);
+                    }
+                    foreach ($row['presumed']['leaves'] ?? [] as $j => $leave) {
+                        unset($inputs['settlements'][$id][$i]['presumed']['leaves'][$j]['half']);
+                    }
+                }
+            }
+        }
+        if ($schema < 22) {
+            unset($inputs['tax_year']);
+            foreach ($inputs['employees'] ?? [] as $i => $employee) {
+                unset($inputs['employees'][$i]['whole_year_tax'], $inputs['employees'][$i]['tax_spread']);
+            }
+            foreach ($inputs['settlements'] ?? [] as $id => $rows) {
+                foreach ($rows as $i => $row) {
+                    unset($inputs['settlements'][$id][$i]['employee']['whole_year_tax'], $inputs['settlements'][$id][$i]['employee']['tax_spread']);
+                }
+            }
+        }
+
+        return $inputs;
+    }
 }

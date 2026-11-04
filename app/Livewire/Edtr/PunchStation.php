@@ -6,13 +6,13 @@ namespace App\Livewire\Edtr;
 
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
-use App\Livewire\Edtr\Support\AttendancePolicy;
 use App\Livewire\Edtr\Support\Hris;
 use App\Models\Shift;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Timekeeping\Application\Commands\RecordPunch;
 use App\Modules\Timekeeping\Application\PunchInput;
 use App\Modules\Timekeeping\Application\Queries\RosterLocations;
+use App\Modules\Timekeeping\Domain\Attendance\AttendancePolicy;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;

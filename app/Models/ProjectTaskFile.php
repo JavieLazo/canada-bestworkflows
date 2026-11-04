@@ -38,7 +38,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $uploaded_by
  * @property CarbonImmutable $created_at
  * @property-read ProjectTask|null $task
- * @property-read User|null $uploader
  */
 class ProjectTaskFile extends BaseModel
 {
@@ -74,11 +73,5 @@ class ProjectTaskFile extends BaseModel
     public function task(): BelongsTo
     {
         return $this->belongsTo(ProjectTask::class, 'task_id');
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function uploader(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'uploaded_by');
     }
 }

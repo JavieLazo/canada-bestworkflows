@@ -11,6 +11,8 @@ use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Models\OvertimeApproval;
 use App\Modules\Organization\Contracts\HolidayCalendar;
+use App\Modules\Timekeeping\Application\OvertimeCategoryColumn;
+use App\Modules\Timekeeping\Application\OvertimeCreditColumn;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
 use App\Modules\Timekeeping\Contracts\Views\OvertimeDayView;
@@ -82,16 +84,20 @@ final class OwnAttendance
      */
     private function overtime(Access $actor, string $employeeId, array $days, string $start, string $end, float $cap): array
     {
+        $withCategory = OvertimeCategoryColumn::present();
+        $withCredit = OvertimeCreditColumn::present();
         $rows = OvertimeApproval::query()->toEmployee($actor, 'employee_id', ModuleCode::EDTR)
             ->where('employee_id', '=', $employeeId)
             ->whereDate('date', '>=', $start)->whereDate('date', '<=', $end)
-            ->get(['date', 'decision', 'computed_minutes', 'approved_minutes'])
+            ->get(['date', 'decision', 'computed_minutes', 'approved_minutes', ...($withCategory ? ['category'] : []), ...($withCredit ? ['credited_minutes'] : [])])
             ->keyBy(static fn (OvertimeApproval $row): string => $row->date->format('Y-m-d'));
 
         $result = [];
         foreach ($days as $day) {
             $row = $rows->get($day->date);
-            $ceiling = OvertimeApprovalPolicy::ceiling($day->overtimeMinutes, $cap);
+            $category = $withCategory ? $row?->category : null;
+            $credited = $withCredit && $row !== null ? (int) $row->credited_minutes : 0;
+            $ceiling = OvertimeApprovalPolicy::ceilingFor($day->overtimeMinutes, $cap, $category);
             $status = OvertimeApprovalPolicy::status($row?->decision, $row?->approved_minutes, $row?->computed_minutes, $day->overtimeMinutes, $ceiling);
             if ($status === null) {
                 continue;
@@ -104,10 +110,12 @@ final class OwnAttendance
                 computed_minutes: OvertimeApprovalPolicy::wholeMinutes($day->overtimeMinutes),
                 approved_minutes: $row?->approved_minutes,
                 ceiling: $ceiling,
-                payable_minutes: OvertimeApprovalPolicy::payable($row?->decision, $row?->approved_minutes, $ceiling),
+                payable_minutes: OvertimeApprovalPolicy::payable($row?->decision, OvertimeApprovalPolicy::paidMinutes($row?->approved_minutes, $credited), $ceiling),
                 note: null,
                 reviewer_name: null,
                 decided_at: null,
+                category: $category,
+                credited_minutes: $credited,
             );
         }
 

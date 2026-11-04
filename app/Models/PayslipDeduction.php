@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One custom deduction line captured on a posted payslip. Code and name are
@@ -21,8 +20,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $name
  * @property float $amount
  * @property float|null $employer_amount
+ * @property string|null $recurring_line_id the recurring line it paid (2026_10_30_0003)
+ * @property string|null $adjustment_id the adjustment it paid (2026_11_02_0005); NULL on a line that pays none
  * @property CarbonImmutable $created_at
- * @property-read Payslip|null $payslip
  */
 class PayslipDeduction extends BaseModel
 {
@@ -39,6 +39,9 @@ class PayslipDeduction extends BaseModel
         'name',
         'amount',
         'employer_amount',
+        'recurring_line_id',
+        // The adjustment this line paid (2026_11_02_0005); NULL on a line that pays none.
+        'adjustment_id',
     ];
 
     /** @return array<string, string> */
@@ -50,11 +53,5 @@ class PayslipDeduction extends BaseModel
             'employer_amount' => 'float',
             'created_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return BelongsTo<Payslip, $this> */
-    public function payslip(): BelongsTo
-    {
-        return $this->belongsTo(Payslip::class, 'payslip_id');
     }
 }

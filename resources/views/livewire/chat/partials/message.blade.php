@@ -11,16 +11,22 @@
     reply. The label and quote already set a reply apart.
 
     Hovering (or focusing) a message shows its time with react, reply and, on
-    your own, remove. A phone can't hover, so a tap on the bubble shows them
-    instead. Reactions ride a badge on the bubble's lower edge, with room
+    your own, edit and remove. A phone can't hover, so a tap on the bubble
+    shows them instead. Reactions ride a badge on the bubble's lower edge, with room
     left under it, and a click on it lists who reacted. A removed message
     stays as a placeholder.
 
     The message a notification points at ($focusMessageId) sits on a soft
     brand background, so it stands out from the ones around it.
 
+    Editing turns the bubble into a box with the words as they show, with no
+    time limit. Enter saves and Shift+Enter starts a new line, like the
+    composer, and Escape or Cancel leaves it as it was. An edited message
+    says so above it, in blue: after a dot beside the sender's name or the
+    reply line, or on a line of its own when there's neither.
+
     Expects: $row, $active (ConversationView), $viewer, $names, $people,
-    $focusMessageId.
+    $focusMessageId; reads $maxBody.
 --}}
 @use('App\Support\SocialFormat')
 @php
@@ -33,6 +39,8 @@
     $photoCount = count($photoUrls);
     $toolButton = 'inline-flex size-7 cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground';
     $found = $focusMessageId !== null && $m->id === $focusMessageId;
+    $editText = $mine && ! $m->removed ? SocialFormat::plain($m->body, $names) : '';
+    $edited = $m->editedAt !== null && ! $m->removed;
     // The space above: 20px when the sender changes or a reply starts, 12px
     // right under a reply, 2px inside one person's run.
     $gap = match (true) {
@@ -83,7 +91,19 @@
     {{-- The reaction badge hangs below the bubble, so a bottom margin clears it. --}}
     <div
         wire:key="message-{{ $m->id }}"
-        x-data="{ tools: false }"
+        x-data="{ tools: false, editing: false }"
+        x-on:chat-edited.window="if ($event.detail.id === @js($m->id)) editing = false"
+        x-on:message-edit="
+            editing = true;
+            tools = false;
+            $nextTick(() => {
+                const box = $el.querySelector('[data-message-edit]');
+                box.value = @js($editText);
+                box.dispatchEvent(new Event('input', { bubbles: true }));
+                box.focus();
+                box.setSelectionRange(box.value.length, box.value.length);
+            })
+        "
         @if ($found) data-found="true" @endif
         @class([
             'group/message flex items-end gap-2',
@@ -107,12 +127,24 @@
                 <p class="flex items-center gap-1 px-3 text-[0.7rem] text-muted-foreground">
                     <flux:icon.arrow-uturn-left class="size-3" />
                     {{ $firstName }} replied to {{ $m->quote->name }}
+                    @if ($edited)
+                        <span aria-hidden="true">&middot;</span>
+                        <span class="font-normal text-primary" title="Edited {{ SocialFormat::stamp($m->editedAt) }}">Edited</span>
+                    @endif
                 </p>
                 <div class="mb-1.5 mt-1 max-w-full rounded-2xl border border-border px-3 py-1.5 text-xs text-muted-foreground">
                     <span @class(['line-clamp-2', 'italic' => $m->quote->removed])>{{ $m->quote->text !== '' ? $m->quote->text : ($m->quote->photo ? 'Photo' : 'Attachment') }}</span>
                 </div>
             @elseif ($row['first'] && ! $mine && $active->isGroup() && $sender !== null)
-                <p class="mb-1 px-3 text-xs font-medium text-muted-foreground">{{ $sender->name }}</p>
+                <p class="mb-1 flex items-center gap-1 px-3 text-xs font-medium text-muted-foreground">
+                    {{ $sender->name }}
+                    @if ($edited)
+                        <span aria-hidden="true">&middot;</span>
+                        <span class="font-normal text-primary" title="Edited {{ SocialFormat::stamp($m->editedAt) }}">Edited</span>
+                    @endif
+                </p>
+            @elseif ($edited)
+                <p class="mb-1 px-3 text-xs text-primary" title="Edited {{ SocialFormat::stamp($m->editedAt) }}">Edited</p>
             @endif
 
             <div @class(['relative flex max-w-full items-center gap-1', 'flex-row-reverse' => $mine])>
@@ -146,6 +178,7 @@
                         @if ($m->body !== '')
                             <div
                                 title="{{ SocialFormat::stamp($m->createdAt) }}"
+                                x-show="! editing"
                                 x-on:click="tools = ! tools"
                                 @class([
                                     'max-w-full rounded-2xl px-3.5 py-2 text-sm leading-relaxed',
@@ -164,6 +197,34 @@
                                 />
                             </div>
                         @endif
+
+                        @if ($mine)
+                            <form x-show="editing" x-cloak wire:submit="saveEdit('{{ $m->id }}')" class="w-72 max-w-full space-y-1">
+                                <div class="relative" @if ($active->isGroup()) x-data="mentionPicker({ audience: @js($active->id) })" @endif>
+                                    {{-- wire:ignore.self keeps the height the box grew to when the thread redraws. --}}
+                                    <textarea
+                                        data-message-edit
+                                        wire:ignore.self
+                                        wire:model="edits.{{ $m->id }}"
+                                        x-on:input="$el.style.height = 'auto'; $el.style.height = $el.scrollHeight + 'px'"
+                                        x-on:keydown.enter="if (! $event.shiftKey && ! $event.isComposing) { $event.preventDefault(); $wire.saveEdit(@js($m->id)) }"
+                                        x-on:keydown.escape="editing = false"
+                                        rows="1"
+                                        maxlength="{{ $maxBody }}"
+                                        data-paste-limit="A message"
+                                        aria-label="Edit your message"
+                                        class="block max-h-48 w-full resize-none rounded-2xl bg-muted px-3.5 py-2 text-sm leading-relaxed outline-hidden focus:ring-2 focus:ring-ring"
+                                    ></textarea>
+                                    @if ($active->isGroup())
+                                        <x-social.mention-list />
+                                    @endif
+                                </div>
+                                <div class="flex justify-end gap-2 px-2 text-xs">
+                                    <button type="button" x-on:click="editing = false" class="cursor-pointer font-semibold text-muted-foreground hover:underline">Cancel</button>
+                                    <button type="submit" class="cursor-pointer font-semibold text-primary hover:underline">Save</button>
+                                </div>
+                            </form>
+                        @endif
                     </div>
 
                     {{-- Floating, so they take no room: beside the bubble, or above it on a phone. --}}
@@ -176,6 +237,7 @@
                             'left-0 sm:left-full sm:ml-1' => ! $mine,
                         ])
                         x-bind:data-tools="tools"
+                        x-show="! editing"
                         x-data="{ pick: false }"
                         x-on:keydown.escape="pick = false"
                     >
@@ -200,6 +262,9 @@
                                     'call' => ['removeMessage', $m->id],
                                 ];
                             @endphp
+                            <button type="button" x-on:click="$dispatch('message-edit')" class="{{ $toolButton }}" aria-label="Edit" title="Edit">
+                                <flux:icon.pencil-square class="size-4" />
+                            </button>
                             <button
                                 type="button"
                                 x-on:click="$dispatch('social-confirm', @js($askRemove))"
@@ -252,7 +317,8 @@
                     </div>
 
                     @if ($reactionCount > 0)
-                        <span @class(['absolute -bottom-3.5 z-10', 'right-3' => $mine, 'left-3' => ! $mine])>
+                        {{-- Out of the way while editing: it would sit on the Save button. --}}
+                        <span @class(['absolute -bottom-3.5 z-10', 'right-3' => $mine, 'left-3' => ! $mine]) x-show="! editing">
                             <x-social.who
                                 :reactions="$m->reactions"
                                 :people="$people"

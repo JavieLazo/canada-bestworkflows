@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $employee_id
  * @property string $request_type
  * @property string|null $day_type
+ * @property string|null $half AM or PM on a half day that says which half is off (2026_11_02_0015); null otherwise
  * @property CarbonImmutable $start_date
  * @property CarbonImmutable $end_date
  * @property string|null $reason
@@ -39,10 +40,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property bool|null $is_paid
  * @property int|null $reviewed_by
  * @property CarbonImmutable|null $reviewed_at
+ * @property int|null $credits_year the year whose credits an approved paid leave draws on; null reads the start year (2026_10_31_0009)
+ * @property float|null $credit_days the scheduled working days the approval charged; null counts calendar days
+ * @property list<string>|null $credit_dates the dates `credit_days` counts
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  * @property-read EmployeeProfile|null $employee
- * @property-read User|null $reviewer
  * @property-read Collection<int, LeaveRequestCancellation> $cancellations
  */
 class LeaveTravelRequest extends BaseModel
@@ -58,6 +61,7 @@ class LeaveTravelRequest extends BaseModel
         'employee_id',
         'request_type',
         'day_type',
+        'half',
         'start_date',
         'end_date',
         'reason',
@@ -74,6 +78,9 @@ class LeaveTravelRequest extends BaseModel
             'end_date' => 'immutable_date:Y-m-d',
             'is_paid' => 'boolean',
             'reviewed_at' => 'immutable_datetime',
+            'credits_year' => 'integer',
+            'credit_days' => 'float',
+            'credit_dates' => 'array',
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
@@ -83,12 +90,6 @@ class LeaveTravelRequest extends BaseModel
     public function employee(): BelongsTo
     {
         return $this->belongsTo(EmployeeProfile::class, 'employee_id');
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function reviewer(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'reviewed_by');
     }
 
     /** @return HasMany<LeaveRequestCancellation, $this> */

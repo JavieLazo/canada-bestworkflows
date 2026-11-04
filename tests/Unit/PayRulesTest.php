@@ -6,6 +6,7 @@ use App\Domain\Attendance\AttendanceLog as DomainLog;
 use App\Domain\Attendance\HolidaySetting;
 use App\Domain\Attendance\Shift as DomainShift;
 use App\Domain\Payroll\PayRules;
+use App\Domain\Payroll\PayRulesTimeline;
 use App\Domain\Payroll\PayslipCalculator;
 
 /**
@@ -70,9 +71,10 @@ function payRulesWith(array $changes): PayRules
  * @param  list<array<string, mixed>>  $logs
  * @param  list<array<string, mixed>>  $holidays
  * @param  array<string, int>|null  $approvals
+ * @param  array<string, string>|null  $categories  date => PayRules::OVERTIME_SEAPORT
  * @return array<string, mixed>
  */
-function payRulesSlip(?PayRules $rules, array $logs, array $holidays = [], ?array $approvals = null, string $start = '2026-09-01', string $end = '2026-09-15', ?DomainShift $shift = null): array
+function payRulesSlip(?PayRules $rules, array $logs, array $holidays = [], ?array $approvals = null, string $start = '2026-09-01', string $end = '2026-09-15', ?DomainShift $shift = null, ?array $categories = null, ?PayRulesTimeline $timeline = null): array
 {
     return PayslipCalculator::compute(
         employee: (object) [
@@ -88,7 +90,26 @@ function payRulesSlip(?PayRules $rules, array $logs, array $holidays = [], ?arra
         settings: ['formulas' => [], 'holidays' => HolidaySetting::listFromArrays($holidays)],
         overtimeApprovals: $approvals,
         rules: $rules,
+        overtimeCategories: $categories,
+        timeline: $timeline,
     )->toArray();
+}
+
+/** The scheduled working days of 1–15 September 2026, Monday to Friday. */
+const PAY_RULES_SCHEDULED = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11', '2026-09-14', '2026-09-15'];
+
+/**
+ * Two versions: the first from the period's start, the second from a date.
+ *
+ * @param  array<string, mixed>  $first  dotted changes to the reference figures
+ * @param  array<string, mixed>  $second
+ */
+function payRulesSplit(array $first, string $from, array $second): PayRulesTimeline
+{
+    return PayRulesTimeline::of([
+        ['from' => '2026-09-01', 'rules' => payRulesWith($first)],
+        ['from' => $from, 'rules' => payRulesWith($second)],
+    ]);
 }
 
 /** @return array<string, mixed> */
@@ -226,6 +247,163 @@ it('prices a night hour by the explicit cell as that rate less the worked rate',
 
     // 120 on an ordinary day: a 20% add-on on the base hourly for the one night hour.
     expect(payRulesSlip(payRulesWith(['matrix.ORDINARY.night' => 120.0]), $logs, shift: $shift)['night_differential'])->toBe(25.0);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Divergence 16: hours for the hourly rate, rounding per step, seaport
+|--------------------------------------------------------------------------
+*/
+
+it('divides the day by the version\'s fixed hours instead of the shift\'s paid hours', function () {
+    // 08:00–15:00 with the break at noon: six paid hours, so the reference hour is 1,000 ÷ 6.
+    $shift = payRulesShift('08:00:00', '15:00:00');
+    $logs = payRulesPunches('2026-09-01', '00:00', '09:00');
+    $approvals = ['2026-09-01' => 120];
+
+    $reference = payRulesSlip(null, $logs, approvals: $approvals, shift: $shift);
+    $eight = payRulesSlip(payRulesWith(['hourly_rate.hours' => 8.0]), $logs, approvals: $approvals, shift: $shift);
+    expect($reference['overtime_pay'])->toBe(416.67)
+        ->and($eight['overtime_pay'])->toBe(312.5)
+        // A stored hourly override still wins over the derivation.
+        ->and(PayRules::fromFormulas()->hourlyHours)->toBeNull();
+});
+
+it('rounds the day, the hour and each premium hour to the version\'s decimals before multiplying', function () {
+    $logs = payRulesPunches('2026-09-01', '00:00', '11:00');
+    $approvals = ['2026-09-01' => 120];
+    $divisor = ['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 26.1669];
+
+    // 22,000 ÷ 26.1669 = 840.7568…: unrounded, the overtime hour is 105.0946 × 125%.
+    $unrounded = payRulesSlip(payRulesWith($divisor), $logs, approvals: $approvals);
+    $centavos = payRulesSlip(payRulesWith($divisor + ['rounding.decimals' => 2]), $logs, approvals: $approvals);
+    $pesos = payRulesSlip(payRulesWith($divisor + ['rounding.decimals' => 0]), $logs, approvals: $approvals);
+
+    expect($unrounded['daily_rate'])->toBe(840.76)
+        ->and($unrounded['overtime_pay'])->toBe(262.74)
+        // ROUND(22,000 ÷ 26.1669, 2) = 840.76; ROUND(840.76 ÷ 8, 2) = 105.10; ROUND(105.10 × 1.25, 2) = 131.38; × 2 hours.
+        ->and($centavos['daily_rate'])->toBe(840.76)
+        ->and($centavos['work_days_pay'])->toBe(840.76)
+        ->and($centavos['overtime_pay'])->toBe(262.76)
+        // Whole pesos: 841 a day, 105 an hour (105.125 rounds down), 131 an overtime hour.
+        ->and($pesos['daily_rate'])->toBe(841.0)
+        ->and($pesos['work_days_pay'])->toBe(841.0)
+        ->and($pesos['overtime_pay'])->toBe(262.0)
+        // The cash-out's daily rate rounds the same way.
+        ->and(PayslipCalculator::dailyRateOn((object) ['monthly_rate' => 22000, 'daily_rate' => 0], '2026-09-01', payRulesShift(), payRulesWith($divisor + ['rounding.decimals' => 2])))->toBe(840.76)
+        ->and(PayslipCalculator::dailyRateOn((object) ['monthly_rate' => 22000, 'daily_rate' => 0], '2026-09-01', payRulesShift(), payRulesWith($divisor)))->toBe(22000 / 26.1669);
+});
+
+it('never caps a seaport overtime day and prices it at the seaport rate when the version has one', function () {
+    $logs = payRulesPunches('2026-09-01', '00:00', '11:00');
+    $approvals = ['2026-09-01' => 120];
+    $seaport = ['2026-09-01' => PayRules::OVERTIME_SEAPORT];
+    $capped = ['overtime.max_hours' => 1.0];
+
+    // Ordinary: the cap leaves one hour at 125 × 125%.
+    expect(payRulesSlip(payRulesWith($capped), $logs, approvals: $approvals)['overtime_pay'])->toBe(156.25)
+        // Seaport with no seaport rate: both hours, at the day's own rate.
+        ->and(payRulesSlip(payRulesWith($capped), $logs, approvals: $approvals, categories: $seaport)['overtime_pay'])->toBe(312.5)
+        // Seaport at 150%: both hours at 125 × 150%, whatever the day type.
+        ->and(payRulesSlip(payRulesWith($capped + ['overtime.seaport_rate' => 1.5]), $logs, approvals: $approvals, categories: $seaport)['overtime_pay'])->toBe(375.0)
+        ->and(payRulesSlip(payRulesWith($capped + ['overtime.seaport_rate' => 1.5]), $logs, [payRulesHoliday('2026-09-01')], $approvals, categories: $seaport)['overtime_pay'])->toBe(375.0)
+        // A category on a day with no approval still pays nothing under per-day approval.
+        ->and(payRulesSlip(payRulesWith($capped + ['overtime.seaport_rate' => 1.5]), $logs, approvals: [], categories: $seaport)['overtime_pay'])->toBe(0.0)
+        // An empty map is the reference path.
+        ->and(payRulesSlip(null, $logs, approvals: $approvals, categories: []))->toBe(payRulesSlip(null, $logs, approvals: $approvals));
+});
+
+it('reads the three figures leniently when absent and refuses them out of bounds', function () {
+    $figures = PayRules::fromFormulas()->toArray();
+    expect($figures['hourly_rate'])->toBe(['hours' => null])
+        ->and($figures['rounding'])->toBe(['decimals' => null])
+        ->and($figures['overtime']['seaport_rate'])->toBeNull();
+
+    // A version captured before the figures existed has no key: blank.
+    $older = $figures;
+    unset($older['hourly_rate'], $older['rounding'], $older['overtime']['seaport_rate']);
+    $read = PayRules::fromArray($older);
+    expect($read->hourlyHours)->toBeNull()
+        ->and($read->roundingDecimals)->toBeNull()
+        ->and($read->seaportRate)->toBeNull()
+        ->and($read->toArray())->toBe($figures)
+        ->and(PayRules::error(['hourly_rate' => ['hours' => 0.5]] + $figures))->toBe('Hours for the hourly rate: enter between 1 and 24, or leave it blank.')
+        ->and(PayRules::error(['rounding' => ['decimals' => 5]] + $figures))->toBe('Rounding: choose 0 to 4 decimals, or leave it blank.')
+        ->and(PayRules::error(['rounding' => ['decimals' => '2']] + $figures))->toBe('Rounding: choose 0 to 4 decimals, or leave it blank.')
+        ->and(PayRules::error(['overtime' => ['rate' => 1.25, 'max_hours' => 8.0, 'seaport_rate' => 11.0]] + $figures))->toBe('Seaport overtime: enter a rate between 0% and 1,000%, or leave it blank.')
+        ->and(PayRules::fromArray(['hourly_rate' => ['hours' => 8], 'rounding' => ['decimals' => 2]] + $figures)->roundRate(105.09375))->toBe(105.09)
+        ->and(PayRules::fromFormulas()->roundRate(105.09375))->toBe(105.09375);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Divergence 17: each day priced by the version in force on it
+|--------------------------------------------------------------------------
+*/
+
+it('answers a one-version timeline with the reference path, and reads segments by date', function () {
+    $logs = array_merge(...array_map(static fn (string $d): array => payRulesPunches($d), PAY_RULES_SCHEDULED));
+    $reference = payRulesSlip(null, $logs);
+    $single = payRulesSlip(null, $logs, timeline: PayRulesTimeline::single(PayRules::fromArray(PayRules::fromFormulas()->toArray())));
+    expect($single)->toBe($reference)
+        ->and($reference['work_days_pay'])->toBe(11000.0);
+
+    $a = PayRules::fromFormulas();
+    $b = payRulesWith(['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 20.0]);
+    $timeline = PayRulesTimeline::of([['from' => '2026-09-01', 'rules' => $a], ['from' => '2026-09-10', 'rules' => $b]]);
+    expect($timeline->isSingle())->toBeFalse()
+        ->and($timeline->on('2026-08-31'))->toBe($a)
+        ->and($timeline->on('2026-09-09'))->toBe($a)
+        ->and($timeline->on('2026-09-10'))->toBe($b)
+        ->and($timeline->on('2026-12-31'))->toBe($b)
+        ->and($timeline->segmentStart('2026-09-09'))->toBe('2026-09-01')
+        ->and($timeline->segmentStart('2026-09-10'))->toBe('2026-09-10')
+        ->and(PayRulesTimeline::single($a)->segmentStart('2026-09-10'))->toBe(PayRulesTimeline::ALWAYS)
+        ->and(fn () => PayRulesTimeline::of([]))->toThrow(InvalidArgumentException::class)
+        ->and(fn () => PayRulesTimeline::of([['from' => '2026-09-10', 'rules' => $a], ['from' => '2026-09-01', 'rules' => $b]]))->toThrow(InvalidArgumentException::class);
+});
+
+it('prices the days before and from a split by their own version, the method included', function () {
+    $logs = array_merge(...array_map(static fn (string $d): array => payRulesPunches($d), PAY_RULES_SCHEDULED));
+    // 1–9 September at the month's 22 working days (1,000 a day), 10–15 at a divisor of 20 (1,100).
+    $split = payRulesSlip(null, $logs, timeline: payRulesSplit([], '2026-09-10', ['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 20.0]));
+    expect($split['work_days'])->toBe(11.0)
+        ->and($split['work_days_pay'])->toBe(7 * 1000.0 + 4 * 1100.0)
+        // The payslip reports the first day's rate.
+        ->and($split['daily_rate'])->toBe(1000.0)
+        ->and($split['gross_pay'])->toBe(11400.0);
+
+    // Overtime on each side at its own hour: two hours on the 9th (125 × 125%) and on the 10th (137.5 × 125%).
+    $overtime = array_merge(payRulesPunches('2026-09-09', '00:00', '11:00'), payRulesPunches('2026-09-10', '00:00', '11:00'));
+    $approvals = ['2026-09-09' => 120, '2026-09-10' => 120];
+    expect(payRulesSlip(null, $overtime, approvals: $approvals, timeline: payRulesSplit([], '2026-09-10', ['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 20.0]))['overtime_pay'])->toBe(312.5 + 343.75);
+});
+
+it('carries the monthly residual per version when a split changes the basis', function () {
+    // The 10th is absent; everything else is worked.
+    $worked = array_values(array_diff(PAY_RULES_SCHEDULED, ['2026-09-10']));
+    $logs = array_merge(...array_map(static fn (string $d): array => payRulesPunches($d), $worked));
+    // Daily-paid at a divisor of 25 (880 a day) until the 9th, then monthly-paid at a divisor of 20:
+    // 7 × 880, 3 × 1,100, and the monthly residual over the second version's 4 scheduled days
+    // (22,000 × 4 ÷ 22 − 4 × 1,100 = −400).
+    $split = payRulesSlip(null, $logs, timeline: payRulesSplit(
+        ['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 25.0],
+        '2026-09-10',
+        ['basis' => PayRules::BASIS_MONTHLY, 'daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 20.0],
+    ));
+    expect($split['work_days'])->toBe(10.0)
+        ->and($split['absence_days'])->toBe(1.0)
+        ->and($split['work_days_pay'])->toBe(7 * 880.0 + 3 * 1100.0 - 400.0);
+});
+
+it('prices a holiday by the version in force on its date across a split', function () {
+    $logs = payRulesPunches('2026-09-10');
+    $holidays = [payRulesHoliday('2026-09-10')];
+    $richer = ['matrix.REGULAR.worked' => 250.0];
+
+    expect(payRulesSlip(null, $logs, $holidays)['holiday_pay'])->toBe(2000.0)
+        ->and(payRulesSlip(null, $logs, $holidays, timeline: payRulesSplit([], '2026-09-10', $richer))['holiday_pay'])->toBe(2500.0)
+        ->and(payRulesSlip(null, $logs, $holidays, timeline: payRulesSplit([], '2026-09-11', $richer))['holiday_pay'])->toBe(2000.0);
 });
 
 it('reads a version strictly, round-trips it and refuses figures the engine cannot price', function () {

@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskFileView;
 use App\Modules\WorkManagement\Contracts\Views\TaskResponseView;
+use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Support\Access;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\UploadedFile;
@@ -225,7 +226,7 @@ it('shows a member their own response in full and only the state of a peer', fun
         ->and($own->content_visible)->toBeTrue()
         ->and($own->status)->toBe('SUBMITTED')
         ->and($own->label())->toBe('Submitted')
-        ->and($own->awaitsReview())->toBeTrue()
+        ->and(TaskSubmissionPolicy::responseAwaitsReview($own->task_status, $own->status))->toBeTrue()
         ->and($own->id)->toBe($f['anaRow']->id)
         ->and($own->remarks)->toBe('Ana: counts attached.')
         ->and($own->revision)->toBe(1);

@@ -137,7 +137,7 @@ it('orders manual item codes as text in the register stock holdings reports and 
     $records = app(InventoryRecords::class);
     expect($records->items($actor)->pluck('code')->all())->toBe($expected)
         ->and($records->items($actor, [], 'code', 'desc')->pluck('code')->all())->toBe(array_reverse($expected))
-        ->and($records->stock($actor)->pluck('code')->all())->toBe($expected)
+        ->and($records->items($actor, ['status' => 'IN_STOCK', 'condition' => 'SERVICEABLE'])->pluck('code')->all())->toBe($expected)
         ->and(app(InventoryReports::class)->rows($actor, 'stock')->map(fn ($row) => $row->cells[0])->all())->toBe($expected);
     $export = app(ItemsExport::class)->export($actor, []);
     $rows = iterator_to_array(($export->rows)());
@@ -146,8 +146,7 @@ it('orders manual item codes as text in the register stock holdings reports and 
         ->and(array_intersect($ids, array_merge(...$rows)))->toBe([]);
     $employee = invitemcodeEmployee();
     app(IssueItems::class)->handle($actor, $ids, $employee, $employee, '2026-02-01', 'SORT-CODE-MR');
-    expect($records->employeeHoldings($actor, $employee)->pluck('code')->all())->toBe($expected)
-        ->and($records->employeeHoldingsPage($actor, $employee)->pluck('code')->all())->toBe($expected)
+    expect($records->employeeHoldingsPage($actor, $employee)->pluck('code')->all())->toBe($expected)
         ->and(app(InventoryReports::class)->rows($actor)->map(fn ($row) => $row->cells[0])->all())->toBe($expected);
 });
 

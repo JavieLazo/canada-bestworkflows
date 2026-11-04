@@ -23,9 +23,10 @@ use Illuminate\Support\Facades\DB;
  * "Approve all unreviewed" / "Reject all unreviewed" for one employee over a
  * period of the Daily Time Record.
  *
- * Undecided overtime is excluded from payroll without blocking finalization.
- * This optionally decides every PENDING day (at least one whole minute of
- * overtime and no decision yet) in one go: an approval at the day's full
+ * Undecided overtime is excluded from payroll, and finalizing over it takes
+ * the payroll officer's "Finalize anyway". This optionally decides every
+ * PENDING day (at least one whole minute of overtime and no decision yet)
+ * in one go: an approval at the day's full
  * approvable figure (the ceiling: the computed minutes, capped by the
  * Formulas OT maximum), or an explicit rejection. Approve before posting to
  * include the overtime; days already decided keep their decision.

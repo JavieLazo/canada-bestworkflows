@@ -168,6 +168,38 @@ final class PayslipDraft
         public readonly float $custom_deductions = 0.0,
         /** The part of `exempt_benefits` that spent the yearly ceiling; null when posted before it was recorded apart (then all of it did). */
         public readonly ?float $ceiling_benefits = null,
+        // DELIBERATE DIVERGENCE 14, the advance payroll (no reference
+        // counterpart): the scheduled working days after the run's
+        // "attendance counted through" date, paid as full days without
+        // their attendance, and the settlement of such days on an earlier
+        // payslip — what they turned out to be worth less what was presumed,
+        // which CAN be negative. The settlement enters gross pay before the
+        // tax; `presumed_days` is a count beside `work_days`, never money.
+        /** Scheduled working days paid as full days ahead of their attendance. */
+        public readonly float $presumed_days = 0.0,
+        /** The settlement of earlier presumed days, positive or negative; in gross pay. */
+        public readonly float $settlement = 0.0,
+        /** DELIBERATE DIVERGENCE 15: the days of leave credits this payslip charged for lateness, undertime and absences. */
+        public readonly float $leave_charged_days = 0.0,
+        /**
+         * DIVERGENCE 19: the monthly salary the contribution tables were
+         * read at — `monthly_rate`, or a daily-only employee's day times the
+         * month's working days — reported so a later payslip of the same
+         * contribution month can show what it was read at. Not in the
+         * reference's output.
+         */
+        public readonly float $contribution_base = 0.0,
+        /**
+         * DIVERGENCE 20: the refund the year's last payslip pays back when
+         * the whole-year estimate found too much withheld — added to the
+         * net pay; 0 on every other payslip and on the reference path —
+         * with the tax year the withholding counts in and how it was worked
+         * out (TABLE, ANNUALIZED, FIXED, PERCENT, WHOLE_YEAR, NONE), both
+         * set by PayrollData after compute() and null until then.
+         */
+        public readonly float $tax_refund = 0.0,
+        public readonly ?int $tax_year = null,
+        public readonly ?string $tax_method = null,
     ) {}
 
     /**
@@ -312,6 +344,13 @@ final class PayslipDraft
             'taxable_benefits_excess' => $this->taxable_benefits_excess,
             'taxable_compensation' => $this->taxable_compensation,
             'ceiling_benefits' => $this->ceiling_benefits,
+            'presumed_days' => $this->presumed_days,
+            'settlement' => $this->settlement,
+            'leave_charged_days' => $this->leave_charged_days,
+            'contribution_base' => $this->contribution_base,
+            'tax_refund' => $this->tax_refund,
+            'tax_year' => $this->tax_year,
+            'tax_method' => $this->tax_method,
         ];
     }
 }

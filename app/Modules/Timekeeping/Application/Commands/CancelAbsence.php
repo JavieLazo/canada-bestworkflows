@@ -7,10 +7,16 @@ namespace App\Modules\Timekeeping\Application\Commands;
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
+use App\Models\LeaveCredit;
 use App\Models\LeaveRequestCancellation;
 use App\Models\LeaveTravelRequest;
+use App\Modules\Timekeeping\Application\LeaveBalances;
+use App\Modules\Timekeeping\Application\LeaveCharges;
+use App\Modules\Timekeeping\Application\LeaveCreditWriter;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
+use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\Notifications\Notifier;
 use App\Support\Access;
 use App\Support\AuditService;
@@ -22,9 +28,11 @@ use RuntimeException;
 /**
  * Cancels only selected future leave dates and retains the approved request.
  * Management may cancel their own leave. Original approval, pay choice and
- * range remain evidence; dated exclusions restore derived credit usage.
- * Payroll's membership lock is FIRST, so a concurrent finalize and this
- * operation cannot disagree about whether the dates are already posted.
+ * range remain evidence; dated exclusions give the credits back (the frozen
+ * cost shrinks while its year is open; an ADJUSTMENT in the live year once
+ * that year has closed — LeaveBalances). Payroll's membership lock is FIRST,
+ * then the request row, then the credits lock, so a concurrent finalize and
+ * this operation cannot disagree about whether the dates are already posted.
  */
 final class CancelAbsence
 {
@@ -95,6 +103,35 @@ final class CancelAbsence
                 $row->save();
             }
 
+            // THE CREDITS COME BACK. A frozen cost (credit_dates) gives back
+            // the cancelled dates it counted: while the year it draws on is
+            // still open, the frozen cost shrinks; once that year is closed
+            // — its whole balance already carried forward — the frozen cost
+            // stays as the closing balance read it, and the days return as an
+            // ADJUSTMENT entry in the live year instead. An older row with no
+            // frozen cost keeps the calendar-day rule, whose read already
+            // leaves cancelled dates out.
+            $returned = '';
+            if (LeaveBalances::ready() && $request->credit_dates !== null && LeaveCreditPolicy::wouldConsume($request->request_type, $request->is_paid)) {
+                $counted = LeaveBalances::usedDates($request);
+                $given = array_values(array_intersect($counted, $dates));
+                $kept = array_values(array_diff($counted, $dates));
+                $days = LeaveCreditPolicy::selectedDays($request->day_type, $given);
+                $creditsYear = LeaveBalances::creditsYear($request);
+                $liveYear = LeaveCharges::liveYear($request->employee_id, $creditsYear);
+                if ($liveYear === $creditsYear) {
+                    $request->credit_dates = $kept;
+                    $request->credit_days = LeaveCreditPolicy::selectedDays($request->day_type, $kept);
+                } elseif ($days > 0) {
+                    LeaveCreditWriter::lock();
+                    $token = LeaveCreditPolicy::resolveKey($request->request_type, array_values(LeaveCredit::query()
+                        ->where('employee_id', $request->employee_id)->where('year', $liveYear)->pluck('request_type')->map('strval')->all())) ?? $request->request_type;
+                    LeaveCreditWriter::move($actor, $request->employee_id, $liveYear, $token, 'ADJUSTMENT', $days,
+                        "Returned from request {$request->code}: ".implode(', ', $given)." cancelled after {$creditsYear} closed");
+                    $returned = '; '.LeaveQuantity::format($days).' returned to '.$liveYear;
+                }
+            }
+
             $originalDays = (int) $request->start_date->diffInDays($request->end_date) + 1;
             if (count($cancelled) + count($dates) === $originalDays) {
                 $request->status = 'CANCELLED';
@@ -105,7 +142,7 @@ final class CancelAbsence
 
             $dateList = implode(', ', $dates);
             AuditService::record($actor, AuditEvent::REQUEST_CANCELLED, 'leave_travel_requests', $id,
-                "Request {$request->code} cancelled for {$dateList} · {$reason}");
+                "Request {$request->code} cancelled for {$dateList} · {$reason}{$returned}");
 
             $employeeId = $request->employee_id;
             $code = $request->code;

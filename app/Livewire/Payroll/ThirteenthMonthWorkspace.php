@@ -437,6 +437,8 @@ class ThirteenthMonthWorkspace extends Component
             'issue' => $issue,
             'totals' => PayrollData::totals($lines),
             'cutoffError' => $finalized ? null : app(StatutoryTables::class)->yearlyCutoffError($this->year),
+            // A reminder, never a block: the withholding table not confirmed through 31 December.
+            'statutoryWarning' => $finalized ? null : app(StatutoryTables::class)->yearlyCutoffWarning($this->year),
             'years' => array_values(array_unique([$year - 1, $year, $this->year])),
             'dirty' => $this->isDirty(),
             'pickerRows' => $pickerRows,

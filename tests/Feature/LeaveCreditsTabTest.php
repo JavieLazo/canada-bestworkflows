@@ -392,8 +392,8 @@ it('keeps the dialog open and writes nothing when the command refuses the save',
     lctabTypes();
     $ana = lctabEmployee('Ana', 'Reyes');
     $ben = lctabEmployee('Ben', 'Torres');
-    // An all_data LEAVES holder linked to Ana may open her dialog, but not
-    // set her own credits — the self-review rule.
+    // An all_data LEAVES holder linked to Ana sets her own credits from the
+    // dialog: one administrator runs the whole flow.
     lctabActor([ModuleCode::LEAVES], allData: true, employeeId: (string) $ana->getKey());
 
     Livewire::test(LeaveCredits::class)
@@ -401,21 +401,21 @@ it('keeps the dialog open and writes nothing when the command refuses the save',
         ->assertDispatched('modal-show', name: 'leave-credits')
         ->set('creditDraft.VACATION_LEAVE', '10')
         ->call('saveCredits')
-        ->assertSet('creditsEmployeeId', (string) $ana->getKey())
-        ->assertSet('creditDraft.VACATION_LEAVE', '10')
-        ->assertNotDispatched('modal-close')
-        ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'You cannot set your own leave credits.');
+        ->assertDispatched('modal-close');
+    expect(LeaveCredit::query()->where('employee_id', (string) $ana->getKey())->where('request_type', 'VACATION_LEAVE')->value('credits'))->toBe(10.0);
+    LeaveCredit::query()->where('employee_id', (string) $ana->getKey())->delete();
+    AuditLog::query()->where('action', 'LEAVE_CREDITS_SET')->delete();
 
-    // A value off the half-day grid, then a token the client made up beside
+    // A value with too many decimals, then a token the client made up beside
     // a good value: each refused before anything is written.
     Livewire::test(LeaveCredits::class)
         ->call('openCredits', (string) $ben->getKey())
-        ->set('creditDraft.VACATION_LEAVE', '12.3')
+        ->set('creditDraft.VACATION_LEAVE', '12.34567')
         ->call('saveCredits')
         ->assertSet('creditsEmployeeId', (string) $ben->getKey())
-        ->assertSet('creditDraft.VACATION_LEAVE', '12.3')
+        ->assertSet('creditDraft.VACATION_LEAVE', '12.34567')
         ->assertNotDispatched('modal-close')
-        ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Vacation Leave: Enter a number of days in half-day steps.')
+        ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Vacation Leave: Enter a number of days with up to four decimals.')
         ->set('creditDraft.VACATION_LEAVE', '12.5')
         ->set('creditDraft.BOGUS', '1')
         ->call('saveCredits')

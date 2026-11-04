@@ -16,6 +16,7 @@ use App\Modules\Organization\Contracts\HolidayCalendar;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Organization\Contracts\Views\WorkSiteView;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
+use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Contracts\Views\CorrectionPunchView;
 use App\Modules\Timekeeping\Contracts\Views\DayCorrectionView;
 use App\Modules\Timekeeping\Contracts\Views\ShiftOnDateView;
@@ -144,6 +145,8 @@ final class DayCorrections
             next_day_allowed: CorrectionWindow::allowsNextDay($rostered),
             borrowed: $borrowed,
             previous_day_punches: $previousDayPunches,
+            // The display read, without locks; CorrectPunches asks again under one.
+            posted: (app(PostedPayrollDates::class)->coveredPeriods($actor, [$employeeId], $date, $date)[$employeeId] ?? []) !== [],
         );
     }
 

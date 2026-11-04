@@ -27,7 +27,13 @@ use Illuminate\Support\Facades\DB;
 use RuntimeException;
 use Throwable;
 
-/** An independent review commits the exact approved record and its history in one transaction. */
+/**
+ * A review commits the exact approved record and its history in one
+ * transaction. Any active all-data EMPLOYEES holder reviews, the requester
+ * and the employee concerned included: one administrator must be able to
+ * approve a proposal about themselves, as they may already edit their own
+ * record directly in Employee Records.
+ */
 final class ReviewRecordChange
 {
     public function handle(Access $access, string $id, bool $approve, string $note = ''): void
@@ -44,8 +50,7 @@ final class ReviewRecordChange
                 $reviewerId = (int) $access->userId;
                 $requesterId = $hint->requested_by;
                 $links = app(AccountEmployeeLinks::class)->lockCurrentLinks(array_values(array_unique(array_filter([$reviewerId, $requesterId], static fn (?int $id): bool => $id !== null))));
-                abort_unless(array_key_exists($reviewerId, $links) && $links[$reviewerId] !== $hint->employee_id, 403);
-                abort_if($requesterId === $reviewerId || ($access->hasEmployeeLink() && $access->ownEmployeeId() === $hint->employee_id), 403);
+                abort_unless(array_key_exists($reviewerId, $links), 403);
                 if ($approve && ($requesterId === null || ! array_key_exists($requesterId, $links) || $links[$requesterId] !== $hint->employee_id)) {
                     throw new RuntimeException('The requesting account is no longer active and linked to this employee. Reject the request and ask for a new submission.');
                 }

@@ -7,9 +7,9 @@ namespace App\Modules\Organization\Domain;
 /**
  * The two fixed levels — departments, and the units inside each one — as HR
  * ordered them. One place decides that order, which department a row belongs
- * to and what a department filter matches, so the Departments & Units page,
- * the Position page and every department filter read the structure the same
- * way.
+ * to and which rows a department filter selects, so the Departments & Units
+ * page, the Position page and every department filter read the structure the
+ * same way.
  *
  * Built from plain rows (`id`, `kind`, `parent_id`, `name`, `sort_order`);
  * no persistence, clock or framework I/O. Siblings come in `sort_order`, then
@@ -128,30 +128,6 @@ final class OrgStructure
         }
 
         return $this->isUnit($id) ? $this->unitsOf((string) $this->nodes[$id]['parent_id']) : [];
-    }
-
-    /**
-     * Whether something placed at `$nodeId` (null: not placed) passes a
-     * department filter. `ALL` passes everything and `NONE` only what is not
-     * placed; a department passes itself and its units; a unit passes only
-     * itself; an id that is not in the structure passes nothing.
-     */
-    public function matches(?string $nodeId, string $filter): bool
-    {
-        if ($filter === self::ALL) {
-            return true;
-        }
-        if ($filter === self::NONE) {
-            return $nodeId === null;
-        }
-        if ($nodeId === null) {
-            return false;
-        }
-        if ($this->isDepartment($filter)) {
-            return $this->departmentOf($nodeId) === $filter;
-        }
-
-        return $this->isUnit($filter) && $nodeId === $filter;
     }
 
     /**

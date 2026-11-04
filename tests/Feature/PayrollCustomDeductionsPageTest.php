@@ -35,13 +35,13 @@ function deductionPageActor(bool $allData = true): void
     app()->forgetInstance(Access::class);
 }
 
-/** An all-data RECORDS actor, for the catalog writes the payroll officer cannot make. */
+/** An all-data PAYROLL actor for the catalog writes (PayrollSettingsAccess), apart from the page officer. */
 function pdcActorForPage(): Access
 {
     $role = new Role;
     $role->forceFill(['name' => 'Deduction page records '.Str::random(6), 'all_data' => true, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
-    $grant->forceFill(['role_id' => $role->getKey(), 'module' => 'RECORDS'])->save();
+    $grant->forceFill(['role_id' => $role->getKey(), 'module' => 'PAYROLL'])->save();
     test()->actingAs(User::factory()->create(['role_id' => $role->getKey()]));
     app()->forgetInstance(Access::class);
 

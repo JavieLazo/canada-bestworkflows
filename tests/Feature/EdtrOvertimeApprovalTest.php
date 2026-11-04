@@ -138,7 +138,7 @@ it('approves a day from its dialog with the minutes the approver typed', functio
 
     $page = edtrotPage($employee)->call('openOvertime', '2026-09-08');
     // The draft starts at the most that may be approved.
-    expect($page->get('overtimeForm'))->toBe(['minutes' => '150', 'note' => ''])
+    expect($page->get('overtimeForm'))->toBe(['minutes' => '150', 'note' => '', 'seaport' => false, 'credited' => ''])
         ->and($page->html())->toContain('data-overtime-decision')->toContain('Not approved — excluded from payroll');
 
     $page->set('overtimeForm.minutes', '90')->set('overtimeForm.note', 'Client deadline')->call('approveOvertime');
@@ -324,7 +324,7 @@ it('opens only one of the overtime and punch dialogs at a time', function () {
         ->assertSet('overtimeOpen', false)
         ->assertSet('overtimeDate', null)
         ->assertSet('overtimeError', null)
-        ->assertSet('overtimeForm', ['minutes' => '', 'note' => '']);
+        ->assertSet('overtimeForm', ['minutes' => '', 'note' => '', 'seaport' => false, 'credited' => '']);
 
     expect(OvertimeApproval::query()->count())->toBe(0)
         ->and(AuditLog::query()->count())->toBe(0);
@@ -345,14 +345,14 @@ it('clears a closed overtime draft and reloads each dates saved approval or ceil
         ->set('overtimeOpen', false)
         ->assertSet('overtimeDate', null)
         ->assertSet('overtimeError', null)
-        ->assertSet('overtimeForm', ['minutes' => '', 'note' => '']);
+        ->assertSet('overtimeForm', ['minutes' => '', 'note' => '', 'seaport' => false, 'credited' => '']);
 
     $page->call('openOvertime', '2026-09-09')
         ->assertSet('overtimeDate', '2026-09-09')
-        ->assertSet('overtimeForm', ['minutes' => '60', 'note' => ''])
+        ->assertSet('overtimeForm', ['minutes' => '60', 'note' => '', 'seaport' => false, 'credited' => ''])
         ->set('overtimeOpen', false)
         ->call('openOvertime', '2026-09-08')
-        ->assertSet('overtimeForm', ['minutes' => '90', 'note' => 'Client deadline']);
+        ->assertSet('overtimeForm', ['minutes' => '90', 'note' => 'Client deadline', 'seaport' => false, 'credited' => '']);
 
     expect(OvertimeApproval::query()->sole()->approved_minutes)->toBe(90)
         ->and(AuditLog::query()->where('action', 'DTR_OVERTIME_APPROVED')->count())->toBe(1);
@@ -404,7 +404,7 @@ it('cannot apply an overtime draft after the selected employee changes', functio
         ->assertSet('dtrEmployee', (string) $other->getKey())
         ->assertSet('overtimeOpen', false)
         ->assertSet('overtimeDate', null)
-        ->assertSet('overtimeForm', ['minutes' => '', 'note' => ''])
+        ->assertSet('overtimeForm', ['minutes' => '', 'note' => '', 'seaport' => false, 'credited' => ''])
         ->call('approveOvertime')->call('rejectOvertime');
 
     expect($page->html())->not->toContain('data-overtime-decision')
@@ -599,4 +599,24 @@ it('cannot approve a newly selected employee from the previous employees rendere
     expect(OvertimeApproval::query()->count())->toBe(0)
         ->and(AuditLog::query()->count())->toBe(0)
         ->and($page->get('dtrEmployee'))->toBe($other->id);
+});
+
+it('approves a day as seaport overtime from its dialog and shows the category afterwards', function () {
+    $employee = edtrotEmployee();
+    edtrotWorked($employee, '2026-09-08');
+    edtrotActor(['EDTR']);
+
+    $page = edtrotPage($employee)->call('openOvertime', '2026-09-08')
+        ->set('overtimeForm.seaport', true)
+        ->call('approveOvertime');
+
+    $row = OvertimeApproval::query()->sole();
+    expect($row->category)->toBe('SEAPORT')
+        ->and($row->approved_minutes)->toBe(150)
+        ->and($page->get('overtimeError'))->toBeNull()
+        ->and(edtrotPanel($page->html()))->toContain('data-overtime-category="SEAPORT"');
+
+    // Reopening the day reads the category back into the draft.
+    $page->set('overtimeOpen', false)->call('openOvertime', '2026-09-08');
+    expect($page->get('overtimeForm.seaport'))->toBeTrue();
 });

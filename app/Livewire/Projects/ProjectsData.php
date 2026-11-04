@@ -614,15 +614,6 @@ final class ProjectsData
     }
 
     /**
-     * `task.code || task.title` — how a task is named in a bell or an audit
-     * sentence; a task without a code is announced by its title.
-     */
-    public static function taskLabel(ProjectTask $task): string
-    {
-        return WorkRules::taskLabel($task);
-    }
-
-    /**
      * The crew a notice goes to: every assignee EXCEPT the actor — nobody is
      * told about their own action — and except `$alsoExcept`, an employee
      * whose account the caller has already told directly, so one action never
@@ -775,15 +766,6 @@ final class ProjectsData
     public static function attachmentRejection(string $name, int $size): ?string
     {
         return TaskFilePolicy::attachmentRejection($name, $size);
-    }
-
-    /**
-     * storage.ts `assertStorageCeiling()` — returns the 507 sentence instead of
-     * throwing, so a Livewire action can toast it.
-     */
-    public static function storageCeilingError(int $incomingBytes): ?string
-    {
-        return TaskFilePolicy::storageCeilingError($incomingBytes);
     }
 
     /* ------------------------------- predicates ------------------------------ */

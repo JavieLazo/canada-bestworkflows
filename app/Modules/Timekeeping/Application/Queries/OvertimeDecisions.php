@@ -8,6 +8,8 @@ use App\Domain\Attendance\DayRecord;
 use App\Domain\Enums\ModuleCode;
 use App\Models\OvertimeApproval;
 use App\Modules\IdentityAccess\Contracts\AccountNames;
+use App\Modules\Timekeeping\Application\OvertimeCategoryColumn;
+use App\Modules\Timekeeping\Application\OvertimeCreditColumn;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Contracts\Views\OvertimeDayView;
@@ -48,13 +50,17 @@ final class OvertimeDecisions
         $reviewerIds = array_values(array_unique($rows->pluck('reviewed_by')->filter(static fn (mixed $id): bool => $id !== null)->map(static fn (mixed $id): int => (int) $id)->all()));
         $reviewers = $reviewerIds === [] ? collect() : app(AccountNames::class)->list($actor, $reviewerIds)->keyBy('id');
         $cap = app(OpenPunchLimit::class)->hours();
+        $withCategory = OvertimeCategoryColumn::present();
+        $withCredit = OvertimeCreditColumn::present();
         $postedPeriods = app(PostedPayrollDates::class)->coveredPeriods($actor, [$employeeId], $start, $end)[$employeeId] ?? [];
 
         $out = [];
         foreach ($days as $day) {
             /** @var OvertimeApproval|null $row */
             $row = $rows->get($day->date);
-            $ceiling = OvertimeApprovalPolicy::ceiling($day->overtimeMinutes, $cap);
+            $category = $withCategory ? $row?->category : null;
+            $credited = $withCredit && $row !== null ? (int) $row->credited_minutes : 0;
+            $ceiling = OvertimeApprovalPolicy::ceilingFor($day->overtimeMinutes, $cap, $category);
             $status = OvertimeApprovalPolicy::status($row?->decision, $row?->approved_minutes, $row?->computed_minutes, $day->overtimeMinutes, $ceiling);
             if ($status === null) {
                 continue;
@@ -75,11 +81,13 @@ final class OvertimeDecisions
                 computed_minutes: OvertimeApprovalPolicy::wholeMinutes($day->overtimeMinutes),
                 approved_minutes: $row?->approved_minutes,
                 ceiling: $ceiling,
-                payable_minutes: OvertimeApprovalPolicy::payable($row?->decision, $row?->approved_minutes, $ceiling),
+                payable_minutes: OvertimeApprovalPolicy::payable($row?->decision, OvertimeApprovalPolicy::paidMinutes($row?->approved_minutes, $credited), $ceiling),
                 note: $row?->note,
                 reviewer_name: $row?->reviewed_by !== null ? $reviewers->get($row->reviewed_by)?->name : null,
                 decided_at: ($row->updated_at ?? $row?->created_at)?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A'),
                 posted: $posted,
+                category: $category,
+                credited_minutes: $credited,
             );
         }
 

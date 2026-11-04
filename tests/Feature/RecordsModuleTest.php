@@ -122,7 +122,11 @@ it('renders every screen for a RECORDS holder', function () {
     $this->get('/records/holidays')->assertOk()->assertSee('Holiday Settings');
     $this->get('/records/shifts')->assertOk()->assertSee('Shifting Settings');
     $this->get('/records/sites')->assertOk()->assertSee('Site Settings');
-    $this->get('/records/pay-rates')->assertOk()->assertSee('Pay Basis &amp; Rates', false);
+    // The Payroll Settings moved under Payroll; their old addresses forward there.
+    // The Payroll Settings addresses forward only for a PAYROLL holder; a
+    // Records holder without Payroll is sent to their landing page.
+    $this->get('/records/pay-rates')->assertRedirect('/records/positions');
+    $this->get('/records/payroll-deductions')->assertRedirect('/records/positions');
 });
 
 it('404s a slug that is not a reference list', function () {

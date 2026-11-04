@@ -8,11 +8,13 @@ use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveCreditEntry;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
+use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveLedgerBalanceView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveLedgerEntryView;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Timekeeping\Domain\Absence\LeaveLedgerTotals;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
@@ -22,9 +24,10 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
- * Annual ledger reads preserve the established credit and start-year rules,
- * while showing approved unpaid leave and separating elapsed days from
- * future bookings. HR and My Portal share this projection and its scope.
+ * Annual ledger reads follow the one balance rule (LeaveBalances: the year a
+ * request draws on and the days it costs), while showing approved unpaid
+ * leave and separating elapsed days from future bookings. HR and My Portal
+ * share this projection and its scope.
  */
 final class LeaveLedgerRecords
 {
@@ -44,13 +47,12 @@ final class LeaveLedgerRecords
         $creditKeys = array_keys($balances);
         $entries = $this->entryQuery($actor, $employeeId, $year)
             ->select(['request_type', 'kind', 'days'])->get();
-        $requests = LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')
+        $requests = LeaveBalances::drawingOn(LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')
             ->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
             ->where('employee_id', '=', $employeeId)
             ->where('status', 'APPROVED')
-            ->whereBetween('start_date', [sprintf('%04d-01-01', $year), sprintf('%04d-12-31', $year)])
-            ->where('request_type', '!=', 'BUSINESS_TRAVEL')
-            ->get(['id', 'request_type', 'day_type', 'start_date', 'end_date', 'is_paid']);
+            ->where('request_type', '!=', 'BUSINESS_TRAVEL'), $year)
+            ->get(LeaveBalances::columns());
 
         // History survives a cleared entitlement. Request-only types include
         // unpaid leave; neither may change which established credit is charged.
@@ -83,13 +85,13 @@ final class LeaveLedgerRecords
         $today = ManilaClock::todayKey();
         foreach ($requests as $request) {
             $key = LeaveCreditPolicy::resolveKey($request->request_type, $creditKeys) ?? $request->request_type;
-            $start = $request->start_date->format('Y-m-d');
-            $end = $request->end_date->format('Y-m-d');
-            $cancelledDates = $request->cancelledDates();
-            $all = LeaveCreditPolicy::coveredDays($request->day_type, $start, $end, $cancelledDates);
-            $taken = LeaveCreditPolicy::coveredDays($request->day_type, $start, min($end, $today), $cancelledDates);
+            // The dates the request costs (its frozen working days, or every
+            // active calendar day of an older row), split at Manila today.
+            $dates = LeaveBalances::usedDates($request);
+            $all = LeaveBalances::usedDays($request);
+            $taken = LeaveCreditPolicy::selectedDays($request->day_type, array_values(array_filter($dates, static fn (string $date): bool => $date <= $today)));
             $paid = $request->is_paid !== false;
-            $totals[$key]->usage($paid, $taken, $all - $taken);
+            $totals[$key]->usage($paid, $taken, LeaveQuantity::normalize($all - $taken));
         }
 
         $names = $this->typeNames();

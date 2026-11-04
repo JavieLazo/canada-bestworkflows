@@ -28,6 +28,7 @@ use Carbon\CarbonImmutable;
  * @property-read float|null $additional_basic_pay  13th month runs: basic pay earned outside EMS
  * @property-read array<string, float> $incentives  incentive type id => amount
  * @property-read array<string, float> $deductions  custom deduction type id => amount
+ * @property-read list<string>|null $skipped_recurring_lines  the recurring lines skipped on this payroll
  * @property-read CarbonImmutable $period_start
  * @property-read CarbonImmutable $period_end
  * @property-read CarbonImmutable $created_at

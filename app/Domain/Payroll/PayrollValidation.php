@@ -17,29 +17,18 @@ use DateTimeInterface;
  * may contain.
  *
  * The reference throws `ApiError(status, message)` from each `require*`; these
- * return the message instead and name the status in a constant, because a domain
- * class in this namespace owns no HTTP. Non-null means refuse.
+ * return the message instead, because a domain class in this namespace owns no
+ * HTTP. Non-null means refuse.
  *
  * Membership is checked under a lock in both systems. The reference takes
- * `pg_advisory_xact_lock(hashtext('copems:payroll-membership'))`; here that is
- * NamedLock::run(PayrollValidation::MEMBERSHIP_LOCK, ...), an InnoDB row lock on
- * the `locks` table, which is likewise released on commit AND on rollback.
+ * `pg_advisory_xact_lock(hashtext('copems:payroll-membership'))`; here
+ * PayrollData::lockMembership() takes an InnoDB row lock on the `locks` row
+ * named MEMBERSHIP_LOCK, which is likewise released on commit AND on rollback.
  */
 final class PayrollValidation
 {
     /** TS: lockPayrollMembership()'s advisory-lock key, verbatim. */
     public const MEMBERSHIP_LOCK = 'copems:payroll-membership';
-
-    /** TS: PAYROLL_TRANSACTION_OPTIONS — Prisma's interactive-transaction budget. */
-    public const TRANSACTION_MAX_WAIT_MS = 30_000;
-
-    public const TRANSACTION_TIMEOUT_MS = 60_000;
-
-    /** Every message below except the membership conflict is an ApiError(400). */
-    public const STATUS_INVALID_SELECTION = 400;
-
-    /** TS: requireUniquePayrollMembership throws ApiError(409). */
-    public const STATUS_MEMBERSHIP_CONFLICT = 409;
 
     public const MESSAGE_DUPLICATE_EMPLOYEE = 'An employee can only appear once on a payroll.';
 

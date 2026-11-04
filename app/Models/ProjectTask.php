@@ -94,9 +94,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property-read Project|null $project
  * @property-read Collection<int, ProjectTaskAssignee> $assignments
  * @property-read Collection<int, EmployeeProfile> $assignees
- * @property-read EmployeeProfile|null $submitter
- * @property-read User|null $assigner
- * @property-read User|null $reviewer
  * @property-read Collection<int, ProjectTaskFile> $files
  * @property-read Collection<int, ProjectTaskSubmission> $submissions
  * @property-read Collection<int, TaskComment> $comments
@@ -204,36 +201,6 @@ class ProjectTask extends BaseModel
     {
         return $this->belongsToMany(EmployeeProfile::class, 'project_task_assignees', 'task_id', 'employee_id')
             ->withPivot(['assigned_by', 'created_at']);
-    }
-
-    /**
-     * The assignee who last submitted the task, if anyone has.
-     *
-     * @return BelongsTo<EmployeeProfile, $this>
-     */
-    public function submitter(): BelongsTo
-    {
-        return $this->belongsTo(EmployeeProfile::class, 'submitted_by');
-    }
-
-    /**
-     * `TaskAssignedBy` in the source.
-     *
-     * @return BelongsTo<User, $this>
-     */
-    public function assigner(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'assigned_by');
-    }
-
-    /**
-     * `TaskReviewedBy` in the source.
-     *
-     * @return BelongsTo<User, $this>
-     */
-    public function reviewer(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'reviewed_by');
     }
 
     /** @return HasMany<ProjectTaskFile, $this> */

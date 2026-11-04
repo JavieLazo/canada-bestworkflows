@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * A Chat conversation: DIRECT (two people, one per pair through `direct_key`)
@@ -49,17 +48,5 @@ class ChatConversation extends BaseModel
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return HasMany<ChatParticipant, $this> */
-    public function participants(): HasMany
-    {
-        return $this->hasMany(ChatParticipant::class, 'conversation_id');
-    }
-
-    /** @return HasMany<ChatMessage, $this> */
-    public function messages(): HasMany
-    {
-        return $this->hasMany(ChatMessage::class, 'conversation_id');
     }
 }

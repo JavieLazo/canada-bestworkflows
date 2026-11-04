@@ -20,7 +20,9 @@ final class PayrollReviewFixture
         $calculation = PayrollData::calculateDrafts(PayrollData::memberIds($run->members),
             $run->period_start->format('Y-m-d'), $run->period_end->format('Y-m-d'),
             $overrides['deductions'], $overrides['allowances'], $overrides['earnings'], actor: $actor,
-            draftIncentives: $overrides['incentives'], draftCustomDeductions: $overrides['customDeductions']);
+            draftIncentives: $overrides['incentives'], draftCustomDeductions: $overrides['customDeductions'],
+            draftSkippedRecurring: $overrides['skippedRecurring'],
+            attendanceThrough: $run->attendance_through?->format('Y-m-d'));
         if ($calculation['inputs'] === null) {
             throw new RuntimeException('Review fixture requires a nonempty saved run.');
         }

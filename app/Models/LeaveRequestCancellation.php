@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * Immutable evidence excluding one approved leave date without rewriting its approval.
@@ -17,7 +16,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable $cancelled_at
  * @property string $reason
  * @property CarbonImmutable $created_at
- * @property-read LeaveTravelRequest|null $request
  */
 class LeaveRequestCancellation extends BaseModel
 {
@@ -35,11 +33,5 @@ class LeaveRequestCancellation extends BaseModel
             'cancelled_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return BelongsTo<LeaveTravelRequest, $this> */
-    public function request(): BelongsTo
-    {
-        return $this->belongsTo(LeaveTravelRequest::class, 'leave_travel_request_id');
     }
 }

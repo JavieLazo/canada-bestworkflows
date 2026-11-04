@@ -9,7 +9,10 @@
 
     The loop sits on one line on purpose: under `whitespace-pre-line`, a line
     break between two runs in this file would print as a line break in the
-    body.
+    body. The one break, right after @endif, never prints, since Blade
+    swallows a line break that follows a directive. It has to be there:
+    squashed into `@endif@endforeach`, Livewire can't see where the loop
+    ends, and a body that gains a mention stops redrawing halfway.
 
     Usage:
         <x-social.text :body="$post->body" :names="$names" :groups="$groupNames" open-group />
@@ -22,4 +25,5 @@
     'openGroup' => false,
     'mention' => 'font-semibold text-primary',
 ])
-<span {{ $attributes->class('whitespace-pre-line break-words') }}>@foreach (\App\Support\SocialFormat::segments($body, $names, $groups) as $segment)@if ($segment['kind'] === 'group' && $openGroup && isset($groups[$segment['key'] ?? '']))<button type="button" wire:click="openGroup('{{ $segment['key'] }}')" class="{{ $mention }} cursor-pointer hover:underline">{{ $segment['text'] }}</button>@else<span @class([$mention => $segment['kind'] !== 'text'])>{{ $segment['text'] }}</span>@endif{{-- --}}@endforeach</span>
+<span {{ $attributes->class('whitespace-pre-line break-words') }}>@foreach (\App\Support\SocialFormat::segments($body, $names, $groups) as $segment)@if ($segment['kind'] === 'group' && $openGroup && isset($groups[$segment['key'] ?? '']))<button type="button" wire:click="openGroup('{{ $segment['key'] }}')" class="{{ $mention }} cursor-pointer hover:underline">{{ $segment['text'] }}</button>@else<span @class([$mention => $segment['kind'] !== 'text'])>{{ $segment['text'] }}</span>@endif
+@endforeach</span>

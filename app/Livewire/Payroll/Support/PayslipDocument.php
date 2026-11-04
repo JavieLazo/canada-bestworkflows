@@ -9,10 +9,12 @@ use App\Livewire\Records\Support\BenefitText;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayslipDeductionView;
 use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
+use App\Modules\Payroll\Contracts\Views\PayslipSettlementView;
 use App\Modules\Payroll\Contracts\Views\PayslipView;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Support\EmployeeIdentity;
 use DateTimeImmutable;
+use DateTimeInterface;
 use Illuminate\Support\Collection;
 
 /**
@@ -34,17 +36,26 @@ final class PayslipDocument
      * @param  list<PayslipIncentiveView>  $incentives
      * @param  list<PayslipDeductionView>  $customDeductions
      * @param  Collection<int, DeductionColumnView>  $columns
+     * @param  list<PayslipSettlementView>  $settlements  the settlements this payslip made of earlier presumed days
      * @return array<string, mixed>
      */
-    public static function issued(PayslipView $p, ?object $employee, bool $yearly, array $incentives, array $customDeductions, Collection $columns, string $payroll = '', bool $own = false): array
+    public static function issued(PayslipView $p, ?object $employee, bool $yearly, array $incentives, array $customDeductions, Collection $columns, string $payroll = '', bool $own = false, array $settlements = []): array
     {
         $money = static fn (string $label, mixed $value): array => ['label' => $label, 'value' => self::amount($value)];
+        $presumed = (float) ($p->presumed_days ?? 0.0);
+        $charged = (float) ($p->leave_charged_days ?? 0.0);
         $basis = $yearly ? [] : [
             $money('Daily rate · PHP', $p->daily_rate),
             ['label' => 'Work days', 'value' => PayrollData::dayCount($p->work_days)],
             ['label' => 'Absences · days', 'value' => PayrollData::dayCount($p->absence_days)],
             ['label' => 'Paid leave · days', 'value' => PayrollData::dayCount($p->paid_leave_days)],
             ['label' => 'Unpaid leave · days', 'value' => PayrollData::dayCount($p->unpaid_leave_days)],
+            // The advance payroll: the days paid before their attendance was
+            // in, settled on the next payslip.
+            ...($presumed > 0 ? [['label' => 'Paid in advance · days', 'value' => PayrollData::dayCount($presumed)]] : []),
+            // Lateness, undertime and absences charged to leave credits
+            // instead of pay, by the employee's leave policy.
+            ...($charged > 0 ? [['label' => 'Charged to leave credits · days', 'value' => LeaveChargeText::credits($charged)]] : []),
         ];
         $earnings = $yearly ? [
             $money('13th month pay', $p->thirteenth_month),
@@ -67,6 +78,17 @@ final class PayslipDocument
             $earnings[] = $money('NSD', $p->night_differential);
             $earnings[] = $money('Leave', $p->leave_pay);
             $earnings[] = $money('Other earnings', $p->other_earnings);
+            // The settlement of presumed days on an earlier payslip (the
+            // advance payroll): one line per settled payslip, negative when
+            // the days were worth less than presumed; the stored total when
+            // the lines are not at hand.
+            if ($settlements !== []) {
+                foreach ($settlements as $line) {
+                    $earnings[] = $money('Settlement for '.self::settledDays($line->from_date, $line->to_date).' · '.$line->settled_code, $line->amount);
+                }
+            } elseif ((float) ($p->settlement ?? 0.0) !== 0.0) {
+                $earnings[] = $money('Attendance settlement', $p->settlement);
+            }
             foreach ($incentives as $line) {
                 $note = $line->over_ceiling > 0 ? 'PHP '.self::amount($line->over_ceiling).' taxed over the yearly ceiling' : '';
                 $category = BenefitText::TAXES[$line->tax ?? ''] ?? ($line->is_taxable ? 'Taxable' : 'Tax-exempt');
@@ -90,9 +112,15 @@ final class PayslipDocument
         if (! $yearly) {
             $metadata[] = $money('Base pay with allowances subtotal', $p->total_base_pay);
         }
+        if (! $yearly && $p->attendance_through !== null) {
+            $metadata[] = ['label' => 'Attendance counted through', 'value' => $p->attendance_through->format('d M Y')];
+        }
         $supplemental[] = ['title' => 'Payroll details', 'rows' => $metadata];
         if ($incentiveDetails !== []) {
             $supplemental[] = ['title' => 'Incentive tax treatment', 'rows' => $incentiveDetails];
+        }
+        foreach ($settlements as $line) {
+            $supplemental[] = ['title' => 'Settlement for '.self::settledDays($line->from_date, $line->to_date).' · '.$line->settled_code, 'rows' => self::settlementRows($line)];
         }
         if (! $yearly && ($p->sss_er !== 0.0 || $p->philhealth_er !== 0.0 || $p->pagibig_er !== 0.0)) {
             $supplemental[] = ['title' => 'Employer contributions (not deducted)', 'employer' => true, 'rows' => [
@@ -116,8 +144,56 @@ final class PayslipDocument
             'supplemental' => $supplemental,
             'notes' => $yearly
                 ? ['One twelfth of basic pay earned in the year. Benefits are tax-exempt up to PHP 90,000 a year; only the excess is taxed. No contributions are deducted.']
-                : ['Issued payroll amounts in Philippine pesos. Basic salary includes the work day, holiday and rest day amounts shown beneath it.'],
+                : [
+                    'Issued payroll amounts in Philippine pesos. Basic salary includes the work day, holiday and rest day amounts shown beneath it.',
+                    ...($presumed > 0 ? ['Days paid in advance were paid as scheduled before their attendance was in; what they turned out to be worth is settled on the next payslip.'] : []),
+                    ...($settlements !== [] ? ['A settlement is what days paid in advance on an earlier payslip turned out to be worth, less what that payslip paid for them.'] : []),
+                    ...($charged > 0 ? ['Lateness, undertime and absences charged to leave credits are not deducted from pay; the Leave line includes the absences credits paid for.'] : []),
+                ],
         ];
+    }
+
+    /** "12–15 Oct 2026", or one day. */
+    private static function settledDays(DateTimeInterface $from, DateTimeInterface $to): string
+    {
+        if ($from->format('Y-m-d') === $to->format('Y-m-d')) {
+            return $from->format('d M Y');
+        }
+
+        return $from->format('Y-m') === $to->format('Y-m')
+            ? $from->format('d').'–'.$to->format('d M Y')
+            : $from->format('d M Y').' – '.$to->format('d M Y');
+    }
+
+    /**
+     * One settlement itemised: each compared line as presumed and as the
+     * days turned out, then the two totals and the difference.
+     *
+     * @return list<Line>
+     */
+    private static function settlementRows(PayslipSettlementView $line): array
+    {
+        $presumed = $line->details['presumed'] ?? [];
+        $actual = $line->details['actual'] ?? [];
+        $rows = [];
+        foreach ([
+            'work_days' => 'Work days', 'paid_leave_days' => 'Paid leave days', 'absence_days' => 'Absences',
+            'basic_pay' => 'Basic salary', 'leave_pay' => 'Leave', 'overtime_pay' => 'Overtime pay',
+            'night_differential' => 'NSD', 'late_deduction' => 'Late charged', 'undertime_deduction' => 'Undertime charged',
+        ] as $key => $label) {
+            $before = (float) ($presumed[$key] ?? 0.0);
+            $after = (float) ($actual[$key] ?? 0.0);
+            if ($before === 0.0 && $after === 0.0) {
+                continue;
+            }
+            $days = str_ends_with($key, '_days');
+            $rows[] = ['label' => $label, 'value' => ($days ? PayrollData::dayCount($before) : self::amount($before)).' → '.($days ? PayrollData::dayCount($after) : self::amount($after))];
+        }
+        $rows[] = ['label' => 'Paid in advance', 'value' => self::amount($line->presumed_amount)];
+        $rows[] = ['label' => 'Worth from attendance', 'value' => self::amount($line->actual_amount)];
+        $rows[] = ['label' => 'Settlement', 'value' => self::amount($line->amount)];
+
+        return $rows;
     }
 
     /**
@@ -196,6 +272,9 @@ final class PayslipDocument
             $money('Other earnings', 'Other earnings'),
         ];
         if (! $yearly) {
+            if ((float) str_replace(',', '', (string) ($sourceEarnings['Attendance settlement'] ?? 0)) !== 0.0) {
+                $earnings[] = $money('Attendance settlement', 'Attendance settlement');
+            }
             $hasIncentives = false;
             foreach ($groups['Earnings']['rows'] ?? [] as $row) {
                 if (str_starts_with($row[0], 'Incentive detail: ')) {

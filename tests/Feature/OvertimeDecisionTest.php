@@ -451,3 +451,35 @@ it('never freezes a day on a 13th month payslip, which spans the whole year', fu
 
     expect(OvertimeApproval::query()->sole()->decision)->toBe('REJECTED');
 });
+
+it('approves a day as seaport overtime with no cap, and drops the category on a rejection', function () {
+    $employee = otdecEmployee();
+    otdecWorked($employee, '2026-09-08');
+    PayrollFormula::create(['code' => 'F-OT', 'key' => 'OT', 'name' => 'Overtime', 'expression' => 'Display only',
+        'params' => [['key' => 'working_hours', 'value' => 8], ['key' => 'percentage', 'value' => 1.25], ['key' => 'max_ot', 'value' => 1]]]);
+    $actor = otdecActor(['EDTR']);
+    $id = (string) $employee->getKey();
+
+    // Ordinary overtime is capped at the hour; seaport overtime is the whole day.
+    expect(fn () => app(DecideOvertime::class)->handle($actor, $id, '2026-09-08', 'APPROVED', '150'))
+        ->toThrow(RuntimeException::class, 'Approve between 1m and 1h of overtime.')
+        ->and(fn () => app(DecideOvertime::class)->handle($actor, $id, '2026-09-08', 'APPROVED', '150', category: 'HARBOR'))
+        ->toThrow(RuntimeException::class, 'Choose ordinary or seaport overtime.');
+
+    $message = app(DecideOvertime::class)->handle($actor, $id, '2026-09-08', 'APPROVED', '150', category: 'SEAPORT');
+    $row = OvertimeApproval::query()->sole();
+    expect($message)->toBe('Overtime approved 2h 30m of 2h 30m computed as seaport overtime for Liza Domingo on Sep 08, 2026.')
+        ->and($row->category)->toBe('SEAPORT')
+        ->and($row->approved_minutes)->toBe(150)
+        ->and(AuditLog::query()->sole()->details)->toBe('Liza Domingo · Sep 08, 2026 · approved 2h 30m of 2h 30m computed as seaport overtime')
+        // The same decision again changes nothing; the category is part of it.
+        ->and(app(DecideOvertime::class)->handle($actor, $id, '2026-09-08', 'APPROVED', '150', category: 'SEAPORT'))->toBe('Nothing changed.')
+        ->and(AuditLog::query()->count())->toBe(1);
+
+    // Back to ordinary: the cap applies again, and a rejection carries no category.
+    expect(fn () => app(DecideOvertime::class)->handle($actor, $id, '2026-09-08', 'APPROVED', '150'))
+        ->toThrow(RuntimeException::class, 'Approve between 1m and 1h of overtime.');
+    app(DecideOvertime::class)->handle($actor, $id, '2026-09-08', 'REJECTED', category: 'SEAPORT');
+    expect(OvertimeApproval::query()->sole()->category)->toBeNull()
+        ->and(AuditLog::query()->count())->toBe(2);
+});

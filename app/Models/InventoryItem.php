@@ -12,8 +12,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * The current inventory register; receipt lines preserve issue-time evidence.
  *
  * @property InventoryCategory|null $category
- * @property InventoryLocation|null $location
- * @property InventoryReceipt|null $currentReceipt
  * @property string $id
  * @property string $code
  * @property string $name
@@ -43,17 +41,5 @@ class InventoryItem extends BaseModel
     public function category(): BelongsTo
     {
         return $this->belongsTo(InventoryCategory::class, 'category_id');
-    }
-
-    /** @return BelongsTo<InventoryLocation, $this> */
-    public function location(): BelongsTo
-    {
-        return $this->belongsTo(InventoryLocation::class, 'location_id');
-    }
-
-    /** @return BelongsTo<InventoryReceipt, $this> */
-    public function currentReceipt(): BelongsTo
-    {
-        return $this->belongsTo(InventoryReceipt::class, 'current_receipt_id');
     }
 }

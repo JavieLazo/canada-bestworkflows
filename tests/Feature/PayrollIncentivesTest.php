@@ -151,7 +151,7 @@ it('taxes a taxable incentive with the pay', function () {
         ->and($with->withholding_tax)->toBeGreaterThan($without->withholding_tax)
         ->and($with->net_pay)->toBe(Money::round($with->gross_pay - $with->total_deductions))
         ->and($record['benefits'])->toBe(['ytd_before' => 0.0, 'exempt' => 0.0, 'ceiling' => 0.0, 'taxable_excess' => 0.0])
-        ->and($lines)->toBe([['type_id' => $commission->id, 'code' => '1', 'name' => 'Commission', 'is_taxable' => true, 'amount' => 5000.0, 'tax' => 'TAXABLE', 'counts_toward_13th' => false, 'automatic' => false, 'over_ceiling' => 0.0]]);
+        ->and($lines)->toBe([['type_id' => $commission->id, 'code' => '1', 'name' => 'Commission', 'is_taxable' => true, 'amount' => 5000.0, 'tax' => 'TAXABLE', 'counts_toward_13th' => false, 'automatic' => false, 'recurring_line_id' => null, 'over_ceiling' => 0.0]]);
 });
 
 it('adds a tax-exempt incentive after the tax', function () {

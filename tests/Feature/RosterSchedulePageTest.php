@@ -196,7 +196,7 @@ it('saves a period from the dialog, loads it to change it, and keeps the origina
     Livewire::test(RosterPage::class)
         ->call('openDateSchedule', $sol->id)
         ->assertSee('Saved temporary schedules')
-        ->call('pickScheduleDate', '2026-10-12')
+        ->set('scheduleDate', '2026-10-12')
         ->assertSet('editingAssignmentId', $saved->id)
         ->assertSet('scheduleEnd', '2026-10-23')
         ->assertSet('dateShiftChoice', $night->id)

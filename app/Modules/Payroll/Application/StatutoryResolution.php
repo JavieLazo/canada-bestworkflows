@@ -10,8 +10,10 @@ use App\Domain\Payroll\StatutorySchedule;
  * Which Contribution & Tax Table versions price a period: the schedule the
  * engine computes from, the four versions as the evidence records them
  * (`tables`: kind => version_id, effective_from, covered_through, figures;
- * a null version_id is the engine's built-in figures), and why the period
- * cannot be computed, or null.
+ * a null version_id is the engine's built-in figures), why the period
+ * cannot be computed, or null, and — when it can — the reminder that a
+ * table's figures have not been confirmed as far as the period reaches,
+ * or null. The warning never stops a payroll.
  */
 final readonly class StatutoryResolution
 {
@@ -20,5 +22,6 @@ final readonly class StatutoryResolution
         public StatutorySchedule $schedule,
         public array $tables,
         public ?string $error,
+        public ?string $warning = null,
     ) {}
 }

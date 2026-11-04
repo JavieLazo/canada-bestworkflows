@@ -17,6 +17,7 @@ use App\Modules\Workforce\Application\EmployeeRules;
 use App\Modules\Workforce\Application\EmploymentHistoryRecorder;
 use App\Modules\Workforce\Application\PdsLists;
 use App\Modules\Workforce\Application\PdsRowWriter;
+use App\Modules\Workforce\Application\SalaryRates;
 use App\Modules\Workforce\Contracts\Views\EmployeeProfileView;
 use App\Support\Access;
 use App\Support\AuditService;
@@ -132,6 +133,8 @@ final class CreateEmployee
                 }
             }
             app(EmploymentHistoryRecorder::class)->hired($actor, $employee);
+            // The hire's rates are the first salary version, from the hire date.
+            SalaryRates::recordProfileEdit($actor, $employee, null, null, $employee->date_hired->format('Y-m-d'));
 
             return $employee;
         });

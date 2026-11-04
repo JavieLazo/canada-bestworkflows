@@ -1,10 +1,12 @@
 {{--
     Contribution & Tax Tables — one tab per table (SSS, PhilHealth, Pag-IBIG,
     Withholding Tax): its dated versions newest first, the figures of the
-    version in view, what they deduct at sample amounts, and the two dialogs
-    a RECORDS all-data holder gets: a new version from a date (with a live
-    preview) and a longer coverage for the latest one. Nothing here prices a
-    payslip: the samples call the engine's own functions on the figures.
+    version in view, what they deduct at sample amounts, and the dialogs
+    whoever manages the Payroll Settings gets: a new version from a date
+    (with a live preview), the same dialog to correct a version that has not
+    taken effect, a confirmation to withdraw one, and the latest version's
+    figures confirmed through a later date. Nothing here prices a payslip:
+    the samples call the engine's own functions on the figures.
 --}}
 @php
     use App\Domain\Payroll\StatutorySchedule;
@@ -21,19 +23,22 @@
         <p class="mt-1 text-sm text-muted-foreground">The SSS, PhilHealth, Pag-IBIG and withholding tax tables payroll computes from, each by the date it took effect.</p>
     </div>
 
+    @include('livewire.payroll.partials.settings-switch', ['activeView' => 'tables'])
+
     <div class="rounded-lg border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
         @if (! $ready)
-            Payroll prices from the built-in figures until this installation's upgrade finishes; the tables can be viewed, extended and added then.
-        @elseif ($coveredThrough !== null && $coverageLapsed)
-            <strong class="text-foreground">Payroll cannot run for periods after {{ StatutoryTables::day($coveredThrough) }}</strong> until the {{ implode(', ', $coverageEndsWith) }} {{ count($coverageEndsWith) === 1 ? 'table is' : 'tables are' }} extended or given a new version.
-        @elseif ($coveredThrough !== null)
-            Payroll can run for periods through <strong class="text-foreground">{{ StatutoryTables::day($coveredThrough) }}</strong> — the {{ implode(', ', $coverageEndsWith) }} {{ count($coverageEndsWith) === 1 ? 'table ends' : 'tables end' }} there. To go further, extend a table or add a version that covers the later dates.
+            Payroll prices from the built-in figures until this installation's upgrade finishes; the tables can be viewed, confirmed and added then.
+        @elseif ($confirmedThrough !== null && $confirmationLapsed)
+            Payroll computes from the version in force on a period's first day, and keeps using the latest version until a new one starts.
+            <strong class="text-foreground">The {{ implode(', ', $confirmationEndsWith) }} {{ count($confirmationEndsWith) === 1 ? 'table was' : 'tables were' }} last confirmed through {{ StatutoryTables::day($confirmedThrough) }}</strong>: payrolls past that date still run, with a reminder to check the figures, until the table is confirmed or given a new version.
+        @elseif ($confirmedThrough !== null)
+            Payroll computes from the version in force on a period's first day, and keeps using the latest version until a new one starts. The {{ implode(', ', $confirmationEndsWith) }} {{ count($confirmationEndsWith) === 1 ? 'table is' : 'tables are' }} confirmed through <strong class="text-foreground">{{ StatutoryTables::day($confirmedThrough) }}</strong>; a payroll past that date shows a reminder to check the figures.
         @else
             Payroll cannot run until every table has a version.
         @endif
         A new version applies to draft payrolls whose period starts on or after its effective date and needs a fresh review. Finalized payslips keep the figures they were paid with.
         @unless ($canManage)
-            <p class="mt-2">Your role can view these tables. Adding or extending a version requires Records Management access to all data.</p>
+            <p class="mt-2">Your role can view these tables. Adding, correcting or confirming a version requires Payroll access to all data.</p>
         @endunless
     </div>
 
@@ -59,7 +64,7 @@
                 <thead>
                     <tr>
                         <th>Effective from</th>
-                        <th>Covered through</th>
+                        <th>Confirmed through</th>
                         <th>Reference</th>
                         <th>Added by</th>
                         <th>Status</th>
@@ -77,7 +82,8 @@
                             $rowFrom = $row->effective_from->format('Y-m-d');
                             $rowInForce = $inForce !== null && $row->id === $inForce->id;
                             $rowShown = $shown !== null && $row->id === $shown->id;
-                            $rowMenu = (! $rowShown) || ($canManage && $ready && $loop->first);
+                            $rowUpcoming = $rowFrom > $today;
+                            $rowMenu = (! $rowShown) || ($canManage && $ready && ($loop->first || $rowUpcoming));
                         @endphp
                         <tr wire:key="version-{{ $row->id }}" @if ($rowShown) aria-current="true" class="bg-primary-soft/40" @endif>
                             <td class="num whitespace-nowrap">{{ $row->effective_from->format('d M Y') }}</td>
@@ -91,7 +97,7 @@
                                 @if ($rowFrom > $today)
                                     <span class="pill pill-caution">Upcoming</span>
                                 @elseif ($rowInForce && $row->covered_through->format('Y-m-d') < $today)
-                                    <span class="pill pill-danger">Coverage ended</span>
+                                    <span class="pill pill-caution">Check due</span>
                                 @elseif ($rowInForce)
                                     <span class="pill pill-success">Current</span>
                                 @else
@@ -108,7 +114,11 @@
                                             <flux:menu.item icon="eye" wire:click="viewFigures('{{ $row->id }}')">View figures</flux:menu.item>
                                         @endunless
                                         @if ($canManage && $ready && $loop->first)
-                                            <flux:menu.item icon="calendar" wire:click="openExtend('{{ $row->id }}')">Extend coverage</flux:menu.item>
+                                            <flux:menu.item icon="calendar" wire:click="openConfirm('{{ $row->id }}')">Confirm figures</flux:menu.item>
+                                        @endif
+                                        @if ($canManage && $ready && $rowUpcoming)
+                                            <flux:menu.item icon="pencil-square" wire:click="openEdit('{{ $row->id }}')">Correct version</flux:menu.item>
+                                            <flux:menu.item icon="trash" variant="danger" wire:click="openWithdraw('{{ $row->id }}')">Withdraw version</flux:menu.item>
                                         @endif
                                     </x-kit.row-actions>
                                 @endif
@@ -118,7 +128,7 @@
                 </tbody>
             </table>
         </div>
-        <p class="border-t border-border px-5 py-3 text-xs text-muted-foreground">A saved version's figures never change. To change a figure, add a new version with the date it takes effect; the version before it ends the day before.</p>
+        <p class="border-t border-border px-5 py-3 text-xs text-muted-foreground">A version in force never changes. To change a figure, add a new version with the date it takes effect; the version before it stays in force until then. A version that has not taken effect yet can still be corrected or withdrawn.</p>
     </section>
 
     {{-- The withholding figures are two three-column tables, so that tab gives the figures card the wider column. --}}
@@ -141,7 +151,13 @@
                 @if ($shown === null)
                     The engine's built-in figures, until a version is added.
                 @else
-                    {{ $label }}, in force from <span class="num">{{ $shown->effective_from->format('d M Y') }}</span> through <span class="num">{{ $shown->covered_through->format('d M Y') }}</span>.
+                    {{ $label }}, in force from <span class="num">{{ $shown->effective_from->format('d M Y') }}</span>
+                    @if ($shownNext !== null)
+                        until the version from <span class="num">{{ $shownNext->effective_from->format('d M Y') }}</span> starts;
+                    @else
+                        onward;
+                    @endif
+                    figures confirmed through <span class="num">{{ $shown->covered_through->format('d M Y') }}</span>.
                 @endif
             </p>
             @if ($withholding && $bracketRows !== null)
@@ -218,8 +234,13 @@
     >
         <div class="space-y-4">
             <div class="space-y-2">
-                <flux:heading size="lg" id="statutory-version-heading">New {{ $label }} version</flux:heading>
-                <flux:text>Applies to payroll periods starting on or after the effective date; the version before it ends the day before. Pre-filled from the {{ $latest !== null ? 'version from '.$latest->effective_from->format('d M Y') : 'built-in figures' }}.</flux:text>
+                @if ($editing !== null)
+                    <flux:heading size="lg" id="statutory-version-heading">Correct {{ $label }} version from {{ $editing->effective_from->format('d M Y') }}</flux:heading>
+                    <flux:text>This version has not taken effect, so its date and figures can still be corrected in place. Draft payrolls reaching it are recalculated and need a fresh review.</flux:text>
+                @else
+                    <flux:heading size="lg" id="statutory-version-heading">New {{ $label }} version</flux:heading>
+                    <flux:text>Applies to payroll periods starting on or after the effective date and stays in force until a later version starts. Pre-filled from the {{ $latest !== null ? 'version from '.$latest->effective_from->format('d M Y') : 'built-in figures' }}.</flux:text>
+                @endif
             </div>
             <form class="space-y-4" wire:submit="save">
                 <div class="grid gap-4 sm:grid-cols-2">
@@ -228,8 +249,8 @@
                         <x-kit.date-field id="statutory-from" wire:model="formEffectiveFrom" aria-label="Effective from" />
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="statutory-through">Covered through</flux:label>
-                        <x-kit.date-field id="statutory-through" wire:model="formCoveredThrough" aria-label="Covered through" />
+                        <flux:label for="statutory-through">Confirmed through</flux:label>
+                        <x-kit.date-field id="statutory-through" wire:model="formCoveredThrough" aria-label="Confirmed through" />
                     </div>
                 </div>
                 <div class="space-y-2">
@@ -293,32 +314,52 @@
                     <p class="text-xs text-danger">{{ $formError }}</p>
                 @endif
 
-                <p class="text-xs text-muted-foreground">Saving records who added the version and when. Draft payrolls on or after the effective date are recalculated and need a fresh review.</p>
-                <flux:button type="submit" variant="primary" icon="plus">Save new version</flux:button>
+                <p class="text-xs text-muted-foreground">Saving records who {{ $editing !== null ? 'corrected' : 'added' }} the version and when. Draft payrolls on or after the effective date are recalculated and need a fresh review.</p>
+                <flux:button type="submit" variant="primary" :icon="$editing !== null ? 'check' : 'plus'">{{ $editing !== null ? 'Save correction' : 'Save new version' }}</flux:button>
             </form>
         </div>
     </flux:modal>
 
     <flux:modal
-        wire:model.self="extendOpen"
+        wire:model.self="confirmOpen"
         class="w-full max-w-md"
-        x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'statutory-extend-heading')"
+        x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'statutory-confirm-heading')"
     >
         <div class="space-y-4">
             <div class="space-y-2">
-                <flux:heading size="lg" id="statutory-extend-heading">Extend {{ $label }} coverage</flux:heading>
-                <flux:text>The version from <span class="num">{{ $extending?->effective_from->format('d M Y') }}</span> is covered through <span class="num">{{ $extending?->covered_through->format('d M Y') }}</span>. The figures stay the same; payroll can then run for periods through the new date.</flux:text>
+                <flux:heading size="lg" id="statutory-confirm-heading">Confirm {{ $label }} figures</flux:heading>
+                <flux:text>The version from <span class="num">{{ $confirming?->effective_from->format('d M Y') }}</span> is confirmed through <span class="num">{{ $confirming?->covered_through->format('d M Y') }}</span>. Confirming records that the figures were checked and still hold; payrolls through the new date then run without a reminder. The figures stay the same.</flux:text>
             </div>
-            <form class="space-y-4" wire:submit="saveExtend">
+            <form class="space-y-4" wire:submit="saveConfirm">
                 <div class="space-y-2">
-                    <flux:label for="statutory-extend-through">Covered through</flux:label>
-                    <x-kit.date-field id="statutory-extend-through" wire:model="formExtendThrough" aria-label="Covered through" />
+                    <flux:label for="statutory-confirm-through">Confirmed through</flux:label>
+                    <x-kit.date-field id="statutory-confirm-through" wire:model="formConfirmThrough" aria-label="Confirmed through" />
                 </div>
-                @if ($formError !== null && $extendOpen)
+                @if ($formError !== null && $confirmOpen)
                     <p class="text-xs text-danger">{{ $formError }}</p>
                 @endif
-                <flux:button type="submit" variant="primary" icon="calendar">Save coverage</flux:button>
+                <flux:button type="submit" variant="primary" icon="check">Confirm figures</flux:button>
             </form>
+        </div>
+    </flux:modal>
+
+    {{-- Withdraw: a two-step delete of a version that has not taken effect; the parameter-less confirm acts on the staged id alone. --}}
+    <flux:modal
+        wire:model.self="withdrawOpen"
+        class="w-full max-w-md"
+        x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'statutory-withdraw-heading')"
+    >
+        <div class="space-y-4">
+            <div class="space-y-2">
+                <flux:heading size="lg" id="statutory-withdraw-heading">Withdraw the {{ $label }} version from {{ $withdrawing?->effective_from->format('d M Y') }}?</flux:heading>
+                <flux:text>It has not taken effect, and no payroll has used it. Withdrawing deletes it; the version before it stays in force. Nothing has been changed yet.</flux:text>
+            </div>
+            <div class="flex justify-end gap-2">
+                <flux:modal.close>
+                    <flux:button variant="ghost">Cancel</flux:button>
+                </flux:modal.close>
+                <flux:button variant="danger" icon="trash" wire:click="confirmWithdraw">Withdraw version</flux:button>
+            </div>
         </div>
     </flux:modal>
     @endif

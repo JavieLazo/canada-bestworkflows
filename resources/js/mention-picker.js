@@ -45,7 +45,10 @@ export default function mentionPicker({ audience = '', method = 'mentionOptions'
                 return;
             }
 
-            this.field.addEventListener('input', () => this.scan());
+            // Only what the person types. Text a script puts in the box (a
+            // reply's @name, a post's old text when editing it) never pops
+            // the list open, even when it ends with a name.
+            this.field.addEventListener('input', (event) => event.isTrusted && this.scan());
             this.field.addEventListener('click', () => this.scan());
             this.field.addEventListener('blur', () => setTimeout(() => (this.open = false), 150));
             // Capture, so a pick with Enter never also sends the message.

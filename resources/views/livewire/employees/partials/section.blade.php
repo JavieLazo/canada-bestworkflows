@@ -36,15 +36,15 @@
     ])
 
     @if ($editing && $section['id'] === 'employment' && $employee->is_active && ! EmployeeFields::asBool($formState['is_active'] ?? true) && ($employmentObligations ?? []) !== [])
-        <section class="mt-4 space-y-3 rounded-lg border border-border bg-muted p-4" aria-label="Outstanding issued items">
-            <p class="font-semibold">{{ count($employmentObligations) }} issued items remain</p>
-            <p class="text-sm">Making this employee inactive keeps every item and MR on record. Account access is managed separately in User Management.</p>
+        <section class="mt-4 space-y-3 rounded-lg border border-border bg-muted p-4" aria-label="Outstanding items">
+            <p class="font-semibold">{{ count($employmentObligations) }} {{ count($employmentObligations) === 1 ? 'item remains' : 'items remain' }} outstanding</p>
+            <p class="text-sm">Issued property and unpaid recurring deductions, such as a loan's balance. Making this employee inactive keeps every item, MR and balance on record. Account access is managed separately in User Management.</p>
             <ul class="space-y-1 text-sm">
                 @foreach ($employmentObligations as $obligation)
                     <li>{{ $obligation['label'] }} · {{ $obligation['reference'] }}</li>
                 @endforeach
             </ul>
-            <flux:checkbox wire:model="acknowledgeObligations" label="I acknowledge that these items remain issued and require follow-up." />
+            <flux:checkbox wire:model="acknowledgeObligations" label="I acknowledge that these items remain outstanding and require follow-up." />
             <flux:textarea wire:model="obligationReason" label="Reason for continuing" rows="2" maxlength="1000" />
         </section>
     @endif

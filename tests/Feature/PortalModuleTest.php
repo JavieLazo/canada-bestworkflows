@@ -822,7 +822,7 @@ it('quotes the covered days and the balance plainly when the credits cover the d
             ->set('end', '2026-09-29')
             ->assertSee('This request needs')
             ->assertSeeHtml('class="num">2 days</span>')
-            ->assertSee('Vacation Leave credits left.')
+            ->assertSee('Vacation Leave credits available.')
             ->assertDontSee('pill-caution');
     });
 });

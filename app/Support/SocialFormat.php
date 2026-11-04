@@ -44,11 +44,6 @@ final class SocialFormat
 
     private function __construct() {}
 
-    public static function isReaction(string $type): bool
-    {
-        return isset(self::REACTIONS[$type]);
-    }
-
     /**
      * The most-used reactions on something, most first, for the stacked
      * summary under a post or bubble. Zero counts never show.

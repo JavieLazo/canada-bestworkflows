@@ -32,10 +32,10 @@ use RuntimeException;
  * is a wire:model property the client can shape at will. Tokens the caller
  * leaves out are left alone, so a partial map is a partial edit, not a wipe.
  *
- * Gate, refuse self-edit, resolve, validate, write, audit — the ReviewAbsence
- * and SaveRosterLocations shape. A linked actor may not set their OWN
- * credits, exactly as they may not review their own request; an admin
- * account with no employee link may set anyone's. The write takes the shared
+ * Gate, resolve, validate, write, audit — the ReviewAbsence and
+ * SaveRosterLocations shape. An all-data LEAVES holder may set anyone's
+ * credits, their own included: one administrator must be able to run the
+ * whole flow alone. The write takes the shared
  * credit sentinel before the employee's rows for the year, so it serializes
  * with RecordLeaveCredit even on a first allocation.
  * Each change also appends its opening or adjustment in the same transaction;
@@ -59,9 +59,6 @@ final class SaveLeaveCredits
     {
         if (! $actor->mayReadAllData(ModuleCode::LEAVES)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
-        }
-        if ($actor->employeeId !== null && $employeeId === $actor->employeeId) {
-            throw new RuntimeException('You cannot set your own leave credits.');
         }
         $employee = $this->employees->find($actor, $employeeId);
         if ($employee === null) {

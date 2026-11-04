@@ -22,13 +22,15 @@
         </p>
     </div>
 
+    @include('livewire.payroll.partials.settings-switch', ['activeView' => 'incentives'])
+
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             @unless ($rulesReady)
                 <p class="w-full text-xs text-muted-foreground">Benefit rules can be set up once this installation's upgrade finishes; every type is typed per payroll until then.</p>
             @endunless
             @unless ($canEdit)
-                <p class="w-full text-xs text-muted-foreground">Your role can view this catalog. Adding, editing and deleting require all-data access to Records Management or Payroll.</p>
+                <p class="w-full text-xs text-muted-foreground">Your role can view this catalog. Adding, editing and deleting require Payroll access to all data.</p>
             @endunless
             <flux:input
                 aria-label="Search incentive types"
@@ -111,8 +113,81 @@
         <x-kit.pagination :paginator="$rows" noun="incentive types" />
     </section>
 
+    {{-- The yearly tax-free ceiling: the pesos of exempt benefits an employee may receive tax-free in a year, by the date each version takes effect. --}}
+    <section class="hris-card overflow-hidden" data-benefit-ceiling>
+        <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
+            <div class="min-w-0 flex-1">
+                <h2 class="text-sm font-semibold">Tax-free ceiling</h2>
+                <p class="text-xs text-muted-foreground">How much of an employee's tax-exempt benefits stays untaxed in a calendar year. Anything above it is taxed with the pay. A payroll uses the version in force on its period's first day.</p>
+            </div>
+            @if ($canEdit && $ceilingReady)
+                <flux:button variant="primary" icon="plus" wire:click="openCeiling">Set ceiling</flux:button>
+            @endif
+        </header>
+        @unless ($ceilingReady)
+            <p class="px-5 py-4 text-sm text-muted-foreground">The ceiling can be set once this installation's upgrade finishes; the built-in figure applies until then.</p>
+        @elseif ($ceilings->isEmpty())
+            <p class="px-5 py-4 text-sm text-muted-foreground">No ceiling recorded.</p>
+        @else
+            <div class="overflow-x-auto">
+                <table class="hris-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Takes effect</th>
+                            <th scope="col" class="num">Ceiling</th>
+                            <th scope="col">Reason</th>
+                            <th scope="col">Recorded by</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($ceilings as $version)
+                            <tr wire:key="ceiling-{{ $version->id }}" data-ceiling-row="{{ $version->id }}">
+                                <td class="num">
+                                    {{ \App\Livewire\Records\Support\Hris::fmtDate($version->effective_from) }}
+                                    @if ($version->id === $ceilingInForceId)
+                                        <span class="pill-success ml-2">In force</span>
+                                    @elseif ($version->effective_from->format('Y-m-d') > $today)
+                                        <span class="pill-muted ml-2">Upcoming</span>
+                                    @endif
+                                </td>
+                                <td class="num">{{ \App\Livewire\Records\Support\Hris::peso($version->ceiling) }}</td>
+                                <td>{{ $version->reason }}</td>
+                                <td>{{ $version->created_by_name ?? '—' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endunless
+    </section>
+
     {{-- The dialogs exist only for a viewer who may write. --}}
     @if ($canEdit)
+    <flux:modal wire:model.self="ceilingOpen" class="w-full max-w-md" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'ceiling-heading')">
+        <form wire:submit="saveCeiling" class="space-y-4">
+            <flux:heading size="lg" level="2" id="ceiling-heading">Set the tax-free ceiling</flux:heading>
+            <div class="space-y-2">
+                <flux:label for="ceiling-from">Takes effect on</flux:label>
+                <x-kit.date-field id="ceiling-from" wire:model="ceilingForm.effective_from" aria-label="Takes effect on" />
+                <p class="text-xs text-muted-foreground">A date after the latest version. Payslips already finalized are not changed.</p>
+            </div>
+            <div class="space-y-2">
+                <flux:label for="ceiling-amount">Ceiling for the year</flux:label>
+                <x-kit.money-input id="ceiling-amount" wire:model="ceilingForm.amount" aria-label="Ceiling for the year" />
+            </div>
+            <div class="space-y-2">
+                <flux:label for="ceiling-reason">Reason</flux:label>
+                <flux:input id="ceiling-reason" wire:model="ceilingForm.reason" maxlength="160" placeholder="Why the ceiling changes" aria-required="true" />
+            </div>
+            @if ($ceilingError !== null)
+                <p role="alert" class="text-sm text-danger">{{ $ceilingError }}</p>
+            @endif
+            <div class="flex justify-end gap-2">
+                <flux:button type="button" variant="outline" wire:click="$set('ceilingOpen', false)">Cancel</flux:button>
+                <flux:button type="submit" variant="primary">Save</flux:button>
+            </div>
+        </form>
+    </flux:modal>
     <flux:modal
         wire:model.self="confirmOpen"
         class="w-full max-w-md"
@@ -299,6 +374,16 @@
                             <p class="text-xs text-muted-foreground">Off for bonuses and allowances; on only for pay that is part of basic salary.</p>
                         </div>
                     </div>
+
+                    @if (\App\Modules\Payroll\Application\PayrollData::cashOutTypeReady())
+                        <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-4" data-cash-out-flag>
+                            <flux:switch id="benefit-cash-out" wire:model.live="formPaysLeaveCashOut" />
+                            <div>
+                                <flux:label for="benefit-cash-out">Pays leave credit cash-outs</flux:label>
+                                <p class="text-xs text-muted-foreground">Approved cash-outs of leave credits are paid as this type, at the employee's daily rate, on their next regular payroll. One type at a time; a scheduled benefit cannot.</p>
+                            </div>
+                        </div>
+                    @endif
 
                     @if ($sample !== null)
                         <p class="rounded-md border border-border bg-muted px-4 py-3 text-sm">{{ $sample['text'] }}</p>

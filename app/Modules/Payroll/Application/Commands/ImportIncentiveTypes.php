@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace App\Modules\Payroll\Application\Commands;
 
-use App\Domain\Enums\ModuleCode;
 use App\Models\PayrollIncentiveType;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Platform\Transfer\ImportLayout;
@@ -73,7 +73,7 @@ final class ImportIncentiveTypes implements TableImport
 
     public function allows(Access $actor, string $context): bool
     {
-        return $actor->mayReadAllData(ModuleCode::RECORDS) || $actor->mayReadAllData(ModuleCode::PAYROLL);
+        return PayrollSettingsAccess::mayManage($actor);
     }
 
     public function row(Access $actor, string $context, ImportRow $row): ImportOutcome

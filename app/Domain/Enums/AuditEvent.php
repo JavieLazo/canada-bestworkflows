@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Enums;
 
+use App\Domain\Projects\ProjectPolicy;
 use App\Support\AuditService;
 
 /**
@@ -96,6 +97,15 @@ use App\Support\AuditService;
  *     The reference paid no bonus at all; ems's catalog of incentive and
  *     bonus types under Records → Payroll Settings adds the three writes
  *     that maintain it (best-effort AuditService, like every other catalog).
+ *   - PAY_SETTINGS_UPDATED. The reference edited an employee's statutory
+ *     switches and figures as part of the record (EMPLOYEE_UPDATED); ems
+ *     edits them under Records → Payroll Settings → Employee Pay Settings,
+ *     a payroll write with a reason, under RequiredAudit because it changes
+ *     pay.
+ *   - RECURRING_LINE_SAVED, RECURRING_LINE_ENDED, RECURRING_LINE_DELETED.
+ *     The reference retyped every loan and allowance on each payroll; ems
+ *     keeps an employee's standing deductions and incentives, with a loan's
+ *     balance, and audits each change under RequiredAudit.
  *   - COMMUNITY_POST_PINNED, COMMUNITY_POST_UNPINNED, COMMUNITY_POST_REMOVED,
  *     COMMUNITY_COMMENT_REMOVED, COMMUNITY_GROUP_CREATED, _UPDATED, _DELETED,
  *     COMMUNITY_MEMBER_REMOVED, COMMUNITY_GROUP_ROLE_CHANGED and
@@ -122,7 +132,8 @@ use App\Support\AuditService;
  *     server-only. Both paths call the SAME helper, `projectAuditAction(from,
  *     to)` (`src/lib/projects.ts:32-33`), which returns PROJECT_UPDATED when
  *     the status did not move and PROJECT_STATUS_CHANGED when it did. They are
- *     two different events, not two names for one. {@see self::project()}
+ *     two different events, not two names for one.
+ *     {@see ProjectPolicy::auditAction()}
  *   - TASK_COMMENTED is NOT demo-only either. `src/app/api/tasks/[id]/
  *     comments/route.ts` writes it server-side, exactly as the demo did.
  *
@@ -175,8 +186,9 @@ enum AuditEvent: string
     case EMPLOYEE_PHOTO_UPDATED = 'EMPLOYEE_PHOTO_UPDATED';
 
     /**
-     * The same employee row edited by its own owner rather than by HR, and the
-     * account's own display name. {@see self::employeePatch()}
+     * An employee proposing, or withdrawing, a change to their own record from
+     * My Profile. It is recorded on the change request
+     * (`employee_record_change_requests`), not on the employee row.
      */
     case PROFILE_UPDATED = 'PROFILE_UPDATED';
 
@@ -263,11 +275,116 @@ enum AuditEvent: string
     /** A Contribution & Tax Table version added (RequiredAudit, AddStatutoryTableVersion). */
     case STATUTORY_TABLE_ADDED = 'STATUTORY_TABLE_ADDED';
 
-    /** A Contribution & Tax Table version's coverage extended (RequiredAudit, ExtendStatutoryCoverage). */
+    /** READ-ONLY: rows written while a version carried a coverage end that payroll refused to run past; displayed, never emitted — a check of the figures is STATUTORY_TABLE_CONFIRMED. */
     case STATUTORY_TABLE_EXTENDED = 'STATUTORY_TABLE_EXTENDED';
 
-    /** A Pay Basis & Rates version saved (RequiredAudit, SavePayRulesVersion). */
+    /** A Contribution & Tax Table's figures confirmed good through a later date (RequiredAudit, ConfirmStatutoryTable). */
+    case STATUTORY_TABLE_CONFIRMED = 'STATUTORY_TABLE_CONFIRMED';
+
+    /** A Contribution & Tax Table version corrected before taking effect (RequiredAudit, UpdateStatutoryTableVersion). */
+    case STATUTORY_TABLE_UPDATED = 'STATUTORY_TABLE_UPDATED';
+
+    /** A Contribution & Tax Table version withdrawn before taking effect (RequiredAudit, WithdrawStatutoryTableVersion). */
+    case STATUTORY_TABLE_WITHDRAWN = 'STATUTORY_TABLE_WITHDRAWN';
+
+    /** A Pay Basis & Rates version saved — the company's or a status's in force, an employee's as a draft (RequiredAudit, SavePayRulesVersion, SaveEmployeePayRules). */
     case PAY_RULES_SAVED = 'PAY_RULES_SAVED';
+
+    /** An employee's own Pay Basis & Rates draft approved (RequiredAudit, ApproveEmployeePayRules). */
+    case PAY_RULES_APPROVED = 'PAY_RULES_APPROVED';
+
+    /** An employee's own Pay Basis & Rates draft discarded (RequiredAudit, DiscardEmployeePayRules). */
+    case PAY_RULES_DISCARDED = 'PAY_RULES_DISCARDED';
+
+    /** One employee's hourly-rate override saved (RequiredAudit, UpdateEmployeePaySettings); rows before 2026-11-02 also carry their contribution and withholding settings, now dated versions. */
+    case PAY_SETTINGS_UPDATED = 'PAY_SETTINGS_UPDATED';
+
+    /** A dated version of the yearly tax-free ceiling on exempt benefits saved (RequiredAudit, SaveBenefitCeiling). */
+    case BENEFIT_CEILING_SAVED = 'BENEFIT_CEILING_SAVED';
+
+    /** A scheduled benefit assigned to one employee as a draft (RequiredAudit, SaveBenefitAssignment). */
+    case BENEFIT_ASSIGNED = 'BENEFIT_ASSIGNED';
+
+    /** A benefit assignment approved (RequiredAudit, ApproveBenefitAssignment). */
+    case BENEFIT_ASSIGNMENT_APPROVED = 'BENEFIT_ASSIGNMENT_APPROVED';
+
+    /** A benefit assignment draft discarded (RequiredAudit, DiscardBenefitAssignment). */
+    case BENEFIT_ASSIGNMENT_DISCARDED = 'BENEFIT_ASSIGNMENT_DISCARDED';
+
+    /** A tax year's opening balance or previous-employer figures recorded as a draft (RequiredAudit, SaveTaxBalance); never the amounts. */
+    case TAX_BALANCE_RECORDED = 'TAX_BALANCE_RECORDED';
+
+    /** A tax balance approved (RequiredAudit, ApproveTaxBalance). */
+    case TAX_BALANCE_APPROVED = 'TAX_BALANCE_APPROVED';
+
+    /** A tax balance draft discarded (RequiredAudit, DiscardTaxBalance). */
+    case TAX_BALANCE_DISCARDED = 'TAX_BALANCE_DISCARDED';
+
+    /** An outside payment or balance adjustment on a loan recorded as a draft (RequiredAudit, SaveRecurringLineEntry); never the amount. */
+    case LOAN_ENTRY_RECORDED = 'LOAN_ENTRY_RECORDED';
+
+    /** A loan entry approved (RequiredAudit, ApproveRecurringLineEntry). */
+    case LOAN_ENTRY_APPROVED = 'LOAN_ENTRY_APPROVED';
+
+    /** A loan entry draft discarded (RequiredAudit, DiscardRecurringLineEntry). */
+    case LOAN_ENTRY_DISCARDED = 'LOAN_ENTRY_DISCARDED';
+
+    /** A dated salary change recorded for one employee (AuditService, RecordSalaryChange); never the amounts. */
+    case SALARY_CHANGE_RECORDED = 'SALARY_CHANGE_RECORDED';
+
+    /** A past-dated salary change approved or rejected (AuditService, ReviewSalaryChange). */
+    case SALARY_CHANGE_REVIEWED = 'SALARY_CHANGE_REVIEWED';
+
+    /** An approved salary version copied onto the record on its date by the schedule (AuditService::anonymous, SalaryRates::applyDue). */
+    case SALARY_CHANGE_APPLIED = 'SALARY_CHANGE_APPLIED';
+
+    /** One employee's Contributions & tax version prepared as a draft (RequiredAudit, SaveGovDeductionPolicy). */
+    case GOV_POLICY_SAVED = 'GOV_POLICY_SAVED';
+
+    /** One employee's Contributions & tax draft approved (RequiredAudit, ApproveGovDeductionPolicy). */
+    case GOV_POLICY_APPROVED = 'GOV_POLICY_APPROVED';
+
+    /** One employee's Contributions & tax draft discarded (RequiredAudit, DiscardGovDeductionPolicy). */
+    case GOV_POLICY_DISCARDED = 'GOV_POLICY_DISCARDED';
+
+    /** A payroll document's signatory set or cleared (AuditService, SaveSignatory); the entity id is the slot. */
+    case SIGNATORY_SET = 'SIGNATORY_SET';
+
+    /** A pay schedule added or changed (RequiredAudit, SavePaySchedule). */
+    case PAY_SCHEDULE_SAVED = 'PAY_SCHEDULE_SAVED';
+
+    /** A pay schedule deleted (RequiredAudit, DeletePaySchedule). */
+    case PAY_SCHEDULE_DELETED = 'PAY_SCHEDULE_DELETED';
+
+    /** A finalized payroll marked released — the pay went out (AuditService, MarkPayrollReleased); a mark that locks nothing. */
+    case PAYROLL_RELEASED = 'PAYROLL_RELEASED';
+
+    /** An adjustment category added or changed (RequiredAudit, SaveAdjustmentCategory). */
+    case ADJUSTMENT_CATEGORY_SAVED = 'ADJUSTMENT_CATEGORY_SAVED';
+
+    /** An adjustment category deleted (RequiredAudit, DeleteAdjustmentCategory). */
+    case ADJUSTMENT_CATEGORY_DELETED = 'ADJUSTMENT_CATEGORY_DELETED';
+
+    /** An adjustment prepared or corrected while pending (RequiredAudit, SaveAdjustment). */
+    case ADJUSTMENT_SAVED = 'ADJUSTMENT_SAVED';
+
+    /** An adjustment approved (RequiredAudit, ReviewAdjustment). */
+    case ADJUSTMENT_APPROVED = 'ADJUSTMENT_APPROVED';
+
+    /** An adjustment rejected (RequiredAudit, ReviewAdjustment). */
+    case ADJUSTMENT_REJECTED = 'ADJUSTMENT_REJECTED';
+
+    /** A pending adjustment discarded (RequiredAudit, DiscardAdjustment). */
+    case ADJUSTMENT_DISCARDED = 'ADJUSTMENT_DISCARDED';
+
+    /** An employee's recurring deduction or incentive added or changed (RequiredAudit, SaveRecurringLine). */
+    case RECURRING_LINE_SAVED = 'RECURRING_LINE_SAVED';
+
+    /** An employee's recurring line given its last date (RequiredAudit, EndRecurringLine). */
+    case RECURRING_LINE_ENDED = 'RECURRING_LINE_ENDED';
+
+    /** An employee's recurring line never paid on a payslip, deleted (RequiredAudit, DeleteRecurringLine). */
+    case RECURRING_LINE_DELETED = 'RECURRING_LINE_DELETED';
 
     // ── Attendance, DTR and the roster ──────────────────────────────────────
 
@@ -335,7 +452,6 @@ enum AuditEvent: string
 
     case REQUEST_FILED = 'REQUEST_FILED';
 
-    /** {@see self::leaveReview()} */
     case REQUEST_APPROVED = 'REQUEST_APPROVED';
 
     case REQUEST_REJECTED = 'REQUEST_REJECTED';
@@ -356,11 +472,50 @@ enum AuditEvent: string
      */
     case LEAVE_CREDITS_SET = 'LEAVE_CREDITS_SET';
 
+    /** One leave type's credit rules set on Leave Credits settings (SaveLeaveTypeCredits). Entity id: the type's. */
+    case LEAVE_TYPE_CREDITS_SET = 'LEAVE_TYPE_CREDITS_SET';
+
+    /** A minutes-to-days conversion table draft saved (SaveConversionTable). */
+    case LEAVE_CONVERSION_TABLE_SAVED = 'LEAVE_CONVERSION_TABLE_SAVED';
+
+    /** A conversion table version approved (RequiredAudit, ApproveConversionTable). */
+    case LEAVE_CONVERSION_TABLE_APPROVED = 'LEAVE_CONVERSION_TABLE_APPROVED';
+
+    /** A conversion table draft discarded (DeleteConversionTable). */
+    case LEAVE_CONVERSION_TABLE_DELETED = 'LEAVE_CONVERSION_TABLE_DELETED';
+
+    /** An earning preset saved or deleted on Leave Credits settings (SaveLeavePreset, DeleteLeavePreset). */
+    case LEAVE_PRESET_SAVED = 'LEAVE_PRESET_SAVED';
+
+    /** One employee's leave policy draft saved or discarded (SaveLeavePolicy, DiscardLeavePolicy). Entity id: the employee's. */
+    case LEAVE_POLICY_SAVED = 'LEAVE_POLICY_SAVED';
+
+    /** One employee's leave policy version approved (RequiredAudit, ApproveLeavePolicy). Entity id: the employee's. */
+    case LEAVE_POLICY_APPROVED = 'LEAVE_POLICY_APPROVED';
+
+    /** A month's leave earning posted to an employee's ledger by the schedule or "Post now" (PostLeaveEarnings). Entity id: the employee's. */
+    case LEAVE_EARNINGS_POSTED = 'LEAVE_EARNINGS_POSTED';
+
+    /** Attendance charged to an employee's leave credits by a finalized payroll (LeaveChargeQuery::post; best effort, after the finalizing transaction commits — the charge rows themselves commit with the payroll). Entity id: the employee's. */
+    case LEAVE_CHARGED = 'LEAVE_CHARGED';
+
+    /** An employee asked to cash part of a leave type's credits out (RequestLeaveCashOut). Entity id: the employee's. */
+    case LEAVE_CASH_OUT_REQUESTED = 'LEAVE_CASH_OUT_REQUESTED';
+
+    /** The employee withdrew a pending cash-out (WithdrawLeaveCashOut). Entity id: the employee's. */
+    case LEAVE_CASH_OUT_WITHDRAWN = 'LEAVE_CASH_OUT_WITHDRAWN';
+
+    /** A leave manager approved or rejected a cash-out (RequiredAudit, ReviewLeaveCashOut). Entity id: the employee's. */
+    case LEAVE_CASH_OUT_REVIEWED = 'LEAVE_CASH_OUT_REVIEWED';
+
+    /** A finalized payroll paid a cash-out and took the days off the ledger (LeaveCashOutQuery::post; best effort after commit, the rows themselves commit with the payroll). Entity id: the employee's. */
+    case LEAVE_CASH_OUT_PAID = 'LEAVE_CASH_OUT_PAID';
+
     // ── Projects ────────────────────────────────────────────────────────────
 
     case PROJECT_CREATED = 'PROJECT_CREATED';
 
-    /** Details edited, status unchanged. {@see self::project()} */
+    /** Details edited, status unchanged. {@see ProjectPolicy::auditAction()} */
     case PROJECT_UPDATED = 'PROJECT_UPDATED';
 
     /** Status moved. A DIFFERENT event from PROJECT_UPDATED, not a second name for it. */
@@ -621,17 +776,6 @@ enum AuditEvent: string
     }
 
     /**
-     * `REQUEST_${next}` — src/app/(protected)/leaves/leaves-page.tsx:142, and
-     * `status === "APPROVED" ? "REQUEST_APPROVED" : "REQUEST_REJECTED"` in
-     * src/app/api/leave-requests/[id]/review/route.ts. `$status` is APPROVED or
-     * REJECTED, so the two forms agree on every reachable input.
-     */
-    public static function leaveReview(string $status): string
-    {
-        return 'REQUEST_'.$status;
-    }
-
-    /**
      * `note ? "DTR_REMARK_SET" : "DTR_REMARK_CLEARED"` —
      * src/app/api/attendance/remarks/route.ts.
      *
@@ -654,40 +798,6 @@ enum AuditEvent: string
     public static function grant(bool $granted): string
     {
         return $granted ? self::GRANT_ADDED->value : self::GRANT_REMOVED->value;
-    }
-
-    /**
-     * `isHr ? "EMPLOYEE_UPDATED" : "PROFILE_UPDATED"` —
-     * src/app/api/employees/[id]/route.ts.
-     *
-     * The SAME row, named for who touched it: HR maintaining a record, versus
-     * an employee maintaining their own. `$isHr` is "the actor holds EMPLOYEES",
-     * never "the actor is not the subject".
-     */
-    public static function employeePatch(bool $isHr): string
-    {
-        return $isHr ? self::EMPLOYEE_UPDATED->value : self::PROFILE_UPDATED->value;
-    }
-
-    /**
-     * `from === to ? "PROJECT_UPDATED" : "PROJECT_STATUS_CHANGED"` —
-     * src/lib/projects.ts:32-33, called by BOTH the demo and the server.
-     *
-     * Ported including its quirk: the comparison is on the STATUS ONLY, so a
-     * project whose name and dates changed while its status stood still is
-     * PROJECT_UPDATED, and a project whose status moved is
-     * PROJECT_STATUS_CHANGED *even if the name changed in the same request*.
-     *
-     * `\App\Domain\Projects\ProjectPolicy::auditAction()` is the same function,
-     * ported alongside the rest of `src/lib/projects.ts`. Both are correct and
-     * they agree on every input; this one exists so the two names it can return
-     * are declared where the rest of the vocabulary is.
-     */
-    public static function project(string $from, string $to): string
-    {
-        return $from === $to
-            ? self::PROJECT_UPDATED->value
-            : self::PROJECT_STATUS_CHANGED->value;
     }
 
     /**
@@ -728,30 +838,5 @@ enum AuditEvent: string
         }
 
         return self::USER_UPDATED->value;
-    }
-
-    /*
-     |--------------------------------------------------------------------------
-     | Helpers
-     |--------------------------------------------------------------------------
-     */
-
-    /**
-     * Whether a stored `action` is part of the vocabulary.
-     *
-     * For tests and for the audit screen's filter, never for a guard: an
-     * unknown action must still be DISPLAYED, or a row written by an older
-     * release disappears from the trail, which is the one thing an append-only
-     * table exists to prevent.
-     */
-    public static function isKnown(string $action): bool
-    {
-        return self::tryFrom($action) !== null;
-    }
-
-    /** @return list<string> every action name, in declaration order */
-    public static function values(): array
-    {
-        return array_map(static fn (self $c): string => $c->value, self::cases());
     }
 }

@@ -10,6 +10,7 @@ use App\Domain\Attendance\Shift;
 use App\Domain\Attendance\ShiftResolver;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Domain\Payroll\PayRules;
+use App\Domain\Payroll\PayRulesTimeline;
 use App\Domain\Payroll\PayslipCalculator;
 use App\Domain\Payroll\PayslipDraft;
 use App\Domain\Payroll\Statutory;
@@ -543,6 +544,44 @@ const PAYSLIP_LEAVE_CANCELLATION_GUARDED_FLOOR = 964;
 */
 const PAYSLIP_PAY_RULES_GUARDED_FLOOR = 6_921;
 
+/*
+|--------------------------------------------------------------------------
+| The fourteenth divergence: the advance payroll
+|--------------------------------------------------------------------------
+| The reference reads every day of the period from its attendance. EMS lets
+| a payroll be processed before its period ends: the engine takes an
+| "attendance counted through" date and REPLACES the DTR rows after it with
+| presumed full days (no lateness, undertime, overtime or night pay), and
+| takes a settlement — what presumed days on an earlier payslip turned out
+| to be worth, less what was presumed — into gross pay before the tax. The
+| corpus carries neither, so every vector still takes the reference path.
+|
+| NO FIELD IS RELAXED. Every vector is recomputed with the counted date set
+| to its own period end (which presumes nothing) and a settlement of zero,
+| and the whole draft must equal the reference path strictly: the two
+| switches are inert at their boundaries and sit nowhere else.
+| PayrollAdvanceTest pins what each does, in days and pesos.
+*/
+const PAYSLIP_ADVANCE_GUARDED_FLOOR = 6_921;
+
+/*
+|--------------------------------------------------------------------------
+| The fifteenth divergence: attendance charged to leave credits
+|--------------------------------------------------------------------------
+| The reference prices every late minute and every absence to pay. EMS lets
+| an employee's leave policy charge them to leave credits first: the engine
+| takes what credits cover — the covered fraction of each late day's minutes
+| and the covered part of each absent day, which it pays as leave — and
+| prices only the rest. The corpus carries no policy, so every vector takes
+| the reference path.
+|
+| NO FIELD IS RELAXED. Every vector is recomputed with an EMPTY charge map
+| (nothing covered) and the whole draft must equal the reference path
+| strictly: an empty map is inert, and the switch sits nowhere else.
+| LeaveChargesTest and PayrollLeaveChargeTest pin what a charge does.
+*/
+const PAYSLIP_LEAVE_CHARGE_GUARDED_FLOOR = 6_921;
+
 /**
  * Equivalent calculation inputs with a selected cancellation and with that
  * same date omitted from an otherwise identical set of single-day leaves.
@@ -630,9 +669,12 @@ function vectorFullOvertimeApprovals(array $in): array
  *
  * @param  array<string, mixed>  $in
  * @param  array<string, int>|null  $overtimeApprovals  null for the reference path; see the seventh divergence.
+ * @param  array{late: array<string, float>, absence: array<string, float>, late_days: float}|null  $leaveCharges  null for the reference path; see the fifteenth divergence.
+ * @param  list<array{from: string, monthly_rate: ?float, daily_rate: ?float}>|null  $salaryRates  null for the reference path; the eighteenth divergence's segments.
+ * @param  array<string, float>|null  $contributionPosted  null for the reference path; the nineteenth divergence's posted shares.
  * @return array<string, mixed>
  */
-function computePayslipFromVector(array $in, ?array $overtimeApprovals = null, ?PayRules $rules = null): array
+function computePayslipFromVector(array $in, ?array $overtimeApprovals = null, ?PayRules $rules = null, ?string $attendanceThrough = null, float $settlement = 0.0, ?array $leaveCharges = null, ?PayRulesTimeline $timeline = null, ?array $salaryRates = null, ?array $contributionPosted = null): array
 {
     $settings = null;
     if (array_key_exists('settings', $in) && is_array($in['settings'])) {
@@ -643,7 +685,7 @@ function computePayslipFromVector(array $in, ?array $overtimeApprovals = null, ?
     }
 
     return PayslipCalculator::compute(
-        employee: (object) $in['employee'],
+        employee: (object) ($salaryRates === null ? $in['employee'] : $in['employee'] + ['salary_rates' => $salaryRates]),
         logs: AttendanceLog::listFromArrays($in['logs']),
         shift: is_array($in['shift'] ?? null) ? Shift::fromArray($in['shift']) : null,
         leaves: LeaveRequest::listFromArrays($in['leaves']),
@@ -657,6 +699,11 @@ function computePayslipFromVector(array $in, ?array $overtimeApprovals = null, ?
         settings: $settings,
         overtimeApprovals: $overtimeApprovals,
         rules: $rules,
+        attendanceThrough: $attendanceThrough,
+        settlement: $settlement,
+        leaveCharges: $leaveCharges,
+        timeline: $timeline,
+        contributionPosted: $contributionPosted,
     )->toArray();
 }
 
@@ -685,6 +732,8 @@ it('PayslipGolden: matches the TypeScript engine on every golden payslip vector'
     $dailyGuarded = 0;
     $leaveCancellationGuarded = 0;
     $payRulesGuarded = 0;
+    $advanceGuarded = 0;
+    $leaveChargeGuarded = 0;
     // How many vectors the eleventh divergence restated.
     $flexibleRetired = 0;
 
@@ -765,14 +814,54 @@ it('PayslipGolden: matches the TypeScript engine on every golden payslip vector'
 
         // DIVERGENCE 13 guard (see its banner): the reference's figures as a
         // saved version, read back strictly, reproduce the reference path.
+        // DIVERGENCE 17 rides the same recompute: the version handed in as a
+        // one-version TIMELINE, so every per-day lookup answers the same
+        // figures and the pricing buckets stay the reference's per-month ones.
         $vectorFormulas = is_array($vector['input']['settings']['formulas'] ?? null) ? array_values($vector['input']['settings']['formulas']) : [];
-        $viaRules = computePayslipFromVector($vector['input'], rules: PayRules::fromArray(PayRules::fromFormulas($vectorFormulas)->toArray()));
+        // DIVERGENCE 18 rides it too: the vector's own salary as a segment in
+        // force since always, so every per-date salary lookup answers the same
+        // figures and the buckets stay per month.
+        $savedRules = PayRules::fromArray(PayRules::fromFormulas($vectorFormulas)->toArray());
+        // DIVERGENCE 19 too: nothing posted this contribution month, handed
+        // in as zeros — which the reference's two schedules never read.
+        $viaRules = computePayslipFromVector($vector['input'], rules: $savedRules, timeline: PayRulesTimeline::single($savedRules), salaryRates: [[
+            'from' => PayRulesTimeline::ALWAYS,
+            'monthly_rate' => $vector['input']['employee']['monthly_rate'] ?? null,
+            'daily_rate' => $vector['input']['employee']['daily_rate'] ?? null,
+        ]], contributionPosted: ['sss' => 0.0, 'sss_er' => 0.0, 'philhealth' => 0.0, 'philhealth_er' => 0.0, 'pagibig' => 0.0, 'pagibig_er' => 0.0]);
         $payRulesGuarded++;
         foreach ($actual as $field => $value) {
             if ($viaRules[$field] !== $value) {
                 $mismatches[] = sprintf(
                     'vector #%d divergence 13 guard %s: reference %s, saved version %s',
                     $index, $field, var_export($value, true), var_export($viaRules[$field], true),
+                );
+            }
+        }
+
+        // DIVERGENCE 14 guard (see its banner): a counted date on the period's
+        // own end presumes nothing, and a zero settlement adds nothing — the
+        // draft is the reference path exactly.
+        $viaAdvance = computePayslipFromVector($vector['input'], attendanceThrough: (string) $vector['input']['periodEnd'], settlement: 0.0);
+        $advanceGuarded++;
+        foreach ($actual as $field => $value) {
+            if ($viaAdvance[$field] !== $value) {
+                $mismatches[] = sprintf(
+                    'vector #%d divergence 14 guard %s: reference %s, counted through the period end %s',
+                    $index, $field, var_export($value, true), var_export($viaAdvance[$field], true),
+                );
+            }
+        }
+
+        // DIVERGENCE 15 guard (see its banner): an empty charge map covers
+        // nothing — the draft is the reference path exactly.
+        $viaCharges = computePayslipFromVector($vector['input'], leaveCharges: ['late' => [], 'absence' => [], 'late_days' => 0.0]);
+        $leaveChargeGuarded++;
+        foreach ($actual as $field => $value) {
+            if ($viaCharges[$field] !== $value) {
+                $mismatches[] = sprintf(
+                    'vector #%d divergence 15 guard %s: reference %s, with an empty charge map %s',
+                    $index, $field, var_export($value, true), var_export($viaCharges[$field], true),
                 );
             }
         }
@@ -1027,6 +1116,8 @@ it('PayslipGolden: matches the TypeScript engine on every golden payslip vector'
     expect($approvalGuarded)->toBeGreaterThanOrEqual(PAYSLIP_OVERTIME_GUARDED_FLOOR, 'The divergence 7 guard saw fewer vectors with overtime than it did when pinned.');
     expect($leaveCancellationGuarded)->toBeGreaterThanOrEqual(PAYSLIP_LEAVE_CANCELLATION_GUARDED_FLOOR, 'The divergence 12 guard must cover approved leave overlapping the period.');
     expect($payRulesGuarded)->toBeGreaterThanOrEqual(PAYSLIP_PAY_RULES_GUARDED_FLOOR, 'The divergence 13 guard must exercise the entire reference corpus.');
+    expect($advanceGuarded)->toBeGreaterThanOrEqual(PAYSLIP_ADVANCE_GUARDED_FLOOR, 'The divergence 14 guard must exercise the entire reference corpus.');
+    expect($leaveChargeGuarded)->toBeGreaterThanOrEqual(PAYSLIP_LEAVE_CHARGE_GUARDED_FLOOR, 'The divergence 15 guard must exercise the entire reference corpus.');
     expect($weeklyGuarded)->toBeGreaterThanOrEqual(PAYSLIP_WEEKLY_GUARDED_FLOOR, 'The divergence 8 guard must exercise the entire reference corpus.');
     expect($customGuarded)->toBeGreaterThanOrEqual(PAYSLIP_CUSTOM_DEDUCTION_GUARDED_FLOOR, 'The divergence 9 guard must exercise the entire reference corpus.');
     expect($dailyGuarded)->toBeGreaterThanOrEqual(PAYSLIP_DAILY_RATE_GUARDED_FLOOR, 'The divergence 10 guard saw fewer vectors with a monthly rate than it did when pinned.');

@@ -244,7 +244,7 @@ it('refuses a reviewer without all_data even though they hold LEAVES', function 
     expect($request->fresh()->status)->toBe('PENDING');
 });
 
-it('refuses reviewing your own request', function () {
+it('lets an all-data holder review their own request', function () {
     $employee = leavesEmployee('EMP-006', 'Own', 'Request');
     $request = leavesRequest($employee, 'LR-005');
 
@@ -254,7 +254,7 @@ it('refuses reviewing your own request', function () {
         ->call('show', $request->getKey())
         ->call('review', 'APPROVED', true);
 
-    expect($request->fresh()->status)->toBe('PENDING');
+    expect($request->fresh()->status)->toBe('APPROVED');
 });
 
 it('lets only one of two racing reviewers win', function () {

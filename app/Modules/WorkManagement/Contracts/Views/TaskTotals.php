@@ -14,7 +14,7 @@ use App\Modules\WorkManagement\Domain\Projects\ManualProjectStatus;
  * — a GROUP task handed in, or an INDIVIDUAL task in progress with at least
  * one response submitted — the rule {@see ProjectTaskView::awaitsReview()}
  * applies to one task. Such an INDIVIDUAL task is still IN_PROGRESS, so it
- * stays among the open tasks statusError() counts.
+ * stays among the open tasks manualStatusError() counts.
  */
 final readonly class TaskTotals
 {
@@ -44,16 +44,12 @@ final readonly class TaskTotals
         return ProjectPolicy::health(['status' => $project->status, 'due_date' => $project->due_date?->format('Y-m-d')], $tasks, $today);
     }
 
-    public function statusError(ProjectView $project, string $next): ?string
-    {
-        return ProjectPolicy::statusError($this->projectShape($project), $this->openShape(), $next);
-    }
-
     /**
-     * statusError() for a status set BY HAND (ManualProjectStatus): what the
-     * header select disables. Display only — ChangeProjectStatus decides on
-     * the locked task rows. Whole-project for whoever runs the project,
-     * because a Task Leader's task scope covers every task they lead.
+     * ProjectPolicy::statusError() for a status set BY HAND
+     * (ManualProjectStatus): what the header select disables. Display only —
+     * ChangeProjectStatus decides on the locked task rows. Whole-project for
+     * whoever runs the project, because a Task Leader's task scope covers
+     * every task they lead.
      */
     public function manualStatusError(ProjectView $project, string $next): ?string
     {
@@ -67,8 +63,8 @@ final readonly class TaskTotals
     }
 
     /**
-     * One stand-in open task when any task is still open — all either
-     * statusError() looks at.
+     * One stand-in open task when any task is still open — all
+     * ManualProjectStatus::error() looks at.
      *
      * @return list<array{status: string}>
      */

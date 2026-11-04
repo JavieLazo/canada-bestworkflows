@@ -36,8 +36,11 @@ use App\Modules\Social\Application\Commands\CreateTag;
 use App\Modules\Social\Application\Commands\DecideJoinRequest;
 use App\Modules\Social\Application\Commands\DeleteGroup;
 use App\Modules\Social\Application\Commands\DeleteTag;
+use App\Modules\Social\Application\Commands\EditComment;
+use App\Modules\Social\Application\Commands\EditPost;
 use App\Modules\Social\Application\Commands\PublishPost;
 use App\Modules\Social\Application\Commands\ReactToPost;
+use App\Modules\Social\Application\Commands\RemoveComment;
 use App\Modules\Social\Application\Commands\RemoveGroupMember;
 use App\Modules\Social\Application\Commands\RemovePost;
 use App\Modules\Social\Application\Commands\SetGroupRole;
@@ -58,8 +61,10 @@ use App\Platform\Files\FileConsistency;
 use App\Support\Access;
 use App\Support\SocialFormat;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Blade;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -74,9 +79,13 @@ use Livewire\Livewire;
  * nobody else, down to the photos; only members react or reply in a group;
  * mentions are stored as account tokens and tell only people who can read
  * the post; one reaction per person; pinning, or removing someone else's
- * comment, is a moderator's alone and audited; and A POST'S DELETE IS ITS
+ * comment, is a moderator's alone and audited; A POST'S DELETE IS ITS
  * AUTHOR'S AND NOBODY ELSE'S, moderators included — someone else's post
- * goes only with its whole group.
+ * goes only with its whole group; and an edit is its author's alone too:
+ * only the author rewrites a post or comment, and only while they can take
+ * part where it was posted, every earlier version of a post stays for
+ * anyone who can read it, and a photo or file taken off stays for that
+ * history until the post is deleted.
  */
 
 /** @param list<string> $modules ModuleCode constants to grant */
@@ -359,6 +368,428 @@ it('tells a person named in a private group post only if they are a member', fun
 
     expect(Notification::query()->where('user_id', $member->getKey())->where('kind', 'COMMUNITY_MENTION')->exists())->toBeTrue()
         ->and(Notification::query()->where('user_id', $stranger->getKey())->exists())->toBeFalse();
+});
+
+it('lets an author edit their own post, marks it Edited, and tells only the people the edit newly mentions', function () {
+    $andrea = commUser(name: 'Andrea Lim');
+    $jose = commUser(name: 'Jose Rivera');
+    $me = commActor();
+    $id = app(PublishPost::class)->handle(commAccess($me), null, null, 'Thanks @Andrea Lim!');
+
+    // Saving it unchanged closes the box without marking it.
+    Livewire::test(CommunityPage::class)
+        ->set('edits.'.$id, 'Thanks @Andrea Lim!')
+        ->call('saveEdit', $id, '')
+        ->assertDispatched('community-edited', id: $id)
+        ->assertDontSeeText('Edited');
+    expect(CommunityPost::query()->find($id)?->edited_at)->toBeNull();
+
+    Livewire::test(CommunityPage::class)
+        ->set('edits.'.$id, 'Thanks @Andrea Lim and @Jose Rivera!')
+        ->call('saveEdit', $id, '')
+        ->assertSeeText('Thanks @Andrea Lim and @Jose Rivera!')
+        ->assertSeeText('Edited');
+
+    $post = CommunityPost::query()->find($id);
+    expect($post?->body)->toBe('Thanks @['.$andrea->getKey().'] and @['.$jose->getKey().']!')
+        ->and($post?->edited_at)->not->toBeNull()
+        ->and(Notification::query()->where('user_id', $andrea->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $jose->getKey())->value('title'))->toBe('Kim Reyes mentioned you in a post');
+});
+
+it('keeps every earlier version of an edited post, for anyone who can see the post', function () {
+    $andrea = commUser(name: 'Andrea Lim');
+    $me = commActor();
+    $edit = app(EditPost::class);
+    $id = app(PublishPost::class)->handle(commAccess($me), null, null, 'Lunch at noon, @Andrea Lim');
+    $posted = CommunityPost::query()->find($id)?->created_at?->format('Y-m-d H:i:s.v');
+
+    $this->travel(5)->minutes();
+    $edit->handle(commAccess($me), $id, 'Lunch at one', null);
+    $edited = CommunityPost::query()->find($id)?->edited_at?->format('Y-m-d H:i:s.v');
+    $this->travel(5)->minutes();
+    $edit->handle(commAccess($me), $id, 'Lunch at one, in the pantry', null);
+    // Saving it unchanged adds nothing.
+    $edit->handle(commAccess($me), $id, 'Lunch at one, in the pantry', null);
+
+    // Andrea sees them too: newest first, each with when it went up, with the name only the first one mentions.
+    $history = app(CommunityFeed::class)->history(commAccess($andrea), $id);
+    expect(array_column($history['versions'] ?? [], 'body'))->toBe(['Lunch at one, in the pantry', 'Lunch at one', 'Lunch at noon, @['.$andrea->getKey().']'])
+        ->and($history['versions'][1]['at'] ?? null)->toBe($edited)
+        ->and($history['versions'][2]['at'] ?? null)->toBe($posted)
+        ->and($history['names'] ?? [])->toBe([$andrea->getKey() => 'Andrea Lim']);
+
+    // "Edited" on the card opens them.
+    commSignIn($andrea);
+    Livewire::test(CommunityPage::class)
+        ->assertDontSeeText('That post isn\'t here anymore.')
+        ->call('openHistory', $id)
+        ->assertSet('historyDialog', true)
+        ->assertSeeText('Lunch at noon, @Andrea Lim');
+
+    // Someone who can't see a post can't see its history either.
+    $club = commGroup('Book Club', private: true, members: [$me]);
+    $private = app(PublishPost::class)->handle(commAccess($me), (string) $club->getKey(), null, 'Members only');
+    $edit->handle(commAccess($me), $private, 'Members only, chapter 3', null);
+    expect(app(CommunityFeed::class)->history(commAccess($andrea), $private))->toBeNull()
+        ->and(app(CommunityFeed::class)->history(commAccess($me), $private)['versions'] ?? [])->toHaveCount(2);
+});
+
+it('lets an author change a post\'s tag, photos and files, and keeps what came off in its history until the post goes', function () {
+    Storage::fake('local');
+    $andrea = commUser(name: 'Andrea Lim');
+    $me = commActor();
+    $edit = app(EditPost::class);
+    $id = app(PublishPost::class)->handle(commAccess($me), null, 'KUDOS', 'Site visit', [
+        UploadedFile::fake()->image('gate.png', 40, 40),
+        UploadedFile::fake()->image('crew.png', 40, 40),
+    ]);
+    [$gate, $crew] = array_map('strval', CommunityAttachment::query()->where('post_id', $id)->orderBy('position')->pluck('id')->all());
+    $gatePath = (string) CommunityAttachment::query()->whereKey($gate)->value('path');
+
+    // From the card: a new tag, the gate photo off (an id from elsewhere is ignored), and an agenda on.
+    Livewire::test(CommunityPage::class)
+        ->set('edits.'.$id, 'Site visit')
+        ->set('picked.e-'.$id, [commPdf()])
+        ->call('saveEdit', $id, 'QUESTION', [$gate, 'not-on-this-post'])
+        ->assertDispatched('community-edited', id: $id)
+        ->assertSet('staged', []);
+
+    $view = commFeed($andrea)->posts[0];
+    expect($view->tag)->toBe('QUESTION')
+        ->and($view->photos)->toBe([$crew])
+        ->and(array_map(static fn ($file): string => $file->name, $view->files))->toBe(['agenda.pdf']);
+
+    // The history shows both versions whole, and the photo that came off still opens.
+    $history = app(CommunityFeed::class)->history(commAccess($andrea), $id);
+    expect($history['versions'][0]['tag'] ?? null)->toBe('QUESTION')
+        ->and($history['versions'][0]['photos'] ?? null)->toBe([$crew])
+        ->and(count($history['versions'][0]['files'] ?? []))->toBe(1)
+        ->and($history['versions'][1]['tag'] ?? null)->toBe('KUDOS')
+        ->and($history['versions'][1]['photos'] ?? null)->toBe([$gate, $crew])
+        ->and($history['versions'][1]['files'] ?? null)->toBe([])
+        ->and(app(CommunityFeed::class)->photo(commAccess($andrea), $gate)->getStatusCode())->toBe(200)
+        ->and(Storage::disk('local')->exists($gatePath))->toBeTrue();
+
+    // Saving it as it is changes nothing; a tag that isn't listed, or an eleventh photo or file, is refused.
+    $edit->handle(commAccess($me), $id, 'Site visit', 'QUESTION');
+    expect(CommunityPost::query()->find($id)?->earlier_versions)->toHaveCount(1);
+    $rows = CommunityAttachment::query()->count();
+    $files = Storage::disk('local')->allFiles();
+    expect(fn () => $edit->handle(commAccess($me), $id, 'Site visit', 'NOPE'))
+        ->toThrow(RuntimeException::class, 'Pick one of the listed tags.');
+    $nine = array_map(static fn (int $i): UploadedFile => UploadedFile::fake()->image("p{$i}.png", 10, 10), range(1, 9));
+    expect(fn () => $edit->handle(commAccess($me), $id, 'Site visit', 'QUESTION', [], $nine))
+        ->toThrow(RuntimeException::class, 'A post holds up to 10 photos and files.');
+    $post = CommunityPost::query()->find($id);
+    expect($post?->tag)->toBe('QUESTION')
+        ->and($post?->earlier_versions)->toHaveCount(1)
+        ->and(CommunityAttachment::query()->count())->toBe($rows)
+        ->and(Storage::disk('local')->allFiles())->toBe($files);
+
+    // Deleting the post takes every file with it, the one that came off too.
+    app(RemovePost::class)->handle(commAccess($me), $id);
+    expect(Storage::disk('local')->exists($gatePath))->toBeFalse();
+});
+
+it('brings back a photo the post had before instead of storing it twice', function () {
+    Storage::fake('local');
+    $me = commActor();
+    $edit = app(EditPost::class);
+    $first = UploadedFile::fake()->image('court.png', 40, 40);
+    $bytes = (string) file_get_contents((string) $first->getRealPath());
+    $id = app(PublishPost::class)->handle(commAccess($me), null, null, 'Court day', [$first]);
+    $court = (string) CommunityAttachment::query()->where('post_id', $id)->value('id');
+
+    // Taken off, then the same photo picked again, under another name.
+    $edit->handle(commAccess($me), $id, 'Court day', null, [$court]);
+    $edit->handle(commAccess($me), $id, 'Court day', null, [], [UploadedFile::fake()->createWithContent('court-again.png', $bytes)]);
+
+    expect(CommunityAttachment::query()->where('post_id', $id)->pluck('id')->all())->toBe([$court])
+        ->and(CommunityAttachment::query()->whereKey($court)->value('removed_at'))->toBeNull()
+        ->and(commFeed($me)->posts[0]->photos)->toBe([$court])
+        ->and(Storage::disk('local')->allFiles())->toHaveCount(1);
+
+    // Every version that has it shows that one file.
+    $history = app(CommunityFeed::class)->history(commAccess($me), $id);
+    expect(array_column($history['versions'] ?? [], 'photos'))->toBe([[$court], [], [$court]]);
+});
+
+it('numbers a post\'s photos and files from 0 in the order they show, however many edits swap them', function () {
+    Storage::fake('local');
+    $me = commActor();
+    $edit = app(EditPost::class);
+    $photo = UploadedFile::fake()->image('day-0.png', 20, 20);
+    $bytes = (string) file_get_contents((string) $photo->getRealPath());
+    $id = app(PublishPost::class)->handle(commAccess($me), null, null, 'Progress photos', [$photo, commPdf()]);
+    $first = array_map('strval', CommunityAttachment::query()->where('post_id', $id)->orderBy('position')->pluck('id')->all());
+
+    // Thirty edits, each taking the oldest off and adding a photo of a new size,
+    // so none of them comes back as an earlier one; then the first photo again.
+    for ($day = 1; $day <= 30; $day++) {
+        $oldest = (string) CommunityAttachment::query()->where('post_id', $id)->whereNull('removed_at')->orderBy('position')->value('id');
+        $edit->handle(commAccess($me), $id, 'Progress photos', null, [$oldest], [UploadedFile::fake()->image("day-{$day}.png", 20 + $day, 20)]);
+    }
+    $edit->handle(commAccess($me), $id, 'Progress photos', null, [], [UploadedFile::fake()->createWithContent('day-0-again.png', $bytes)]);
+
+    $live = CommunityAttachment::query()->where('post_id', $id)->whereNull('removed_at')->orderBy('position')->pluck('position', 'id')->all();
+    expect(array_values($live))->toBe([0, 1, 2])
+        ->and(array_map('strval', array_keys($live)))->toBe(commFeed($me)->posts[0]->photos)
+        ->and(array_key_last($live))->toBe($first[0])
+        ->and((int) CommunityAttachment::query()->where('post_id', $id)->max('position'))->toBeLessThanOrEqual(SocialRules::MAX_ATTACHMENTS)
+        ->and(CommunityAttachment::query()->where('post_id', $id)->count())->toBe(32);
+
+    // Each earlier version keeps its own order, whatever the numbers became.
+    $history = app(CommunityFeed::class)->history(commAccess($me), $id);
+    expect($history['versions'] ?? [])->toHaveCount(32)
+        ->and($history['versions'][31]['photos'] ?? null)->toBe([$first[0]])
+        ->and(array_map(static fn ($file): string => $file->name, $history['versions'][31]['files'] ?? []))->toBe(['agenda.pdf'])
+        ->and($history['versions'][0]['photos'] ?? null)->toBe(array_map('strval', array_keys($live)));
+});
+
+it('refuses a save that lands on a version other than the one it started from, so no version drops out of the history', function () {
+    $me = commActor();
+    $edit = app(EditPost::class);
+    $id = app(PublishPost::class)->handle(commAccess($me), null, null, 'Lunch at noon');
+
+    // A second tab saves its edit after this save has read the post and
+    // before it writes: its first look at the post's attachments comes
+    // between the two.
+    $saved = false;
+    DB::listen(static function (QueryExecuted $query) use (&$saved, $edit, $me, $id): void {
+        if (! $saved && str_contains($query->sql, 'community_attachments')) {
+            $saved = true;
+            $edit->handle(commAccess($me), $id, 'Lunch at one', null);
+        }
+    });
+
+    expect(fn () => $edit->handle(commAccess($me), $id, 'Lunch at two', null))
+        ->toThrow(RuntimeException::class, 'This post changed while you were editing it. Please try again.');
+
+    $post = CommunityPost::query()->find($id);
+    expect($saved)->toBeTrue()
+        ->and($post?->body)->toBe('Lunch at one')
+        ->and(array_column($post->earlier_versions ?? [], 'body'))->toBe(['Lunch at noon']);
+});
+
+it('holds the files an edit adds to the per-file cap and to Community and Chat\'s storage ceiling', function () {
+    Storage::fake('local');
+    $me = commActor();
+    $edit = app(EditPost::class);
+    $id = app(PublishPost::class)->handle(commAccess($me), null, null, 'Minutes', [commPdf()]);
+    $rows = CommunityAttachment::query()->count();
+    $files = Storage::disk('local')->allFiles();
+    $pdf = commPdf('budget.pdf');
+    $size = (int) $pdf->getSize();
+
+    // One byte over the cap.
+    $cap = config('copems.uploads.max_file_bytes');
+    config()->set('copems.uploads.max_file_bytes', $size - 1);
+    expect(fn () => $edit->handle(commAccess($me), $id, 'Minutes', null, [], [$pdf]))
+        ->toThrow(RuntimeException::class, 'The limit is');
+    config()->set('copems.uploads.max_file_bytes', $cap);
+
+    // Room for everything stored already, and one byte short of this file.
+    config()->set('copems.uploads.social_storage_ceiling_bytes', app(StorageUsage::class)->bytes() + $size - 1);
+    expect(fn () => $edit->handle(commAccess($me), $id, 'Minutes', null, [], [$pdf]))
+        ->toThrow(RuntimeException::class, Attachments::FULL);
+
+    $post = CommunityPost::query()->find($id);
+    expect(CommunityAttachment::query()->count())->toBe($rows)
+        ->and(Storage::disk('local')->allFiles())->toBe($files)
+        ->and($post?->edited_at)->toBeNull()
+        ->and($post?->earlier_versions)->toBeNull();
+});
+
+it('refuses an edit to someone else\'s post, even from a moderator, and one that would leave a post empty', function () {
+    $other = commPost(commUser(name: 'Maria Santos'), 'Not yours');
+    $me = commActor(['COMMUNITY', 'USERS']);
+    $mine = commPost($me, 'Mine');
+    $photoPost = commPost($me, 'Look at this');
+    $photo = new CommunityAttachment;
+    $photo->forceFill(['post_id' => $photoPost->getKey(), 'kind' => 'PHOTO', 'path' => 'community-photos/look.png', 'mime' => 'image/png', 'size' => 3, 'position' => 0])->save();
+    $edit = app(EditPost::class);
+
+    // The card offers Edit on the viewer's own posts and nowhere else.
+    $mayEdit = [];
+    foreach (commFeed($me)->posts as $view) {
+        $mayEdit[$view->body] = $view->canEdit;
+    }
+    expect($mayEdit)->toEqual(['Not yours' => false, 'Mine' => true, 'Look at this' => true]);
+
+    expect(fn () => $edit->handle(commAccess($me), (string) $other->getKey(), 'Reworded', null))
+        ->toThrow(RuntimeException::class, 'You can only edit your own posts.');
+    expect(fn () => $edit->handle(commAccess($me), (string) $mine->getKey(), '   ', null))
+        ->toThrow(RuntimeException::class, 'Write something, or delete the post instead.');
+
+    // A post with a photo can do without words, the same as when it went up.
+    $edit->handle(commAccess($me), (string) $photoPost->getKey(), '', null);
+    expect($other->fresh()?->body)->toBe('Not yours')
+        ->and($mine->fresh()?->body)->toBe('Mine')
+        ->and($photoPost->fresh()?->body)->toBe('');
+});
+
+it('lets an author edit their own comment, marks it Edited, and tells only the people the edit newly mentions', function () {
+    $andrea = commUser(name: 'Andrea Lim');
+    $jose = commUser(name: 'Jose Rivera');
+    $post = commPost(commUser(name: 'Maria Santos'), 'Lunch?');
+    $me = commActor();
+    $id = app(CommentOnPost::class)->handle(commAccess($me), (string) $post->getKey(), null, 'Yes, with @Andrea Lim');
+
+    Livewire::test(CommunityPage::class)
+        ->set('edits.'.$id, 'Yes, with @Andrea Lim and @Jose Rivera')
+        ->call('saveCommentEdit', $id)
+        ->assertDispatched('community-edited', id: $id)
+        ->assertSeeText('Yes, with @Andrea Lim and @Jose Rivera')
+        ->assertSeeText('Edited');
+
+    $comment = CommunityComment::query()->find($id);
+    expect($comment?->body)->toBe('Yes, with @['.$andrea->getKey().'] and @['.$jose->getKey().']')
+        ->and($comment?->edited_at)->not->toBeNull()
+        ->and(Notification::query()->where('user_id', $andrea->getKey())->count())->toBe(1)
+        ->and(Notification::query()->where('user_id', $jose->getKey())->value('title'))->toBe('Kim Reyes mentioned you in a comment');
+});
+
+it('refuses an edit to someone else\'s comment, even from a moderator, and one that would leave it empty, and shows an edit to other people', function () {
+    $maria = commUser(name: 'Maria Santos');
+    $post = commPost($maria, 'Lunch?');
+    $theirs = app(CommentOnPost::class)->handle(commAccess($maria), (string) $post->getKey(), null, 'Count me in');
+    $me = commActor(['COMMUNITY', 'USERS']);
+    $mine = app(CommentOnPost::class)->handle(commAccess($me), (string) $post->getKey(), null, 'Me too');
+    $withPhoto = app(CommentOnPost::class)->handle(commAccess($me), (string) $post->getKey(), null, 'Look');
+    $photo = new CommunityAttachment;
+    $photo->forceFill(['post_id' => $post->getKey(), 'comment_id' => $withPhoto, 'kind' => 'PHOTO', 'path' => 'community-photos/look.png', 'mime' => 'image/png', 'size' => 3, 'position' => 0])->save();
+    $edit = app(EditComment::class);
+
+    expect(fn () => $edit->handle(commAccess($me), $theirs, 'Reworded'))
+        ->toThrow(RuntimeException::class, 'You can only edit your own comments.');
+    expect(fn () => $edit->handle(commAccess($me), $mine, '   '))
+        ->toThrow(RuntimeException::class, 'Write something, or delete the comment instead.');
+    expect(CommunityComment::query()->find($mine)?->body)->toBe('Me too')
+        ->and(CommunityComment::query()->find($mine)?->edited_at)->toBeNull();
+
+    // A comment with a photo can do without words, the same as when it went up.
+    $edit->handle(commAccess($me), $withPhoto, '');
+
+    // Comments have no updated_at, so Maria's feed has to notice the edit through edited_at.
+    $before = app(CommunityFeed::class)->stamp(commAccess($maria));
+    $this->travel(1)->seconds();
+    $edit->handle(commAccess($me), $mine, 'Me too, see you there');
+
+    expect(app(CommunityFeed::class)->stamp(commAccess($maria)))->not->toBe($before)
+        ->and(CommunityComment::query()->find($theirs)?->body)->toBe('Count me in')
+        ->and(CommunityComment::query()->find($withPhoto)?->body)->toBe('');
+});
+
+it('refuses an edit to a post or comment out of reach, a deleted comment, and someone else\'s, through the page and straight at the command', function () {
+    $maria = commUser(name: 'Maria Santos');
+    $me = commActor();
+    $club = commGroup('Book Club', private: true, members: [$maria, $me]);
+    $hidden = commPost($me, 'Chapter 3 tonight', $club);
+    $hiddenComment = app(CommentOnPost::class)->handle(commAccess($me), (string) $hidden->getKey(), null, 'Bring snacks');
+    $theirs = commPost($maria, 'Lunch?');
+    $gone = app(CommentOnPost::class)->handle(commAccess($me), (string) $theirs->getKey(), null, 'Count me in');
+    app(RemoveComment::class)->handle(commAccess($me), $gone);
+    $theirComment = app(CommentOnPost::class)->handle(commAccess($maria), (string) $theirs->getKey(), null, 'Me too');
+    // Out of the private group, the post and the comment there are still
+    // the actor's own, but out of reach.
+    app(ChangeMembership::class)->leave(commAccess($me), (string) $club->getKey());
+    $told = Notification::query()->count();
+
+    // Through the page, and straight at the command with no page in between.
+    Livewire::test(CommunityPage::class)
+        ->set('edits.'.$hidden->getKey(), 'Reworded')
+        ->call('saveEdit', (string) $hidden->getKey(), '')
+        ->set('edits.'.$theirs->getKey(), 'Reworded')
+        ->call('saveEdit', (string) $theirs->getKey(), '')
+        ->set('edits.'.$hiddenComment, 'Reworded')
+        ->call('saveCommentEdit', $hiddenComment)
+        ->set('edits.'.$gone, 'Reworded')
+        ->call('saveCommentEdit', $gone)
+        ->set('edits.'.$theirComment, 'Reworded')
+        ->call('saveCommentEdit', $theirComment)
+        ->assertNotDispatched('community-edited');
+    $post = static fn (CommunityPost $target): Closure => static fn () => app(EditPost::class)->handle(commAccess($me), (string) $target->getKey(), 'Reworded', null);
+    $comment = static fn (string $target): Closure => static fn () => app(EditComment::class)->handle(commAccess($me), $target, 'Reworded');
+    expect($post($hidden))->toThrow(RuntimeException::class, 'That post was not found.')
+        ->and($post($theirs))->toThrow(RuntimeException::class, 'You can only edit your own posts.')
+        // A comment that's gone and one on a post out of reach answer alike.
+        ->and($comment($gone))->toThrow(RuntimeException::class, 'That comment was not found.')
+        ->and($comment($hiddenComment))->toThrow(RuntimeException::class, 'That comment was not found.')
+        ->and($comment($theirComment))->toThrow(RuntimeException::class, 'You can only edit your own comments.');
+
+    foreach ([$hidden, $theirs] as $target) {
+        $fresh = CommunityPost::query()->find((string) $target->getKey());
+        expect($fresh?->body)->toBe($target->body)
+            ->and($fresh?->edited_at)->toBeNull()
+            ->and($fresh?->earlier_versions)->toBeNull();
+    }
+    expect(CommunityComment::query()->whereKey($gone)->exists())->toBeFalse()
+        ->and(CommunityComment::query()->find($hiddenComment)?->body)->toBe('Bring snacks')
+        ->and(CommunityComment::query()->find($theirComment)?->body)->toBe('Me too')
+        ->and(CommunityComment::query()->whereNotNull('edited_at')->count())->toBe(0)
+        ->and(Notification::query()->count())->toBe($told);
+});
+
+it('refuses an edit from an author who is no longer in a public group, offers them no Edit there, and lets them edit again once back', function () {
+    $owner = commUser(name: 'Maria Santos');
+    $me = commActor();
+    $club = commGroup('Lunch Club', members: [$owner, $me], owner: $owner);
+    $post = commPost($me, 'Lunch at noon', $club);
+    $comment = app(CommentOnPost::class)->handle(commAccess($me), (string) $post->getKey(), null, 'Bring snacks');
+    app(RemoveGroupMember::class)->handle(commAccess($owner), (string) $club->getKey(), (int) $me->getKey());
+    $told = Notification::query()->count();
+
+    // The group is public, so the post is still in reach and still theirs,
+    // but rewording it is taking part, like commenting.
+    $views = app(CommunityFeed::class)->feed(commAccess($me), (string) $club->getKey(), new FeedFilter, 10)->posts;
+    expect(array_map(static fn ($view): array => [$view->body, $view->canEdit, $view->canDelete], $views))
+        ->toEqual([['Lunch at noon', false, true]]);
+
+    Livewire::test(CommunityPage::class)
+        ->call('openGroup', (string) $club->getKey())
+        ->assertSee('Lunch at noon')
+        ->assertDontSee('Edit post')
+        ->assertDontSee('Edit comment')
+        ->set('edits.'.$post->getKey(), 'Lunch at one')
+        ->call('saveEdit', (string) $post->getKey(), '')
+        ->set('edits.'.$comment, 'Bring drinks')
+        ->call('saveCommentEdit', $comment)
+        ->assertNotDispatched('community-edited');
+    expect(static fn () => app(EditPost::class)->handle(commAccess($me), (string) $post->getKey(), 'Lunch at one', null))
+        ->toThrow(RuntimeException::class, 'Join the group to edit your posts in it.')
+        ->and(static fn () => app(EditComment::class)->handle(commAccess($me), $comment, 'Bring drinks'))
+        ->toThrow(RuntimeException::class, 'Join the group to edit your comments in it.');
+
+    $fresh = CommunityPost::query()->find((string) $post->getKey());
+    expect($fresh?->body)->toBe('Lunch at noon')
+        ->and($fresh?->edited_at)->toBeNull()
+        ->and($fresh?->earlier_versions)->toBeNull()
+        ->and(CommunityComment::query()->find($comment)?->body)->toBe('Bring snacks')
+        ->and(CommunityComment::query()->whereNotNull('edited_at')->count())->toBe(0)
+        ->and(Notification::query()->count())->toBe($told);
+
+    // Back in the group, both are theirs to edit again.
+    app(ChangeMembership::class)->join(commAccess($me), (string) $club->getKey());
+    app(EditPost::class)->handle(commAccess($me), (string) $post->getKey(), 'Lunch at one', null);
+    app(EditComment::class)->handle(commAccess($me), $comment, 'Bring drinks');
+
+    expect(CommunityPost::query()->find((string) $post->getKey())?->body)->toBe('Lunch at one')
+        ->and(CommunityComment::query()->find($comment)?->body)->toBe('Bring drinks');
+});
+
+it('closes every redraw marker it opens, so a body that gains a mention can redraw in place', function () {
+    $andrea = commUser(name: 'Andrea Lim');
+    $me = commActor();
+    $post = commPost($me, 'Thanks @['.$andrea->getKey().'] and @everyone!');
+    app(CommentOnPost::class)->handle(commAccess($me), (string) $post->getKey(), null, 'And @Andrea Lim again');
+
+    // Livewire redraws a block by finding the end marker that matches its
+    // start. One missing end, and the first edit that adds a mention breaks
+    // the card halfway through redrawing it.
+    preg_match('/<article\s+id="'.$post->getKey().'".*?<\/article>/s', Livewire::test(CommunityPage::class)->html(), $card);
+    expect(substr_count($card[0], '<!--[if BLOCK]><![endif]-->'))->toBeGreaterThan(0)
+        ->toBe(substr_count($card[0], '<!--[if ENDBLOCK]><![endif]-->'));
 });
 
 /*
@@ -1314,7 +1745,7 @@ it('lets a group\'s owner and moderators answer join requests, and nobody else',
     commSignIn($liza);
     Livewire::test(CommunityPage::class)
         ->call('openGroup', (string) $club->getKey())
-        ->assertSeeText('2 requests')
+        ->assertSeeText('2 waiting to join')
         ->call('showTab', 'members')
         ->assertSee('Waiting to join')
         ->assertSee('Grace Mendoza')
@@ -1348,7 +1779,7 @@ it('lets a group\'s owner and moderators answer join requests, and nobody else',
         ->toThrow(RuntimeException::class, "Only the group's owner or its moderators can change it.");
     Livewire::test(CommunityPage::class)
         ->call('openGroup', (string) $club->getKey())
-        ->assertDontSeeText('1 request')
+        ->assertDontSeeText('waiting to join')
         ->assertSee('Delete group');
 });
 
@@ -1850,7 +2281,7 @@ it('opens a notification\'s comment with the thread unfolded down to it, and hig
         ->assertSeeHtml('id="comment-'.$reply->getKey().'"')
         ->assertSeeHtml('before:bg-primary-soft')
         // The comment above it starts unfolded, so the reply is in view.
-        ->assertSeeHtml('x-data="{ open: true, replying: false, hover: false }"')
+        ->assertSeeHtml('x-data="{ open: true, replying: false, hover: false, editing: false }"')
         ->call('closeFocus')
         ->assertSet('focusCommentId', null);
 

@@ -27,18 +27,18 @@ final class PayrollRunsExport implements TableExport
         $kind = in_array($query['kind'] ?? '', PayrollRunKind::all(), true) ? (string) $query['kind'] : PayrollRunKind::REGULAR;
         $search = $query['q'] ?? '';
         $status = in_array($query['status'] ?? '', ['DRAFT', 'FINALIZED'], true) ? (string) $query['status'] : 'ALL';
-        $sort = in_array($query['sort'] ?? '', ['id', 'name', 'from', 'to', 'employees', 'status'], true) ? (string) $query['sort'] : 'from';
+        $sort = in_array($query['sort'] ?? '', ['id', 'name', 'from', 'to', 'pay', 'employees', 'status'], true) ? (string) $query['sort'] : 'from';
         $direction = ($query['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
 
         $rows = static function () use ($actor, $kind, $search, $status, $sort, $direction): Generator {
             $runs = app(PayrollRecords::class)->list($actor, $kind);
             foreach (PayrollRunRows::arrange($runs, $search, $status, $sort, $direction) as $run) {
-                yield [$run->code, $run->name, $run->period_start->format('Y-m-d'), $run->period_end->format('Y-m-d'), $run->members_count, $run->status];
+                yield [$run->code, $run->name, $run->period_start->format('Y-m-d'), $run->period_end->format('Y-m-d'), $run->pay_date?->format('Y-m-d') ?? '', $run->members_count, $run->status, $run->released_at === null ? '' : 'Released'];
             }
         };
 
         $slug = $kind === PayrollRunKind::THIRTEENTH_MONTH ? 'thirteenth-month-payrolls' : 'payrolls';
 
-        return new CsvExport($slug.'-'.ManilaClock::todayKey().'.csv', ['ID', 'Payroll name', 'Date from', 'Date to', 'No. of employees', 'Status'], $rows);
+        return new CsvExport($slug.'-'.ManilaClock::todayKey().'.csv', ['ID', 'Payroll name', 'Date from', 'Date to', 'Pay date', 'No. of employees', 'Status', 'Released'], $rows);
     }
 }

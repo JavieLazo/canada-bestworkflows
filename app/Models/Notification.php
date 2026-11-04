@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * An in-app notification addressed to one account. Unique on
@@ -42,7 +41,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property CarbonImmutable|null $read_at
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
- * @property-read User|null $user
  */
 class Notification extends BaseModel
 {
@@ -67,11 +65,5 @@ class Notification extends BaseModel
             'created_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    /** @return BelongsTo<User, $this> */
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'user_id');
     }
 }

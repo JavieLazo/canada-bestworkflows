@@ -10,6 +10,7 @@ use App\Livewire\Concerns\WithStagedAttachments;
 use App\Livewire\Edtr\LiveFeed;
 use App\Modules\Social\Application\Commands\AddChatMembers;
 use App\Modules\Social\Application\Commands\ChangeConversationPhoto;
+use App\Modules\Social\Application\Commands\EditMessage;
 use App\Modules\Social\Application\Commands\LeaveConversation;
 use App\Modules\Social\Application\Commands\MuteConversation;
 use App\Modules\Social\Application\Commands\ReactToMessage;
@@ -92,6 +93,9 @@ class ChatPage extends Component
 
     /** @var array<string, string> Drafts by conversation, so switching away keeps what was typed. */
     public array $drafts = [];
+
+    /** @var array<string, string> Edits to the viewer's own messages, keyed by message. The edit box fills its own when it opens. */
+    public array $edits = [];
 
     /**
      * The message being answered. An id, so it is #[Locked]: only
@@ -250,6 +254,17 @@ class ChatPage extends Component
         $this->clearStaged('chat');
 
         $this->dispatch('chat-sent');
+    }
+
+    public function saveEdit(string $messageId): void
+    {
+        $actor = app(Access::class);
+        $body = is_string($this->edits[$messageId] ?? null) ? $this->edits[$messageId] : '';
+
+        if ($this->attempt(static fn () => app(EditMessage::class)->handle($actor, $messageId, $body))) {
+            unset($this->edits[$messageId]);
+            $this->dispatch('chat-edited', id: $messageId);
+        }
     }
 
     public function startReply(string $messageId): void

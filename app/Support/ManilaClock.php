@@ -117,24 +117,4 @@ final class ManilaClock
 
         return (int) (($n - $floor) >= 0.5 ? $floor + 1 : $floor);
     }
-
-    /**
-     * Sort punches chronologically.
-     *
-     * A float-returning comparator silently does nothing in PHP — the return
-     * is cast to int, so usort($a, fn($x,$y) => ($x-$y)*0.4) on [3,1,2] yields
-     * [3,1,2] unchanged. The reference sorts by a float millisecond difference
-     * (dtr.ts:204-206), so this must use the spaceship operator on integers.
-     *
-     * PHP 8's sort is stable, so punches sharing a millisecond keep insertion order.
-     *
-     * @param  list<CarbonImmutable>  $instants
-     * @return list<CarbonImmutable>
-     */
-    public static function sorted(array $instants): array
-    {
-        usort($instants, fn (CarbonImmutable $a, CarbonImmutable $b) => self::ms($a) <=> self::ms($b));
-
-        return $instants;
-    }
 }

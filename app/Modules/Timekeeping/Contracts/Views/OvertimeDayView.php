@@ -31,5 +31,9 @@ final readonly class OvertimeDayView
         public ?string $decided_at,
         /** Already covered by posted regular payroll; display only, writes recheck under lock. */
         public bool $posted = false,
+        /** The category the day was approved under: null = ordinary, SEAPORT = priced at its own rate, uncapped. */
+        public ?string $category = null,
+        /** The approved minutes credited as Compensatory Leave instead of paid; 0 = all paid. */
+        public int $credited_minutes = 0,
     ) {}
 }

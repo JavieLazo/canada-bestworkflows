@@ -24,10 +24,14 @@
         <p class="text-sm text-muted-foreground">{{ $config['description'] }}</p>
     </div>
 
+    @if ($slug === 'payroll-deductions')
+        @include('livewire.payroll.partials.settings-switch', ['activeView' => 'deductions'])
+    @endif
+
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             @unless ($canManage)
-                <p class="w-full text-xs text-muted-foreground">Your role can view this list. Adding, editing and deleting require Records Management access to all data.</p>
+                <p class="w-full text-xs text-muted-foreground">Your role can view this list. Adding, editing and deleting require {{ $slug === 'payroll-deductions' ? 'Payroll' : 'Records Management' }} access to all data.</p>
             @endunless
             @if ($slug === 'payroll-deductions' && ! $percentReady)
                 <p class="w-full text-xs text-muted-foreground">Percentage deductions can be set up once this installation's upgrade finishes; every row is typed per employee until then.</p>
@@ -40,6 +44,10 @@
             />
 
             <div class="ml-auto flex flex-wrap items-center gap-2">
+                {{-- The credit rules of these types live on their own page. --}}
+                @if ($slug === 'leave-types')
+                    <flux:button variant="ghost" icon="adjustments-horizontal" :href="route('records.leave-credits')" wire:navigate>Leave Credits</flux:button>
+                @endif
                 @if ($config['csv'])
                     <x-kit.export-button :href="route('records.'.$slug.'.export', array_filter(['q' => $search, 'sort' => $sortKey, 'dir' => $sortDir]))" />
                     <livewire:kit.csv-import

@@ -116,6 +116,54 @@ final class CommunityFeed
         return $post === null ? null : $this->page($actor, $me, collect(), collect([$post]), false);
     }
 
+    /**
+     * A post now and before each edit, newest first: its text, when it went
+     * up, its tag, and its photos and files, with the names its mentions
+     * need. A photo or file an edit took off still shows in the versions
+     * that had it. Anyone who can see the post can see these. Null when it
+     * is gone or out of reach.
+     *
+     * @return array{versions: list<array{body: string, at: CarbonImmutable|string, tag: string|null, photos: list<string>, files: list<FileView>}>, names: array<int, string>}|null
+     */
+    public function history(Access $actor, string $postId): ?array
+    {
+        $me = SocialRules::community($actor);
+        $post = CommunityScope::post($me, $postId);
+
+        if ($post === null) {
+            return null;
+        }
+
+        $rows = CommunityAttachment::query()->where('post_id', $post->id)->whereNull('comment_id')->orderBy('position')
+            ->get(['id', 'kind', 'name', 'mime', 'size', 'removed_at'])->keyBy('id');
+        $onPost = array_values(array_map('strval', $rows->whereNull('removed_at')->keys()->all()));
+        $kept = [['body' => $post->body, 'at' => $post->edited_at ?? $post->created_at, 'tag' => $post->tag, 'attachments' => $onPost], ...array_reverse($post->earlier_versions ?? [])];
+
+        $versions = [];
+        $mentioned = [];
+        foreach ($kept as $version) {
+            $photos = [];
+            $files = [];
+            foreach ($version['attachments'] ?? [] as $id) {
+                $row = $rows->get($id);
+                if ($row?->kind === Vocabulary::PHOTO) {
+                    $photos[] = $row->id;
+                } elseif ($row !== null) {
+                    $files[] = self::fileView($row);
+                }
+            }
+            $versions[] = ['body' => $version['body'], 'at' => $version['at'], 'tag' => $version['tag'] ?? null, 'photos' => $photos, 'files' => $files];
+            array_push($mentioned, ...SocialFormat::mentions($version['body']));
+        }
+
+        $names = [];
+        foreach (app(People::class)->cards($actor, $mentioned) as $id => $card) {
+            $names[$id] = $card->name;
+        }
+
+        return ['versions' => $versions, 'names' => $names];
+    }
+
     /** @return list<TagView> every tag, in menu order */
     public function tags(Access $actor): array
     {
@@ -222,7 +270,7 @@ final class CommunityFeed
     {
         $me = SocialRules::community($actor);
         $posts = CommunityScope::readable($me)->where('group_id', $groupId)->select('id');
-        $rows = CommunityAttachment::query()->whereIn('post_id', $posts)->orderByDesc('created_at')->orderByDesc('position')->get();
+        $rows = CommunityAttachment::query()->whereIn('post_id', $posts)->whereNull('removed_at')->orderByDesc('created_at')->orderByDesc('position')->get();
 
         $photos = [];
         $files = [];
@@ -349,7 +397,8 @@ final class CommunityFeed
             ->selectSub(CommunityPost::query()->selectRaw('COUNT(*)'), 'posts')
             ->selectSub(CommunityPost::query()->selectRaw('MAX(updated_at)'), 'posts_at')
             ->selectSub(CommunityComment::query()->selectRaw('COUNT(*)'), 'comments')
-            ->selectSub(CommunityComment::query()->selectRaw('MAX(created_at)'), 'comments_at')
+            // Comments have no updated_at, so an edit shows up through edited_at.
+            ->selectSub(CommunityComment::query()->selectRaw('MAX(COALESCE(edited_at, created_at))'), 'comments_at')
             ->selectSub(CommunityReaction::query()->selectRaw('COUNT(*)'), 'reactions')
             ->selectSub(CommunityReaction::query()->selectRaw('MAX(updated_at)'), 'reactions_at')
             ->selectSub(CommunityCommentReaction::query()->selectRaw('COUNT(*)'), 'comment_reactions')
@@ -438,7 +487,8 @@ final class CommunityFeed
         $has = static fn (string $kind) => static fn (QueryBuilder $q) => $q->select(DB::raw('1'))
             ->from('community_attachments')
             ->whereColumn('community_attachments.post_id', 'community_posts.id')
-            ->where('community_attachments.kind', $kind);
+            ->where('community_attachments.kind', $kind)
+            ->whereNull('community_attachments.removed_at');
         if (in_array($filter->has, ['photos', 'both'], true)) {
             $query->whereExists($has(Vocabulary::PHOTO));
         }
@@ -540,7 +590,8 @@ final class CommunityFeed
         }
 
         // Photos and files, for the posts and for their comments, in order.
-        $attached = CommunityAttachment::query()->whereIn('post_id', $postIds)->orderBy('position')->get(['id', 'post_id', 'comment_id', 'kind', 'name', 'mime', 'size']);
+        // One an edit took off is only in the post's history now.
+        $attached = CommunityAttachment::query()->whereIn('post_id', $postIds)->whereNull('removed_at')->orderBy('position')->get(['id', 'post_id', 'comment_id', 'kind', 'name', 'mime', 'size']);
         $photos = [];
         $files = [];
         foreach ($attached as $row) {
@@ -620,6 +671,7 @@ final class CommunityFeed
                 $replies,
                 $photos[$comment->id] ?? [],
                 $files[$comment->id] ?? [],
+                editedAt: $comment->edited_at,
             );
         };
         $threads = [];
@@ -629,6 +681,7 @@ final class CommunityFeed
         $totals = $comments->countBy('post_id');
 
         $memberOf = array_flip(CommunityScope::groupIds($me));
+        $takesPart = static fn (CommunityPost $post): bool => $post->group_id === null || isset($memberOf[$post->group_id]);
 
         $view = static fn (CommunityPost $post): PostView => new PostView(
             $post->id,
@@ -646,8 +699,10 @@ final class CommunityFeed
             $post->created_at,
             $post->author_id === $me,
             $moderator && ($post->pinned_at !== null || $post->group_id === null),
-            $post->group_id === null || isset($memberOf[$post->group_id]),
+            $takesPart($post),
             $files[$post->id] ?? [],
+            editedAt: $post->edited_at,
+            canEdit: $post->author_id === $me && $takesPart($post),
         );
 
         $names = [];

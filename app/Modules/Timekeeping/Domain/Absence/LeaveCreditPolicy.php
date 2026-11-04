@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Domain\Absence;
 
 use App\Domain\Attendance\CalendarDays;
-use App\Support\HrisFormat;
+use App\Domain\Attendance\HolidaySetting;
+use App\Domain\Attendance\Shift;
+use App\Domain\Attendance\ShiftResolver;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 
 /**
  * The pure rules of leave credits (leave_credits, 2026_09_26_0003): which
@@ -16,10 +19,19 @@ use App\Support\HrisFormat;
  *
  * Nothing here reads a clock, a database or a screen: the query hands in the
  * requests, the command hands in the wire values, and both get the same
- * answers. DELIBERATE DIVERGENCE — filing requires enough remaining credits
- * for the selected leave type and start year, including Leave Without Pay.
- * Official business is exempt. Approval and the rules for counting usage
- * remain separate: pending requests do not reserve credits.
+ * answers. DELIBERATE DIVERGENCE — filing requires enough available credits
+ * for the selected leave type and the year the request draws on, including
+ * Leave Without Pay. Official business is exempt. Approval and the rules
+ * for counting usage remain separate: pending requests do not reserve
+ * credits.
+ *
+ * A REQUEST COSTS ITS SCHEDULED WORKING DAYS (the owner's decision, PPMC's
+ * leave-card practice): `workingDates` keeps only the dates of the range the
+ * employee's schedule works that are not holidays — the same per-day test
+ * the DTR pays leave by, so a Monday-to-Friday fortnight costs 10, not 14 —
+ * and `ReviewAbsence` freezes that count on the request when it approves.
+ * `coveredDays`, every calendar day of the range, is what the rows approved
+ * before that column existed are still read by.
  */
 final class LeaveCreditPolicy
 {
@@ -27,12 +39,13 @@ final class LeaveCreditPolicy
 
     public const int YEAR_MAX = 2100;
 
-    /** DECIMAL(6,2)'s ceiling, the range `lcr_credits_chk` pins on MySQL/MariaDB. */
-    public const float MAX_CREDITS = 9999.99;
+    /** DECIMAL(10,4)'s ceiling, the range `lcr_credits_chk` pins on MySQL/MariaDB (LeaveQuantity). */
+    public const float MAX_CREDITS = LeaveQuantity::MAX;
 
-    public const string STEP_ERROR = 'Enter a number of days in half-day steps.';
+    /** A typed credit holds up to four decimals: credits are not money, and a month's earning is 1.167. */
+    public const string STEP_ERROR = LeaveQuantity::FORMAT_ERROR;
 
-    public const string RANGE_ERROR = 'Credits must be between 0 and 9999.99.';
+    public const string RANGE_ERROR = LeaveQuantity::RANGE_ERROR;
 
     /**
      * Whether a Leave Settings type is one an employee can hold credits for.
@@ -70,7 +83,32 @@ final class LeaveCreditPolicy
      */
     public static function selectedDays(?string $dayType, array $dates): float
     {
-        return count(array_unique($dates)) * ($dayType === 'HALF_DAY' ? 0.5 : 1.0);
+        return LeaveQuantity::normalize(count(array_unique($dates)) * ($dayType === 'HALF_DAY' ? 0.5 : 1.0));
+    }
+
+    /**
+     * The dates of a range that cost credits: those the schedule works
+     * (`ShiftResolver::worksOnDate`; no schedule means `Shift::default()`,
+     * exactly as the DTR judges an unrostered employee) and that are not
+     * holidays, less the dates handed in as excluded — cancelled dates, or
+     * dates a posted payroll already charged to credits as an absence.
+     * Takes validated 'Y-m-d' strings; `start > end` is empty.
+     *
+     * @param  list<HolidaySetting>  $holidays
+     * @param  list<string>  $excluded
+     * @return list<string>
+     */
+    public static function workingDates(?Shift $schedule, array $holidays, string $start, string $end, array $excluded = []): array
+    {
+        $schedule ??= Shift::default();
+        $out = [];
+        foreach (self::activeDays($start, $end, $excluded) as $date) {
+            if (ShiftResolver::worksOnDate($date, $schedule) && HolidaySetting::on($date, $holidays) === null) {
+                $out[] = $date;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -141,16 +179,6 @@ final class LeaveCreditPolicy
     }
 
     /**
-     * Whether a credit's key names a stored request token — the ONE `_LEAVE`
-     * tolerance (`HrisFormat::requestTypeMatches`), so a legacy `SICK` row
-     * counts against `SICK_LEAVE` credits by the same rule that labels it.
-     */
-    public static function matches(string $creditKey, string $requestType): bool
-    {
-        return HrisFormat::requestTypeMatches($creditKey, $requestType);
-    }
-
-    /**
      * The ONE credit key a request is charged to: its exact token when a
      * credit carries it, else the `_LEAVE` spelling when that one does, else
      * none. Exact wins so that an employee holding both a stale `SICK` row
@@ -181,52 +209,33 @@ final class LeaveCreditPolicy
     /**
      * Why a typed credit is refused, or null when it is acceptable. Wire
      * values arrive as strings ('12.5', '', '0'); a blank means "no row" and
-     * passes, an explicit '0' is a row of 0.00. Anything that is not a string,
-     * int or float holding a number of whole or half days between 0 and
-     * 9999.99 is refused (a bool or an array included), so the CHECK
-     * constraint never has to be the thing that says no.
+     * passes, an explicit '0' is a row of 0. Anything that is not a string,
+     * int or float holding a number of days with up to four decimals
+     * between 0 and 999999.9999 is refused (a bool or an array included),
+     * so the CHECK constraint never has to be the thing that says no
+     * (LeaveQuantity).
      */
     public static function creditError(mixed $value): ?string
     {
-        if (! is_string($value) && ! is_int($value) && ! is_float($value)) {
-            return self::STEP_ERROR;
-        }
-        $text = trim((string) $value);
-        if ($text === '') {
-            return null;
-        }
-        if (! is_numeric($text)) {
-            return self::STEP_ERROR;
-        }
-        $days = (float) $text;
-        if ($days < 0 || $days > self::MAX_CREDITS) {
-            return self::RANGE_ERROR;
-        }
-        if (fmod($days, 0.5) !== 0.0) {
-            return self::STEP_ERROR;
-        }
-
-        return null;
+        return LeaveQuantity::error($value);
     }
 
     /**
      * The credit a wire value stands for, once `creditError` has passed: null
-     * for a blank (delete the row), else the days as a float.
+     * for a blank (delete the row), else the days settled to four decimals.
      */
     public static function credit(mixed $value): ?float
     {
-        $text = is_string($value) || is_int($value) || is_float($value) ? trim((string) $value) : '';
-
-        return $text === '' ? null : (float) $text;
+        return LeaveQuantity::parse($value);
     }
 
     /**
-     * A day count as people write it: whole days bare, a half with one
-     * decimal — `PortalLabels::dayCount`'s rule, stated here because module
-     * code may not import a Livewire helper.
+     * A day count as people write it: whole days bare, otherwise without
+     * trailing zeros (1.25, 1.167, 43.3025) — LeaveQuantity's rule, stated
+     * here because module code may not import a Livewire helper.
      */
     public static function format(float $days): string
     {
-        return floor($days) === $days ? (string) (int) $days : number_format($days, 1, '.', '');
+        return LeaveQuantity::format($days);
     }
 }
