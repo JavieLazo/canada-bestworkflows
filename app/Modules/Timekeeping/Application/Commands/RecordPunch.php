@@ -68,8 +68,14 @@ final class RecordPunch
 
     public function __construct(private readonly ShiftRoster $roster) {}
 
-    public function handle(Access $actor, PunchInput $input, string $logType, ?float $autoLat = null, ?float $autoLng = null, ?float $autoAccuracy = null): ?string
+    /**
+     * `$at` is the instant a mobile kiosk captured on the device. The live
+     * station leaves it null and is judged at the server clock, as before.
+     * `$createdId` receives the new attendance row when one is written.
+     */
+    public function handle(Access $actor, PunchInput $input, string $logType, ?float $autoLat = null, ?float $autoLng = null, ?float $autoAccuracy = null, ?CarbonImmutable $at = null, ?string &$createdId = null): ?string
     {
+        $createdId = null;
         if (! in_array($logType, [DomainLog::TIME_IN, DomainLog::TIME_OUT], true)) {
             return null;
         }
@@ -125,10 +131,16 @@ final class RecordPunch
         }
         // Bucket by the Manila day, not host-local dates mixed with UTC midnight.
         // Two previous dates distinguish an unfinished night's carried
-        // Time In from a following flexible day's own punches.
-        $today = ManilaClock::todayKey();
+        // Time In from a following flexible day's own punches. A mobile
+        // punch is bucketed on the day it was captured, not the day the
+        // device came back online.
+        $now = ($at ?? CarbonImmutable::now())->setTimezone(ManilaClock::TZ);
+        if ($at !== null && $now->greaterThan(CarbonImmutable::now(ManilaClock::TZ)->addMinutes(2))) {
+            throw new RuntimeException('That punch time is ahead of the server clock.');
+        }
+        $today = ManilaClock::dayKey($now);
         $window = PayrollPeriod::attendanceInstants(PayrollPeriod::addCalendarDays($today, -2), $today);
-        [$created, $site, $distance, $inBounds] = DB::transaction(function () use ($actor, $input, $logType, $source, $employee, $la, $lo, $accuracy, $window, $today): array {
+        [$created, $site, $distance, $inBounds] = DB::transaction(function () use ($actor, $input, $logType, $source, $employee, $la, $lo, $accuracy, $window, $today, $now, $at): array {
             // The employee row FIRST, as every schedule change takes it: a
             // punch waits for a change being saved for the same employee and
             // is then judged by the schedule as committed. The punch window
@@ -143,7 +155,6 @@ final class RecordPunch
             // An open yesterday-morning Time In may itself finish the
             // preceding date's night, so retain that date's override too.
             $schedule = $this->roster->scheduleForEmployee((string) $employee->id, PayrollPeriod::addCalendarDays($today, -2), $today);
-            $now = CarbonImmutable::now(ManilaClock::TZ);
 
             // WHERE the punch is judged — resolved AFTER the shift and INSIDE
             // the lock, because the work date of a Time Out that closes an
@@ -219,7 +230,7 @@ final class RecordPunch
                 throw new RuntimeException($windowError);
             }
 
-            $created = AttendanceLog::query()->create([
+            $attributes = [
                 'employee_id' => (string) $employee->id,
                 'site_id' => $site?->id,
                 'location_kind' => $location->kind,
@@ -234,10 +245,18 @@ final class RecordPunch
                 'is_geofenced' => $inBounds,
                 'is_anomaly' => false,
                 'anomaly_note' => null,
-            ]);
+            ];
+            // The live station keeps Eloquent's default of "now". A device
+            // punch must keep the captured instant or an offline Time Out
+            // would land when the phone next saw a network.
+            if ($at !== null) {
+                $attributes['logged_at'] = $now->utc();
+            }
+            $created = AttendanceLog::query()->create($attributes);
 
             return [$created, $site, $distance, $inBounds];
         });
+        $createdId = (string) $created->id;
         // $site is null only on a work-from-home day: every ONSITE path above
         // resolved one or threw. The ONSITE sentence names the site and its
         // geofence verdict; the WFH one has no verdict to print.
