@@ -18,6 +18,7 @@ use App\Support\Access;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * Every Payroll Deductions row is a column of the Basic Payroll grid:
@@ -57,6 +58,7 @@ function deductionPageRun(): array
         'employment_status' => 'Regular', 'date_hired' => '2024-01-01',
         'monthly_rate' => 30000, 'is_active' => true,
     ])->save();
+    ScheduleFixture::standard($employee);
 
     foreach (['03', '04', '05', '06', '07', '10', '11', '12', '13', '14'] as $day) {
         foreach ([['TIME_IN', '00:00:00'], ['TIME_OUT', '09:00:00']] as [$type, $at]) {
@@ -100,13 +102,13 @@ it('types a named deduction in its own column, saves it and posts it', function 
         ->toContain('colspan="9" class="text-center">Deductions</th>')
         ->toContain('data-deduction-cell="row:20"')
         ->toContain('>Other Deductions</th>')
-        ->toContain('>Undertimes</th>')
+        ->toContain('>Undertime</th>')
         ->toContain('>Late</th>')
         ->not->toContain('Edit deductions')
         ->not->toContain('data-custom-deductions')
         ->not->toContain('>WHT</th>');
     $other = strpos($html, '>Other Deductions</th>');
-    $undertimes = strpos($html, '>Undertimes</th>');
+    $undertimes = strpos($html, '>Undertime</th>');
     $late = strpos($html, '>Late</th>');
     expect($other !== false && $undertimes !== false && $late !== false && $other < $undertimes && $undertimes < $late)->toBeTrue();
     $tax = strpos($html, 'data-deduction-column="WITHHOLDING_TAX"');
@@ -131,7 +133,7 @@ it('types a named deduction in its own column, saves it and posts it', function 
         ->assertSee('Cash Advance')
         ->assertSee('Other earnings')
         ->assertSee('Other deductions')
-        ->assertSee('Undertimes')
+        ->assertSee('Undertime')
         ->assertSee('Late')
         ->assertDontSee('Late / Undertime')
         ->assertSee('1,250.00');
@@ -153,7 +155,7 @@ it('keeps Other Deductions as one typed figure and exports each typed row as its
         ->not->toContain('₱1,290.00')
         ->not->toContain('>Additional</th>');
 
-    $export = $page->call('exportCsv')->assertFileDownloaded('cyberonions-payroll-pr-ded-page-1.csv');
+    $export = $page->call('exportCsv')->assertFileDownloaded('payroll-pr-ded-page-1.csv');
     $bytes = (string) base64_decode((string) data_get($export->effects, 'download.content'), true);
     $csv = (string) preg_replace('/^\\x{FEFF}/u', '', $bytes);
     $rows = array_map('str_getcsv', array_slice(explode("\r\n", $csv), 0, 2));
@@ -184,7 +186,7 @@ it('switches a computed deduction off on drafts when its row is deleted and back
     deductionPageActor();
 
     $csvValue = static function (Testable $page, string $header): string {
-        $export = $page->call('exportCsv')->assertFileDownloaded('cyberonions-payroll-pr-ded-page-1.csv');
+        $export = $page->call('exportCsv')->assertFileDownloaded('payroll-pr-ded-page-1.csv');
         $bytes = (string) base64_decode((string) data_get($export->effects, 'download.content'), true);
         $rows = array_map('str_getcsv', array_slice(explode("\r\n", (string) preg_replace('/^\\x{FEFF}/u', '', $bytes)), 0, 2));
 
@@ -193,7 +195,7 @@ it('switches a computed deduction off on drafts when its row is deleted and back
 
     // With the list as seeded, SSS is computed (the reference's 750 on 30,000 a month).
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id]);
-    expect($page->html())->toContain('data-deduction-column="SSS"')->toContain('>Undertimes</th>')
+    expect($page->html())->toContain('data-deduction-column="SSS"')->toContain('>Undertime</th>')
         ->and($csvValue($page, 'SSS'))->toBe('750');
 
     // Deleting the SSS row: no column, nothing deducted, the tax re-derived
@@ -204,7 +206,7 @@ it('switches a computed deduction off on drafts when its row is deleted and back
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id]);
     expect($page->html())->not->toContain('data-deduction-column="SSS"')
         ->toContain('data-deduction-column="PHILHEALTH"')
-        ->not->toContain('>Undertimes</th>')
+        ->not->toContain('>Undertime</th>')
         ->not->toContain('>Late</th>')
         ->and($csvValue($page, 'SSS'))->toBe('0')
         ->and($csvValue($page, 'Late deduction'))->toBe('0');

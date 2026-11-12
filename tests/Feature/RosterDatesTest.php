@@ -29,6 +29,7 @@ use App\Modules\Timekeeping\Infrastructure\SiteReferences;
 use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Support\Str;
+use Tests\Support\ScheduleFixture;
 
 /**
  * One date wins over the weekly roster independently for hours and worksite.
@@ -69,6 +70,8 @@ function rdatePattern(string $start = '22:00:00', string $end = '06:00:00'): Shi
 
 it('overrides one date and restores each weekly setting independently when DEFAULT is chosen', function () {
     $employee = rdateEmployee();
+    // The Default schedule needs a shift assigned before for the days it leaves.
+    ScheduleFixture::standard($employee);
     $actor = rdateActor();
     $night = rdatePattern();
     $day = rdatePattern('09:00:00', '17:00:00');

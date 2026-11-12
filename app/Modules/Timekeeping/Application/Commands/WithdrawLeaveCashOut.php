@@ -17,7 +17,9 @@ use RuntimeException;
 /**
  * The employee takes back their own cash-out while it is still pending.
  * The state guard sits in the UPDATE: a request a manager decided in the
- * meantime is reported as already decided, never overwritten.
+ * meantime is reported as already decided, never overwritten. Terminal
+ * leave is HR's filing (FileTerminalLeave), so the employee cannot
+ * withdraw it; a leave manager rejects it instead.
  */
 final class WithdrawLeaveCashOut
 {
@@ -30,23 +32,26 @@ final class WithdrawLeaveCashOut
             throw new RuntimeException('Your login is not linked to an employee record.');
         }
         if (! LeaveCashOuts::ready()) {
-            throw new RuntimeException('Leave credits can be cashed out once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Leave credits can be converted to cash once this installation\'s upgrade finishes.');
         }
         $employeeId = $access->ownEmployeeId();
 
         return DB::transaction(static function () use ($access, $employeeId, $id): string {
             $row = LeaveCashOut::query()->whereKey($id)->where('employee_id', $employeeId)->lockForUpdate()->first();
             if ($row === null) {
-                throw new RuntimeException('That cash-out request no longer exists.');
+                throw new RuntimeException('That cash conversion request no longer exists.');
+            }
+            if ($row->purpose === LeaveCashOuts::TERMINAL) {
+                throw new RuntimeException('Terminal leave is filed by a leave manager; ask one to reject it.');
             }
             $updated = LeaveCashOut::query()->whereKey($id)->where('status', LeaveCashOut::PENDING)->update(['status' => LeaveCashOut::WITHDRAWN]);
             if ($updated === 0) {
-                throw new RuntimeException('That cash-out has already been decided.');
+                throw new RuntimeException('That cash conversion has already been decided.');
             }
             $what = LeaveQuantity::format($row->days).' '.($row->days === 1.0 ? 'day' : 'days');
             DB::afterCommit(static fn () => AuditService::record($access, AuditEvent::LEAVE_CASH_OUT_WITHDRAWN, 'leave_cash_outs', $employeeId, "Cash-out of {$what} withdrawn"));
 
-            return 'Cash-out request withdrawn.';
+            return 'Cash conversion request withdrawn.';
         });
     }
 }

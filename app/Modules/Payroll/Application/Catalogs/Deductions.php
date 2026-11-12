@@ -83,7 +83,7 @@ final class Deductions extends ReferenceCatalog
                 }
                 // A recurring line charges a typed amount; a percentage would price it twice.
                 if ($id !== null && self::chargedByRecurringLines($id)) {
-                    throw new RuntimeException('Employees have recurring lines on this deduction, so it cannot become a percentage deduction. End or delete those lines first.');
+                    throw new RuntimeException('Employees have loans or deductions set on this deduction, so it cannot become a percentage deduction. End or delete them in Employee Pay Settings first.');
                 }
             }
         }
@@ -132,7 +132,7 @@ final class Deductions extends ReferenceCatalog
                         throw new RuntimeException("{$row->name} is on a finalized payroll, so it cannot be deleted. Rename it instead.");
                     }
                     if (self::chargedByRecurringLines($id)) {
-                        throw new RuntimeException("Employees have recurring lines on {$row->name}, so it cannot be deleted. End or delete those lines in Employee Pay Settings, or rename it instead.");
+                        throw new RuntimeException("Employees have loans or deductions set on {$row->name}, so it cannot be deleted. End or delete them in Employee Pay Settings, or rename it instead.");
                     }
                     $this->removeDraftLines($actor, $row, 'was deleted');
                     $this->clearDraftOverrides($actor, $row);

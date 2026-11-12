@@ -57,7 +57,7 @@ final class RecurringLines
         try {
             return RecurringLine::fromArray(self::figures($row));
         } catch (InvalidArgumentException $e) {
-            throw new RuntimeException('A recurring line holds figures payroll cannot read: '.$e->getMessage());
+            throw new RuntimeException('A loan or allowance holds figures payroll cannot read: '.$e->getMessage());
         }
     }
 }

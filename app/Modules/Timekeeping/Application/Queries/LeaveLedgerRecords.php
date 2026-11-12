@@ -9,6 +9,7 @@ use App\Models\LeaveCreditEntry;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
 use App\Modules\Timekeeping\Application\LeaveBalances;
+use App\Modules\Timekeeping\Application\LeavePayDates;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveLedgerBalanceView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveLedgerEntryView;
@@ -92,6 +93,14 @@ final class LeaveLedgerRecords
             $taken = LeaveCreditPolicy::selectedDays($request->day_type, array_values(array_filter($dates, static fn (string $date): bool => $date <= $today)));
             $paid = $request->is_paid !== false;
             $totals[$key]->usage($paid, $taken, LeaveQuantity::normalize($all - $taken));
+            // The days a partly paid approval left without pay, less any
+            // cancelled since, are unpaid leave taken or booked beside them.
+            $unpaid = array_values(array_diff(LeavePayDates::unpaid($request), $request->cancelledDates()));
+            if ($unpaid !== []) {
+                $unpaidAll = LeaveCreditPolicy::selectedDays($request->day_type, $unpaid);
+                $unpaidTaken = LeaveCreditPolicy::selectedDays($request->day_type, array_values(array_filter($unpaid, static fn (string $date): bool => $date <= $today)));
+                $totals[$key]->usage(false, $unpaidTaken, LeaveQuantity::normalize($unpaidAll - $unpaidTaken));
+            }
         }
 
         $names = $this->typeNames();

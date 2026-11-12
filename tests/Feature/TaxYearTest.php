@@ -82,14 +82,14 @@ it('offers the whole-year method as one of the one-way methods, round-trips the 
     $settings = GovDeductionSettings::fromArray([...GovDeductionSettings::STANDARD, 'whole_year_tax' => true, 'tax_spread' => AnnualWithholding::SPREAD_DECEMBER]);
     $form = GovDeductionInput::toForm($settings);
     expect($form['tax_method'])->toBe(GovDeductionInput::METHOD_WHOLE_YEAR)->and($form['tax_spread'])->toBe('DECEMBER')
-        ->and(PaySettingsText::withholding($settings))->toBe("Whole-year estimate, all on the year's last payroll")
+        ->and(PaySettingsText::withholding($settings))->toBe("Projected annual tax with year-end adjustment, all on the year's last payroll")
         ->and($settings->customized())->toBe(['whole_year_tax', 'tax_spread']);
     $figures = GovDeductionInput::figures([...$form, 'tax_spread' => 'NEXT']);
     if (! is_array($figures)) {
         throw new RuntimeException($figures);
     }
     expect($figures['whole_year_tax'])->toBeTrue()->and($figures['tax_spread'])->toBe('NEXT')->and($figures['annualize_tax'])->toBeFalse();
-    expect(GovDeductionInput::figures([...$form, 'tax_spread' => 'NEVER']))->toBe('Choose how the whole-year estimate is spread.');
+    expect(GovDeductionInput::figures([...$form, 'tax_spread' => 'NEVER']))->toBe('Choose how the remaining tax is spread.');
 });
 
 /*
@@ -174,7 +174,7 @@ it('withholds the year\'s remaining tax over the payrolls left from captured fac
 |--------------------------------------------------------------------------
 */
 
-it('records, approves and discards tax balances on the pay page, refuses a viewer, approves through the own account, and shows the year', function () {
+it('records tax balances on the pay page, in effect at once, refuses a viewer, and shows the year', function () {
     $preparer = tyrActor(name: 'Preparer');
     $employee = new EmployeeProfile;
     $employee->forceFill(['employee_code' => 'TAX-1', 'first_name' => 'Tina', 'last_name' => 'Year', 'employment_status' => 'Regular',
@@ -190,29 +190,27 @@ it('records, approves and discards tax balances on the pay page, refuses a viewe
         ->call('openBalance')->assertSet('balanceOpen', true)
         ->set('balanceForm.tax_year', '2026')->set('balanceForm.taxable_income', '100,000')->set('balanceForm.tax_withheld', '5,000')->set('balanceForm.reason', 'Go-live')
         ->call('saveBalance')->assertSet('balanceOpen', false)->assertSet('balanceError', null)
-        ->assertSee('Awaiting approval')->assertSee('Opening balance');
+        // In effect at once: the year already counts it.
+        ->assertDontSee('Awaiting approval')->assertSee('Opening balance')->assertSee('Approved by');
     $row = PayrollTaxBalance::query()->sole();
-    expect($row->status)->toBe('DRAFT')->and($row->taxable_income)->toBe(100000.0)->and($row->prepared_by)->toBe((int) $preparer->userId)
-        ->and(AuditLog::query()->where('action', AuditEvent::TAX_BALANCE_RECORDED->value)->where('entity_id', $row->id)->exists())->toBeTrue();
+    expect($row->status)->toBe('APPROVED')->and($row->taxable_income)->toBe(100000.0)
+        ->and($row->prepared_by)->toBe((int) $preparer->userId)->and($row->approved_by)->toBe((int) $preparer->userId)
+        ->and(AuditLog::query()->where('action', AuditEvent::TAX_BALANCE_RECORDED->value)->where('entity_id', $row->id)->exists())->toBeTrue()
+        ->and(AuditLog::query()->where('action', AuditEvent::TAX_BALANCE_APPROVED->value)->where('entity_id', $row->id)->exists())->toBeTrue()
+        ->and(fn () => app(DiscardTaxBalance::class)->handle($preparer, $row->id))->toThrow(RuntimeException::class, 'not discarded')
+        ->and(TaxYearToDate::posted([$employee->id], 2026)[$employee->id])->toBe(['taxable' => 100000.0, 'withheld' => 5000.0]);
 
     // A viewer without all data changes nothing.
     tyrActor(['PAYROLL', 'RECORDS'], allData: false, name: 'Viewer');
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->set('balanceForm', ['tax_year' => '2026', 'kind' => 'OPENING', 'taxable_income' => '1', 'tax_withheld' => '0', 'reason' => 'No', 'reference' => ''])
-        ->call('saveBalance')->call('approveBalance', $row->id)->call('discardBalance', $row->id);
-    expect(PayrollTaxBalance::query()->count())->toBe(1)->and($row->refresh()->status)->toBe('DRAFT');
+        ->call('saveBalance')->call('discardBalance', $row->id);
+    expect(PayrollTaxBalance::query()->count())->toBe(1)->and($row->refresh()->status)->toBe('APPROVED');
 
-    // The employee's own all-data account approves: one administrator runs the whole flow.
-    $approver = tyrActor(employeeId: $employee->id, name: 'Tina Year');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('approveBalance', $row->id)->assertSee('Approved by');
-    expect($row->refresh()->status)->toBe('APPROVED')->and($row->approved_by)->toBe((int) $approver->userId)
-        ->and(AuditLog::query()->where('action', AuditEvent::TAX_BALANCE_APPROVED->value)->where('entity_id', $row->id)->exists())->toBeTrue()
-        ->and(fn () => app(DiscardTaxBalance::class)->handle($approver, $row->id))->toThrow(RuntimeException::class, 'not discarded')
-        ->and(TaxYearToDate::posted([$employee->id], 2026)[$employee->id])->toBe(['taxable' => 100000.0, 'withheld' => 5000.0]);
-
-    $save->handle($approver, $employee->id, 2026, PayrollTaxBalance::KIND_PREVIOUS_EMPLOYER, '50,000', '2,000', 'Certificate', 'Form from the previous employer');
+    // A draft left by the command alone can still be discarded from the page.
+    $officer = tyrActor(employeeId: $employee->id, name: 'Tina Year');
+    $save->handle($officer, $employee->id, 2026, PayrollTaxBalance::KIND_PREVIOUS_EMPLOYER, '50,000', '2,000', 'Certificate', 'Form from the previous employer');
     $draft = PayrollTaxBalance::query()->where('status', 'DRAFT')->sole();
-    tyrActor(name: 'Second approver');
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('discardBalance', $draft->id)->assertDontSee('Previous employer');
     expect(PayrollTaxBalance::query()->count())->toBe(1)
         ->and(AuditLog::query()->where('action', AuditEvent::TAX_BALANCE_DISCARDED->value)->where('entity_id', $draft->id)->exists())->toBeTrue();

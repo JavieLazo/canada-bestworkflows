@@ -53,7 +53,7 @@ final class SaveRecurringLine
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! RecurringLines::ready()) {
-            throw new RuntimeException('Recurring lines can be set up once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Loans and allowances can be set up once this installation\'s upgrade finishes.');
         }
         $employee = app(EmployeePayContexts::class)->get($access, [$employeeId])[0] ?? null;
         if ($employee === null) {
@@ -78,7 +78,7 @@ final class SaveRecurringLine
             if ($lineId !== null) {
                 $row = $lines->firstWhere('id', $lineId);
                 if ($row === null) {
-                    throw new RuntimeException('That recurring line no longer exists.');
+                    throw new RuntimeException('That loan or allowance no longer exists.');
                 }
             }
             $paid = app(RecurringLineLedger::class)->paidBefore($access, array_values($lines->map(static fn (PayrollRecurringLine $line): string => (string) $line->id)->all()));
@@ -87,7 +87,7 @@ final class SaveRecurringLine
                     throw new RuntimeException('A line already paid on a payslip keeps what it charges. End it, and add a new line for the other one.');
                 }
                 if ($rule->total !== null && Money::round($rule->total) < ($paid[$row->id] ?? 0.0)) {
-                    throw new RuntimeException('The total to pay off cannot be less than the '.PayrollData::peso($paid[$row->id] ?? 0.0).' already paid.');
+                    throw new RuntimeException('The total loan payable cannot be less than the '.PayrollData::peso($paid[$row->id] ?? 0.0).' already paid.');
                 }
                 if ($rule->total === null && $row->total !== null) {
                     throw new RuntimeException('A line already paid on a payslip keeps its total. Change the total, or end the line.');

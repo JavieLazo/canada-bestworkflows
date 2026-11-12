@@ -17,7 +17,8 @@ use Generator;
 /**
  * Employee Records as CSV: the employees the table lists — same scope,
  * search, status, position and department filters and sort
- * ({@see EmployeeRows}) — each as their whole 201 record
+ * ({@see EmployeeRecords::arranged()}, the rule the table's page() reads) —
+ * each as their whole 201 record
  * ({@see EmployeeColumns}). The department narrows which employees are in
  * the file; it adds no column. Export only: Employee Records has no CSV
  * import.
@@ -43,8 +44,11 @@ final class EmployeesExport implements TableExport
             foreach (app(OrganizationDirectory::class)->sites($actor) as $site) {
                 $siteNames[(string) $site->getKey()] = $site->name;
             }
-            $employees = app(EmployeeRecords::class)->list($actor, details: true);
-            foreach (EmployeeRows::arrange($employees, $search, $status, $position, DepartmentFilter::choice($department, DepartmentFilter::options($actor)), $sort, $direction) as $employee) {
+            $employees = app(EmployeeRecords::class)->arranged($actor, [
+                'search' => $search, 'status' => $status, 'position' => $position,
+                'department' => DepartmentFilter::choice($department, DepartmentFilter::options($actor)),
+            ], $sort, $direction, details: true);
+            foreach ($employees as $employee) {
                 yield EmployeeColumns::cells($employee, $siteNames);
             }
         };

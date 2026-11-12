@@ -26,10 +26,8 @@ use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PayrollInputs;
-use App\Modules\Timekeeping\Application\Commands\ApproveLeavePolicy;
 use App\Modules\Timekeeping\Application\Commands\RequestLeaveCashOut;
 use App\Modules\Timekeeping\Application\Commands\ReviewLeaveCashOut;
-use App\Modules\Timekeeping\Application\Commands\SaveLeavePolicy;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\Commands\WithdrawLeaveCashOut;
 use App\Support\Access;
@@ -37,21 +35,24 @@ use App\Support\ManilaClock;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\LeaveRuleFixture;
 use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
 
 /**
  * Leave credits cashed out. An employee asks, in My Portal, to turn whole
- * or half days of a type Leave Credits allows into pay, within the balance
- * left and the policy's yearly limit (RequestLeaveCashOut); a DIFFERENT
- * all-data LEAVES holder approves or rejects (ReviewLeaveCashOut); the
- * employee's next regular payroll pays the approved days at their daily
- * rate as a line of the Incentives & Bonuses type marked for it, and
- * posting takes the days off the ledger as a CASH_OUT entry
+ * or half days of a type Leave Settings allows into pay, within the balance
+ * left and the type's limits (RequestLeaveCashOut; the limits are
+ * CashConversionRulesTest's); an all-data LEAVES holder approves or
+ * rejects (ReviewLeaveCashOut); the employee's next regular payroll pays
+ * the approved days as a line of the Incentives & Bonuses type marked for
+ * it, and posting takes the days off the ledger as a CASH_OUT entry
  * (LeaveCashOutQuery::post). The requests are in the payroll's evidence.
  *
- * September 2026 has 22 scheduled Monday-to-Friday days: PHP 30,000 a month
- * is PHP 1,363.636… a day, so 2.5 days are PHP 3,409.09.
+ * The paying type values a converted day at the monthly rate times
+ * 0.0481927 unless set otherwise: 2.5 days of PHP 30,000 a month are
+ * 30,000 × 2.5 × 0.0481927 = PHP 3,614.45 (CashConversionRulesTest prices
+ * the daily rate and terminal leave).
  */
 
 /** @param list<string> $modules */
@@ -147,22 +148,17 @@ function lcosAttendance(EmployeeProfile $employee): void
 |--------------------------------------------------------------------------
 */
 
-it('lets an employee cash out whole or half days of a cashable type within the balance and the yearly limit, and withdraw while pending', function () {
+it('lets an employee cash out whole or half days of a cashable type within the balance, and withdraw while pending', function () {
     $this->travelTo(new DateTimeImmutable('2026-09-10T10:00:00+08:00'));
     $employee = lcosEmployee();
     $manager = lcosManager();
     lcosTypes($manager, $employee);
-    // A policy with a yearly cash-out limit of 3 days, approved by a second manager.
-    $policy = app(SaveLeavePolicy::class)->handle($manager, $employee->id, '2026-01-01', [
-        'posting_day' => 'MONTH_END', 'unpaid_counts' => [], 'earning' => [],
-        'charges' => ['enabled' => false, 'combine' => 'DAY', 'late' => [], 'absence' => []],
-        'cash_out_max_per_year' => '3',
-    ], 'Cash-out limit');
-    app(ApproveLeavePolicy::class)->handle(lcosManager(), $policy);
+    // The leave rules are in force; they set no yearly cash-out limit, so the balance alone bounds a request.
+    LeaveRuleFixture::approved('2026-01-01', ['earning' => []]);
 
     $self = lcosSelf($employee);
     // Refused before anything is asked: a type that cannot be cashed out, a third of a day, more than the 10 held.
-    expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'SICK_LEAVE', '1', ''))->toThrow(RuntimeException::class, 'cannot be cashed out');
+    expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'SICK_LEAVE', '1', ''))->toThrow(RuntimeException::class, 'cannot be converted to cash');
     expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'VACATION_LEAVE', '0.3', ''))->toThrow(RuntimeException::class, 'whole or half days');
     expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'VACATION_LEAVE', '12', ''))->toThrow(RuntimeException::class, 'Only 10 days');
 
@@ -178,12 +174,11 @@ it('lets an employee cash out whole or half days of a cashable type within the b
         ->and($request->requested_by)->toBe((int) $self->userId)
         ->and(AuditLog::query()->where('action', 'LEAVE_CASH_OUT_REQUESTED')->value('details'))->toBe('Cash-out of 2.5 days of Vacation Leave requested · For school fees');
 
-    // While it is pending: no second request of the type. Withdrawn, the 2.5 are free again, and the yearly limit of 3 still stands.
-    expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'VACATION_LEAVE', '1', ''))->toThrow(RuntimeException::class, 'pending cash-out');
+    // While it is pending: no second request of the type. Withdrawn, the 2.5 are free again; only the balance bounds the next one.
+    expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'VACATION_LEAVE', '1', ''))->toThrow(RuntimeException::class, 'pending cash conversion');
     app(WithdrawLeaveCashOut::class)->handle($self, $request->id);
     expect($request->refresh()->status)->toBe('WITHDRAWN');
     expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'VACATION_LEAVE', '12', ''))->toThrow(RuntimeException::class, 'Only 10 days');
-    expect(fn () => app(RequestLeaveCashOut::class)->handle($self, 'VACATION_LEAVE', '3.5', ''))->toThrow(RuntimeException::class, 'limited to 3 days a year');
     expect(LeaveCashOut::query()->count())->toBe(1);
 
     // Withdrawn twice is already decided; a manager cannot withdraw someone else's through the own path.
@@ -198,7 +193,7 @@ it('lets an employee cash out whole or half days of a cashable type within the b
 |--------------------------------------------------------------------------
 */
 
-it('has a manager decide it, the employee\'s own linked account included, pays it on the next payroll as the marked type at the daily rate, and takes the days off the ledger', function () {
+it('has a manager decide it, the employee\'s own linked account included, pays it on the next payroll as the marked type at the monthly rate times the factor, and takes the days off the ledger', function () {
     $this->travelTo(new DateTimeImmutable('2026-09-16T10:00:00+08:00'));
     $employee = lcosEmployee();
     $manager = lcosManager();
@@ -228,23 +223,23 @@ it('has a manager decide it, the employee\'s own linked account included, pays i
     $calculation = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $reviewer);
     expect($calculation['combined'][0]['message'])->toContain('no Incentives & Bonuses type pays them');
 
-    // Marked: the draft carries one line of that type, 2.5 days at PHP 1,363.64, taxed with the pay.
+    // Marked: the draft carries one line of that type, 30,000 × 2.5 × 0.0481927, taxed with the pay.
     $type = lcosCashOutType($reviewer);
     expect((bool) $type->getAttribute('pays_leave_cash_out'))->toBeTrue();
     $calculation = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $reviewer);
     $line = $calculation['incentiveLines'][$employee->id][0];
     expect($calculation['combined'])->toBe([])
         ->and($line['name'])->toBe('Leave credits cash-out · Vacation Leave 2.5 days')
-        ->and($line['amount'])->toBe(3409.09)
+        ->and($line['amount'])->toBe(3614.45)
         ->and($line['automatic'])->toBeTrue()
-        ->and($line['cash_out'] ?? null)->toBe(['id' => $request->id, 'days' => 2.5, 'amount' => 3409.09])
-        ->and($calculation['drafts'][0]->bonus)->toBe(3409.09)
-        ->and($calculation['drafts'][0]->gross_pay)->toBe(round(15000.0 + 3409.09, 2));
+        ->and($line['cash_out'] ?? null)->toBe(['id' => $request->id, 'days' => 2.5, 'amount' => 3614.45])
+        ->and($calculation['drafts'][0]->bonus)->toBe(3614.45)
+        ->and($calculation['drafts'][0]->gross_pay)->toBe(round(15000.0 + 3614.45, 2));
     $inputs = $calculation['inputs'];
     assert($inputs !== null);
-    expect($inputs->leaveCashOuts[$employee->id][0])->toBe(['id' => $request->id, 'request_type' => 'VACATION_LEAVE', 'name' => 'Vacation Leave', 'days' => 2.5])
-        ->and($inputs->cashOutType)->toMatchArray(['type_id' => $type->id, 'name' => 'Leave credits cash-out', 'tax' => 'TAXABLE', 'is_taxable' => true])
-        ->and($inputs->toArray()['schema_version'])->toBe(23)
+    expect($inputs->leaveCashOuts[$employee->id][0])->toBe(['id' => $request->id, 'request_type' => 'VACATION_LEAVE', 'name' => 'Vacation Leave', 'days' => 2.5, 'purpose' => 'MONETIZATION', 'salary' => null])
+        ->and($inputs->cashOutType)->toMatchArray(['type_id' => $type->id, 'name' => 'Leave credits cash-out', 'tax' => 'TAXABLE', 'is_taxable' => true, 'day_value' => 'FACTOR', 'factor' => 0.0481927])
+        ->and($inputs->toArray()['schema_version'])->toBe(24)
         ->and(PayrollInputs::restore(PayrollInputs::json($inputs->toArray()))->fingerprint())->toBe($inputs->fingerprint());
     // Schema 13 evidence restores without the two keys; malformed cash-out evidence is refused.
     $older = $inputs->toArray();
@@ -254,7 +249,7 @@ it('has a manager decide it, the employee\'s own linked account included, pays i
     expect(PayrollInputs::restore(PayrollInputs::json($older))->leaveCashOuts)->toBe([]);
     $bad = $inputs->toArray();
     $bad['leave_cash_outs'][$employee->id][0]['days'] = 0;
-    expect(fn () => PayrollInputs::restore(PayrollInputs::json($bad)))->toThrow(RuntimeException::class, 'cash-out evidence');
+    expect(fn () => PayrollInputs::restore(PayrollInputs::json($bad)))->toThrow(RuntimeException::class, 'cash conversion evidence');
 
     // The marked type cannot be typed on a draft.
     expect(fn () => app(SavePayroll::class)->handle($reviewer, new PayrollDraft(null, 'Typed', '2026-09-01', '2026-09-15', [$employee->id], [], [], [], incentives: [$employee->id => [$type->id => 500]])))
@@ -266,22 +261,22 @@ it('has a manager decide it, the employee\'s own linked account included, pays i
     app(FinalizePayroll::class)->handle($reviewer, $run->id, PayrollReviewFixture::token($reviewer, $run->id));
     $payslip = Payslip::query()->where('run_id', $run->id)->sole();
     expect($run->refresh()->status)->toBe('FINALIZED')
-        ->and($payslip->bonus)->toBe(3409.09)
+        ->and($payslip->bonus)->toBe(3614.45)
         ->and(PayslipIncentive::query()->where('payslip_id', $payslip->id)->value('name'))->toBe('Leave credits cash-out · Vacation Leave 2.5 days')
         ->and($request->refresh()->status)->toBe('PAID')
         ->and($request->payslip_id)->toBe($payslip->id)
-        ->and($request->amount)->toBe(3409.09)
+        ->and($request->amount)->toBe(3614.45)
         ->and(LeaveCredit::query()->where('employee_id', $employee->id)->where('year', 2026)->where('request_type', 'VACATION_LEAVE')->value('credits'))->toBe(7.5)
         ->and(LeaveCreditEntry::query()->where('employee_id', $employee->id)->where('kind', 'CASH_OUT')->value('days'))->toBe(-2.5)
         ->and(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->value('details'))->toContain('1 leave credit cash-out paid')
-        ->and(AuditLog::query()->where('action', 'LEAVE_CASH_OUT_PAID')->value('details'))->toContain('Vacation Leave 2.5 days · PHP 3,409.09');
+        ->and(AuditLog::query()->where('action', 'LEAVE_CASH_OUT_PAID')->value('details'))->toContain('Vacation Leave 2.5 days · PHP 3,614.45');
     $evidence = json_decode((string) PayrollFinalizationSnapshot::query()->where('run_id', $run->id)->sole()->payload, true, 512, JSON_THROW_ON_ERROR);
     expect($evidence['inputs']['leave_cash_outs'][$employee->id][0]['id'])->toBe($request->id);
 
     // Paid once: the next payroll captures nothing, and My Portal shows it paid.
     expect(PayrollData::calculateDrafts([$employee->id], '2026-09-16', '2026-09-30', actor: $reviewer)['inputs']?->leaveCashOuts)->toBe([]);
     lcosSelf($employee);
-    Livewire::test(PortalPage::class)->set('tab', 'requests')->assertSeeHtml('data-cash-out="PAID"')->assertSee('3,409.09');
+    Livewire::test(PortalPage::class)->set('tab', 'requests')->assertSeeHtml('data-cash-out="PAID"')->assertSee('3,614.45');
 });
 
 it('migrates the cash-out table and flags twice without complaint', function () {

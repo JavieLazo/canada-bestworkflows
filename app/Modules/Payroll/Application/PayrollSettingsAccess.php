@@ -12,8 +12,9 @@ use App\Support\Access;
  * Tables, the company's and the Employment statuses' Pay Basis & Rates, the
  * Payroll Deductions and the Incentives & Bonuses: whoever manages payroll
  * manages every part of it, so an all-data PAYROLL holder and nobody else.
- * The pages live under Payroll behind `module:PAYROLL`, and this check
- * agrees with that gate, so no role can write a setting it cannot open. One
+ * The pages sit in Records Management's menu but behind `module:PAYROLL`,
+ * and this check agrees with that gate, so no role can write a setting it
+ * cannot open. One
  * employee's settings, rates and recurring lines are pay data and need the
  * same all-data PAYROLL.
  */

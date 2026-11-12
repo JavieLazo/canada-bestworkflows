@@ -49,6 +49,7 @@ function exferSite(string $name): WorkSite
 function exferHire(WorkSite $site, string $first, string $email): EmployeeProfile
 {
     $view = app(CreateEmployee::class)->handle(app(Access::class), [
+        'employee_id_no' => 'ID-'.substr(md5($email), 0, 8),
         'first_name' => $first, 'last_name' => 'Dela Cruz', 'phone' => '0917 123 4567', 'email' => $email,
         'birth_date' => '1990-05-01', 'res_street' => '123 Mabini St.', 'sex' => 'Male', 'civil_status' => 'Single',
         'emergency_name' => 'Maria Dela Cruz', 'emergency_relation' => 'Spouse', 'emergency_phone' => '(02) 8123-4567',

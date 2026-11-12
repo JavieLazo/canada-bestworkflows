@@ -17,6 +17,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Payroll\Application\Commands\ApproveBenefitAssignment;
 use App\Modules\Payroll\Application\Commands\DiscardBenefitAssignment;
+use App\Modules\Payroll\Application\Commands\ReplaceBenefitCeiling;
 use App\Modules\Payroll\Application\Commands\SaveBenefitAssignment;
 use App\Modules\Payroll\Application\Commands\SaveBenefitCeiling;
 use App\Modules\Payroll\Application\Commands\SaveIncentiveType;
@@ -97,23 +98,46 @@ it('records a dated ceiling version after the latest, audits it and shows it on 
     expect($row->ceiling)->toBe(95000.0)->and($row->created_by)->toBe((int) $actor->userId)
         ->and(AuditLog::query()->where('action', AuditEvent::BENEFIT_CEILING_SAVED->value)->where('entity_id', $row->id)->exists())->toBeTrue();
 
+});
+
+it('keeps one tax-free ceiling on the Incentives page: Change replaces it at once, with no date, reason or version list', function () {
+    $actor = benaActor();
+    // A list with a later row, as an installation that used dated versions has.
+    app(SaveBenefitCeiling::class)->handle($actor, '2027-01-01', '95,000.00', 'Raised for the year');
+    expect(PayrollBenefitCeiling::query()->count())->toBe(2);
+
+    // The ceiling bounds every tax-exempt type, so it stands above the list, never under it.
+    $html = Livewire::test(IncentiveTypesPage::class)->html();
+    expect(strpos($html, 'data-benefit-ceiling'))->toBeLessThan((int) strpos($html, '<table class="hris-table">'));
+
     Livewire::test(IncentiveTypesPage::class)
         ->assertSeeHtml('data-benefit-ceiling')
-        ->assertSeeHtml('data-ceiling-row="'.$row->id.'"')
-        ->assertSee('95,000.00')->assertSee('Upcoming')->assertSee('In force')
+        ->assertSee('₱90,000.00')
+        ->assertDontSee('In force')->assertDontSee('Upcoming')->assertDontSee('Takes effect')
         ->call('openCeiling')
-        ->assertSet('ceilingForm.effective_from', '2027-01-02')
-        ->set('ceilingForm.amount', '100000')->set('ceilingForm.reason', 'Another')
+        ->assertSet('ceilingForm', ['amount' => '90000'])
+        ->set('ceilingForm.amount', '100,000')
         ->call('saveCeiling')
-        ->assertSet('ceilingOpen', false);
-    expect(PayrollBenefitCeiling::query()->count())->toBe(3);
+        ->assertSet('ceilingOpen', false)
+        ->assertSee('₱100,000.00');
+
+    // One row is left, covering every date the list covered; the change is in the audit trail.
+    $row = PayrollBenefitCeiling::query()->sole();
+    expect($row->ceiling)->toBe(100000.0)
+        ->and($row->effective_from->format('Y-m-d'))->toBe('2025-01-01')
+        ->and($row->created_by)->toBe((int) $actor->userId)
+        ->and(AuditLog::query()->where('action', AuditEvent::BENEFIT_CEILING_SAVED->value)->where('entity_id', $row->id)
+            ->where('details', 'Tax-free ceiling set to 100,000.00 (was 90,000.00)')->exists())->toBeTrue();
+
+    expect(fn () => app(ReplaceBenefitCeiling::class)->handle($actor, '-1'))->toThrow(RuntimeException::class, 'at or above zero');
 });
 
 it('refuses a ceiling version from an actor without all-data PAYROLL, on the page and in the command', function () {
     $actor = benaActor(['PAYROLL', 'RECORDS'], allData: false);
     expect(fn () => app(SaveBenefitCeiling::class)->handle($actor, '2027-01-01', '95000', 'No'))->toThrow(RuntimeException::class, 'cannot manage');
-    Livewire::test(IncentiveTypesPage::class)->assertSeeHtml('data-benefit-ceiling')->assertDontSee('Set ceiling')
-        ->set('ceilingForm', ['effective_from' => '2027-01-01', 'amount' => '95000', 'reason' => 'No'])->call('saveCeiling');
+    expect(fn () => app(ReplaceBenefitCeiling::class)->handle($actor, '95000'))->toThrow(RuntimeException::class, 'cannot manage');
+    Livewire::test(IncentiveTypesPage::class)->assertSeeHtml('data-benefit-ceiling')->assertDontSeeHtml('wire:click="openCeiling"')
+        ->set('ceilingForm', ['amount' => '95000'])->call('saveCeiling');
     expect(PayrollBenefitCeiling::query()->count())->toBe(1)
         ->and(AuditLog::query()->where('action', AuditEvent::BENEFIT_CEILING_SAVED->value)->exists())->toBeFalse();
 });
@@ -160,7 +184,7 @@ it('drafts an assignment, approves it through the employee\'s own account, and d
         ->and(fn () => $save->handle($preparer, $employee->id, $pera->id, '2026-09-01', '2026-08-31', null, 'Backwards'))->toThrow(RuntimeException::class, 'end date')
         ->and(fn () => $save->handle($preparer, $employee->id, $pera->id, '2026-09-01', null, '0', 'Zero'))->toThrow(RuntimeException::class, 'above zero')
         ->and(fn () => $save->handle($preparer, $employee->id, $pera->id, '2026-09-01', null, null, ''))->toThrow(RuntimeException::class, 'reason')
-        ->and(fn () => $save->handle($preparer, $employee->id, 'nope', '2026-09-01', null, null, 'Gone'))->toThrow(RuntimeException::class, 'Choose a benefit');
+        ->and(fn () => $save->handle($preparer, $employee->id, 'nope', '2026-09-01', null, null, 'Gone'))->toThrow(RuntimeException::class, 'Choose an incentive');
     expect($save->handle($preparer, $employee->id, $pera->id, '2026-09-01', '2026-12-31', '1,250.50', 'Special grant', 'Memo 7'))->toContain('paid once approved');
     $row = PayrollEmployeeBenefit::query()->sole();
     expect($row->status)->toBe('DRAFT')->and($row->amount)->toBe(1250.5)->and($row->reference)->toBe('Memo 7')
@@ -224,30 +248,32 @@ it('lists, drafts, approves and discards assignments on the employee pay page, a
         'date_hired' => '2024-01-01', 'monthly_rate' => 30000, 'is_active' => true])->save();
 
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSeeHtml('data-assigned-benefits')->assertSee('No benefit assigned')
+        ->assertSeeHtml('data-assigned-benefits')->assertSee('No incentive assigned.')
         ->call('openAssign')->assertSet('assignOpen', true)
         ->set('assignForm.type_id', $pera->id)->set('assignForm.starts_on', '2026-09-01')->set('assignForm.reason', 'From the page')
         ->call('saveAssignment')->assertSet('assignOpen', false)->assertSet('assignError', null)
-        ->assertSee('Awaiting approval')->assertSee('PERA');
+        // In effect at once: no draft waits for anybody.
+        ->assertDontSee('Awaiting approval')->assertSee('PERA')->assertSee('Active');
     $row = PayrollEmployeeBenefit::query()->sole();
-    expect($row->status)->toBe('DRAFT')->and($row->amount)->toBeNull();
+    expect($row->status)->toBe('APPROVED')->and($row->amount)->toBeNull()
+        ->and($row->approved_by)->toBe((int) $preparer->userId)
+        ->and(AuditLog::query()->where('action', AuditEvent::BENEFIT_ASSIGNMENT_APPROVED->value)->where('entity_id', $row->id)->count())->toBe(1);
 
     // A viewer changes nothing.
     benaActor(['PAYROLL', 'RECORDS'], allData: false, name: 'Viewer');
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->set('assignForm', ['type_id' => $pera->id, 'starts_on' => '2026-10-01', 'ends_on' => '', 'amount' => '', 'reason' => 'No', 'reference' => ''])
-        ->call('saveAssignment')->call('approveAssignment', $row->id)->call('discardAssignment', $row->id);
-    expect(PayrollEmployeeBenefit::query()->count())->toBe(1)->and($row->refresh()->status)->toBe('DRAFT');
-
-    benaActor(name: 'Approver');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('approveAssignment', $row->id)->assertSee('Active');
-    expect($row->refresh()->status)->toBe('APPROVED');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->call('openAssign')->set('assignForm.type_id', $pera->id)->set('assignForm.starts_on', '2027-01-01')->set('assignForm.reason', 'Later')
         ->call('saveAssignment');
+    expect(PayrollEmployeeBenefit::query()->count())->toBe(1);
+
+    // A draft left from before (the command still writes one) is put into effect by the next save.
+    benaActor(name: 'Approver');
+    app(SaveBenefitAssignment::class)->handle(app(Access::class), $employee->id, $pera->id, '2027-01-01', null, null, 'Left as a draft');
     $draft = PayrollEmployeeBenefit::query()->where('status', 'DRAFT')->sole();
-    benaActor(name: 'Second approver');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('discardAssignment', $draft->id)->assertDontSee('Later');
+    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
+        ->assertSee('Awaiting approval')
+        ->call('discardAssignment', $draft->id)
+        ->assertDontSee('Left as a draft');
     expect(PayrollEmployeeBenefit::query()->count())->toBe(1);
     expect(ModuleCode::PAYROLL)->toBe('PAYROLL');
 });

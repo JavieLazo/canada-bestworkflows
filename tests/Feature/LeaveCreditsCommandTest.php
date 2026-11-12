@@ -524,7 +524,7 @@ it('lists the creditable types in name order, null where nothing is entered, the
 
 /* |---| The query: scoping |---| */
 
-it("pins own() to the actor's employee even for an all_data LEAVES holder, shows only entered rows, and is empty without a link or a row", function () {
+it("pins own() to the actor's employee even for an all_data LEAVES holder, lists every credit type entered or not, and is empty without a link", function () {
     lcredType('Sick Leave');
     lcredType('Vacation Leave');
     $liza = lcredEmployee();
@@ -534,11 +534,15 @@ it("pins own() to the actor's employee even for an all_data LEAVES holder, shows
     lcredCredit($ramon, 2026, 'SICK_LEAVE', 8.0);
     lcredRequest($liza, 'VACATION_LEAVE', '2026-02-02', '2026-02-03');    // 2 days, hers
     lcredRequest($ramon, 'VACATION_LEAVE', '2026-02-02', '2026-02-04');   // 3 days, his: never hers
-    lcredRequest($liza, 'SICK', '2026-03-02');                            // approved, nothing entered: not a portal row
+    lcredRequest($liza, 'SICK', '2026-03-02');                            // approved, nothing entered: listed, with no credit
 
     $records = app(LeaveCreditRecords::class);
     $lizaId = (string) $liza->getKey();
-    $mine = [['VACATION_LEAVE', 'Vacation Leave', 15.0, 2.0, 13.0]];
+    // Every type that uses credits is listed; Sick Leave has none entered for her.
+    $mine = [
+        ['SICK_LEAVE', 'Sick Leave', null, 1.0, null],
+        ['VACATION_LEAVE', 'Vacation Leave', 15.0, 2.0, 13.0],
+    ];
 
     // Liza runs Leave Management: "mine" is still hers alone...
     $hr = lcredActor([ModuleCode::LEAVES, ModuleCode::PORTAL], allData: true, employeeId: $lizaId);
@@ -552,7 +556,11 @@ it("pins own() to the actor's employee even for an all_data LEAVES holder, shows
     // Liza holding PORTAL alone: the same rows through the own-rows arm.
     $self = lcredActor([ModuleCode::PORTAL], allData: false, employeeId: $lizaId);
     expect(lcredFlat($records->own($self, 2026)))->toBe($mine);
-    expect($records->own($self, 2025)->isEmpty())->toBeTrue();
+    // A year with nothing entered still lists the types, none credited or used.
+    expect(lcredFlat($records->own($self, 2025)))->toBe([
+        ['SICK_LEAVE', 'Sick Leave', null, 0.0, null],
+        ['VACATION_LEAVE', 'Vacation Leave', null, 0.0, null],
+    ]);
 
     // An unlinked all_data + LEAVES holder: nothing is "mine".
     $unlinked = lcredActor([ModuleCode::LEAVES, ModuleCode::PORTAL], allData: true);

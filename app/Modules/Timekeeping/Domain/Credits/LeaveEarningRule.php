@@ -35,12 +35,12 @@ final class LeaveEarningRule
         }
         $whole = $facts->employedScheduledDays >= $facts->scheduledDays;
         if (! $whole && $rule['partial'] === 'NONE') {
-            return ['days' => 0.0, 'basis' => 'a part month earns nothing'];
+            return ['days' => 0.0, 'basis' => 'a partial month accrues nothing'];
         }
         $amount = $rule['amount'];
         $basis = match ($rule['method']) {
             'PRO_RATA' => LeaveQuantity::format($amount).' × '.LeaveQuantity::format($facts->presentDays).' present ÷ '.$facts->scheduledDays.' scheduled',
-            'TABLE' => LeaveQuantity::format($facts->unpaidDays).' '.($facts->unpaidDays == 1.0 ? 'day' : 'days').' without pay, by the lookup table',
+            'TABLE' => LeaveQuantity::format($facts->unpaidDays).' unpaid '.($facts->unpaidDays == 1.0 ? 'day' : 'days').', by the lookup table',
             default => LeaveQuantity::format($amount).' flat',
         };
         $earned = match ($rule['method']) {

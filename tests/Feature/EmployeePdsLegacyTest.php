@@ -259,6 +259,7 @@ it('never writes any legacy column from any form, command or the wizard', functi
     expect(array_keys($changes))->toBe(array_column(EmployeeFields::sections(), 'id'));
 
     $hire = $changes['spouse'] + $changes['parents'] + $changes['children'] + $changes['skills'] + $changes['declarations'] + [
+        'employee_id_no' => '2026-LEG',
         'first_name' => 'Juan', 'last_name' => 'Dela Cruz', 'phone' => '0917 123 4567', 'email' => 'juan.leg@company.com',
         'birth_date' => '1990-05-01', 'res_street' => '123 Mabini St.', 'sex' => 'Male', 'civil_status' => 'Married',
         'emergency_name' => 'Maria Dela Cruz', 'emergency_relation' => 'Spouse', 'emergency_phone' => '(02) 8123-4567',

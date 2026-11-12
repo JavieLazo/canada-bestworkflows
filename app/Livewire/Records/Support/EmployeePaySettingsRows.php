@@ -65,11 +65,11 @@ final class EmployeePaySettingsRows
             $gov = self::effective($settings, $version);
             $customized = [...$gov->customized(), ...EmployeePaySettingsInput::customized($settings)];
             $lines = $recurring[$settings->id] ?? null;
-            $pendingGov = isset($pending[$settings->id]);
-            if ($onlyCustomized && $customized === [] && ! EmployeeRates::customized($rates) && $lines === null && ! $pendingGov && $rates['drafts'] === 0) {
+            $row = ['settings' => $settings, 'gov' => $gov, 'govVersion' => $version, 'customized' => $customized, 'rates' => $rates, 'recurring' => $lines, 'pendingGov' => isset($pending[$settings->id])];
+            if ($onlyCustomized && ! self::differs($row)) {
                 continue;
             }
-            $rows[] = ['settings' => $settings, 'gov' => $gov, 'govVersion' => $version, 'customized' => $customized, 'rates' => $rates, 'recurring' => $lines, 'pendingGov' => $pendingGov];
+            $rows[] = $row;
         }
 
         usort($rows, static function (array $a, array $b) use ($sortKey): int {
@@ -82,6 +82,51 @@ final class EmployeePaySettingsRows
         });
 
         return $sortDir === 'desc' ? array_reverse($rows) : $rows;
+    }
+
+    /**
+     * Whether a row is paid apart from the standard computation — the ONE
+     * test behind the "Only customized" filter and the list's count of them.
+     *
+     * @param  array{customized: list<string>, rates: array{source: string, version: ?PayRuleView, next: ?PayRuleView, drafts: int}, recurring: ?array{count: int, left: ?float}, pendingGov: bool}  $row
+     */
+    public static function differs(array $row): bool
+    {
+        return $row['customized'] !== [] || EmployeeRates::customized($row['rates']) || $row['recurring'] !== null || self::awaiting($row);
+    }
+
+    /**
+     * Whether something of the row's still waits for approval.
+     *
+     * @param  array{rates: array{source: string, version: ?PayRuleView, next: ?PayRuleView, drafts: int}, pendingGov: bool}  $row
+     */
+    public static function awaiting(array $row): bool
+    {
+        return $row['pendingGov'] || $row['rates']['drafts'] > 0;
+    }
+
+    /**
+     * What the rows add up to, for the figures above the table: how many are
+     * listed, how many are paid apart from the standard computation and, by
+     * the table's own columns, how many have Contributions & tax of their
+     * own, rates of their own (the hourly rate or Pay Basis & Rates) and a
+     * loan or an allowance.
+     *
+     * @param  list<array{customized: list<string>, rates: array{source: string, version: ?PayRuleView, next: ?PayRuleView, drafts: int}, recurring: ?array{count: int, left: ?float}, pendingGov: bool}>  $rows
+     * @return array{listed: int, customized: int, gov: int, rates: int, recurring: int}
+     */
+    public static function summary(array $rows): array
+    {
+        $summary = ['listed' => count($rows), 'customized' => 0, 'gov' => 0, 'rates' => 0, 'recurring' => 0];
+        $govKeys = PaySettingsText::summaryKeys();
+        foreach ($rows as $row) {
+            $summary['customized'] += self::differs($row) ? 1 : 0;
+            $summary['gov'] += array_intersect($row['customized'], $govKeys) !== [] ? 1 : 0;
+            $summary['rates'] += in_array('hourly_rate', $row['customized'], true) || EmployeeRates::customized($row['rates']) ? 1 : 0;
+            $summary['recurring'] += $row['recurring'] !== null ? 1 : 0;
+        }
+
+        return $summary;
     }
 
     /** The Contributions & tax settings in force: the approved version, else the record's baseline. */

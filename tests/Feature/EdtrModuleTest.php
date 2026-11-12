@@ -26,6 +26,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\PunchShiftFixture;
 
 /**
  * The EDTR module: the /edtr route gates on the module grant, the scoped
@@ -370,6 +371,7 @@ it('ignores the part of a DTR link it cannot honour', function (array $query, st
 it('records a kiosk punch pair, audits it, and refuses a duplicate Time In', function () {
     $site = edtrSite(exempt: true);
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     edtrActor(['EDTR'], allData: true);
 
     $station = Livewire::test(PunchStation::class)
@@ -1021,6 +1023,7 @@ it('pills the Employee ID beside the name, and shows no pill at all without one'
 it('stores the browser accuracy on a self-service punch, rounded to two decimals, and audits it', function () {
     $site = edtrSite();
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     $actor = Access::forActor(edtrActor(['PORTAL'], employeeId: (string) $employee->getKey()));
 
     app(RecordPunch::class)->handle(
@@ -1046,6 +1049,7 @@ it('stores the browser accuracy on a self-service punch, rounded to two decimals
 it('lets a typed kiosk pin override the browser fix and records no accuracy for it', function () {
     $site = edtrSite();
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
 
     app(RecordPunch::class)->handle(
@@ -1068,6 +1072,7 @@ it('uses the kiosk browser fix and its accuracy when both coordinate boxes are b
     // A fenced site right at the pin, so the fix is verified and measured.
     $site = edtrSite(exempt: false);
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
 
     app(RecordPunch::class)->handle(
@@ -1089,6 +1094,7 @@ it('uses the kiosk browser fix and its accuracy when both coordinate boxes are b
 it('records no accuracy without coordinates or for a reading outside its range', function (?float $lat, ?float $lng, float $accuracy) {
     $site = edtrSite();
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     $actor = Access::forActor(edtrActor(['EDTR'], allData: true));
 
     app(RecordPunch::class)->handle(
@@ -1485,6 +1491,7 @@ it('clears all four slots without touching the remark, and has no clear per slot
 it('stores the browser fix and its accuracy on a kiosk punch when the boxes are empty', function () {
     $site = edtrSite();
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     edtrActor(['EDTR'], allData: true);
 
     Livewire::test(PunchStation::class)
@@ -1500,6 +1507,7 @@ it('stores the browser fix and its accuracy on a kiosk punch when the boxes are 
 it('lets typed kiosk coordinates win over the browser fix', function () {
     $site = edtrSite();
     $employee = edtrEmployee($site);
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     edtrActor(['EDTR'], allData: true);
 
     Livewire::test(PunchStation::class)

@@ -12,7 +12,7 @@ use App\Modules\Timekeeping\Application\ConversionTables;
 use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Application\LeaveCharges;
 use App\Modules\Timekeeping\Application\LeaveCreditWriter;
-use App\Modules\Timekeeping\Application\LeavePolicyStore;
+use App\Modules\Timekeeping\Application\LeaveRules;
 use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
 use App\Modules\Timekeeping\Contracts\LeaveChargePoster;
 use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
@@ -26,7 +26,8 @@ use RuntimeException;
 
 /**
  * Answers payroll's charge questions from Timekeeping's own persistence:
- * the approved policy in force, the conversion table in force, the leave
+ * the terms each employee is under (LeaveRules: the leave rules and the
+ * days the employee acquired the types that wait), the fixed conversion table, the leave
  * types' credit rules and each employee's balances (LeaveChargeSource), and
  * posts a finalized payslip's charges (LeaveChargePoster). The read is
  * gated like the attendance facts: whoever may run a payroll over these
@@ -40,15 +41,15 @@ final class LeaveChargeQuery implements LeaveChargePoster, LeaveChargeSource
         if (! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
             abort_unless($actor->hasEmployeeLink() && array_diff($employeeIds, [$actor->ownEmployeeId()]) === [], 403);
         }
-        if ($employeeIds === [] || ! LeavePolicyStore::ready() || ! LeaveTypeCreditRecords::ready()) {
+        if ($employeeIds === [] || ! LeaveRules::ready() || ! LeaveTypeCreditRecords::ready()) {
             return [];
         }
         $rules = LeaveTypeCreditRecords::rules();
-        $conversion = ConversionTables::entry($periodEnd);
+        $conversion = ConversionTables::entry();
         $startYear = (int) substr($periodStart, 0, 4);
         $out = [];
-        foreach (LeavePolicyStore::forEmployees($employeeIds, $periodEnd) as $employeeId => $row) {
-            $policy = LeavePolicyStore::policy($row);
+        foreach (LeaveRules::terms($employeeIds, $periodEnd) as $employeeId => $terms) {
+            $policy = $terms->policy;
             if (! $policy->chargesEnabled()) {
                 continue;
             }
@@ -60,18 +61,27 @@ final class LeaveChargeQuery implements LeaveChargePoster, LeaveChargeSource
             // policy was approved is no longer charged.
             $late = array_values(array_filter($policy->chargeOrder('late'), static fn (string $token): bool => (bool) ($rules[$token]['rules']->chargeLate ?? false)));
             $absence = array_values(array_filter($policy->chargeOrder('absence'), static fn (string $token): bool => (bool) ($rules[$token]['rules']->chargeAbsence ?? false)));
+            // A leave type that waits and is not acquired by the period's
+            // end, or one the employee may not use (LeaveEligibilities),
+            // cannot be charged in it at all.
+            $late = array_values(array_filter($late, static fn (string $token): bool => $terms->open($token, $periodEnd)));
+            $absence = array_values(array_filter($absence, static fn (string $token): bool => $terms->open($token, $periodEnd)));
             $tokens = array_values(array_unique([...$late, ...$absence]));
             if ($tokens === []) {
                 continue;
             }
             // What may be charged is what is AVAILABLE: the balance less the
-            // days unpaid cash-outs have claimed (LeaveBalances).
+            // days unpaid cash-outs have claimed (LeaveBalances). A type that
+            // waits, or that not everyone may use, carries the first day it
+            // is the employee's — acquired, or eligible — so no day before
+            // it is charged (AttendanceChargePlan).
             $balances = [];
             foreach ($tokens as $token) {
                 $balances[$token] = [
                     'name' => $rules[$token]['name'] ?? $token,
                     'available' => LeaveBalances::available($employeeId, $year, $token),
                     'below_zero_limit' => LeaveQuantity::normalize($rules[$token]['rules']->belowZeroLimit ?? 0.0),
+                    ...($terms->gated($token) || $terms->restricted($token) ? ['available_from' => $terms->openFrom($token)] : []),
                 ];
             }
             $charged = ['late' => [], 'absence' => []];
@@ -83,9 +93,9 @@ final class LeaveChargeQuery implements LeaveChargePoster, LeaveChargeSource
                 }
             }
             $out[$employeeId] = [
-                'policy_id' => $row->id,
+                'policy_id' => $terms->sourceId,
                 'charges' => ['enabled' => true, 'combine' => $policy->combine(), 'late' => $late, 'absence' => $absence],
-                'conversion' => $conversion === null ? null : ['version_id' => $conversion['version_id'], 'rows' => $conversion['rows'], 'hours_per_day' => $conversion['hours_per_day'], 'decimals' => $conversion['decimals']],
+                'conversion' => ['version_id' => $conversion['version_id'], 'rows' => $conversion['rows'], 'hours_per_day' => $conversion['hours_per_day'], 'decimals' => $conversion['decimals']],
                 'balances' => $balances,
                 'year' => $year,
                 'charged' => $charged,
@@ -99,7 +109,7 @@ final class LeaveChargeQuery implements LeaveChargePoster, LeaveChargeSource
     {
         $balances = [];
         foreach ($entry['balances'] as $token => $balance) {
-            $balances[(string) $token] = ['available' => (float) $balance['available'], 'below_zero_limit' => (float) $balance['below_zero_limit']];
+            $balances[(string) $token] = ['available' => (float) $balance['available'], 'below_zero_limit' => (float) $balance['below_zero_limit'], 'from' => $balance['available_from'] ?? null];
         }
         $conversion = $entry['conversion'] === null ? null : ['rows' => $entry['conversion']['rows'], 'hours_per_day' => (float) $entry['conversion']['hours_per_day'], 'decimals' => (int) $entry['conversion']['decimals']];
 
@@ -112,7 +122,7 @@ final class LeaveChargeQuery implements LeaveChargePoster, LeaveChargeSource
             return;
         }
         if (! LeaveCharges::ready()) {
-            throw new RuntimeException('Leave credits cannot be charged until this installation\'s upgrade finishes.');
+            throw new RuntimeException('Leave credits cannot be deducted until this installation\'s upgrade finishes.');
         }
         LeaveCreditWriter::lock();
         $year = (int) $entry['year'];
@@ -136,7 +146,7 @@ final class LeaveChargeQuery implements LeaveChargePoster, LeaveChargeSource
                 $credit ??= new LeaveCredit(['employee_id' => $employeeId, 'year' => $year, 'request_type' => $token]);
                 $credit->credits = LeaveQuantity::normalize(($credit->credits ?? 0.0) - $days);
                 if (! $credit->save()) {
-                    throw new RuntimeException('The leave allocation could not be charged.');
+                    throw new RuntimeException('The leave credits could not be deducted.');
                 }
                 $entryId = (string) Str::ulid();
                 $what = $line['kind'] === AttendanceChargePlan::LATE

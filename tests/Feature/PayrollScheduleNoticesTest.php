@@ -24,11 +24,12 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * A payroll draft is told, not stopped: which members are judged by the
- * system default on dates nobody assigned a schedule for, and whose schedule
- * changed after the draft was last saved — the amounts shown already follow
- * each date's schedule. Both facts stay inside payroll's scope, and neither
- * changes an amount.
+ * A payroll draft is told which members are judged by the system default on
+ * dates nobody assigned a schedule for — the hold that keeps it from being
+ * finalized until their schedule is set (NoShiftHoldTest) — and, without
+ * being stopped, whose schedule changed after the draft was last saved: the
+ * amounts shown already follow each date's schedule. Both facts stay inside
+ * payroll's scope, and neither changes an amount.
  */
 /** @param list<string> $modules */
 function psnActor(array $modules = ['PAYROLL', 'ROSTER'], bool $allData = true, ?string $employeeId = null): Access
@@ -102,11 +103,12 @@ it('names the members judged by the system default on dates nobody gave them a s
         ->and($notices->unscheduledDays($actor, [$ana->id], '2026-10-01', '2026-10-15'))->toBe([])
         ->and($notices->unscheduledDays($actor, [$ben->id], 'soon', '2026-10-15'))->toBe([]);
 
+    // The workspace holds the whole period, the days still ahead too.
     $run = psnRun([$ana, $ben, $cid]);
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->assertSee('No assigned schedule on some dates of this period')
-        ->assertSee('Ben Reyes (7 days), Cid Reyes (6 days)')
-        ->assertSee('Check their Daily Time Record before finalizing')
+        ->assertSee('Some dates in this period have no shift for')
+        ->assertSee('Ben Reyes (15 days), Cid Reyes (6 days)')
+        ->assertSee('before finalizing')
         ->assertDontSee('Schedules changed after this draft');
 });
 
@@ -137,7 +139,7 @@ it('names the members whose schedule changed after the draft was last saved, and
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->assertSeeInOrder(['Schedules changed after this draft was last saved (Oct 07, 2026, 2:00 AM):', 'Ana Reyes, Ben Reyes.'])
         ->assertSee('The amounts shown already follow the schedule each date has now.')
-        ->assertDontSee('No assigned schedule on some dates');
+        ->assertDontSee('have no shift for');
 
     // Cancelling Ben's temporary schedule later is a change too; a cancelled
     // change no longer in effect still counts as the moment it was cancelled.

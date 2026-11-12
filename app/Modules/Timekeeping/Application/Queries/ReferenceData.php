@@ -49,8 +49,32 @@ final class ReferenceData
      */
     public function shifts(Access $actor, ?string $asOf = null): Collection
     {
-        $visible = Shift::query()->toEmployee($actor, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL)
-            ->distinct()->pluck('employee_id')->all();
+        return $this->standing($actor, null, $asOf);
+    }
+
+    /**
+     * The same read for the employees named — a page of a roster table reads
+     * the shifts of its own rows only. Scoped exactly like `shifts()`.
+     *
+     * @param  list<string>  $employeeIds
+     * @return Collection<int, ShiftView>
+     */
+    public function shiftsFor(Access $actor, array $employeeIds, ?string $asOf = null): Collection
+    {
+        return $employeeIds === [] ? collect() : $this->standing($actor, $employeeIds, $asOf);
+    }
+
+    /**
+     * @param  list<string>|null  $employeeIds
+     * @return Collection<int, ShiftView>
+     */
+    private function standing(Access $actor, ?array $employeeIds, ?string $asOf): Collection
+    {
+        $query = Shift::query()->toEmployee($actor, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL);
+        if ($employeeIds !== null) {
+            $query->whereIn('employee_id', $employeeIds);
+        }
+        $visible = $query->distinct()->pluck('employee_id')->all();
         $rows = app(RosterVersions::class)->standingAsOf(array_values($visible), RosterVersions::dateOrToday($asOf));
 
         return collect(array_values($rows))->map(static fn (Shift $row): ShiftView => Snapshot::of($row, ShiftView::class));

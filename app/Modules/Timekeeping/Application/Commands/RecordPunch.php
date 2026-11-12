@@ -17,7 +17,7 @@ use App\Domain\Payroll\PayrollPeriod;
 use App\Models\AttendanceLog;
 use App\Modules\Organization\Contracts\PunchSites;
 use App\Modules\Timekeeping\Application\PunchInput;
-use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
+use App\Modules\Timekeeping\Application\PunchPairing;
 use App\Modules\Timekeeping\Domain\Attendance\AttendancePolicy;
 use App\Modules\Timekeeping\Domain\Attendance\PunchWorkDate;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
@@ -60,6 +60,14 @@ use RuntimeException;
  * Time In's date (Domain\Attendance\PunchWorkDate), and the open Time In is
  * in the locked window. DELIBERATE DIVERGENCE from punch/route.ts:89-117,
  * which knows one site per employee and nothing about working from home.
+ *
+ * NO SHIFT, NO TIME IN. A Time In is refused on a work date with nothing
+ * rostered (`ShiftRoster::rosteredShift`: no default shift, no weekday
+ * hours, no temporary schedule) — whether the employee was never assigned a
+ * shift or had it cleared. A Time Out is still taken, because pairing
+ * already refuses one with no open Time In: it can only close a Time In
+ * recorded while a shift applied, which is never stranded. DELIBERATE
+ * DIVERGENCE from punch/route.ts, which punched anyone against the default.
  */
 final class RecordPunch
 {
@@ -165,7 +173,12 @@ final class RecordPunch
             // morning's. A date location overrides the weekday's place;
             // with neither, use Employee Records' Assigned Worksite.
             $workDate = PunchWorkDate::forScheduledPunch(array_values($windowLogs), $logType, $now, $schedule);
-            $domainShift = $schedule?->forDate($workDate);
+            // Null on a date nobody rostered — never rostered, or the shift
+            // cleared — so no punch window applies to it.
+            $domainShift = $this->roster->rosteredShift((string) $employee->id, $workDate, $schedule);
+            if ($domainShift === null && $logType === DomainLog::TIME_IN) {
+                throw new RuntimeException(self::noShiftMessage($employee->name, $workDate));
+            }
             $location = $this->roster->locationForDate((string) $employee->id, $workDate)
                 ?? ResolvedLocation::assigned($employee->work_site_id);
 
@@ -209,19 +222,7 @@ final class RecordPunch
             // ignored rather than refused: the place is a property of the
             // day, not of the station.
 
-            // A Time In left open past the shift plus its overtime ceiling
-            // is somebody who forgot to clock out, not somebody still
-            // working — so it stops blocking the next shift and the day
-            // waits for a correction.
-            $maxOtHours = app(OpenPunchLimit::class)->hours();
-            $nowIso = DomainLog::isoFromUtc($now->utc());
-            $openWorkDate = PunchWorkDate::forScheduledPunch(array_values($windowLogs), DomainLog::TIME_OUT, $now, $schedule);
-            $expiryShift = $schedule?->forDate($openWorkDate);
-            // Extra ownership context must not widen the established live
-            // pairing window to accept a two-days-old open Time In.
-            $pairingFrom = CalendarDays::previous($today);
-            $pairingLogs = array_values(array_filter($windowLogs, static fn (DomainLog $log): bool => ManilaClock::dayKey(ManilaClock::instant($log->loggedAt)) >= $pairingFrom));
-            $anomaly = AttendancePolicy::pairingAnomaly($pairingLogs, $logType, $nowIso, ShiftResolver::openPunchExpiryMinutes($expiryShift, $maxOtHours));
+            $anomaly = PunchPairing::anomaly(array_values($windowLogs), $logType, $now, $schedule, $today);
             if ($anomaly !== null) {
                 throw new RuntimeException($anomaly);
             }
@@ -388,6 +389,12 @@ final class RecordPunch
         $base = ManilaClock::ms(ManilaClock::instant($workDate.'T00:00:00'));
 
         return (ManilaClock::ms($instant) - $base) / 60000;
+    }
+
+    /** "Time In is blocked: Sol Santos has no shift on Oct 08, 2026. Assign one in Shift Roster first." */
+    private static function noShiftMessage(string $name, string $workDate): string
+    {
+        return "Time In is blocked: {$name} has no shift on ".HrisFormat::date($workDate).'. Assign one in Shift Roster first.';
     }
 
     private static function tooEarlyMessage(string $action, string $slot, float $opensAt): string

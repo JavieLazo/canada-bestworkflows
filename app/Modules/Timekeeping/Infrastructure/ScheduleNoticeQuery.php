@@ -15,12 +15,22 @@ use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 
 /**
- * Answers payroll's schedule notices from the dated schedule rows. Counts
- * and moments only — see the contract.
+ * Answers payroll's schedule notices from the dated schedule rows. Counts,
+ * dates and moments only — see the contract.
  */
 final class ScheduleNoticeQuery implements ScheduleNotices
 {
-    public function __construct(private readonly ScheduleDayReader $reader) {}
+    public function __construct(private readonly ScheduleDayReader $reader, private readonly NoShiftDates $noShift) {}
+
+    public function noShiftDates(Access $actor, array $employeeIds, string $start, string $end): array
+    {
+        $employeeIds = $this->allowed($actor, $employeeIds);
+        if ($employeeIds === [] || ! PayrollPeriod::isPayrollDate($start) || ! PayrollPeriod::isPayrollDate($end)) {
+            return [];
+        }
+
+        return $this->noShift->between($employeeIds, $start, $end);
+    }
 
     public function unscheduledDays(Access $actor, array $employeeIds, string $start, string $end): array
     {

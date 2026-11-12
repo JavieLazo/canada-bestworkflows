@@ -65,6 +65,7 @@ function pdswizSite(): WorkSite
 function pdswizForm(WorkSite $site, string $email = 'juan.wizard@company.com'): array
 {
     return [
+        'employee_id_no' => 'ID-'.substr(md5($email), 0, 8),
         'first_name' => 'Juan',
         'last_name' => 'Dela Cruz',
         'phone' => '0917 123 4567',
@@ -192,7 +193,7 @@ it('holds the wizard on Addresses until a residential part is filled', function 
         ->assertSet('step', 2);
 });
 
-it('requires a permanent part when Same as residential is No', function () {
+it('asks for the permanent parts when Same as residential is No, without requiring one', function () {
     $site = pdswizSite();
     $this->actingAs(pdswizActor());
 
@@ -200,17 +201,18 @@ it('requires a permanent part when Same as residential is No', function () {
         ->assertSet('form.permanent_address_same', true)
         ->assertDontSeeHtml('aria-label="Permanent street"');
 
+    // The permanent address may be left for later.
     $wizard->set('form.permanent_address_same', 'false')
         ->assertSet('touched.permanent_address', true)
         ->assertSeeHtml('aria-label="Permanent street"')
         ->assertSeeHtml('aria-label="Permanent ZIP code"')
-        ->assertSee('Permanent address is required — fill in at least one part, or choose Same as residential.')
-        ->call('goNext')
-        ->assertSet('step', 1);
-
-    // A part's own rule still applies once the group has an answer.
-    $wizard->set('form.perm_zip_code', '43')
         ->assertDontSee('Permanent address is required')
+        ->call('goNext')
+        ->assertSet('step', 2)
+        ->set('step', 1);
+
+    // A part's own rule still applies once it has an answer.
+    $wizard->set('form.perm_zip_code', '43')
         ->assertSee('ZIP code must be 4 digits.')
         ->call('goNext')
         ->assertSet('step', 1);

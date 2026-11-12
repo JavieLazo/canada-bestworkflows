@@ -338,7 +338,7 @@ it('hires through the wizard with the same three selects and no KEEP', function 
     $page->set('form.department_id', $world['engineering']->id)->set('form.unit_id', $world['platform']->id);
     expect(posrecOptions($page->html(), 'form.position_id'))->toBe(['' => 'Not set', $world['sre']->id => 'Site Reliability Engineer']);
 
-    $page->set('form.first_name', 'Juan')->set('form.last_name', 'Dela Cruz')->set('form.phone', '09171234567')
+    $page->set('form.employee_id_no', '2026-POS')->set('form.first_name', 'Juan')->set('form.last_name', 'Dela Cruz')->set('form.phone', '09171234567')
         ->set('form.email', 'juan.wizard.pos@company.com')->set('form.birth_date', '1990-05-01')
         ->set('form.res_street', '123 Mabini St.')->set('form.sex', 'Male')->set('form.civil_status', 'Single')
         ->set('form.emergency_name', 'Maria Dela Cruz')->set('form.emergency_relation', 'Spouse')->set('form.emergency_phone', '09179876543')

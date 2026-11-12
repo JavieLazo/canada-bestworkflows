@@ -86,7 +86,7 @@ it('records, approves and discards loan entries, refusing the preparer and the o
 
     $preparer = lneActor(name: 'Preparer');
     $save = app(SaveRecurringLineEntry::class);
-    expect(fn () => $save->handle($preparer, $open->id, 'OUTSIDE_PAYMENT', '100', '2026-09-10', 'No total'))->toThrow(RuntimeException::class, 'total to pay off')
+    expect(fn () => $save->handle($preparer, $open->id, 'OUTSIDE_PAYMENT', '100', '2026-09-10', 'No total'))->toThrow(RuntimeException::class, 'total loan payable')
         ->and(fn () => $save->handle($preparer, $loan->id, 'REFUND', '100', '2026-09-10', 'Bad kind'))->toThrow(RuntimeException::class, 'payment made outside payroll')
         ->and(fn () => $save->handle($preparer, $loan->id, 'OUTSIDE_PAYMENT', '0', '2026-09-10', 'Zero'))->toThrow(RuntimeException::class, 'above zero')
         ->and(fn () => $save->handle($preparer, $loan->id, 'ADJUSTMENT', '0', '2026-09-10', 'Zero'))->toThrow(RuntimeException::class, 'more is owed')
@@ -150,7 +150,7 @@ it('records, approves and discards loan entries, refusing the preparer and the o
         ->and(AuditLog::query()->where('action', AuditEvent::LOAN_ENTRY_DISCARDED->value)->where('entity_id', $draft->id)->exists())->toBeTrue();
 });
 
-it('records, approves and discards entries from the employee pay page, and a viewer without all data changes nothing', function () {
+it('records entries from the employee pay page, in effect at once, and a viewer without all data changes nothing', function () {
     $this->travelTo(CarbonImmutable::parse('2026-09-20 02:00:00', 'UTC'));
     ['employee' => $employee] = PayrollEvidenceFixture::make();
     $preparer = lneActor(name: 'Preparer');
@@ -161,27 +161,26 @@ it('records, approves and discards entries from the employee pay page, and a vie
         ->call('openEntry', $loan->id)->assertSet('entryOpen', true)->assertSet('entryLineId', $loan->id)
         ->set('entryForm.amount', '250')->set('entryForm.reason', 'Paid at the branch')
         ->call('saveEntry')->assertSet('entryOpen', false)->assertSet('entryError', null)
-        ->assertSeeHtml('data-loan-entries')->assertSee('Awaiting approval')->assertSee('Payment made outside payroll');
+        // In effect at once: the balance already counts it.
+        ->assertSeeHtml('data-loan-entries')->assertDontSee('Awaiting approval')->assertSee('Payment made outside payroll')
+        ->assertSee('Approved by')->assertSee('1,750.00');
     $entry = PayrollRecurringLineEntry::query()->sole();
-    expect($entry->status)->toBe('DRAFT')->and($entry->amount)->toBe(250.0);
+    expect($entry->status)->toBe('APPROVED')->and($entry->amount)->toBe(250.0)->and($entry->approved_by)->toBe((int) $preparer->userId);
 
     // A viewer changes nothing.
     lneActor(['PAYROLL', 'RECORDS'], allData: false, name: 'Viewer');
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->call('openEntry', $loan->id)->assertSet('entryOpen', false)
-        ->call('approveEntry', $entry->id)->call('discardEntry', $entry->id);
-    expect(PayrollRecurringLineEntry::query()->count())->toBe(1)->and($entry->refresh()->status)->toBe('DRAFT');
+        ->call('discardEntry', $entry->id);
+    expect(PayrollRecurringLineEntry::query()->count())->toBe(1)->and($entry->refresh()->status)->toBe('APPROVED');
 
-    lneActor(name: 'Approver');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('approveEntry', $entry->id)->assertSee('Approved by')->assertSee('1,750.00');
-    expect($entry->refresh()->status)->toBe('APPROVED');
+    // An adjustment takes effect on save as well.
+    lneActor(name: 'Second officer');
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->call('openEntry', $loan->id)->set('entryForm.kind', 'ADJUSTMENT')->set('entryForm.amount', '-100')->set('entryForm.reason', 'Statement')
-        ->call('saveEntry')->assertSet('entryError', null);
-    $draft = PayrollRecurringLineEntry::query()->where('status', 'DRAFT')->sole();
-    lneActor(name: 'Second approver');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('discardEntry', $draft->id)->assertDontSee('Balance adjustment');
-    expect(PayrollRecurringLineEntry::query()->count())->toBe(1);
+        ->call('saveEntry')->assertSet('entryError', null)
+        ->assertDontSee('Awaiting approval')->assertSee('Balance adjustment');
+    expect(PayrollRecurringLineEntry::query()->where('status', 'APPROVED')->count())->toBe(2);
 });
 
 /*
@@ -208,11 +207,9 @@ it('reads the minimum take-home pay leniently, saves it from the Pay Basis & Rat
     Livewire::test(PayRulesPage::class)
         ->assertSet('formMinimumTakeHome', '')
         ->set('formMinimumTakeHome', '99,999')
-        ->set('formEffectiveFrom', '2026-09-01')
-        ->set('formReason', 'Floor for the test')
         ->call('save')
         ->assertSet('formError', null);
-    $saved = PayrollPayRule::query()->where('effective_from', '2026-09-01')->sole();
+    $saved = PayrollPayRule::query()->sole();
     expect($saved->params['take_home'])->toEqual(['minimum' => 99999.0]);
 
     $flagged = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);

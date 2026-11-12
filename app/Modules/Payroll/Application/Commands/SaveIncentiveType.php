@@ -11,6 +11,7 @@ use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Modules\Payroll\Application\RecurringLines;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
+use App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\CodeSequence;
@@ -22,7 +23,7 @@ use RuntimeException;
  * Records → Payroll Settings.
  *
  * Who: whoever manages Payroll Settings (PayrollSettingsAccess: all-data
- * PAYROLL), since the page lives under Payroll. What: a name
+ * PAYROLL), since the catalog is payroll's. What: a name
  * (unique, at most 100 characters), an optional description (at most 500)
  * and the benefit's rule — how the amount is set, how often it is due, who
  * qualifies, the proration, the tax category and whether it counts toward
@@ -32,6 +33,11 @@ use RuntimeException;
  * with it. A new type's id is the next bare number, minted from a locked
  * scan of the whole table inside the inserting transaction
  * (codes-and-locks guide); the id never changes afterwards.
+ *
+ * The type that pays leave credit cash conversions also says what one
+ * converted day pays (LeaveCashOutValue): the monthly rate times a factor,
+ * or the daily rate. A caller that sends no value keeps the stored one (a
+ * new type starts at the monthly rate times 0.0481927).
  *
  * Editing a type re-describes every OPEN payroll that pays it — its preview
  * changes and asks for a fresh review — while posted payslips keep the
@@ -53,8 +59,9 @@ final class SaveIncentiveType
      *
      * @param  array<string, mixed>|null  $rule  the benefit's figures in BenefitRule shape; null keeps the typed shape the flag describes
      * @param  bool  $paysLeaveCashOut  whether leave credit cash-outs are paid as this type (one type at most; a scheduled benefit cannot)
+     * @param  array{day_value: string, factor: string|float|null}|null  $cashOutValue  what one converted day pays (LeaveCashOutValue); null keeps what is stored
      */
-    public function handle(Access $actor, ?string $id, string $name, ?string $description, bool $isTaxable, ?array $rule = null, bool $paysLeaveCashOut = false): string
+    public function handle(Access $actor, ?string $id, string $name, ?string $description, bool $isTaxable, ?array $rule = null, bool $paysLeaveCashOut = false, ?array $cashOutValue = null): string
     {
         if (! PayrollSettingsAccess::mayManage($actor)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
@@ -87,15 +94,29 @@ final class SaveIncentiveType
         // cash-out line is priced from the days, never from a rule), and
         // only once the catalog has the column.
         if ($paysLeaveCashOut && $benefit->isScheduled()) {
-            throw new RuntimeException('A benefit payroll schedules cannot pay leave credit cash-outs. Use a type whose amount is typed per payroll.');
+            throw new RuntimeException('A benefit payroll schedules cannot pay leave credit cash conversions. Use a type whose amount is typed per payroll.');
         }
         $cashOutColumn = PayrollData::cashOutTypeReady();
         if ($paysLeaveCashOut && ! $cashOutColumn) {
-            throw new RuntimeException('Leave credit cash-outs can be set up once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Leave credit cash conversions can be set up once this installation\'s upgrade finishes.');
         }
         $flagColumns = $cashOutColumn ? ['pays_leave_cash_out' => $paysLeaveCashOut] : [];
+        // What a converted day pays: only once the catalog has the columns,
+        // and only when the caller sends one. DAILY keeps the stored factor,
+        // which the column always holds.
+        $value = null;
+        if ($cashOutValue !== null && PayrollData::cashOutValueReady()) {
+            $error = LeaveCashOutValue::error($cashOutValue['day_value'], $cashOutValue['factor']);
+            if ($error !== null) {
+                throw new RuntimeException($error);
+            }
+            $value = LeaveCashOutValue::fromInput($cashOutValue['day_value'], $cashOutValue['factor']);
+        }
 
         if ($id === null) {
+            if ($value !== null) {
+                $flagColumns += ['cash_out_day_value' => $value->method, 'cash_out_factor' => $value->factor ?? LeaveCashOutValue::DEFAULT_FACTOR];
+            }
             $created = DB::transaction(static function () use ($name, $description, $isTaxable, $figures, $flagColumns, $paysLeaveCashOut): PayrollIncentiveType {
                 // FIRST: a locked scan of every code, then the checks and the
                 // insert from it (codes-and-locks guide).
@@ -138,12 +159,17 @@ final class SaveIncentiveType
         $before = PayrollData::benefitRuleOf($row);
         // A recurring line pays a type payroll does not schedule; scheduling it would pay it twice.
         if (! $before->isScheduled() && $benefit->isScheduled() && RecurringLines::ready() && PayrollRecurringLine::query()->where('incentive_type_id', $id)->exists()) {
-            throw new RuntimeException('Employees have recurring lines on this type, so payroll cannot schedule it. End or delete those lines in Employee Pay Settings first.');
+            throw new RuntimeException('Employees have allowances set on this type, so payroll cannot schedule it. End or delete them in Employee Pay Settings first.');
         }
         $flagChanged = $row->is_taxable !== $isTaxable;
         $ruleChanged = $before->toArray() !== $benefit->toArray();
         $cashOutChanged = $cashOutColumn && (bool) ($row->pays_leave_cash_out ?? false) !== $paysLeaveCashOut;
-        if ($row->name === $name && $row->description === $description && ! $flagChanged && ! $ruleChanged && ! $cashOutChanged) {
+        $valueBefore = PayrollData::cashOutValueOf($row);
+        $valueChanged = $value !== null && $value != $valueBefore;
+        if ($value !== null) {
+            $flagColumns += ['cash_out_day_value' => $value->method, 'cash_out_factor' => $value->factor ?? $row->cash_out_factor];
+        }
+        if ($row->name === $name && $row->description === $description && ! $flagChanged && ! $ruleChanged && ! $cashOutChanged && ! $valueChanged) {
             return 'Nothing changed.';
         }
 
@@ -163,6 +189,9 @@ final class SaveIncentiveType
         }
         if ($cashOutChanged) {
             $note .= $paysLeaveCashOut ? '; now pays leave credit cash-outs' : '; no longer pays leave credit cash-outs';
+        }
+        if ($valueChanged) {
+            $note .= '; a converted day of leave credits now pays '.strtolower($value->text());
         }
         AuditService::record($actor, AuditEvent::INCENTIVE_TYPE_UPDATED, 'payroll_incentive_types', $row->id,
             "Incentive type {$row->code} \"{$name}\" updated{$note}");

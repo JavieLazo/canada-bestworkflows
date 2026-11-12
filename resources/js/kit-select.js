@@ -94,7 +94,7 @@ export function matches(label, query) {
  * separators, each carrying the `<optgroup>` it sits in (`group`, a key, and
  * `groupLabel`). Flux's placeholder option (disabled, class `placeholder`) is
  * the field's empty state, not a choice, so it is left out, and so is a
- * `hidden` option.
+ * `hidden` option or separator.
  */
 export function readOptions(select) {
     const rows = [];
@@ -118,6 +118,7 @@ export function readOptions(select) {
                 groups += 1;
                 walk(node, node, 'g' + groups);
             } else if (tag === 'HR') {
+                if (node.hidden) continue;
                 rows.push({ type: 'separator', key: 's' + rows.length, group: groupKey, groupLabel: group ? group.label : '' });
             }
         }

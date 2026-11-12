@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
- * MariaDB 11.4 proves each interrupted schema step resumes, positive-amount
+ * MariaDB 11.4 proves each interrupted schema step resumes, the amount
  * CHECKs are real, catalog deletion cannot change a draft, and posted copies
  * survive catalog edits or deletion.
  */
@@ -109,14 +109,16 @@ it('resumes both tables after CREATE and restores every index, foreign key and C
     } finally {
         $m['draft']->up();
         $m['posted']->up();
+        // These creates shipped `amount > 0`; the schema after them allows 0.
+        (require base_path('database/migrations/2026_11_11_0004_allow_zero_custom_deduction_lines_table.php'))->up();
     }
 });
 
-it('enforces positive lines, one draft amount per catalog entry, and a stable posted copy', function () {
+it('refuses a negative line, keeps one draft amount per catalog entry, and a stable posted copy', function () {
     ['member' => $member, 'payslip' => $payslip, 'catalog' => $catalog] = cdtschemaRows();
 
     expect(fn () => PayrollRunMemberDeduction::create(['member_id' => $member->id,
-        'deduction_id' => $catalog->id, 'amount' => 0]))->toThrow(QueryException::class, 'prmd_amount_chk');
+        'deduction_id' => $catalog->id, 'amount' => -1]))->toThrow(QueryException::class, 'prmd_amount_chk');
     expect(fn () => PayslipDeduction::create(['payslip_id' => $payslip->id, 'position' => 0,
         'deduction_code' => $catalog->code, 'name' => $catalog->name, 'amount' => -1]))->toThrow(QueryException::class, 'psd_amount_chk');
 

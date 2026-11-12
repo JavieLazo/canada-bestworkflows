@@ -7,10 +7,9 @@ namespace App\Livewire\Records;
 use App\Domain\Payroll\Statutory;
 use App\Domain\Payroll\StatutorySchedule;
 use App\Livewire\Records\Support\Hris;
-use App\Modules\Payroll\Application\Commands\AddStatutoryTableVersion;
+use App\Modules\Payroll\Application\Commands\ConfirmAllStatutoryTables;
 use App\Modules\Payroll\Application\Commands\ConfirmStatutoryTable;
-use App\Modules\Payroll\Application\Commands\UpdateStatutoryTableVersion;
-use App\Modules\Payroll\Application\Commands\WithdrawStatutoryTableVersion;
+use App\Modules\Payroll\Application\Commands\ReplaceStatutoryTable;
 use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Modules\Payroll\Application\Queries\StatutoryTableRecords;
 use App\Modules\Payroll\Application\StatutoryTables;
@@ -30,14 +29,13 @@ use Livewire\Component;
 
 /**
  * Contribution & Tax Tables — the SSS, PhilHealth, Pag-IBIG and withholding
- * figures payroll computes from, each as dated versions, under Payroll →
- * Payroll Settings. One tab per table: its versions newest first, the
- * figures of the version in view, what those figures deduct at sample
+ * figures payroll computes from, under Records → Payroll Settings. One tab
+ * per table: ITS ONE SET OF FIGURES (the ones in use; no list of dated
+ * versions is shown or kept), what those figures deduct at sample
  * salaries, and — for whoever manages the Payroll Settings
- * (PayrollSettingsAccess) — a dialog to add a version from a date, with a
- * live preview, the same dialog to correct a version that has not taken
- * effect, a confirmation to withdraw one, and a dialog to confirm the
- * latest version's figures through a later date. Figures are typed as
+ * (PayrollSettingsAccess) — a dialog to edit the figures, with a live
+ * preview, which replaces them at once for every draft payroll, and
+ * dialogs to confirm one table or all of them through a later date. Figures are typed as
  * percentages and pesos; the commands get the engine's shape (rates as
  * fractions), converted once at this boundary, and a percentage left as
  * shown keeps the stored fraction exactly.
@@ -98,20 +96,8 @@ class StatutoryTablesPage extends Component
     #[Url(as: 'table', except: StatutorySchedule::SSS)]
     public string $tab = StatutorySchedule::SSS;
 
-    /** The version whose figures the card shows, or null for the latest. Id-bearing → #[Locked]. */
-    #[Locked]
-    public ?string $viewingId = null;
-
-    /** Add-version dialog visibility (also the correction dialog, with `editingId` set). Plain UI state. */
+    /** Edit figures dialog visibility. Plain UI state. */
     public bool $dialogOpen = false;
-
-    /** The not-yet-effective version the dialog corrects, or null when it adds one. Id-bearing → #[Locked]. */
-    #[Locked]
-    public ?string $editingId = null;
-
-    public string $formEffectiveFrom = '';
-
-    public string $formCoveredThrough = '';
 
     public string $formReference = '';
 
@@ -141,14 +127,10 @@ class StatutoryTablesPage extends Component
     #[Locked]
     public ?string $confirmingId = null;
 
+    /** Confirm-all-tables dialog visibility. Plain UI state. */
+    public bool $confirmAllOpen = false;
+
     public string $formConfirmThrough = '';
-
-    /** Withdraw confirmation visibility. Plain UI state. */
-    public bool $withdrawOpen = false;
-
-    /** The not-yet-effective version the confirmation withdraws. Id-bearing → #[Locked]. */
-    #[Locked]
-    public ?string $withdrawingId = null;
 
     public function mount(): void
     {
@@ -158,65 +140,31 @@ class StatutoryTablesPage extends Component
     public function updatedTab(): void
     {
         $this->tab = isset(self::TABS[$this->tab]) ? $this->tab : StatutorySchedule::SSS;
-        $this->viewingId = null;
         $this->dialogOpen = false;
-        $this->editingId = null;
         $this->confirmOpen = false;
-        $this->withdrawOpen = false;
+        $this->confirmAllOpen = false;
     }
 
-    /** Back to the version in force in the Figures card. */
-    public function showCurrent(): void
-    {
-        $this->viewingId = null;
-    }
-
-    public function viewFigures(string $id): void
-    {
-        $row = app(StatutoryTableRecords::class)->find(app(Access::class), $id);
-        if ($row === null || $row->kind !== $this->tab) {
-            Flux::toast(variant: 'danger', text: 'That table version no longer exists.');
-
-            return;
-        }
-        $this->viewingId = $row->id;
-    }
-
-    /** The add dialog, pre-filled from the latest version's figures and dated today, or the day after an upcoming version starts. */
+    /** The Edit figures dialog, filled with the figures in use. Saving replaces them. */
     public function openAdd(): void
     {
-        $latest = app(StatutoryTableRecords::class)->latest(app(Access::class), $this->tab);
-        $today = ManilaClock::todayKey();
-        $from = $latest === null ? $today : max($today, $latest->effective_from->addDay()->format('Y-m-d'));
-        $this->editingId = null;
-        $this->fillForm($latest->params ?? StatutorySchedule::BUILT_IN[$this->tab], $from, CarbonImmutable::parse($from, 'UTC')->endOfYear()->format('Y-m-d'), '');
+        $current = $this->current(app(Access::class));
+        $this->fillForm($current->params ?? StatutorySchedule::BUILT_IN[$this->tab], $current->reference ?? '');
         $this->dialogOpen = true;
     }
 
-    /** The same dialog over a version that has not taken effect, to correct it in place. */
-    public function openEdit(string $id): void
+    /** The table's figures in use today: the row that has started, else the only one there is. */
+    private function current(Access $access): ?StatutoryTableView
     {
-        $row = app(StatutoryTableRecords::class)->find(app(Access::class), $id);
-        if ($row === null || $row->kind !== $this->tab) {
-            Flux::toast(variant: 'danger', text: 'That table version no longer exists.');
+        $versions = app(StatutoryTableRecords::class)->versions($access, $this->tab);
+        $today = ManilaClock::todayKey();
 
-            return;
-        }
-        if ($row->effective_from->format('Y-m-d') <= ManilaClock::todayKey()) {
-            Flux::toast(variant: 'danger', text: 'That version has taken effect and stays on record. Add a new version to change the figures.');
-
-            return;
-        }
-        $this->editingId = $row->id;
-        $this->fillForm($row->params, $row->effective_from->format('Y-m-d'), $row->covered_through->format('Y-m-d'), $row->reference ?? '');
-        $this->dialogOpen = true;
+        return $versions->first(static fn (StatutoryTableView $row): bool => $row->effective_from->format('Y-m-d') <= $today) ?? $versions->first();
     }
 
     /** @param array<string, mixed> $figures the engine's shape, shown as percentages and pesos */
-    private function fillForm(array $figures, string $from, string $through, string $reference): void
+    private function fillForm(array $figures, string $reference): void
     {
-        $this->formEffectiveFrom = $from;
-        $this->formCoveredThrough = $through;
         $this->formReference = $reference;
         $this->formError = null;
         if ($this->tab === StatutorySchedule::WITHHOLDING_TAX) {
@@ -267,12 +215,10 @@ class StatutoryTablesPage extends Component
             return;
         }
         try {
-            $message = $this->editingId !== null
-                ? app(UpdateStatutoryTableVersion::class)->handle($access, $this->editingId, $this->formEffectiveFrom, $this->formCoveredThrough, $this->formReference, $figures)
-                : app(AddStatutoryTableVersion::class)->handle($access, $this->tab, $this->formEffectiveFrom, $this->formCoveredThrough, $this->formReference, $figures);
+            $message = app(ReplaceStatutoryTable::class)->handle($access, $this->tab, $this->formReference, $figures);
         } catch (QueryException $e) {
             report($e);
-            Flux::toast(variant: 'danger', text: 'The table version could not be saved. Nothing was changed. Please try again.');
+            Flux::toast(variant: 'danger', text: 'The figures could not be saved. Nothing was changed. Please try again.');
 
             return;
         } catch (\RuntimeException $e) {
@@ -282,11 +228,9 @@ class StatutoryTablesPage extends Component
         }
         Flux::toast(variant: 'success', text: $message);
         $this->dialogOpen = false;
-        $this->editingId = null;
-        $this->viewingId = null;
     }
 
-    /** The confirm dialog over the latest version, proposing the end of the year after the one it is confirmed through, or of this year once that has passed. */
+    /** The confirm dialog over the latest version. */
     public function openConfirm(string $id): void
     {
         $row = app(StatutoryTableRecords::class)->find(app(Access::class), $id);
@@ -295,12 +239,45 @@ class StatutoryTablesPage extends Component
 
             return;
         }
-        $confirmed = $row->covered_through->format('Y-m-d');
-        $base = CarbonImmutable::parse(max($confirmed, ManilaClock::todayKey()), 'UTC')->endOfYear();
         $this->confirmingId = $row->id;
-        $this->formConfirmThrough = ($base->format('Y-m-d') > $confirmed ? $base : $base->addYear()->endOfYear())->format('Y-m-d');
+        $this->formConfirmThrough = self::proposedThrough($row->covered_through->format('Y-m-d'));
         $this->formError = null;
         $this->confirmOpen = true;
+    }
+
+    /** The confirm dialog over every table, proposing a date from the one confirmed the shortest way ahead. */
+    public function openConfirmAll(): void
+    {
+        $this->formConfirmThrough = self::proposedThrough(app(StatutoryTables::class)->confirmedThrough() ?? ManilaClock::todayKey());
+        $this->formError = null;
+        $this->confirmAllOpen = true;
+    }
+
+    public function saveConfirmAll(): void
+    {
+        $this->formError = null;
+        try {
+            $message = app(ConfirmAllStatutoryTables::class)->handle(app(Access::class), $this->formConfirmThrough);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The confirmation could not be saved. Nothing was changed. Please try again.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            $this->formError = $e->getMessage();
+
+            return;
+        }
+        Flux::toast(variant: 'success', text: $message);
+        $this->confirmAllOpen = false;
+    }
+
+    /** The end of the year after the one a table is confirmed through, or of this year once that has passed. */
+    private static function proposedThrough(string $confirmed): string
+    {
+        $base = CarbonImmutable::parse(max($confirmed, ManilaClock::todayKey()), 'UTC')->endOfYear();
+
+        return ($base->format('Y-m-d') > $confirmed ? $base : $base->addYear()->endOfYear())->format('Y-m-d');
     }
 
     public function saveConfirm(): void
@@ -327,58 +304,12 @@ class StatutoryTablesPage extends Component
         $this->confirmingId = null;
     }
 
-    public function openWithdraw(string $id): void
-    {
-        $row = app(StatutoryTableRecords::class)->find(app(Access::class), $id);
-        if ($row === null || $row->kind !== $this->tab) {
-            Flux::toast(variant: 'danger', text: 'That table version no longer exists.');
-
-            return;
-        }
-        $this->withdrawingId = $row->id;
-        $this->withdrawOpen = true;
-    }
-
-    /** The parameter-less second step: the staged version alone is withdrawn. */
-    public function confirmWithdraw(): void
-    {
-        $id = $this->withdrawingId;
-        if ($id === null) {
-            return;
-        }
-        try {
-            $message = app(WithdrawStatutoryTableVersion::class)->handle(app(Access::class), $id);
-        } catch (QueryException $e) {
-            report($e);
-            Flux::toast(variant: 'danger', text: 'The version could not be withdrawn. Nothing was changed. Please try again.');
-
-            return;
-        } catch (\RuntimeException $e) {
-            Flux::toast(variant: 'danger', text: $e->getMessage());
-
-            return;
-        }
-        Flux::toast(variant: 'success', text: $message);
-        $this->withdrawOpen = false;
-        $this->withdrawingId = null;
-        if ($this->viewingId === $id) {
-            $this->viewingId = null;
-        }
-    }
-
     public function render(): View
     {
         $access = app(Access::class);
-        $records = app(StatutoryTableRecords::class);
-        $versions = $records->versions($access, $this->tab);
-        $latest = $versions->first();
         $today = ManilaClock::todayKey();
-        // The version in force: the newest that has started — an upcoming
-        // version is listed above it but prices nothing yet.
-        $inForce = $versions->first(static fn (StatutoryTableView $row): bool => $row->effective_from->format('Y-m-d') <= $today);
-        $shown = $this->viewingId !== null
-            ? $versions->first(fn (StatutoryTableView $row): bool => $row->id === $this->viewingId) ?? $inForce ?? $latest
-            : $inForce ?? $latest;
+        // The page shows the figures in use, never another row's.
+        $shown = $this->current($access);
         $figures = $shown->params ?? StatutorySchedule::BUILT_IN[$this->tab];
 
         $schedule = $this->schedule($figures);
@@ -390,18 +321,11 @@ class StatutoryTablesPage extends Component
         }
         $tables = app(StatutoryTables::class);
         $confirmedThrough = $tables->confirmedThrough();
-        $find = fn (?string $id): ?StatutoryTableView => $id === null ? null : $versions->first(static fn (StatutoryTableView $row): bool => $row->id === $id);
-        // The version after the one shown: where its figures stop applying.
-        $shownNext = $shown === null ? null : $versions->filter(static fn (StatutoryTableView $row): bool => $row->effective_from > $shown->effective_from)->last();
 
         return view('livewire.records.statutory-tables-page', [
             'tabs' => self::TABS,
             'label' => self::TABS[$this->tab],
-            'versions' => $versions,
-            'latest' => $latest,
-            'inForce' => $inForce,
             'shown' => $shown,
-            'shownNext' => $shownNext,
             'figureRows' => $this->figureRows($figures),
             'bracketRows' => $this->tab === StatutorySchedule::WITHHOLDING_TAX ? $figures : null,
             'samples' => $schedule === null ? [] : $this->samples($schedule),
@@ -412,26 +336,20 @@ class StatutoryTablesPage extends Component
             'canManage' => PayrollSettingsAccess::mayManage($access),
             'figureSpecs' => self::FIGURES[$this->tab] ?? [],
             'preview' => $preview,
-            'editing' => $find($this->editingId),
-            'confirming' => $find($this->confirmingId),
-            'withdrawing' => $find($this->withdrawingId),
-            'today' => $today,
+            'confirming' => $shown !== null && $shown->id === $this->confirmingId ? $shown : null,
         ]);
     }
 
     /**
      * The figures the typed ones are read against — a percentage left as
-     * shown keeps this fraction exactly: the version being corrected, else
-     * the latest version a new one builds on, else the built-in figures.
+     * shown keeps this fraction exactly: the figures in use, else the
+     * built-in ones.
      *
      * @return array<string, mixed>
      */
     private function baseFigures(Access $access): array
     {
-        $records = app(StatutoryTableRecords::class);
-        $base = $this->editingId !== null ? $records->find($access, $this->editingId) : $records->latest($access, $this->tab);
-
-        return $base === null ? StatutorySchedule::BUILT_IN[$this->tab] : $base->params;
+        return $this->current($access)->params ?? StatutorySchedule::BUILT_IN[$this->tab];
     }
 
     /**

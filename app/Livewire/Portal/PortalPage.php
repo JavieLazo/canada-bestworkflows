@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Portal;
 
-use App\Livewire\Payroll\Support\PayslipDocument;
+use App\Livewire\Leaves\Support\ApplicationFormData;
+use App\Livewire\Payroll\Support\PayslipSheet;
+use App\Livewire\Portal\Support\LeaveFormText;
 use App\Livewire\Portal\Support\PortalLabels;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
@@ -16,17 +18,24 @@ use App\Modules\Timekeeping\Application\Commands\FileAbsence;
 use App\Modules\Timekeeping\Application\Commands\RequestLeaveCashOut;
 use App\Modules\Timekeeping\Application\Commands\WithdrawAbsence;
 use App\Modules\Timekeeping\Application\Commands\WithdrawLeaveCashOut;
+use App\Modules\Timekeeping\Application\LeaveApplicationDetails;
 use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Application\LeaveHalves;
+use App\Modules\Timekeeping\Application\LeavePay;
 use App\Modules\Timekeeping\Application\Queries\AbsenceRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveCashOutRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Application\Queries\LeavePayRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveRuleRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveSignatoryRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
 use App\Modules\Timekeeping\Application\Queries\ReferenceData;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
+use App\Modules\Timekeeping\Domain\Absence\LeaveApplication;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Workforce\Application\Queries\EmployeeRecords;
 use App\Support\Access;
+use App\Support\Money;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -40,8 +49,9 @@ use RuntimeException;
 /**
  * My Portal — the port of copems/src/app/(protected)/portal/portal-page.tsx:
  * the employee self-service landing. Its tabs hold the punch station and
- * "My punches" feed, read-only own attendance, leave/OB filing and requests,
- * posted payslips with their printable detail, and the caller's issued items.
+ * "My punches" feed, read-only own attendance, the own schedule
+ * (Portal\MySchedule), leave/OB filing and requests, posted payslips with
+ * their printable detail, and the caller's issued items.
  *
  * Filing is the port of POST /api/leave-requests (route.ts) with the portal's
  * constraint folded in: THE EMPLOYEE IS ALWAYS THE SESSION'S OWN. The portal
@@ -53,7 +63,10 @@ use RuntimeException;
  * takes `lockForUpdate()` instead (the PunchStation precedent).
  *
  * Filing and withdrawal delegate to Timekeeping operations, which own their
- * authorization, validation, transactions, audit, and notifications.
+ * authorization, validation, transactions, audit, and notifications. The
+ * filing form is a dialog holding PPMC's Application for Leave
+ * (leaves/partials/application-form): its identity lines come from the
+ * session's own record, never from input.
  *
  * EVERY read on this page is scoped: the request table, the payslip list and
  * the punch feed all pass through ScopesToActor AND branch on
@@ -67,6 +80,8 @@ use RuntimeException;
  * Both are read only while that tab shows — the punch station never touches
  * the credits table. Filing requires enough credits for the chosen type and
  * start year; the command re-checks when Submit is clicked.
+ *
+ * @phpstan-import-type LeavePayPlan from LeavePay
  */
 #[Layout('layouts.app')]
 #[Title('My Portal')]
@@ -76,6 +91,9 @@ class PortalPage extends Component
     public string $tab = 'punch';
 
     /* ── the filing form (portal-page.tsx:95-100) ────────────────────────── */
+
+    /** Whether the Application for Leave dialog shows. Plain UI state; closing it keeps the draft. */
+    public bool $applyOpen = false;
 
     /** Request type key ('' until picked). Validated against Leave Settings at file(). */
     public string $type = '';
@@ -93,6 +111,24 @@ class PortalPage extends Component
 
     /** Free text; trimmed to null on save. */
     public string $reason = '';
+
+    /** The details of leave picked for the type's section ('' until picked). Plain form state; FileAbsence re-checks it against the type. */
+    public string $leaveDetail = '';
+
+    /** What the picked detail specifies: where abroad, or the illness. Plain form state. */
+    public string $leaveDetailNote = '';
+
+    /** NOT_REQUESTED or REQUESTED. Plain form state; FileAbsence refuses anything else. */
+    public string $commutation = LeaveApplication::NOT_REQUESTED;
+
+    /* ── the filed application dialog ───────────────────────────────────── */
+
+    /** The filed application open in the read-only dialog. Id-bearing → #[Locked]; set only by viewFiled(). */
+    #[Locked]
+    public ?string $filedId = null;
+
+    /** Whether that dialog shows. Unlocked on purpose: it renders only the already-validated id. */
+    public bool $filedOpen = false;
 
     /* ── the payslip dialog ──────────────────────────────────────────────── */
 
@@ -117,6 +153,7 @@ class PortalPage extends Component
     /** The days typed, as text; the command validates them. */
     public string $cashOutDays = '';
 
+    /** The note, which is the reason a large request needs (LeaveCashOutLimits). */
     public string $cashOutNote = '';
 
     public function mount(): void
@@ -125,7 +162,7 @@ class PortalPage extends Component
         // else stays on the punch station (portal-page.tsx:105-108).
         $requested = (string) request()->query('tab', '');
 
-        if (in_array($requested, ['attendance', 'payslips', 'requests', 'inventory'], true)) {
+        if (in_array($requested, ['attendance', 'schedule', 'payslips', 'requests', 'inventory'], true)) {
             $this->tab = $requested;
         }
 
@@ -138,12 +175,27 @@ class PortalPage extends Component
 
     public function updatedTab(string $value): void
     {
-        $this->tab = in_array($value, ['punch', 'attendance', 'requests', 'payslips', 'inventory'], true) ? $value : 'punch';
+        $this->tab = in_array($value, ['punch', 'attendance', 'schedule', 'requests', 'payslips', 'inventory'], true) ? $value : 'punch';
     }
 
     public function updatedDayType(string $value): void
     {
         $this->dayType = array_key_exists($value, PortalLabels::DAY_TYPES) ? $value : 'WHOLE_DAY';
+    }
+
+    /** Another type asks other details of leave: the ones picked for the last type go. */
+    public function updatedType(): void
+    {
+        $this->leaveDetail = '';
+        $this->leaveDetailNote = '';
+    }
+
+    /** Closing the filed application forgets which one was open. */
+    public function updatedFiledOpen(mixed $value): void
+    {
+        if (! $value) {
+            $this->filedId = null;
+        }
     }
 
     /** Closing the modal (esc, backdrop, close button) forgets the open payslip. */
@@ -164,7 +216,8 @@ class PortalPage extends Component
     {
         $actor = app(Access::class);
         try {
-            app(FileAbsence::class)->handle($actor, $this->type, $this->dayType, $this->start, $this->end, $this->reason, $this->half === '' ? null : $this->half);
+            $notice = app(FileAbsence::class)->handle($actor, $this->type, $this->dayType, $this->start, $this->end, $this->reason, $this->half === '' ? null : $this->half,
+                $this->leaveDetail, $this->leaveDetailNote, $this->commutation);
         } catch (QueryException) {
             Flux::toast(text: 'The request could not be saved. Please try again.', variant: 'danger');
 
@@ -174,13 +227,19 @@ class PortalPage extends Component
 
             return;
         }
+        $this->applyOpen = false;
         $this->reason = '';
         $this->type = '';
         $this->dayType = 'WHOLE_DAY';
         $this->half = '';
+        $this->leaveDetail = '';
+        $this->leaveDetailNote = '';
+        $this->commutation = LeaveApplication::NOT_REQUESTED;
         $this->start = PortalLabels::todayKey();
         $this->end = $this->start;
-        Flux::toast(text: 'Request submitted for approval.', variant: 'success');
+        // A short balance never stops a request: the employee is told which
+        // days would be without pay if it is approved.
+        Flux::toast(text: 'Request submitted for approval.'.($notice === null ? '' : ' '.$notice), variant: 'success');
     }
 
     /**
@@ -202,6 +261,28 @@ class PortalPage extends Component
             return;
         }
         Flux::toast(text: 'Request withdrawn.', variant: 'success');
+    }
+
+    /**
+     * Open one of MY filed applications, read-only. The id is checked against
+     * the caller's own list, the read that keeps another employee's request
+     * out of reach even for an all-data holder.
+     */
+    public function viewFiled(string $id): void
+    {
+        $actor = app(Access::class);
+        if (! $actor->hasEmployeeLink() || app(AbsenceRecords::class)->list($actor, own: true)->firstWhere('id', $id) === null) {
+            return;
+        }
+        $this->filedId = $id;
+        $this->filedOpen = true;
+    }
+
+    /** The application's "Monetization of Leave Credits" is the cash conversion dialog: this one gives way to it. */
+    public function convertCredits(): void
+    {
+        $this->applyOpen = false;
+        $this->cashOutOpen = true;
     }
 
     /**
@@ -279,13 +360,19 @@ class PortalPage extends Component
 
         /** What can be filed is whatever Records Management → Leave Settings holds. */
         $leaveTypeNames = app(ReferenceData::class)->leaveTypes($actor)->pluck('name')->all();
+        // …less the types I may not use (Leave Settings' "Who may use it"):
+        // FileAbsence refuses them, so they are not offered. Read only while
+        // the Leave & travel tab, which files and lists credits, shows.
+        $ineligible = $this->tab === 'requests' && $actor->hasEmployeeLink()
+            ? (app(LeaveRuleRecords::class)->ineligible($actor, [$actor->ownEmployeeId()])[$actor->ownEmployeeId()] ?? [])
+            : [];
 
         // Business travel is filed as official business, not as a leave
         // (portal-page.tsx:70-75).
         $requestOptions = [];
 
         foreach ($leaveTypeNames as $name) {
-            if (preg_match('/business|travel/i', $name) === 1) {
+            if (preg_match('/business|travel/i', $name) === 1 || isset($ineligible[PortalLabels::normalizeRequestType($name)])) {
                 continue;
             }
             $requestOptions[] = [
@@ -309,8 +396,9 @@ class PortalPage extends Component
         // travel tab shows (own-pinned; empty when unlinked), and what the
         // draft would cost against the one its type resolves to.
         $creditYear = LeaveCreditPolicy::yearOf(PortalLabels::todayKey());
+        // A type I may not use is listed only while I hold credits of it.
         $balances = $this->tab === 'requests'
-            ? app(LeaveCreditRecords::class)->own($actor, $creditYear)
+            ? app(LeaveCreditRecords::class)->own($actor, $creditYear)->reject(static fn (LeaveBalanceView $b): bool => isset($ineligible[$b->request_type]) && ! $b->entered())->values()
             : collect();
         $filingBalances = $balances;
         $filingYear = $creditYear;
@@ -319,7 +407,7 @@ class PortalPage extends Component
             // every year the earning job has closed (LeaveBalances).
             $filingYear = LeaveBalances::liveYear($actor->ownEmployeeId(), $this->start);
             if ($filingYear !== $creditYear) {
-                $filingBalances = app(LeaveCreditRecords::class)->own($actor, $filingYear);
+                $filingBalances = app(LeaveCreditRecords::class)->own($actor, $filingYear)->reject(static fn (LeaveBalanceView $b): bool => isset($ineligible[$b->request_type]) && ! $b->entered())->values();
             }
         }
         $creditHint = $this->tab === 'requests' && $dateError === null ? $this->creditHint($actor, $filingBalances, $filingYear) : null;
@@ -329,7 +417,6 @@ class PortalPage extends Component
         $incentives = $viewing !== null ? (app(PayslipRecords::class)->incentives($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $customDeductions = $viewing !== null ? (app(PayslipRecords::class)->customDeductions($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $deductionColumns = $viewing !== null ? app(PayslipRecords::class)->deductionColumns($actor, [$viewing->id]) : collect();
-        $settlements = $viewing !== null ? (app(PayslipRecords::class)->settlements($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $viewingYearly = $viewing !== null && $viewing->thirteenth_month > 0;
 
         // MY leave credit cash-outs, and the types I may cash out (Leave
@@ -340,33 +427,67 @@ class PortalPage extends Component
         if ($this->tab === 'requests' && $actor->hasEmployeeLink() && LeaveCashOutRecords::ready()) {
             $cashable = LeaveTypeCreditRecords::cashable();
             foreach ($balances as $b) {
-                if (in_array($b->request_type, $cashable, true)) {
+                // A type listed with no credit entered has nothing to cash
+                // out, and one I may not use is not converted to cash.
+                if ($b->entered() && in_array($b->request_type, $cashable, true) && ! isset($ineligible[$b->request_type])) {
                     $cashOutTypes[] = ['value' => $b->request_type, 'label' => $b->label.' · '.PortalLabels::credits((float) ($b->remaining ?? 0.0)).' left'];
                 }
             }
         }
 
+        // The open filed application comes from the OWN list, never a fresh unscoped read.
+        $filedApplication = $this->filedId !== null && ($filed = $mine->firstWhere('id', $this->filedId)) !== null
+            ? ApplicationFormData::filedForm($actor, $filed, $requestOptions, array_values(array_filter($leaveTypeNames, 'is_string')))
+            : null;
+
         return view('livewire.portal.portal-page', [
+            // The Application for Leave: its identity lines, the types 6.A
+            // lists in the form's order, and the standing 7.A states.
+            'applicant' => $this->tab === 'requests' && $actor->hasEmployeeLink() ? ApplicationFormData::applicant($actor, $actor->ownEmployeeId()) : ApplicationFormData::blank(),
+            'officers' => $this->tab === 'requests' ? app(LeaveSignatoryRecords::class)->all($actor) : [],
+            'filedForm' => $filedApplication['filed'] ?? null,
+            'filedApplicant' => $filedApplication['applicant'] ?? [],
+            'filedOfficers' => $filedApplication['officers'] ?? [],
+            'applyTypes' => LeaveFormText::arrange(array_values(array_filter($requestOptions, static fn (array $o): bool => $o['value'] !== PortalLabels::OFFICIAL_BUSINESS)), 'label'),
+            'certification' => $this->tab === 'requests'
+                ? LeaveFormText::arrange(app(LeavePayRecords::class)->ownCertification($actor, $filingBalances, $filingYear, $creditHint['plan'] ?? null), 'name')
+                : [],
             'halvesReady' => LeaveHalves::ready(),
+            // The details of leave the picked type asks for, and whether the
+            // request keeps them and the commutation yet (LeaveApplication).
+            'applicationReady' => LeaveApplicationDetails::ready(),
+            'detailSection' => $this->tab === 'requests' && LeaveCreditPolicy::isLeave($this->type) ? LeaveApplicationDetails::section($this->type) : LeaveApplication::NONE,
+            // The picked type's limits, for the dialog to state before the
+            // request is sent (RequestLeaveCashOut applies them).
+            'cashOutTerms' => $this->cashOutOpen && $this->cashOutType !== '' ? app(LeaveCashOutRecords::class)->ownTerms($actor, $this->cashOutType) : null,
             'cashOuts' => $cashOuts,
             'cashOutTypes' => $cashOutTypes,
             'actor' => $actor,
-            'employee' => $employee,
             'hasEmployee' => $actor->hasEmployeeLink(),
             'ownEmployeeId' => $actor->hasEmployeeLink() ? $actor->ownEmployeeId() : null,
             'leaveTypeNames' => $leaveTypeNames,
             'requestOptions' => $requestOptions,
             'mine' => $mine,
             'payslips' => $payslips,
+            // A footing of the posted figures listed, never a recalculation.
+            'payslipTotals' => [
+                'gross' => Money::round($payslips->sum(static fn (Payslip $p): float => $p->gross_pay)),
+                'deductions' => Money::round($payslips->sum(static fn (Payslip $p): float => $p->total_deductions)),
+                'net' => Money::round($payslips->sum(static fn (Payslip $p): float => $p->net_pay)),
+            ],
             'dateError' => $dateError,
             'creditYear' => $creditYear,
             'balances' => $balances,
+            // MY leave types with set days (each year or each time), beside the credits.
+            'allowances' => $this->tab === 'requests' ? app(LeavePayRecords::class)->ownAllowances($actor, $creditYear) : [],
             'creditHint' => $creditHint,
+            // Only the leave rule's refusal (a type not acquired yet) stops a
+            // request; a short balance is a notice, never a refusal.
             'submitDisabled' => ! $actor->hasEmployeeLink() || trim($this->type) === '' || $dateError !== null || ($creditHint['error'] ?? null) !== null,
             'viewing' => $viewing,
             'earnings' => $viewing !== null ? $this->earningLines($viewing, $incentives) : [],
             'deductions' => $viewing !== null ? $this->deductionLines($viewing, $customDeductions, $deductionColumns) : [],
-            'payslipDocument' => $viewing !== null ? PayslipDocument::issued($viewing, $employee, $viewingYearly, $incentives, $customDeductions, $deductionColumns, own: true, settlements: $settlements) : null,
+            'payslipSheet' => $viewing !== null ? PayslipSheet::issued($actor, $viewing, $employee, $viewingYearly, (string) ($employee->department_name ?? ''), own: true) : null,
             // A 13th month payslip carries no attendance and no contributions,
             // so its document leaves those blocks out instead of printing
             // zeros. The note explaining it sits in the additional details,
@@ -383,11 +504,14 @@ class PortalPage extends Component
      * a rest day costs nothing), and the year it draws on — which the view
      * compares with the panel's year before quoting a number. The figure
      * judged is what is AVAILABLE: the balance less the days unpaid cash-outs
-     * have claimed. Missing or insufficient credits disable Submit; the
-     * command repeats the rule against fresh locked data when filing.
+     * have claimed. A SHORT BALANCE NEVER DISABLES SUBMIT: the hint says
+     * which days would be without pay (LeavePayRecords, the reading
+     * FileAbsence and the approval share). Only the leave rule's refusal —
+     * a type not acquired yet — disables it; the command repeats both
+     * against fresh locked data when filing.
      *
      * @param  Collection<int, LeaveBalanceView>  $balances
-     * @return array{balance: LeaveBalanceView|null, needs: float, year: int, error: string|null}|null
+     * @return array{balance: LeaveBalanceView|null, needs: float, year: int, error: string|null, notice: string|null, below_zero: string|null, filing: string|null, fallback: array{name: string, available: float}|null, plan: LeavePayPlan|null}|null
      */
     private function creditHint(Access $actor, Collection $balances, int $year): ?array
     {
@@ -399,15 +523,27 @@ class PortalPage extends Component
             array_values($balances->map(static fn (LeaveBalanceView $row): string => $row->request_type)->all()),
         );
         $balance = $key === null ? null : $balances->first(static fn (LeaveBalanceView $row): bool => $row->request_type === $key);
-        $needs = $actor->hasEmployeeLink()
-            ? app(LeaveBalances::class)->cost($actor->ownEmployeeId(), $this->dayType, $this->start, $this->end)['days']
-            : LeaveCreditPolicy::coveredDays($this->dayType, $this->start, $this->end);
+        // The card lists a type with no credit entered; the hint quotes only an
+        // entered balance, and the without-pay notice speaks for the rest.
+        if ($balance !== null && ! $balance->entered()) {
+            $balance = null;
+        }
+        $pay = $actor->hasEmployeeLink()
+            ? app(LeavePayRecords::class)->withNotice($actor, $actor->ownEmployeeId(), $this->type, $this->dayType, $this->start, $this->end)
+            : null;
+        $plan = $pay['plan'] ?? null;
+        $spare = $plan === null || $plan['fallback'] === null || $plan['fallback_available'] <= 0.0 ? null : $plan['fallback_available'];
 
         return [
             'balance' => $balance,
-            'needs' => $needs,
+            'needs' => $plan['needs'] ?? LeaveCreditPolicy::coveredDays($this->dayType, $this->start, $this->end),
             'year' => $year,
-            'error' => LeaveCreditPolicy::filingError($balance?->available, $needs, $year),
+            'error' => $plan['refusal'] ?? null,
+            'notice' => $pay['notice'] ?? null,
+            'below_zero' => $pay['below_zero'] ?? null,
+            'filing' => $plan['filing'] ?? null,
+            'fallback' => $spare !== null ? ['name' => (string) $plan['fallback_name'], 'available' => $spare] : null,
+            'plan' => $plan,
         ];
     }
 

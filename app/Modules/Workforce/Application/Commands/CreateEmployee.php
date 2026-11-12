@@ -53,6 +53,16 @@ final class CreateEmployee
             }
         }
         $payload = EmployeeInput::payload($form);
+        // A hire answers only EmployeeFields::REQUIRED. What the record
+        // cannot be saved without is filled in: the date joined is today
+        // until HR enters the real one, and a blank employment status is
+        // left to the column's own default.
+        if (($payload['date_hired'] ?? null) === null) {
+            $payload['date_hired'] = EmployeeFields::todayKey();
+        }
+        if (($payload['employment_status'] ?? null) === null) {
+            unset($payload['employment_status']);
+        }
         $error = EmployeeRules::creating($payload);
         if ($error !== null) {
             throw new RuntimeException($error);
@@ -115,6 +125,10 @@ final class CreateEmployee
             // The position re-read under the mutex: its id and current name.
             EmployeePosition::apply($employee, is_string($choice) ? $choice : null);
             $employee->save();
+            if (! array_key_exists('employment_status', $columns)) {
+                // Read back what the column's default gave the record.
+                $employee->refresh();
+            }
             foreach ($children as $position => $child) {
                 $employee->children()->create(['position' => $position, 'name' => $child['name'], 'birth_date' => $child['birth_date']]);
             }

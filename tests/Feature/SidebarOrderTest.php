@@ -31,6 +31,23 @@ function sidebarOrderActor(array $modules): Access
     return app(Access::class);
 }
 
+/**
+ * The labels the sidebar draws in the Records tree, or null with no tree.
+ *
+ * @param  list<string>  $granted
+ * @return array<mixed>|null
+ */
+function sidebarOrderRecordsEntries(array $granted): ?array
+{
+    foreach (app(ModuleRegistry::class)->navFor($granted) as $module) {
+        if ($module['code'] === ModuleCode::RECORDS) {
+            return array_column((array) $module['groups'], 'label');
+        }
+    }
+
+    return null;
+}
+
 it('puts Community first in the sidebar and keeps every other module in registry order', function () {
     $registry = app(ModuleRegistry::class);
     $granted = [ModuleCode::PROFILE, ModuleCode::COMMUNITY, ModuleCode::PORTAL, ModuleCode::TASKS, ModuleCode::EDTR, ModuleCode::CHAT];
@@ -71,6 +88,33 @@ it('places Reports after Payroll and before Records without granting it to other
         ->and($registry->landingPath([ModuleCode::REPORTS, ModuleCode::PAYROLL]))->toBe('/payroll')
         ->and($registry->forPath('/reports'))->toBe(ModuleCode::REPORTS)
         ->and($registry->forPath('/reports/payroll-register'))->toBe(ModuleCode::REPORTS);
+});
+
+it('shows Payroll Settings in Records Management only to a role holding Payroll', function () {
+    $registry = app(ModuleRegistry::class);
+    $recordsOwn = ['General Records', 'Holiday Settings', 'Leave Settings', 'Shifting Settings', 'Site Settings'];
+
+    expect(sidebarOrderRecordsEntries([ModuleCode::RECORDS]))->toBe($recordsOwn)
+        // Payroll without Records: the tree, holding that one entry and nothing of Records' own.
+        ->and(sidebarOrderRecordsEntries([ModuleCode::PAYROLL]))->toBe(['Payroll Settings'])
+        ->and(sidebarOrderRecordsEntries([ModuleCode::PAYROLL, ModuleCode::RECORDS]))->toBe(['General Records', 'Holiday Settings', 'Leave Settings', 'Payroll Settings', 'Shifting Settings', 'Site Settings'])
+        ->and(sidebarOrderRecordsEntries([ModuleCode::PORTAL]))->toBeNull()
+        // A drawn tree is no grant: sign-in still lands on what the role holds.
+        ->and($registry->landingPath([ModuleCode::PAYROLL]))->toBe('/payroll')
+        ->and($registry->forPath('/records/payroll-settings/pay-rates'))->toBe(ModuleCode::RECORDS);
+});
+
+it('draws the Records tree for a Payroll holder without opening Records to them', function () {
+    sidebarOrderActor([ModuleCode::PAYROLL, ModuleCode::PROFILE]);
+
+    $html = (string) $this->get('/payroll')->assertOk()->getContent();
+
+    expect($html)->toContain('>Records Management</span>')
+        ->and($html)->toContain('href="'.url('/records/payroll-settings').'"')
+        ->and($html)->not->toContain('href="'.url('/records/holidays').'"')
+        ->and($html)->not->toContain('href="'.url('/records/positions').'"');
+    $this->get('/records/payroll-settings/contribution-tables')->assertOk();
+    $this->get('/records/positions')->assertRedirect('/payroll');
 });
 
 it('renders Community as the first sidebar entry for a signed-in account', function () {

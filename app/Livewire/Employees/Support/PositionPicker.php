@@ -24,7 +24,7 @@ use App\Support\Access;
 final class PositionPicker
 {
     /** The Department select's "Not placed" choice: positions placed nowhere. */
-    public const string NOT_PLACED = 'NONE';
+    public const string NOT_PLACED = EmployeePosition::NOT_PLACED;
 
     /**
      * The drafts for a record: the department and unit of its linked

@@ -8,6 +8,7 @@ use App\Livewire\Kit\CsvImport;
 use App\Livewire\Records\DepartmentsPage;
 use App\Livewire\Records\HolidaysPage;
 use App\Livewire\Records\IncentiveTypesPage;
+use App\Livewire\Records\LeaveCreditSettingsPage;
 use App\Livewire\Records\PositionsPage;
 use App\Livewire\Records\ReferenceListPage;
 use App\Livewire\Records\ShiftTypesPage;
@@ -42,10 +43,11 @@ use Livewire\Livewire;
  * incentive types — export what their table shows and import back through
  * their own save command: an untouched export changes nothing, a known ID
  * updates, a blank one adds, and any bad row keeps the whole file out.
- * Writers see Import; readers only Export. Of the plain lists, Leave
- * Settings and Payroll Deductions carry the same two buttons, and THE THREE
- * GENERAL RECORDS LISTS — Position, Document, Employment — HAVE NO CSV AT
- * ALL: no button, no export route, no key an import could be mounted under.
+ * Writers see Import; readers only Export. Of the plain lists, Payroll
+ * Deductions carries the same two buttons, while THE LEAVE TYPES AND THE
+ * THREE GENERAL RECORDS LISTS — Position, Document, Employment — HAVE NO
+ * CSV AT ALL: no button, no export route, no key an import could be
+ * mounted under.
  */
 
 /** @param list<string> $modules */
@@ -181,7 +183,7 @@ it('spells a pattern out a value per column and imports it back unchanged', func
     $audits = AuditLog::query()->count();
 
     $rows = rxferRows('/records/shifts/export?sort=name');
-    expect($rows[0])->toBe([(string) $day->code, 'Day shift', 'Fixed', 'Mon, Tue, Wed, Thu, Fri', '08:00', '17:00', '', '12:00', '13:00', '60', 'Yes', '15', ''])
+    expect($rows[0])->toBe([(string) $day->code, 'Day shift', 'Fixed', 'Sun, Mon, Tue, Wed, Thu, Fri, Sat', '08:00', '17:00', '', '12:00', '13:00', '60', 'Yes', '15', ''])
         ->and($rows[1][2])->toBe('Flexible')
         ->and($rows[1][6])->toBe('7.5');
 
@@ -208,7 +210,8 @@ it('adds a pattern from day ranges and 12-hour times, and refuses a list that is
     expect($old->errors[0]['message'])->toBe('Missing column: Effective from. Start from the template or an export of this table.');
     $night = ShiftType::query()->where('name', 'Night')->firstOrFail();
     expect($saved->created)->toBe(1)
-        ->and($night->work_days)->toBe([1, 2, 3, 4, 5])
+        // A new pattern works every day; the Work days cell is not used.
+        ->and($night->work_days)->toBe([0, 1, 2, 3, 4, 5, 6])
         ->and([$night->start_time, $night->end_time])->toBe(['22:00:00', '07:00:00']);
 });
 
@@ -219,7 +222,7 @@ it('lets an all-data payroll officer import incentive types by their tax label',
     app(SaveIncentiveType::class)->handle(app(Access::class), null, 'Rice subsidy', null, false);
     $code = (string) PayrollIncentiveType::query()->value('code');
 
-    expect(rxferRows('/payroll/settings/incentive-types/export'))->toBe([[$code, 'Rice subsidy', 'Tax-exempt', '', 'Typed per payroll', '', 'One-time', '', '0', 'None', '', '', '', 'No']]);
+    expect(rxferRows('/records/payroll-settings/incentive-types/export'))->toBe([[$code, 'Rice subsidy', 'Tax-exempt', '', 'Typed per payroll', '', 'One-time', '', '0', 'None', '', '', '', 'No']]);
 
     // The rule's columns left blank keep what the row holds; filled, they set it.
     $report = rxferImport('records.incentive-types', ImportIncentiveTypes::COLUMNS, [
@@ -263,10 +266,29 @@ it('keeps Export for every reader and Import for the writers on the plain lists 
     expect(app(TableTransfers::class)->exports("records.{$slug}"))->toBeTrue()
         ->and(app(TableTransfers::class)->imports("records.{$slug}"))->toBeTrue();
 })->with([
-    'leave types' => ['leave-types', ModuleCode::RECORDS],
     // A Payroll Setting: its writers hold PAYROLL (PayrollSettingsAccess).
     'payroll deductions' => ['payroll-deductions', ModuleCode::PAYROLL],
 ]);
+
+it('has no CSV for the leave types: no button on Leave Settings, no export route, no transfer key', function () {
+    rxferActor([ModuleCode::RECORDS], allData: true);
+
+    // The Leave types card stands with its Add button, and nothing on the page links to an export.
+    Livewire::test(LeaveCreditSettingsPage::class)
+        ->assertSee('Add leave type')
+        ->assertDontSee('Export CSV')
+        ->assertDontSee('Import CSV')
+        ->assertDontSeeHtml('/records/leave-types/export');
+
+    expect(Route::has('records.leave-types.export'))->toBeFalse()
+        ->and(app(TableTransfers::class)->exports('records.leave-types'))->toBeFalse()
+        ->and(app(TableTransfers::class)->imports('records.leave-types'))->toBeFalse();
+    test()->get('/records/leave-types/export')->assertNotFound();
+    test()->get('/records/leave-types/export?template=1')->assertNotFound();
+
+    // A dialog mounted by hand finds no import to run either.
+    Livewire::test(CsvImport::class, ['table' => 'records.leave-types'])->assertNotFound();
+});
 
 it('has no CSV on a General Records list: no button, no export route, no transfer key', function (string $slug) {
     rxferActor([ModuleCode::RECORDS], allData: true);

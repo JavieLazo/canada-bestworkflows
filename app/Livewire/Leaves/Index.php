@@ -7,20 +7,30 @@ namespace App\Livewire\Leaves;
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Livewire\Leaves\Support\ApplicationFormData;
 use App\Livewire\Leaves\Support\LeaveRows;
 use App\Modules\Timekeeping\Application\Commands\CancelAbsence;
 use App\Modules\Timekeeping\Application\Commands\FileAbsence;
+use App\Modules\Timekeeping\Application\Commands\RecommendAbsence;
 use App\Modules\Timekeeping\Application\Commands\ReviewAbsence;
+use App\Modules\Timekeeping\Application\LeaveApplicationDetails;
 use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Application\LeaveHalves;
+use App\Modules\Timekeeping\Application\LeaveRecommendation;
 use App\Modules\Timekeeping\Application\Queries\AbsenceRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Application\Queries\LeavePayRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveRuleRecords;
 use App\Modules\Timekeeping\Application\Queries\ReferenceData;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
+use App\Modules\Timekeeping\Contracts\Views\LeaveSignatoryView;
+use App\Modules\Timekeeping\Contracts\Views\LeaveTravelRequestView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveTravelRequestView as LeaveTravelRequest;
 use App\Modules\Timekeeping\Contracts\Views\LeaveTypeView;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
+use App\Modules\Timekeeping\Domain\Absence\LeaveApplication;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Timekeeping\Domain\Credits\LeaveTypeCredits;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use App\Support\HrisFormat;
@@ -30,6 +40,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 use RuntimeException;
@@ -45,14 +56,17 @@ use RuntimeException;
  * against "code + employee name + description" as one string.
  *
  * Review delegates to Timekeeping's ReviewAbsence operation, which owns
- * authorization, self-review refusal and the status-guarded UPDATE. Portal
+ * authorization and the status-guarded UPDATE; the
+ * optional recommendation recorded before it ("For approval" / "For
+ * disapproval due to …") to RecommendAbsence, which leaves the request
+ * pending. Portal
  * presents the filing and withdrawal operations owned by the same module.
  *
  * Requests, Leave Credits and Leave Ledger have separate tab state. The
  * credit and ledger children keep their own filters and paginator and are
  * mounted only while their tab shows. The review dialog reads the
  * open request's credit standing (LeaveCreditRecords) so the reviewer sees
- * what is left before approving with pay; it is a line of information, never
+ * what is left before approving with pay; it is information, never
  * a refusal — balances are displayed, not enforced.
  */
 #[Layout('layouts.app')]
@@ -62,6 +76,11 @@ class Index extends Component
     use WithSorting;
     use WithTableFilters;
 
+    /** The table's opening sort, and the CSV's when the link names none: the newest filed request on top. */
+    public const string DEFAULT_SORT = 'filed';
+
+    public const string DEFAULT_DIR = 'desc';
+
     /**
      * The status filter's rows (leaves-page.tsx:28-33), in order.
      *
@@ -70,7 +89,7 @@ class Index extends Component
     public const array STATUSES = [
         'PENDING' => 'Pending',
         'APPROVED' => 'Approved',
-        'REJECTED' => 'Rejected',
+        'REJECTED' => 'Disapproved',
         'WITHDRAWN' => 'Withdrawn',
         'CANCELLED' => 'Cancelled',
     ];
@@ -112,6 +131,31 @@ class Index extends Component
 
     public string $cancelError = '';
 
+    /** Whether the open request's "Disapproved due to" form shows. Plain UI state. */
+    public bool $disapproving = false;
+
+    /** The reason as typed: a draft ReviewAbsence trims and re-checks. */
+    public string $disapprovalReason = '';
+
+    public string $disapprovalError = '';
+
+    /** Whether the read-only application form shows. Plain UI state: it draws only the already-scoped open request. */
+    public bool $formOpen = false;
+
+    /** The application's "others (specify)" as typed: a draft ReviewAbsence trims and re-checks. */
+    public string $approvalNote = '';
+
+    /** Whether the open request's recommendation form shows. Plain UI state. */
+    public bool $recommending = false;
+
+    /** FOR_APPROVAL or FOR_DISAPPROVAL as picked: a draft RecommendAbsence re-checks. */
+    public string $recommendation = LeaveRecommendation::FOR_APPROVAL;
+
+    /** Why disapproval is recommended, as typed: a draft RecommendAbsence trims and re-checks. */
+    public string $recommendationReason = '';
+
+    public string $recommendationError = '';
+
     /** The "File for an employee" dialog. Plain UI state. */
     public bool $fileOpen = false;
 
@@ -120,24 +164,34 @@ class Index extends Component
     public ?string $fileEmployeeId = null;
 
     /**
-     * The request as typed: type, day type, half, dates and reason. Free
-     * text and picks — no id in it, so not #[Locked]; FileAbsence
-     * re-validates every field against Leave Settings and the credits.
+     * The request as typed: type, day type, half, dates, reason, the details
+     * of leave and the commutation. Free text and picks — no id in it, so
+     * not #[Locked]; FileAbsence re-validates every field against Leave
+     * Settings and the credits.
      *
      * @var array<string, string>
      */
-    public array $fileForm = ['type' => '', 'day_type' => 'WHOLE_DAY', 'half' => '', 'start' => '', 'end' => '', 'reason' => ''];
+    public array $fileForm = self::BLANK_FILE_FORM;
+
+    /** @var array<string, string> the filing dialog's starting draft; openFile() sets the dates to today */
+    private const array BLANK_FILE_FORM = [
+        'type' => '', 'day_type' => 'WHOLE_DAY', 'half' => '', 'start' => '', 'end' => '', 'reason' => '',
+        'leave_detail' => '', 'leave_detail_note' => '', 'commutation' => LeaveApplication::NOT_REQUESTED,
+    ];
 
     public ?string $fileError = null;
 
     public function mount(): void
     {
-        // useSort<SortKey>("id") — leaves-page.tsx:58.
-        $this->sortKey = 'id';
+        // NEW REQUESTS ON TOP: the newest filed first. DELIBERATE DIVERGENCE:
+        // the reference opens on the id, ascending (useSort<SortKey>("id"),
+        // leaves-page.tsx:58).
+        $this->sortKey = self::DEFAULT_SORT;
+        $this->sortDir = self::DEFAULT_DIR;
 
         // Credit, ledger and policy deep links mount their child; unknown tabs stay
         // on requests.
-        if (in_array((string) request()->query('tab', ''), ['credits', 'ledger', 'policies'], true)) {
+        if (in_array((string) request()->query('tab', ''), ['credits', 'ledger'], true)) {
             $this->tab = (string) request()->query('tab');
         }
     }
@@ -145,7 +199,7 @@ class Index extends Component
     /** The strip's buttons; an unknown value collapses to the request table, and a switch forgets the open row. */
     public function updatedTab(string $value): void
     {
-        $this->tab = in_array($value, ['requests', 'credits', 'ledger', 'policies', 'cashouts'], true) ? $value : 'requests';
+        $this->tab = in_array($value, ['requests', 'credits', 'ledger', 'cashouts'], true) ? $value : 'requests';
         $this->detailOpen = false;
         $this->openId = null;
     }
@@ -153,7 +207,7 @@ class Index extends Component
     /** @return list<string> */
     protected function sortableKeys(): array
     {
-        return ['id', 'employee', 'date', 'description', 'dayType'];
+        return ['id', 'employee', 'filed', 'date', 'description', 'dayType'];
     }
 
     // The three selects reset to page 1 (leaves-page.tsx:194, 211, 228);
@@ -173,12 +227,20 @@ class Index extends Component
         $this->resetPage();
     }
 
-    /** Closing the modal (esc, backdrop, close button) forgets the open row. */
+    /** Closing the modal (esc, backdrop, close button) forgets the open row and any reason half typed. */
     public function updatedDetailOpen(mixed $value): void
     {
         if (! $value) {
             $this->openId = null;
+            $this->formOpen = false;
+            $this->reset('approvalNote', 'disapproving', 'disapprovalReason', 'disapprovalError', 'recommending', 'recommendation', 'recommendationReason', 'recommendationError');
         }
+    }
+
+    /** The open request's Application for Leave, read-only, over the review dialog. */
+    public function viewApplication(): void
+    {
+        $this->formOpen = $this->openId !== null;
     }
 
     /** Open a request's detail — the row click of leaves-page.tsx:280. */
@@ -191,8 +253,39 @@ class Index extends Component
         }
 
         $this->openId = $id;
-        $this->reset('cancelDates', 'cancelReason', 'cancelError');
+        $this->reset('approvalNote', 'cancelDates', 'cancelReason', 'cancelError', 'disapproving', 'disapprovalReason', 'disapprovalError',
+            'recommending', 'recommendation', 'recommendationReason', 'recommendationError');
         $this->detailOpen = true;
+    }
+
+    /**
+     * Record the recommendation on the open pending request — "For
+     * approval" or "For disapproval due to …" — through RecommendAbsence,
+     * which owns the permission, the reason and the pending guard. The
+     * request stays pending and the dialog open, showing it; a refusal shows
+     * under the form.
+     */
+    public function recommend(): void
+    {
+        $actor = app(Access::class);
+        if ($this->openId === null || ! $actor->mayReadAllData(ModuleCode::LEAVES)) {
+            return;
+        }
+        $this->recommendationError = '';
+        try {
+            $message = app(RecommendAbsence::class)->handle($actor, $this->openId, $this->recommendation, $this->recommendationReason);
+        } catch (QueryException $e) {
+            report($e);
+            $this->recommendationError = 'The recommendation could not be saved. Please try again.';
+
+            return;
+        } catch (RuntimeException $e) {
+            $this->recommendationError = $e->getMessage();
+
+            return;
+        }
+        $this->reset('recommending', 'recommendation', 'recommendationReason', 'recommendationError');
+        Flux::toast(text: $message, variant: 'success');
     }
 
     /** Management may cancel its own approved leave; elapsed dates remain protected. */
@@ -219,14 +312,6 @@ class Index extends Component
         Flux::toast(text: 'Selected leave dates cancelled. Leave balances have been updated.', variant: 'success');
     }
 
-    /**
-     * Approve or reject the open request — the port of
-     * POST /api/leave-requests/[id]/review.
-     *
-     * Approving records whether the day is paid; rejecting leaves it null.
-     * Official business is approved with `is_paid = null` — the three-state
-     * boolean is load-bearing (see the LeaveTravelRequest docblock).
-     */
     /** Opens the filing dialog on today. */
     public function openFile(): void
     {
@@ -235,7 +320,7 @@ class Index extends Component
             return;
         }
         $today = ManilaClock::todayKey();
-        $this->fileForm = ['type' => '', 'day_type' => 'WHOLE_DAY', 'half' => '', 'start' => $today, 'end' => $today, 'reason' => ''];
+        $this->fileForm = [...self::BLANK_FILE_FORM, 'start' => $today, 'end' => $today];
         $this->fileEmployeeId = null;
         $this->fileError = null;
         $this->fileOpen = true;
@@ -249,7 +334,20 @@ class Index extends Component
         }
     }
 
+    /**
+     * Another request type asks other details of leave: the ones picked for
+     * the last type go. A whole-form set ($key null) keeps what it sent.
+     */
+    public function updatedFileForm(mixed $value, ?string $key = null): void
+    {
+        if ($key === 'type') {
+            $this->fileForm['leave_detail'] = '';
+            $this->fileForm['leave_detail_note'] = '';
+        }
+    }
+
     /** The picker's choice, re-resolved against the directory before it is kept. */
+    #[On('kit-employee-picked')]
     public function employeePicked(string $name, string $id): void
     {
         $actor = app(Access::class);
@@ -273,10 +371,12 @@ class Index extends Component
             return;
         }
         try {
-            app(FileAbsence::class)->forEmployee(
+            $notice = app(FileAbsence::class)->forEmployee(
                 $actor, $employeeId, (string) ($this->fileForm['type'] ?? ''), (string) ($this->fileForm['day_type'] ?? 'WHOLE_DAY'),
                 (string) ($this->fileForm['start'] ?? ''), (string) ($this->fileForm['end'] ?? ''), (string) ($this->fileForm['reason'] ?? ''),
                 ($this->fileForm['half'] ?? '') === '' ? null : (string) $this->fileForm['half'],
+                (string) ($this->fileForm['leave_detail'] ?? ''), (string) ($this->fileForm['leave_detail_note'] ?? ''),
+                (string) ($this->fileForm['commutation'] ?? LeaveApplication::NOT_REQUESTED),
             );
         } catch (QueryException $e) {
             report($e);
@@ -291,30 +391,72 @@ class Index extends Component
         $this->fileOpen = false;
         $this->fileEmployeeId = null;
         $this->fileError = null;
-        Flux::toast(text: 'Request filed for approval.', variant: 'success');
+        Flux::toast(text: 'Request filed for approval.'.($notice === null ? '' : ' '.$notice), variant: 'success');
     }
 
+    /**
+     * Approve or disapprove the open request — the port of
+     * POST /api/leave-requests/[id]/review.
+     *
+     * Approving records whether the day is paid; disapproving (`REJECTED`)
+     * leaves it null and sends the typed "Disapproved due to" reason, which
+     * the command requires; its refusal shows under the reason. Official
+     * business is approved with `is_paid = null` — the three-state boolean
+     * is load-bearing (see the LeaveTravelRequest docblock).
+     */
     public function review(string $status, ?bool $isPaid = null): void
     {
         $actor = app(Access::class);
         if (! in_array($status, ['APPROVED', 'REJECTED'], true) || $this->openId === null) {
             return;
         }
+        $this->disapprovalError = '';
         try {
-            $outcome = app(ReviewAbsence::class)->handle($actor, $this->openId, $status, $isPaid);
+            $outcome = app(ReviewAbsence::class)->handle($actor, $this->openId, $status, $isPaid,
+                $status === 'REJECTED' ? $this->disapprovalReason : null,
+                $status === 'APPROVED' ? $this->approvalNote : null);
         } catch (QueryException $e) {
             report($e);
             Flux::toast(text: 'The review could not be saved. Please try again.', variant: 'danger');
 
             return;
         } catch (RuntimeException $e) {
+            if ($status === 'REJECTED') {
+                $this->disapproving = true;
+                $this->disapprovalError = $e->getMessage();
+
+                return;
+            }
             Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
         }
         Flux::toast(text: "Request {$outcome}.", variant: 'success');
         $this->detailOpen = false;
+        $this->formOpen = false;
         $this->openId = null;
+        $this->reset('approvalNote', 'disapproving', 'disapprovalReason', 'disapprovalError', 'recommending', 'recommendation', 'recommendationReason', 'recommendationError');
+    }
+
+    /**
+     * The open request as its Application for Leave shows it. The request
+     * comes from the scoped list; the owners' queries decide what else the
+     * actor reads, the salary included (ApplicationFormData).
+     *
+     * @param  list<string>  $typeNames
+     * @return array{filed: array<string, mixed>, applicant: array<string, mixed>, officers: array<string, LeaveSignatoryView>}
+     */
+    private function applicationForm(Access $actor, LeaveTravelRequestView $open, array $typeNames): array
+    {
+        $ineligible = app(LeaveRuleRecords::class)->ineligible($actor, [$open->employee_id])[$open->employee_id] ?? [];
+        $options = [];
+        foreach ($typeNames as $name) {
+            if (preg_match('/business|travel/i', $name) !== 1 && ! isset($ineligible[HrisFormat::normalizeRequestType($name)])) {
+                $options[] = ['value' => HrisFormat::normalizeRequestType($name), 'label' => $name];
+            }
+        }
+
+        return ApplicationFormData::filedForm($actor, $open, $options, $typeNames);
     }
 
     public function render(): View
@@ -323,19 +465,31 @@ class Index extends Component
 
         /** Descriptions come from Records Management → Leave Settings. */
         $typeNames = array_values(app(ReferenceData::class)->leaveTypes($actor)->map(static fn (LeaveTypeView $type): string => $type->name)->all());
-        // What a manager may file for an employee: the leave types, business travel as official business (the portal's rule).
+        // What a manager may file for an employee: the leave types, business travel as official business (the portal's rule),
+        // less the types the picked employee may not use (Leave Settings' "Who may use it"), which FileAbsence refuses.
+        $ineligible = $this->fileOpen && $this->fileEmployeeId !== null
+            ? (app(LeaveRuleRecords::class)->ineligible($actor, [$this->fileEmployeeId])[$this->fileEmployeeId] ?? [])
+            : [];
         $requestOptions = [];
         foreach ($typeNames as $name) {
-            if (preg_match('/business|travel/i', $name) !== 1) {
+            if (preg_match('/business|travel/i', $name) !== 1 && ! isset($ineligible[HrisFormat::normalizeRequestType($name)])) {
                 $requestOptions[] = ['value' => HrisFormat::normalizeRequestType($name), 'label' => $name];
             }
         }
         $requestOptions[] = ['value' => AbsencePolicy::OFFICIAL_BUSINESS, 'label' => 'Official Business'];
         $canFile = $actor->mayReadAllData(ModuleCode::LEAVES);
+        // The filing dialog's details of leave: what its picked type asks (LeaveApplication).
+        $fileType = (string) ($this->fileForm['type'] ?? '');
+        $application = [
+            'applicationReady' => LeaveApplicationDetails::ready(),
+            'fileDetailSection' => $this->fileOpen ? LeaveApplicationDetails::section($fileType) : LeaveApplication::NONE,
+            'recommendationReady' => LeaveRecommendation::ready(),
+        ];
 
         // The balance and policy tabs read through their child components.
-        if (in_array($this->tab, ['credits', 'ledger', 'policies'], true)) {
+        if (in_array($this->tab, ['credits', 'ledger'], true)) {
             return view('livewire.leaves.index', [
+                ...$application,
                 'requestOptions' => $requestOptions,
                 'canFile' => $canFile,
                 'halvesReady' => LeaveHalves::ready(),
@@ -347,8 +501,13 @@ class Index extends Component
                 'reviewerName' => null,
                 'openBalance' => null,
                 'openNeeds' => 0.0,
+                'openFallback' => null,
+                'openPayNotice' => null,
+                'openBelowZero' => null,
+                'openUnpaidType' => false,
                 'openPaidDates' => [],
                 'cancelReturned' => 0.0,
+                'applicationForm' => null,
             ]);
         }
 
@@ -391,8 +550,14 @@ class Index extends Component
         // The open row comes from the SCOPED list, like `rows.find` (page:111).
         $open = $this->openId !== null ? $rows->firstWhere('id', $this->openId) : null;
         [$openBalance, $openNeeds] = $this->creditLine($actor, $open);
+        // What approving the open PENDING request would pay as things stand
+        // (the command works it out again, under lock, when it approves).
+        $openPay = $open !== null && $open->status === 'PENDING' && $open->request_type !== AbsencePolicy::OFFICIAL_BUSINESS
+            ? app(LeavePayRecords::class)->withNotice($actor, $open->employee_id, $open->request_type, $open->day_type, $open->start_date->format('Y-m-d'), $open->end_date->format('Y-m-d'))
+            : null;
 
         return view('livewire.leaves.index', [
+            ...$application,
             'requestOptions' => $requestOptions,
             'canFile' => $canFile,
             'halvesReady' => LeaveHalves::ready(),
@@ -404,22 +569,29 @@ class Index extends Component
                 ? ($described[$open->id] ?? LeaveLabels::describe($open->request_type, $typeNames))
                 : '',
             'reviewerName' => $open?->reviewer?->name,
+            'applicationForm' => $this->formOpen && $open !== null ? $this->applicationForm($actor, $open, $typeNames) : null,
             'openBalance' => $openBalance,
             'openNeeds' => $openNeeds,
+            'openFallback' => $this->fallbackLine($actor, $open, $openBalance, $openNeeds),
+            'openPayNotice' => $openPay['notice'] ?? null,
+            'openBelowZero' => $openPay['below_zero'] ?? null,
+            'openUnpaidType' => ($openPay['plan']['filing'] ?? null) === LeaveTypeCredits::FILING_UNPAID,
             // A pending request's dates a posted payslip already covers.
             'openPaidDates' => $open !== null ? app(AbsenceRecords::class)->paidDates($actor, $open) : [],
+            // Why a pending request cannot be approved yet: dates with no shift.
+            'openNoShift' => $open !== null ? app(AbsenceRecords::class)->noShiftHold($actor, $open) : null,
             // What the cancel dialog's ticked dates would give back.
             'cancelReturned' => $this->returnedCredits($open, array_values(array_filter($this->cancelDates, 'is_string'))),
         ]);
     }
 
     /**
-     * The review dialog's credits line: the open request's standing against
+     * The review dialog's credits section: the open request's standing against
      * the credit of its type in the year it STARTS, and what it costs. Only
      * for a request that draws on a credit — pending leave (its pay is not
      * decided yet, so it may), or leave already approved with pay (its days
      * are inside `used`) — and only when the type has a credit row or is a
-     * creditable Leave Settings type; official business, rejected, withdrawn
+     * creditable Leave Settings type; official business, disapproved, withdrawn
      * and without-pay rows get no line. Read only while a dialog is open, so
      * the list itself costs nothing more.
      *
@@ -460,6 +632,35 @@ class Index extends Component
         }
 
         return [null, 0.0];
+    }
+
+    /**
+     * For a PENDING request whose leave type falls back on another: how
+     * much the request needs beyond its own type's available credits, and
+     * what the fallback type holds — so the reviewer sees BEFORE approving
+     * that the rest will be drawn from it. Null when nothing would be.
+     *
+     * @return array{name: string, short: float, available: float}|null
+     */
+    private function fallbackLine(Access $actor, ?LeaveTravelRequest $open, ?LeaveBalanceView $balance, float $needs): ?array
+    {
+        if ($open === null || $open->status !== 'PENDING' || $needs <= 0.0) {
+            return null;
+        }
+        $start = $open->start_date->format('Y-m-d');
+        $filing = app(LeaveRuleRecords::class)->filing($actor, $open->employee_id, $open->request_type, $start);
+        $short = $needs - max(0.0, $balance === null ? 0.0 : $balance->available);
+        if ($filing['fallback'] === null || $short <= 0.0) {
+            return null;
+        }
+        $available = 0.0;
+        foreach (app(LeaveCreditRecords::class)->balances($actor, $open->employee_id, LeaveBalances::liveYear($open->employee_id, $start)) as $row) {
+            if ($row->request_type === $filing['fallback']) {
+                $available = max(0.0, $row->available);
+            }
+        }
+
+        return ['name' => (string) $filing['fallback_name'], 'short' => $short, 'available' => $available];
     }
 
     /**

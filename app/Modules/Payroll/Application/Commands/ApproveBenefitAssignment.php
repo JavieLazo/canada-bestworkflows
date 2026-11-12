@@ -35,7 +35,7 @@ final class ApproveBenefitAssignment
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! BenefitAssignments::ready()) {
-            throw new RuntimeException('Benefits can be approved once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Incentive assignments can be approved once this installation\'s upgrade finishes.');
         }
 
         return DB::transaction(static function () use ($access, $id): string {

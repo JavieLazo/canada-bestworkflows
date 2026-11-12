@@ -27,7 +27,7 @@ use RuntimeException;
 
 /**
  * Pay Schedules — how a month is cut into salary periods and when each is
- * paid, under Payroll → Payroll Settings: the list (periods, pay days,
+ * paid, under Records → Payroll Settings: the list (periods, pay days,
  * the weekend and holiday rule, deadlines, which is the default, how many
  * payrolls took their dates from each), an Add/Edit dialog whose preview
  * is the next months' pay dates from the typed figures (PayCalendar, the

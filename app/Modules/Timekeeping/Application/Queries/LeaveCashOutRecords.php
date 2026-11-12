@@ -6,13 +6,18 @@ namespace App\Modules\Timekeeping\Application\Queries;
 
 use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveCashOut;
+use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Application\LeaveCashOuts;
+use App\Modules\Timekeeping\Application\LeaveCharges;
+use App\Modules\Timekeeping\Application\TerminalLeave;
 use App\Modules\Timekeeping\Contracts\Views\LeaveCashOutView;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
+use App\Modules\Workforce\Contracts\EmployeeLeaveFacts;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\EmployeeName;
+use App\Support\ManilaClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -22,7 +27,9 @@ use Illuminate\Support\Collection;
  * list's scope (LEAVES): MY requests for My Portal, pinned to the session's
  * own employee on top of the scope, and the management list for Leave
  * Management. Each view carries the employee's display name and the leave
- * type's current name; nothing else about the employee.
+ * type's current name; nothing else about the employee. Also what MY
+ * request for a type may be (its limits), and what terminal leave would pay
+ * out for an employee before a leave manager files it.
  */
 final class LeaveCashOutRecords
 {
@@ -36,6 +43,12 @@ final class LeaveCashOutRecords
     public static function ready(): bool
     {
         return LeaveCashOuts::ready();
+    }
+
+    /** Whether terminal leave can be filed yet (TerminalLeave::ready). */
+    public static function terminalReady(): bool
+    {
+        return TerminalLeave::ready();
     }
 
     /**
@@ -94,6 +107,62 @@ final class LeaveCashOutRecords
         $row = $this->scoped($actor)->whereKey($id)->first();
 
         return $row === null ? null : $this->view($row, $this->employeeNames($actor, ''), $this->typeNames());
+    }
+
+    /**
+     * What MY request for a leave type may be: the type's limits in
+     * sentences (LeaveCashOutLimits::lines), the days from which it needs a
+     * reason, and my available balance; null for an unlinked account, an
+     * actor without PORTAL or LEAVES, or a type that may not be cashed out.
+     *
+     * @return array{lines: list<string>, reason_from: ?float, available: float}|null
+     */
+    public function ownTerms(Access $actor, string $token): ?array
+    {
+        if (! self::ready() || ! $actor->hasModule(ModuleCode::PORTAL, ModuleCode::LEAVES) || ! $actor->hasEmployeeLink()) {
+            return null;
+        }
+        $entry = LeaveTypeCreditRecords::rules()[$token] ?? null;
+        if ($entry === null || ! $entry['rules']->canCashOut) {
+            return null;
+        }
+        $employeeId = $actor->ownEmployeeId();
+        $available = LeaveBalances::available($employeeId, LeaveCharges::liveYear($employeeId, (int) substr(ManilaClock::todayKey(), 0, 4)), $token);
+        $limits = $entry['rules']->cashOutLimits;
+
+        return ['lines' => $limits->lines(), 'reason_from' => $limits->reasonFrom($available), 'available' => $available];
+    }
+
+    /**
+     * Terminal leave for an employee in the actor's scope, before a leave
+     * manager files it (FileTerminalLeave): the name, the Date Resigned,
+     * whether the record is active (an inactive employee cannot be added to
+     * a payroll, so nothing would pay it), what would be paid out
+     * (TerminalLeave::plan) and why it cannot be filed now. Null without
+     * all-data LEAVES, before the upgrade, or for an employee the actor
+     * cannot see.
+     *
+     * @return array{name: string, resigned: ?string, active: bool, lines: list<array{token: string, name: string, days: float}>, blocker: ?string}|null
+     */
+    public function terminal(Access $actor, string $employeeId): ?array
+    {
+        if (! $actor->mayReadAllData(ModuleCode::LEAVES) || ! TerminalLeave::ready()) {
+            return null;
+        }
+        $employee = app(OperationalDirectory::class)->find($actor, $employeeId);
+        if ($employee === null) {
+            return null;
+        }
+        $name = EmployeeName::display($employee);
+        $facts = app(EmployeeLeaveFacts::class)->forPosting([$employeeId])[$employeeId] ?? null;
+
+        return [
+            'name' => $name,
+            'resigned' => $facts['date_resigned'] ?? null,
+            'active' => (bool) ($facts['is_active'] ?? true),
+            'lines' => TerminalLeave::plan($employeeId),
+            'blocker' => TerminalLeave::blocker($employeeId, $name),
+        ];
     }
 
     /** How many requests the actor may see are still pending. */

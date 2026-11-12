@@ -4,61 +4,48 @@ declare(strict_types=1);
 
 namespace App\Modules\Timekeeping\Application;
 
-use App\Models\LeaveConversionTable;
 use App\Modules\Timekeeping\Domain\Credits\MinuteConversion;
-use Illuminate\Support\Facades\Schema;
 
 /**
- * The conversion tables as the application reads them: whether they exist
- * yet (the window before the cron migrates 2026_10_31_0004) and which
- * approved version converts a date's minutes — the latest approved version
- * in force on or before the date. None means minutes cannot be charged to
- * leave on that date, which the charge rule reports rather than guesses.
+ * THE minutes-to-days conversion table, FIXED: the Civil Service
+ * Commission's standard table — an 8-hour day, three decimals, a half
+ * rounding DOWN (30 minutes = .0625, shown as .062) — every minute from 1
+ * to 60 and every hour to 8, worked out by MinuteConversion::rows. It is
+ * always in use and nobody edits it, so lateness and undertime are charged
+ * to whatever leave types are marked for them, with nothing to set up
+ * first.
+ *
+ * The `leave_conversion_tables` rows an earlier build saved are history
+ * only: NOTHING READS THEM. Payroll captures the entry with each run, so a
+ * finalized payslip keeps the rows it was worked out with.
  */
 final class ConversionTables
 {
+    /** The id payroll evidence records for this table, in place of a stored row's. */
+    public const string VERSION_ID = 'CSC_STANDARD';
+
+    public const float HOURS_PER_DAY = 8.0;
+
+    public const int DECIMALS = 3;
+
+    public const string ROUNDING = 'HALF_DOWN';
+
     private function __construct() {}
 
-    public static function ready(): bool
-    {
-        return once(static fn (): bool => Schema::hasTable('leave_conversion_tables'));
-    }
-
-    /** The approved version in force on `$date`, or null. */
-    public static function inForce(string $date): ?LeaveConversionTable
-    {
-        if (! self::ready()) {
-            return null;
-        }
-
-        return LeaveConversionTable::query()
-            ->where('status', LeaveConversionTable::APPROVED)
-            ->where('effective_from', '<=', $date)
-            ->orderByDesc('effective_from')->orderByDesc('id')
-            ->first();
-    }
-
     /**
-     * The version in force as a detached entry, the shape the charge rule
-     * and the payroll evidence carry: id, date, hours, decimals, rounding
-     * and the rows.
+     * The table as a detached entry, the shape the charge rule and the
+     * payroll evidence carry: id, hours, decimals, rounding and rows.
      *
-     * @return array{version_id: string, effective_from: string, hours_per_day: float, decimals: int, rounding: string, rows: array{minutes: array<int, string>, hours: array<int, string>}}|null
+     * @return array{version_id: string, hours_per_day: float, decimals: int, rounding: string, rows: array{minutes: array<int, string>, hours: array<int, string>}}
      */
-    public static function entry(string $date): ?array
+    public static function entry(): array
     {
-        $row = self::inForce($date);
-        if ($row === null) {
-            return null;
-        }
-
         return [
-            'version_id' => $row->id,
-            'effective_from' => $row->effective_from->format('Y-m-d'),
-            'hours_per_day' => $row->hours_per_day,
-            'decimals' => $row->decimals,
-            'rounding' => $row->rounding,
-            'rows' => MinuteConversion::normalizeRows($row->rows, $row->hours_per_day, $row->decimals),
+            'version_id' => self::VERSION_ID,
+            'hours_per_day' => self::HOURS_PER_DAY,
+            'decimals' => self::DECIMALS,
+            'rounding' => self::ROUNDING,
+            'rows' => MinuteConversion::rows(self::HOURS_PER_DAY, self::DECIMALS, self::ROUNDING),
         ];
     }
 }

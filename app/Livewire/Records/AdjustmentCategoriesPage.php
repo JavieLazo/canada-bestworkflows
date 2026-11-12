@@ -22,7 +22,7 @@ use Livewire\Component;
 use RuntimeException;
 
 /**
- * Adjustment Categories, under Payroll → Payroll Settings: what an
+ * Adjustment Categories, under Records → Payroll Settings: what an
  * adjustment line can be — an earning, taxable or not, or a deduction —
  * named as the company names them. A list, an Add/Edit dialog and a delete
  * confirmation; whoever manages the Payroll Settings writes.

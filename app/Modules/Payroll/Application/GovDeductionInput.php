@@ -47,11 +47,11 @@ final class GovDeductionInput
 
     /** How withholding is worked out, with the names on screen. */
     public const array METHODS = [
-        self::METHOD_TABLE => 'BIR table, per cut-off',
-        self::METHOD_ANNUALIZED => 'BIR table, annualized',
+        self::METHOD_TABLE => 'BIR semi-monthly table',
+        self::METHOD_ANNUALIZED => 'Annualized per cut-off (×24)',
         self::METHOD_FIXED => 'Fixed amount per payslip',
-        self::METHOD_PERCENT => 'Percent of taxable pay',
-        self::METHOD_WHOLE_YEAR => 'BIR annual table, whole-year estimate',
+        self::METHOD_PERCENT => 'Percent of taxable compensation',
+        self::METHOD_WHOLE_YEAR => 'Projected annual tax with year-end adjustment',
     ];
 
     /** How the whole-year estimate's remainder is spread, with the names on screen. */
@@ -137,7 +137,7 @@ final class GovDeductionInput
             if ($invalid && $deducted) {
                 return $method === self::METHOD_FIXED
                     ? 'Enter the fixed tax per payslip, up to ₱99,999,999.00.'
-                    : 'Enter the percent of taxable pay, above 0 and at most 100.';
+                    : 'Enter the percent of taxable compensation, above 0 and at most 100.';
             }
             // With withholding off the form disables these fields, so a blank
             // or unreadable amount there falls back to the table instead of
@@ -149,7 +149,7 @@ final class GovDeductionInput
         }
         $spread = $form['tax_spread'] ?? AnnualWithholding::SPREAD_EQUAL;
         if (! is_string($spread) || ! array_key_exists($spread, self::SPREADS)) {
-            return 'Choose how the whole-year estimate is spread.';
+            return 'Choose how the remaining tax is spread.';
         }
         $figures['allow_withholding_tax'] = $deducted;
         $figures['annualize_tax'] = $method === self::METHOD_ANNUALIZED;

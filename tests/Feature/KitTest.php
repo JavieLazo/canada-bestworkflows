@@ -299,7 +299,7 @@ it('splits a stored key into typed-clock parts', function () {
 |--------------------------------------------------------------------------
 */
 
-it('lists the whole directory for an all-data directory role and narrows by every search term', function () {
+it('lists the directory for an all-data directory role and narrows by every search term', function () {
     $garcia = kitEmployee('COP-0001', 'Ana', 'Garcia', 'Driver');
     kitEmployee('COP-0002', 'Ben', 'Reyes', 'Clerk');
     kitActor(['EMPLOYEES'], allData: true);
@@ -442,6 +442,82 @@ it('refuses a client write to the locked selection', function () {
 
     expect(fn () => Livewire::test(EmployeePicker::class)->set('value', 'smuggled'))
         ->toThrow(Exception::class);
+});
+
+it('draws one page of a long directory and counts every match', function () {
+    foreach (range(1, 25) as $n) {
+        kitEmployee(sprintf('COP-%04d', $n), 'Person', sprintf('Staff %02d', $n));
+    }
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // A whole directory drawn into every picker is hundreds of rows of markup
+    // on a large company's pages. One table page is drawn; the live region
+    // and the footer still count everyone, the live region says only a page
+    // is drawn (the arrow keys stop at its last row), and the server-side
+    // search reaches the rest.
+    $picker = Livewire::test(EmployeePicker::class);
+    expect(substr_count($picker->html(), 'role="option"'))->toBe(EmployeePicker::PAGE_SIZE);
+    $picker->assertSee('25 employees found, showing the first 20. Keep typing to narrow.')
+        ->assertSeeHtml('<p aria-hidden="true" class="border-t border-border px-3 py-2 text-xs text-muted-foreground" data-epk-more>')
+        ->assertSee('Staff 20')
+        ->assertDontSee('Staff 21')
+        ->assertSeeHtml('Showing <span class="num">20</span> of <span class="num">25</span>')
+        ->set('search', 'staff 21')
+        ->assertSee('Staff 21')
+        ->assertSee('1 employee found')
+        ->assertDontSeeHtml('data-epk-more');
+    expect(substr_count($picker->html(), 'role="option"'))->toBe(1);
+});
+
+it('keeps the chosen employee first on the list when they sort past the first page', function () {
+    foreach (range(1, 25) as $n) {
+        kitEmployee(sprintf('COP-%04d', $n), 'Person', sprintf('Staff %02d', $n));
+    }
+    $last = kitEmployee('COP-0099', 'Person', 'Zamora');
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // Opening the list lands the highlight on the selected row, and Enter
+    // picks the highlighted one: were the selection left off the page, Enter
+    // would silently swap it for whoever sorts first.
+    $picker = Livewire::test(EmployeePicker::class, ['value' => (string) $last->getKey()]);
+    $html = $picker->html();
+    preg_match('/role="option"[^>]*aria-selected="(true|false)"[^>]*data-id="([^"]+)"/', $html, $first);
+
+    expect(substr_count($html, 'role="option"'))->toBe(EmployeePicker::PAGE_SIZE + 1)
+        ->and($first[1] ?? null)->toBe('true')
+        ->and($first[2] ?? null)->toBe((string) $last->getKey());
+    $picker->assertSeeHtml('Showing <span class="num">21</span> of <span class="num">26</span>');
+
+    // Once the user types, the list is the matches in order: a search the
+    // chosen employee does not match leaves them on the trigger only, and a
+    // broad one they DO match no longer lifts them to the top.
+    $picker->set('search', 'staff 0');
+    expect($picker->html())->not->toContain('data-id="'.$last->getKey().'"');
+    $picker->set('search', 'person');
+    preg_match('/role="option"[^>]*data-id="([^"]+)"/', $picker->html(), $typed);
+    expect($typed[1] ?? null)->not->toBe((string) $last->getKey())
+        ->and(substr_count($picker->html(), 'role="option"'))->toBe(EmployeePicker::PAGE_SIZE);
+});
+
+it('never pins a chosen employee the picker would not offer', function () {
+    foreach (range(1, 25) as $n) {
+        kitEmployee(sprintf('COP-%04d', $n), 'Person', sprintf('Staff %02d', $n));
+    }
+    $gone = kitEmployee('COP-0098', 'Person', 'Yap');
+    $gone->forceFill(['is_active' => false])->save();
+    $placed = kitEmployee('COP-0099', 'Person', 'Zamora');
+    kitActor(['EMPLOYEES'], allData: true);
+
+    // Active-only: someone who has left is never offered, pinned or not.
+    $activeOnly = Livewire::test(EmployeePicker::class, ['value' => (string) $gone->getKey(), 'activeOnly' => true])->html();
+    expect($activeOnly)->not->toContain('data-id="'.$gone->getKey().'"')
+        ->and(substr_count($activeOnly, 'role="option"'))->toBe(EmployeePicker::PAGE_SIZE);
+
+    // A department the parent narrowed to: a selection outside it stays on
+    // the trigger and is never lifted into a list of that department.
+    $narrowed = Livewire::test(EmployeePicker::class, ['value' => (string) $placed->getKey(), 'department' => '01ZZZZZZZZZZZZZZZZZZZZZZZZ']);
+    $narrowed->assertSee('Person Zamora')->assertSee('No employee matches that search.');
+    expect(substr_count($narrowed->html(), 'role="option"'))->toBe(0);
 });
 
 /*
@@ -595,7 +671,10 @@ it('renders every x-kit blade component', function () {
         ->toMatch('/<div[^>]*class="[^"]*w-\[10rem\][^"]*"[^>]*x-data="kitSelect/s')
         ->toContain('>Sex at birth</span>')
         // Before the scripts run, the trigger shows what the browser would: the first option.
-        ->toMatch('/data-kit-select-value[^>]*>Not stated<\/span>/s');
+        ->toMatch('/data-kit-select-value[^>]*>Not stated<\/span>/s')
+        // A long value ends in "…" and never widens its field: the value has
+        // no width of its own (w-0 flex-1) and truncates to the box.
+        ->toMatch('/<span[^>]*class="[^"]*\bw-0\b[^"]*\bflex-1\b[^"]*\btruncate\b[^"]*"[^>]*data-kit-select-value|data-kit-select-value[^>]*class="[^"]*\bw-0\b[^"]*\bflex-1\b[^"]*\btruncate\b/s');
 
     // A placeholder is the first label, drawn muted, until an option is
     // marked :selected; a label wraps the trigger in a Flux field.

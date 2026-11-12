@@ -25,7 +25,7 @@ final class AccountNameQuery implements AccountNames
             $query->whereKey($ids);
         }
 
-        $accounts = $query->get(['id', 'employee_id', 'is_active']);
+        $accounts = $query->get(User::accountNameReady() ? ['id', 'employee_id', 'is_active', 'account_name'] : ['id', 'employee_id', 'is_active']);
         $names = app(AccountLabels::class)->names($accounts);
 
         return $accounts

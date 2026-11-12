@@ -150,7 +150,7 @@ final class CorrectPunches
         // this date's scalar shift decides its available correction slots.
         $days = PayrollPeriod::attendanceDateRange(PayrollPeriod::addCalendarDays($date, -1), $date);
         $schedule = app(ShiftRoster::class)->scheduleForEmployee($employeeId, $days['from'], $days['to']);
-        $rostered = $schedule?->forDate($date);
+        $rostered = app(ShiftRoster::class)->rosteredShift($employeeId, $date, $schedule);
 
         // And where the day was worked: its date exception, weekly roster,
         // then Assigned Worksite — what the inserted rows

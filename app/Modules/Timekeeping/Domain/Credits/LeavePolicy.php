@@ -41,7 +41,7 @@ final class LeavePolicy
     public const array METHODS = ['FLAT', 'PRO_RATA', 'TABLE'];
 
     /** @var array<string, string> */
-    public const array METHOD_LABELS = ['FLAT' => 'Flat amount every month', 'PRO_RATA' => 'Pro-rata to days present', 'TABLE' => 'Lookup table by days without pay'];
+    public const array METHOD_LABELS = ['FLAT' => 'Flat amount every month', 'PRO_RATA' => 'Pro-rata to days present', 'TABLE' => 'Lookup table by unpaid days'];
 
     public const array PARTIALS = ['FULL', 'PRO_RATA', 'NONE'];
 
@@ -90,38 +90,9 @@ final class LeavePolicy
             if (! is_string($token) || ! in_array($token, $earningTokens, true)) {
                 return 'A leave type in the earning rules cannot earn credits. Set its credit rules on Leave Credits first.';
             }
-            if (! is_array($rule)) {
-                return 'The earning rule is incomplete.';
-            }
-            $amountError = LeaveQuantity::error($rule['amount'] ?? '');
-            if ($amountError !== null || trim((string) ($rule['amount'] ?? '')) === '') {
-                return 'Enter the monthly amount earned.'.($amountError === null ? '' : ' '.$amountError);
-            }
-            if (! in_array($rule['method'] ?? null, self::METHODS, true)) {
-                return 'Choose how the month is earned.';
-            }
-            if (! in_array($rule['partial'] ?? null, self::PARTIALS, true)) {
-                return 'Choose what a part month earns.';
-            }
-            if (($rule['cap'] ?? null) !== null && (trim((string) $rule['cap']) === '' || LeaveQuantity::error($rule['cap']) !== null)) {
-                return 'Balance cap: '.(LeaveQuantity::error($rule['cap']) ?? LeaveQuantity::FORMAT_ERROR);
-            }
-            if ($rule['method'] === 'TABLE') {
-                $table = $rule['table'] ?? null;
-                if (! is_array($table) || ! array_is_list($table) || $table === [] || count($table) > self::MAX_TABLE_ROWS) {
-                    return 'The lookup table needs 1 to '.self::MAX_TABLE_ROWS.' rows.';
-                }
-                $previous = -1.0;
-                foreach ($table as $row) {
-                    if (! is_array($row) || LeaveQuantity::error($row['up_to'] ?? '') !== null || trim((string) ($row['up_to'] ?? '')) === ''
-                        || LeaveQuantity::error($row['credits'] ?? '') !== null || trim((string) ($row['credits'] ?? '')) === '') {
-                        return 'Each lookup row needs the days without pay it reaches up to, and the credits earned.';
-                    }
-                    if ((float) $row['up_to'] <= $previous) {
-                        return 'Lookup rows must rise in days without pay.';
-                    }
-                    $previous = (float) $row['up_to'];
-                }
+            $ruleError = self::earningRuleError($rule);
+            if ($ruleError !== null) {
+                return $ruleError;
             }
         }
         $charges = $params['charges'] ?? null;
@@ -155,6 +126,76 @@ final class LeavePolicy
     }
 
     /**
+     * Why ONE leave type's earning rule is refused, or null when it is
+     * acceptable: the monthly amount, the method (and its lookup rows), the
+     * part-month rule and the optional balance cap. Shared with the leave
+     * type's own rule (LeaveTypeRule), which holds the same shape.
+     */
+    public static function earningRuleError(mixed $rule): ?string
+    {
+        if (! is_array($rule)) {
+            return 'The accrual rule is incomplete.';
+        }
+        $amountError = LeaveQuantity::error($rule['amount'] ?? '');
+        if ($amountError !== null || trim((string) ($rule['amount'] ?? '')) === '') {
+            return 'Enter the monthly accrual.'.($amountError === null ? '' : ' '.$amountError);
+        }
+        if (! in_array($rule['method'] ?? null, self::METHODS, true)) {
+            return 'Choose the accrual method.';
+        }
+        if (! in_array($rule['partial'] ?? null, self::PARTIALS, true)) {
+            return 'Choose the partial month accrual.';
+        }
+        if (($rule['cap'] ?? null) !== null && (trim((string) $rule['cap']) === '' || LeaveQuantity::error($rule['cap']) !== null)) {
+            return 'Maximum balance: '.(LeaveQuantity::error($rule['cap']) ?? LeaveQuantity::FORMAT_ERROR);
+        }
+        if ($rule['method'] === 'TABLE') {
+            $table = $rule['table'] ?? null;
+            if (! is_array($table) || ! array_is_list($table) || $table === [] || count($table) > self::MAX_TABLE_ROWS) {
+                return 'The lookup table needs 1 to '.self::MAX_TABLE_ROWS.' rows.';
+            }
+            $previous = -1.0;
+            foreach ($table as $row) {
+                if (! is_array($row) || LeaveQuantity::error($row['up_to'] ?? '') !== null || trim((string) ($row['up_to'] ?? '')) === ''
+                    || LeaveQuantity::error($row['credits'] ?? '') !== null || trim((string) ($row['credits'] ?? '')) === '') {
+                    return 'Each lookup row needs the unpaid days it reaches up to, and the credits earned.';
+                }
+                if ((float) $row['up_to'] <= $previous) {
+                    return 'Lookup rows must rise in unpaid days.';
+                }
+                $previous = (float) $row['up_to'];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * One type's earning rule as stored, once earningRuleError() has
+     * passed: numbers settled, the lookup rows kept only for TABLE.
+     *
+     * @param  array<string, mixed>  $rule
+     * @return array{amount: float, method: string, table: list<array{up_to: float, credits: float}>, partial: string, cap: ?float}
+     */
+    public static function earningRule(array $rule): array
+    {
+        $table = [];
+        if (($rule['method'] ?? '') === 'TABLE') {
+            foreach ($rule['table'] ?? [] as $row) {
+                $table[] = ['up_to' => LeaveQuantity::parse($row['up_to']) ?? 0.0, 'credits' => LeaveQuantity::parse($row['credits']) ?? 0.0];
+            }
+        }
+
+        return [
+            'amount' => LeaveQuantity::parse($rule['amount']) ?? 0.0,
+            'method' => (string) $rule['method'],
+            'table' => $table,
+            'partial' => (string) $rule['partial'],
+            'cap' => ($rule['cap'] ?? null) === null || trim((string) $rule['cap']) === '' ? null : LeaveQuantity::parse($rule['cap']),
+        ];
+    }
+
+    /**
      * The params as stored, once error() has passed: numbers settled,
      * tokens in the given orders, nothing else.
      *
@@ -166,19 +207,7 @@ final class LeavePolicy
     {
         $earning = [];
         foreach ($params['earning'] ?? [] as $token => $rule) {
-            $table = [];
-            if (($rule['method'] ?? '') === 'TABLE') {
-                foreach ($rule['table'] ?? [] as $row) {
-                    $table[] = ['up_to' => LeaveQuantity::parse($row['up_to']) ?? 0.0, 'credits' => LeaveQuantity::parse($row['credits']) ?? 0.0];
-                }
-            }
-            $earning[(string) $token] = [
-                'amount' => LeaveQuantity::parse($rule['amount']) ?? 0.0,
-                'method' => (string) $rule['method'],
-                'table' => $table,
-                'partial' => (string) $rule['partial'],
-                'cap' => ($rule['cap'] ?? null) === null || trim((string) $rule['cap']) === '' ? null : LeaveQuantity::parse($rule['cap']),
-            ];
+            $earning[(string) $token] = self::earningRule($rule);
         }
         ksort($earning, SORT_STRING);
         $charges = $params['charges'] ?? [];

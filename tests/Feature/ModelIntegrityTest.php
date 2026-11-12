@@ -74,7 +74,7 @@ it('keeps actor columns out of every mass-assignable list', function () {
     $actorColumns = [
         'actor_id', 'actor_name', 'uploaded_by', 'reviewed_by',
         'assigned_by', 'finalized_by', 'author_id', 'author_name',
-        'created_by', 'cancelled_by',
+        'created_by', 'cancelled_by', 'recommended_by',
     ];
 
     $dir = __DIR__.'/../../app/Models';

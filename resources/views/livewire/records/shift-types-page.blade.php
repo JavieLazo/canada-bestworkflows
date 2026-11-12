@@ -1,10 +1,12 @@
 {{--
     Shifting Settings — the port of
-    src/app/(protected)/records/shifts/shift-types-page.tsx. Same columns in
-    the same order (ID, Name, Mode, Hours, Break, Work week, Grace, Action),
-    same search, same default sort (name, ascending), same dialog fields —
-    mode, work-week day toggles, required hours, grace and the break rules —
-    same validation messages and copy.
+    src/app/(protected)/records/shifts/shift-types-page.tsx. The reference's
+    columns in its order (ID, Name, Mode, Hours, Break, Grace, Action), same
+    search, same default sort (name, ascending), same dialog fields — mode,
+    required hours, grace and the break rules — same validation messages and
+    copy. DELIBERATE DIVERGENCE: no Work week column or day toggles. A
+    pattern is hours only; every day is a working day unless the employee's
+    own schedule in Shift Roster sets it as a rest day.
 --}}
 @php
     use App\Livewire\Records\Support\Hris;
@@ -46,7 +48,6 @@
                         <x-kit.sort-header field="mode" label="Mode" />
                         <th>Hours</th>
                         <th>Break</th>
-                        <th>Work week</th>
                         <th class="text-right">Grace</th>
                         <th class="text-right">Action</th>
                     </tr>
@@ -89,7 +90,6 @@
                                     <span class="text-muted-foreground">&mdash;</span>
                                 @endif
                             </td>
-                            <td class="whitespace-nowrap">{{ Hris::describeWeek($row->work_days) }}</td>
                             <td class="num text-right text-muted-foreground">
                                 {{ $row->mode === 'FLEXIBLE' ? '—' : "{$row->grace_minutes} min" }}
                             </td>
@@ -149,6 +149,7 @@
                 <flux:text>
                     A fixed pattern clocks against set hours. A flexible one only owes a daily
                     total, whenever it is worked. In Shift Roster, choose a pattern for each weekday or a specific date.
+                    A pattern works every day of the week: set rest days on each employee’s weekly schedule.
                 </flux:text>
                 {{--
                     Saving an in-use pattern re-copies it onto the employees rostered on
@@ -182,29 +183,6 @@
                     </x-kit.select>
                 </div>
 
-                <div class="space-y-2 sm:col-span-2">
-                    <flux:label>Work week</flux:label>
-                    <div class="flex flex-wrap gap-2">
-                        @foreach (Hris::WEEK as $day => $label)
-                            @php $on = in_array($day, $formWorkDays, true); @endphp
-                            <flux:button
-                                type="button"
-                                size="sm"
-                                class="w-14"
-                                :variant="$on ? 'primary' : 'outline'"
-                                aria-pressed="{{ $on ? 'true' : 'false' }}"
-                                wire:click="toggleDay({{ $day }})"
-                            >
-                                {{ $label }}
-                            </flux:button>
-                        @endforeach
-                    </div>
-                    <p class="text-xs text-muted-foreground">
-                        The default work week when this pattern is assigned to an employee. Weekday and
-                        specific-date selections in Shift Roster override individual days. Payroll divides the monthly
-                        rate by the employee’s resulting scheduled workdays.
-                    </p>
-                </div>
 
                 @if ($flexible)
                     <div class="space-y-2">

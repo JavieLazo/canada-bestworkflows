@@ -14,6 +14,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
 use App\Modules\Organization\Contracts\HolidayCalendar;
+use App\Modules\Timekeeping\Application\LeavePayDates;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
@@ -80,7 +81,7 @@ final class TimekeepingReports
         }
         $requests = $query->orderBy('start_date')->orderBy('code')->orderBy('id')
             ->limit(ReportDocument::MAX_ROWS + 1)
-            ->get(['id', 'code', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid']);
+            ->get(['id', 'code', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid', ...(LeavePayDates::ready() ? ['unpaid_dates'] : [])]);
         ReportDocument::guardSize($requests->count());
         $employees = $requests->isEmpty() ? collect() : app(OperationalDirectory::class)
             ->list($actor, array_values($requests->pluck('employee_id')->unique()->all()))->keyBy('id');
@@ -103,7 +104,7 @@ final class TimekeepingReports
                 $approvedLeaveDays += $days;
             }
             $pay = $request->request_type === 'BUSINESS_TRAVEL' ? 'Not applicable'
-                : (! in_array($request->status, ['APPROVED', 'CANCELLED'], true) ? 'Not decided' : ($request->is_paid === false ? 'Unpaid' : 'Paid'));
+                : (! in_array($request->status, ['APPROVED', 'CANCELLED'], true) ? 'Not decided' : ($request->is_paid === false ? 'Unpaid' : (LeavePayDates::partly($request) ? 'Partly paid' : 'Paid')));
             $rows[] = [
                 $request->code,
                 EmployeeIdentity::number($employee),
@@ -113,7 +114,7 @@ final class TimekeepingReports
                 $end,
                 $request->day_type === 'HALF_DAY' ? 'Half day' : 'Whole day',
                 LeaveCreditPolicy::format($days),
-                $request->status,
+                HrisFormat::requestStatus($request->status),
                 $pay,
                 implode(', ', $cancelledDates),
             ];
@@ -121,7 +122,7 @@ final class TimekeepingReports
 
         return new ReportDocument('Leave Reports', ['Request', 'Employee ID', 'Employee', 'Type', 'Start date', 'End date', 'Day type', 'Days in period', 'Status', 'Pay', 'Cancelled dates'], $rows, [
             'Requests overlapping the selected period, including Business Travel / OB. Days in period count remaining covered calendar days after cancellations, with half days counted as 0.5.',
-            'Pending, rejected, withdrawn and cancelled requests are shown as requests; they are not approved leave usage.',
+            'Pending, disapproved, withdrawn and cancelled requests are shown as requests; they are not approved leave usage.',
             'The table total counts requested covered days across all statuses, including OB; the approved leave metric excludes OB. Neither figure is a leave-credit ledger balance.',
         ], [], [
             ['label' => 'Requests', 'value' => (string) $requests->count()],

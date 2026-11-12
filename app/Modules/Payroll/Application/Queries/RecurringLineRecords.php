@@ -102,28 +102,6 @@ final class RecurringLineRecords
     }
 
     /**
-     * Every employee's lines that are upcoming or active today — what the
-     * Payroll Settings overview warns about (a balance left on someone who
-     * has left, a loan the next payroll pays off). A pay data read: an
-     * all-data PAYROLL holder's only.
-     *
-     * @return Collection<int, RecurringLineView>
-     */
-    public function open(Access $actor, string $today): Collection
-    {
-        abort_unless($actor->mayReadAllData(ModuleCode::PAYROLL), 403);
-        if (! RecurringLines::ready()) {
-            return new Collection;
-        }
-        $rows = PayrollRecurringLine::query()->where(static fn ($query) => $query->whereNull('ends_on')->orWhere('ends_on', '>=', $today))
-            ->orderBy('starts_on')->orderBy('id')->get();
-
-        return $this->views($actor, $rows, $today)
-            ->filter(static fn (RecurringLineView $line): bool => in_array($line->status, [self::UPCOMING, self::ACTIVE], true))
-            ->values();
-    }
-
-    /**
      * The Payroll Deductions rows a recurring deduction may charge: the
      * typed ones, never a computed or a percentage row (they price
      * themselves).

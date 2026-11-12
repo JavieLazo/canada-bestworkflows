@@ -10,7 +10,7 @@ use App\Livewire\Records\Support\Hris;
 use App\Livewire\Records\Support\IncentiveTypeRows;
 use App\Modules\Payroll\Application\BenefitCeilings;
 use App\Modules\Payroll\Application\Commands\DeleteIncentiveType;
-use App\Modules\Payroll\Application\Commands\SaveBenefitCeiling;
+use App\Modules\Payroll\Application\Commands\ReplaceBenefitCeiling;
 use App\Modules\Payroll\Application\Commands\SaveIncentiveType;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollSettingsAccess;
@@ -18,9 +18,9 @@ use App\Modules\Payroll\Application\Queries\BenefitCeilingRecords;
 use App\Modules\Payroll\Application\Queries\IncentiveTypeRecords;
 use App\Modules\Payroll\Contracts\Views\IncentiveTypeView;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
+use App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
-use App\Support\ManilaClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -32,7 +32,7 @@ use Livewire\Component;
 use RuntimeException;
 
 /**
- * Incentives & Bonuses — the benefits catalog under Payroll → Payroll
+ * Incentives & Bonuses — the benefits catalog under Records → Payroll
  * Settings: the allowances, incentives and bonuses a payroll can pay, each
  * with how much, how often, who qualifies, how it is prorated and how it is
  * taxed (`BenefitRule`). A scheduled benefit is proposed on every draft
@@ -98,6 +98,12 @@ class IncentiveTypesPage extends Component
     /** Whether leave credit cash-outs are paid as this type (one type at most; the command moves the flag). */
     public bool $formPaysLeaveCashOut = false;
 
+    /** What one converted day pays on the type that pays them: FACTOR or DAILY (LeaveCashOutValue). Plain form state; SaveIncentiveType re-validates it. */
+    public string $formCashOutDayValue = LeaveCashOutValue::FACTOR;
+
+    /** The FACTOR method's factor as typed. */
+    public string $formCashOutFactor = '0.0481927';
+
     /** The dialog's inline error. */
     public ?string $formError = null;
 
@@ -111,17 +117,16 @@ class IncentiveTypesPage extends Component
     #[Locked]
     public ?string $deletingId = null;
 
-    /** The tax-free ceiling dialog. Plain UI state. */
+    /** The tax-exempt ceiling dialog. Plain UI state. */
     public bool $ceilingOpen = false;
 
     /**
-     * The ceiling version as typed: the date, the pesos and the reason.
-     * Free text — no id in it, so not #[Locked]; SaveBenefitCeiling
-     * re-validates every field.
+     * The ceiling as typed: the pesos alone. Free text — no id in it, so not
+     * #[Locked]; ReplaceBenefitCeiling re-validates it.
      *
      * @var array<string, string>
      */
-    public array $ceilingForm = ['effective_from' => '', 'amount' => '', 'reason' => ''];
+    public array $ceilingForm = ['amount' => ''];
 
     public ?string $ceilingError = null;
 
@@ -130,20 +135,15 @@ class IncentiveTypesPage extends Component
         $this->sortKey = 'id';
     }
 
-    /** Opens the ceiling dialog with the day after the latest version, or today. */
+    /** Opens the ceiling dialog on the ceiling in use. */
     public function openCeiling(): void
     {
         $access = app(Access::class);
         if (! PayrollSettingsAccess::mayManage($access)) {
             return;
         }
-        $latest = app(BenefitCeilingRecords::class)->versions($access)->first();
-        $today = ManilaClock::todayKey();
-        $this->ceilingForm = [
-            'effective_from' => $latest === null ? $today : max($today, $latest->effective_from->addDay()->format('Y-m-d')),
-            'amount' => $latest === null ? '' : Hris::moneyText($latest->ceiling),
-            'reason' => '',
-        ];
+        $current = app(BenefitCeilingRecords::class)->current($access);
+        $this->ceilingForm = ['amount' => $current === null ? '' : Hris::moneyText($current->ceiling)];
         $this->ceilingError = null;
         $this->ceilingOpen = true;
     }
@@ -155,7 +155,7 @@ class IncentiveTypesPage extends Component
         }
     }
 
-    /** Saves a dated ceiling version through the audited command. */
+    /** Replaces the ceiling through the audited command; it applies at once. */
     public function saveCeiling(): void
     {
         $access = app(Access::class);
@@ -165,10 +165,10 @@ class IncentiveTypesPage extends Component
             return;
         }
         try {
-            $message = app(SaveBenefitCeiling::class)->handle($access, (string) ($this->ceilingForm['effective_from'] ?? ''), (string) ($this->ceilingForm['amount'] ?? ''), (string) ($this->ceilingForm['reason'] ?? ''));
+            $message = app(ReplaceBenefitCeiling::class)->handle($access, (string) ($this->ceilingForm['amount'] ?? ''));
         } catch (QueryException $e) {
             report($e);
-            $this->ceilingError = 'The version could not be saved. Nothing was changed. Please try again.';
+            $this->ceilingError = 'The ceiling could not be saved. Nothing was changed. Please try again.';
 
             return;
         } catch (RuntimeException $e) {
@@ -217,6 +217,7 @@ class IncentiveTypesPage extends Component
         $this->formDescription = '';
         $this->fillRule(BenefitRule::typed(true));
         $this->formPaysLeaveCashOut = false;
+        $this->fillCashOutValue(LeaveCashOutValue::standard());
         $this->formError = null;
         $this->formErrorField = null;
         $this->dialogOpen = true;
@@ -237,9 +238,18 @@ class IncentiveTypesPage extends Component
         $this->formDescription = (string) ($row->description ?? '');
         $this->fillRule(self::ruleOf($row));
         $this->formPaysLeaveCashOut = (bool) ($row->pays_leave_cash_out ?? false);
+        $this->fillCashOutValue(PayrollData::cashOutValueReady() ? LeaveCashOutValue::fromColumns($row->cash_out_day_value ?? null, $row->cash_out_factor ?? null) : LeaveCashOutValue::standard());
         $this->formError = null;
         $this->formErrorField = null;
         $this->dialogOpen = true;
+    }
+
+    /** The dialog's day value fields from a stored or starting value; DAILY keeps the standard factor in the box. */
+    private function fillCashOutValue(LeaveCashOutValue $value): void
+    {
+        $this->formCashOutDayValue = $value->method;
+        $factor = $value->factor ?? LeaveCashOutValue::DEFAULT_FACTOR;
+        $this->formCashOutFactor = rtrim(rtrim(number_format($factor, LeaveCashOutValue::FACTOR_DECIMALS, '.', ''), '0'), '.');
     }
 
     /**
@@ -266,7 +276,10 @@ class IncentiveTypesPage extends Component
             return;
         }
         try {
-            $message = app(SaveIncentiveType::class)->handle($access, $this->editingId, $this->formName, $this->formDescription, $this->formTax === BenefitRule::TAX_TAXABLE, $rule, $this->formPaysLeaveCashOut);
+            // The day's value is sent only with the flag on: a type that does
+            // not pay cash conversions keeps whatever it holds.
+            $value = $this->formPaysLeaveCashOut && PayrollData::cashOutValueReady() ? ['day_value' => $this->formCashOutDayValue, 'factor' => $this->formCashOutFactor] : null;
+            $message = app(SaveIncentiveType::class)->handle($access, $this->editingId, $this->formName, $this->formDescription, $this->formTax === BenefitRule::TAX_TAXABLE, $rule, $this->formPaysLeaveCashOut, $value);
         } catch (UniqueConstraintViolationException) {
             $this->refuse('An incentive type with that name already exists.');
 
@@ -339,9 +352,7 @@ class IncentiveTypesPage extends Component
             'statusNames' => array_column($statuses, 'name', 'id'),
             'rulesReady' => PayrollData::benefitRulesReady(),
             'ceilingReady' => BenefitCeilings::ready(),
-            'ceilings' => $ceilings = app(BenefitCeilingRecords::class)->versions($access),
-            'today' => $today = ManilaClock::todayKey(),
-            'ceilingInForceId' => $ceilings->first(static fn ($v): bool => $v->effective_from->format('Y-m-d') <= $today)?->id,
+            'ceiling' => app(BenefitCeilingRecords::class)->current($access),
             'sample' => $this->dialogOpen ? $this->sample() : null,
             // Statuses ticked in the dialog that the Employment list no longer has: saving drops them.
             'removedStatuses' => count(array_filter(array_keys(array_filter($this->formStatuses)), static fn (string $id): bool => ! in_array($id, array_column($statuses, 'id'), true))),
@@ -433,7 +444,7 @@ class IncentiveTypesPage extends Component
         if ($this->formTax === BenefitRule::TAX_DE_MINIMIS) {
             $cap = self::number($this->formCap);
             if ($cap === null) {
-                return 'Enter the cap up to which it is tax-free.';
+                return 'Enter the cap up to which it is tax-exempt.';
             }
         }
 

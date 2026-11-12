@@ -52,11 +52,13 @@ use InvalidArgumentException;
  *  - `hourly_rate.hours`: the hours the daily rate is divided by for the
  *    hourly rate. Blank = the shift's own paid hours (the reference); a
  *    figure (8) prices every hour of every shift from it.
- *  - `rounding.decimals`: the decimals each RATE STEP is rounded to before
- *    it is multiplied on — the daily rate, the hourly rate and a premium
- *    hourly rate — the way a payroll register's ROUND(monthly ÷ 22, 2) and
- *    ROUND(daily ÷ 8, 2) do (`Money::roundTo`). Blank = no rounding (the
- *    reference prices from the unrounded rates).
+ *  - `rounding.decimals`: the decimals the daily and hourly rates are
+ *    rounded to before anything is priced from them, the way a payroll
+ *    register's ROUND(monthly ÷ 22, 2) and ROUND(daily ÷ 8, 2) do
+ *    (`Money::roundTo`). A premium hourly rate is NOT rounded: the engine
+ *    adds up the hours at each rate and rounds the amount once to centavos,
+ *    the register's ROUND(hours × hourly × factor, 2). Blank = no rounding
+ *    (the reference prices from the unrounded rates, day by day).
  *  - `overtime.seaport_rate`: the hourly rate, as a fraction of the base
  *    hourly, for an overtime day the Daily Time Record approved as SEAPORT
  *    overtime, whatever the day type; a seaport day is never capped.

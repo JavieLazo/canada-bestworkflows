@@ -216,22 +216,35 @@ it('keeps a past-dated change pending until it is approved, by its recorder incl
         ->and(AuditLog::query()->where('action', AuditEvent::SALARY_CHANGE_REVIEWED->value)->count())->toBe(2);
 });
 
-it('records a rate edit made on the record as a version dated today', function () {
+it('keeps one salary row when a rate is edited on the record, whatever dated versions were stored before', function () {
     $employee = salrEmployee();
     $actor = salrActor(['EMPLOYEES']);
     $employee->forceFill(['monthly_rate' => 23000])->save();
     SalaryRates::recordProfileEdit($actor, $employee, 22000.0, null, '2026-09-20');
-    SalaryRates::recordProfileEdit($actor, $employee, 23000.0, null, '2026-09-20');
-    $row = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->where('effective_from', '2026-09-20')->sole();
-    expect($row->effective_from->format('Y-m-d'))->toBe('2026-09-20')
+    $row = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->sole();
+    expect($row->effective_from->format('Y-m-d'))->toBe('2026-06-01')
         ->and($row->monthly_rate)->toBe(23000.0)
         ->and($row->status)->toBe(EmployeeSalaryRate::APPROVED)
         ->and($row->reason)->toBe('Changed on Employee Details');
-    // The same day again brings the version to the new figure instead of adding one.
-    $employee->forceFill(['monthly_rate' => 23500])->save();
+
+    // An unchanged pair writes nothing; another edit replaces the same row.
     SalaryRates::recordProfileEdit($actor, $employee, 23000.0, null, '2026-09-20');
-    expect(EmployeeSalaryRate::query()->where('employee_id', $employee->id)->count())->toBe(2)
-        ->and($row->refresh()->monthly_rate)->toBe(23500.0);
+    $employee->forceFill(['monthly_rate' => 23500])->save();
+    SalaryRates::recordProfileEdit($actor, $employee, 23000.0, null, '2026-09-25');
+    $again = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->sole();
+    expect($again->id)->toBe($row->id)->and($again->monthly_rate)->toBe(23500.0);
+
+    // Rows left by dated versions — one still to start, one awaiting approval — are folded into the one.
+    foreach ([['2026-12-01', EmployeeSalaryRate::APPROVED], ['2026-08-01', EmployeeSalaryRate::PENDING]] as [$from, $status]) {
+        $extra = new EmployeeSalaryRate(['employee_id' => $employee->id, 'effective_from' => $from, 'monthly_rate' => 30000, 'reason' => 'Dated version', 'status' => $status]);
+        $extra->save();
+    }
+    $employee->forceFill(['monthly_rate' => 24000])->save();
+    SalaryRates::recordProfileEdit($actor, $employee, 23500.0, null, '2026-09-26');
+    $one = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->sole();
+    expect($one->id)->toBe($row->id)
+        ->and($one->monthly_rate)->toBe(24000.0)
+        ->and($one->effective_from->format('Y-m-d'))->toBe('2026-06-01');
 });
 
 /*
@@ -283,32 +296,40 @@ it('prices each day at the salary in force on it, captures the versions in the e
 |--------------------------------------------------------------------------
 */
 
-it('records and reviews salary changes from the employee pay page', function () {
+it('changes the salary on the employee pay page, in effect at once, with no date, reason or approval', function () {
     $employee = salrEmployee();
-    salrActor(name: 'Preparer');
-    $page = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('Record salary change')
-        ->assertSee('No salary version yet')
+    $actor = salrActor(name: 'Preparer');
+    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
+        ->assertSee('Change salary')
+        ->assertDontSee('Record salary change')
+        ->assertSeeHtml('data-salary-rates')
         ->call('openSalaryChange')
         ->assertSet('salaryOpen', true)
-        ->assertSet('salaryForm.effective_from', '2026-09-20')
+        // The dialog opens on the salary in use, and asks for the two rates alone.
+        ->assertSet('salaryForm', ['monthly' => '22000', 'daily' => ''])
+        ->set('salaryForm.monthly', '')
+        ->call('saveSalaryChange')
+        ->assertSet('salaryError', 'Enter a Rate Per Month or a Rate Per Day.')
         ->set('salaryForm.monthly', '24,200')
         ->call('saveSalaryChange')
-        ->assertSet('salaryError', 'Enter the reason for the salary change.')
-        ->set('salaryForm.reason', 'Step increment')
-        ->set('salaryForm.effective_from', '2026-09-01')
-        ->call('saveSalaryChange')
         ->assertSet('salaryOpen', false)
-        ->assertSee('Awaiting approval');
-    $pending = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->where('status', EmployeeSalaryRate::PENDING)->sole();
-    expect($pending->status)->toBe(EmployeeSalaryRate::PENDING);
+        ->assertSet('salaryError', null)
+        ->assertDontSee('Awaiting approval')
+        ->assertSee('₱24,200.00');
 
-    // The preparer approves it from the same page.
-    $page->call('openSalaryReview', $pending->id)
-        ->set('salaryReviewNote', 'Memo on file')
-        ->call('approveSalaryChange')
-        ->assertSet('salaryReviewOpen', false)
-        ->assertSee('Current');
-    expect($pending->refresh()->status)->toBe(EmployeeSalaryRate::APPROVED)
-        ->and($employee->refresh()->monthly_rate)->toBe(24200.0);
+    // One salary row, in use from the hire date, and the record carries the rate.
+    $row = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->sole();
+    expect($row->status)->toBe(EmployeeSalaryRate::APPROVED)
+        ->and($row->monthly_rate)->toBe(24200.0)
+        ->and($row->effective_from->format('Y-m-d'))->toBe('2026-06-01')
+        ->and($row->approved_by)->toBe((int) $actor->userId)
+        ->and($employee->refresh()->monthly_rate)->toBe(24200.0)
+        ->and(AuditLog::query()->where('action', AuditEvent::SALARY_CHANGE_RECORDED->value)->where('entity_id', $row->id)->where('details', 'Nora Salcedo · salary replaced')->exists())->toBeTrue();
+
+    // A viewer without all data changes nothing.
+    salrActor(['PAYROLL'], allData: false, name: 'Viewer');
+    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
+        ->set('salaryForm', ['monthly' => '99999', 'daily' => ''])
+        ->call('saveSalaryChange');
+    expect($employee->refresh()->monthly_rate)->toBe(24200.0);
 });

@@ -17,6 +17,7 @@ use App\Modules\Workforce\Application\Queries\KioskEmployees;
 use App\Support\Access;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
+use Tests\Support\PunchShiftFixture;
 
 function edtrMobileRole(string $name, bool $allData = true, bool $edtr = true): Role
 {
@@ -66,6 +67,8 @@ function edtrMobileEmployee(string $first = 'Liza', string $last = 'Domingo'): E
         'is_active' => true,
         'work_site_id' => $site->getKey(),
     ])->save();
+    // A Time In is refused on a date with no shift, on the phone as at the station.
+    PunchShiftFixture::anyHour((string) $employee->getKey());
 
     return $employee;
 }

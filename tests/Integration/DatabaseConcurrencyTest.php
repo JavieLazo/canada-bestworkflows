@@ -24,6 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
 use Symfony\Component\Process\Process;
+use Tests\Support\ScheduleFixture;
 
 /** Real connections must serialize critical writes and deduplicate repeated requests. */
 
@@ -118,6 +119,7 @@ it('serializes competing payroll membership, finalization, and storage quota wri
         RoleModuleGrant::create(['role_id' => $role->id, 'module' => $module]);
     }
     $employee = EmployeeProfile::create(['employee_code' => 'TEST-RACE', 'first_name' => 'Synthetic', 'last_name' => 'Concurrency', 'date_hired' => '2024-01-01', 'employment_status' => 'Regular', 'is_active' => true, 'monthly_rate' => 30000]);
+    ScheduleFixture::standard($employee);
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => $employee->id]);
     $runId = '';
     foreach (['membership' => 'copems:payroll-membership', 'finalize' => 'copems:payroll-membership', 'quota' => 'copems:attachment-budget'] as $operation => $lock) {

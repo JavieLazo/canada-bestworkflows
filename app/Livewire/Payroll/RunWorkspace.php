@@ -18,10 +18,8 @@ use App\Models\User;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Payroll\Application\Adjustments as AdjustmentLedger;
 use App\Modules\Payroll\Application\Commands\FinalizePayroll;
-use App\Modules\Payroll\Application\Commands\MarkPayrollReleased;
 use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\LeaveCancellationWarnings;
-use App\Modules\Payroll\Application\OpenAttendanceItems;
 use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\PayrollReview;
@@ -32,6 +30,7 @@ use App\Modules\Payroll\Application\Queries\PayrollRecords;
 use App\Modules\Payroll\Application\Queries\PayScheduleRecords;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
 use App\Modules\Payroll\Application\Queries\RecurringLineRecords;
+use App\Modules\Payroll\Application\ScheduleHold;
 use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayrollRunView;
@@ -104,10 +103,14 @@ class RunWorkspace extends Component
     public string $end = '';
 
     /**
-     * The advance payroll's "attendance counted through" date, 'Y-m-d' or
-     * '' for the whole period (PayrollAdvance). Form state driven by the
-     * date field; SavePayroll validates it.
+     * The "attendance counted through" date of a draft, 'Y-m-d' or '' for
+     * the whole period (PayrollAdvance). Not typed: every payroll is
+     * processed before its period ends, so the draft is counted through
+     * yesterday whenever it is shown or saved while the period runs, and
+     * through nothing once it has ended (`followTodayCountedThrough`). Locked
+     * because nothing on the page sets it; SavePayroll validates it.
      */
+    #[Locked]
     public string $attendanceThrough = '';
 
     /**
@@ -229,15 +232,6 @@ class RunWorkspace extends Component
     #[Locked]
     public bool $reviewRequired = false;
 
-    /**
-     * The preview receipt the officer ticked "Finalize anyway" against, or
-     * null: open attendance (OpenAttendanceItems) is accepted only for
-     * exactly the figures it was ticked over, so any change to what is
-     * shown — a punch, a decision, a request — clears it in render().
-     */
-    #[Locked]
-    public ?string $openItemsAcceptedFor = null;
-
     /* ---- Add-employees dialog (add-employees-dialog.tsx) ---- */
 
     /** Whether the dialog is showing. */
@@ -289,9 +283,7 @@ class RunWorkspace extends Component
             $month = substr(PayrollData::todayKey(), 0, 7);
             $this->start = "{$month}-01";
             $this->end = "{$month}-15";
-            // A draft opened while its period still runs starts as an
-            // advance payroll counted through yesterday (PayrollAdvance).
-            $this->attendanceThrough = PayrollAdvance::defaultThrough($this->start, $this->end, PayrollData::todayKey()) ?? '';
+            $this->followTodayCountedThrough();
             // The company's default pay schedule, and the pay date it gives
             // these dates (PaySchedules).
             $default = app(PayScheduleRecords::class)->default(app(Access::class));
@@ -318,6 +310,8 @@ class RunWorkspace extends Component
         $this->name = $run->name;
         $this->start = $run->period_start->format('Y-m-d');
         $this->end = $run->period_end->format('Y-m-d');
+        // The stored date, for the saved snapshot below; a draft then
+        // follows today, so one stored on an earlier day reads as unsaved.
         $this->attendanceThrough = $run->attendance_through?->format('Y-m-d') ?? '';
         $this->scheduleId = $run->schedule_id ?? '';
         $this->payDate = $run->pay_date?->format('Y-m-d') ?? '';
@@ -332,6 +326,9 @@ class RunWorkspace extends Component
         $this->skippedRecurring = $overrides['skippedRecurring'];
 
         $this->savedState = $this->currentState();
+        if ($run->status !== PayrollRunStatus::FINALIZED) {
+            $this->followTodayCountedThrough();
+        }
 
         return null;
     }
@@ -343,39 +340,31 @@ class RunWorkspace extends Component
      */
     public function updatedStart(): void
     {
+        $this->followTodayCountedThrough();
         $this->fillPayDate();
     }
 
     public function updatedEnd(): void
     {
+        $this->followTodayCountedThrough();
         $this->fillPayDate();
+    }
+
+    /**
+     * The counted date a draft stands on today: yesterday while the period
+     * runs and yesterday is inside it, else nothing (PayrollAdvance). Called
+     * wherever the period or the day may have moved, so a draft opened
+     * days after it was saved counts through today's yesterday, not the
+     * stored one — and reads as unsaved until it is saved again.
+     */
+    private function followTodayCountedThrough(): void
+    {
+        $this->attendanceThrough = PayrollAdvance::defaultThrough($this->start, $this->end, PayrollData::todayKey()) ?? '';
     }
 
     public function updatedScheduleId(): void
     {
         $this->fillPayDate();
-    }
-
-    /** Marks a finalized payroll released: the pay went out (MarkPayrollReleased). */
-    public function markReleased(): void
-    {
-        $actor = app(Access::class);
-        if ($this->runId === null) {
-            return;
-        }
-        try {
-            $message = app(MarkPayrollReleased::class)->handle($actor, $this->runId);
-        } catch (QueryException $e) {
-            report($e);
-            Flux::toast(text: 'The payroll could not be marked released. Try again.', variant: 'danger');
-
-            return;
-        } catch (RuntimeException $e) {
-            Flux::toast(text: $e->getMessage(), variant: 'danger');
-
-            return;
-        }
-        Flux::toast(text: $message, variant: 'success');
     }
 
     /**
@@ -735,7 +724,9 @@ class RunWorkspace extends Component
      * row for one member, typed in the grid like Other Deductions.
      * Only a row the list prices by hand is admitted — an automatic row is the
      * engine's line, and typing it here would charge it twice — and only a
-     * positive amount; an emptied, zero or unreadable cell removes the line.
+     * positive amount, or a zero on a percentage row (the employee's share
+     * already paid for this cut-off; the employer's stays). An emptied or
+     * unreadable cell removes the line, and so does a zero on any other row.
      * Reads the catalog, so it re-checks Access; SavePayroll validates the
      * row and amount again inside its transaction.
      */
@@ -746,12 +737,13 @@ class RunWorkspace extends Component
             return;
         }
 
-        if (! PayrollData::customDeductionTypes($actor)->contains(static fn (object $type): bool => $type->id === $typeId)) {
+        $type = PayrollData::customDeductionTypes($actor)->first(static fn (object $type): bool => $type->id === $typeId);
+        if ($type === null) {
             return; // an automatic, deleted or made-up row: fail closed
         }
 
         $amount = is_string($value) ? str_replace(',', '', trim($value)) : $value;
-        if ($amount === null || $amount === '' || ! is_numeric($amount) || ! is_finite((float) $amount) || Money::round($amount) <= 0) {
+        if ($amount === null || $amount === '' || ! is_numeric($amount) || ! is_finite((float) $amount) || Money::round($amount) < 0 || (Money::round($amount) === 0.0 && $type->percent === null)) {
             unset($this->draftCustomDeductions[$employeeId][$typeId]);
 
             if (($this->draftCustomDeductions[$employeeId] ?? null) === []) {
@@ -926,14 +918,12 @@ class RunWorkspace extends Component
         }
 
         try {
-            $count = app(FinalizePayroll::class)->handle($actor, $this->runId, $this->previewReceipt,
-                acceptOpenItems: $this->previewReceipt !== null && $this->openItemsAcceptedFor === $this->previewReceipt);
+            $count = app(FinalizePayroll::class)->handle($actor, $this->runId, $this->previewReceipt);
         } catch (PayrollReviewRequired $e) {
             // Finalize already refused dirty local state, so reloading cannot discard unsaved work.
             $this->mount($this->runId);
             $this->reviewRequired = true;
             $this->previewReceipt = null;
-            $this->openItemsAcceptedFor = null;
             Flux::toast(text: $e->getMessage(), variant: 'danger');
 
             return;
@@ -948,19 +938,6 @@ class RunWorkspace extends Component
             return;
         }
         Flux::toast(text: 'Finalized — '.$count.' payslips posted.', variant: 'success');
-    }
-
-    /**
-     * The "Finalize anyway, pay these as they stand" tick: accepts the open
-     * attendance of exactly the preview on screen, or takes that back.
-     */
-    public function toggleOpenItems(): void
-    {
-        $actor = app(Access::class);
-        if (! $actor->mayReadAllData(ModuleCode::PAYROLL) || $this->isFinalized()) {
-            return;
-        }
-        $this->openItemsAcceptedFor = $this->openItemsAcceptedFor === null ? $this->previewReceipt : null;
     }
 
     /** Acknowledges the newly displayed preview without posting or changing the saved draft. */
@@ -1020,17 +997,17 @@ class RunWorkspace extends Component
 
         $run = $this->runId !== null ? app(PayrollRecords::class)->find($actor, $this->runId) : null;
         $base = ($run->code ?? trim($this->name)) !== '' ? ($run->code ?? trim($this->name)) : 'draft';
-        $filename = 'cyberonions-payroll-'.mb_strtolower($base).'.csv';
+        $filename = 'payroll-'.mb_strtolower($base).'.csv';
 
         // Both identifiers, unlike the screen: a spreadsheet is reconciled
         // against other systems, and the row id is the only key that is never
         // null. 'ID' matches what every list calls it.
         $headers = [
-            'ID', 'Employee ID', 'Employee', 'Period start', 'Period end', 'Daily rate',
-            'Work days', 'Holidays worked', 'Rest days worked', 'Absences', 'Unpaid leave days', 'Paid leave days',
-            'Work days pay', 'Holiday pay', 'Rest day pay', 'Basic salary', 'Allowance', 'Total',
-            'Overtime hours', 'Overtime pay', 'Overtime approved', 'NSD', 'Leave',
-            'Other earnings', 'Gross income',
+            'ID', 'Employee ID', 'Employee', 'Period from', 'Period to', 'Daily rate',
+            'Work days', 'Holidays worked', 'Rest days worked', 'Absences', 'Leave without pay days', 'Paid leave days',
+            'Work days pay', 'Holiday pay', 'Rest day pay', 'Basic pay', 'Allowance', 'Subtotal',
+            'Overtime hours', 'Overtime pay', 'Overtime approved', 'NSD', 'Leave pay',
+            'Other earnings', 'Gross pay',
             $statutoryHeader(DeductionCalculation::SSS), $statutoryHeader(DeductionCalculation::PHILHEALTH),
             $statutoryHeader(DeductionCalculation::PAGIBIG), $statutoryHeader(DeductionCalculation::WITHHOLDING_TAX),
             'Other deductions', 'Undertime minutes', 'Undertime deduction', 'Late minutes',
@@ -1043,10 +1020,10 @@ class RunWorkspace extends Component
             // part, and how much of the taxed part is excess.
             'Incentives taxed', 'Incentives tax-exempt', 'Excess over PHP 90,000',
             // And the advance payroll: the days paid ahead of attendance and
-            // the settlement of earlier ones, inside Gross income.
-            'Days paid in advance', 'Attendance settlement',
+            // the prior cut-off adjustment of earlier ones, inside Gross pay.
+            'Days paid as scheduled', 'Prior cut-off adjustment',
             // And the days of leave credits charged for lateness, undertime and absences.
-            'Leave credits charged · days',
+            'Leave credits deducted · days',
             // And the typed deduction columns: one per Payroll Deductions
             // row an officer types, headed as the list names it, blank
             // where the employee has no such line.
@@ -1119,23 +1096,27 @@ class RunWorkspace extends Component
         /** @var array<string, float> $proposedIncentives */
         $proposedIncentives = [];
         $exemptOrderWarning = false;
-        $scheduleWarnings = ['unscheduled' => [], 'changed' => [], 'since' => ''];
+        $scheduleWarnings = ['noShift' => [], 'changed' => [], 'since' => ''];
         $leaveCancellationWarnings = [];
         // The members with recurring lines live on this payroll (their dialog opens from the grid).
         $recurringMembers = [];
         // Where each draft figure comes from (FigureSources), and the one "Why this amount?" explains.
         $figureMarks = [];
         $why = null;
-        // The advance payroll (PayrollAdvance): the counted date in force on
-        // this draft, the days paid ahead of attendance and each member's
+        // The counted date in force on this draft (PayrollAdvance; a draft's
+        // follows today), the days paid as scheduled and each member's
         // settlements of earlier ones (AdvanceSettlements).
+        if (! $finalized) {
+            $this->followTodayCountedThrough();
+        }
         $attendanceThrough = $finalized ? ($run->attendance_through?->format('Y-m-d') ?? null) : PayrollAdvance::normalize($this->attendanceThrough, $this->end);
         $advanceError = $finalized ? null : PayrollAdvance::error($attendanceThrough, $this->start, $this->end, PayrollData::todayKey());
         $settlementLines = [];
         // What each member's draft charges to leave credits (DIVERGENCE 15).
         $leaveChargeLines = [];
-        // What attendance has not finished deciding: "Before you finalize".
-        $openItems = OpenAttendanceItems::none();
+        // Each member's own counted date on an advance payroll (an unfinished
+        // day pulls it back; PayrollAdvance::countedThrough), for the panel.
+        $countedThrough = [];
         $this->previewReceipt = null;
 
         // The pay schedule's period with these dates, when the dates are one
@@ -1166,6 +1147,9 @@ class RunWorkspace extends Component
             }
             $deductionColumns = app(PayslipRecords::class)->deductionColumns($actor, $payslipIds);
             $settlementLines = AdvanceText::postedLines(app(PayslipRecords::class)->settlements($actor, $payslipIds), $lines);
+            foreach ($lines as $line) {
+                $countedThrough[$line->employee_id] = $line->attendance_through?->format('Y-m-d');
+            }
         } elseif ($actor->mayReadAllData(ModuleCode::PAYROLL)) {
             // usePayrollCalculation(cutoffError ? [] : members, …) — a broken
             // cut-off computes nothing and the grid shows the error instead.
@@ -1188,8 +1172,8 @@ class RunWorkspace extends Component
             $lines = $calculation['drafts'];
             $settlementLines = $calculation['settlementLines'];
             $leaveChargeLines = $calculation['leaveChargeLines'];
+            $countedThrough = $calculation['countedThrough'];
             $leaveCancellationWarnings = LeaveCancellationWarnings::forInputs($calculation['inputs']);
-            $openItems = OpenAttendanceItems::forInputs($calculation['inputs'], ManilaClock::todayKey());
             $employees = $calculation['employees']->keyBy('id');
             $statutory = $calculation['statutory'];
             $incentiveLines = $calculation['incentiveLines'];
@@ -1215,11 +1199,12 @@ class RunWorkspace extends Component
                 $this->previewReceipt = PayrollReview::issue($actor, $this->runId, $this->name, $calculation['inputs']);
             }
 
-            // Non-blocking: members judged by the system default on dates
-            // nobody gave them a schedule for, and schedules changed after
-            // this draft was last saved. The amounts on this page already
-            // follow each date's schedule as it is now; finalizing still
-            // needs the receipt of exactly what is shown.
+            // Members with dates with no shift in this period — which hold
+            // finalizing until their schedule is set (ScheduleHold) — and,
+            // non-blocking, schedules changed after this draft was last
+            // saved. The amounts on this page already follow each date's
+            // schedule as it is now; finalizing still needs the receipt of
+            // exactly what is shown.
             if ($cutoffError === null && $this->members !== []) {
                 $scheduleWarnings = $this->scheduleWarnings($actor, $run, $employees);
             }
@@ -1243,12 +1228,6 @@ class RunWorkspace extends Component
             $lines = [];
             $employees = new Collection;
             $deductionColumns = new Collection;
-        }
-
-        // The "Finalize anyway" tick holds only for the preview it was given
-        // on, and only while something is open.
-        if ($openItems->isEmpty() || $this->openItemsAcceptedFor !== $this->previewReceipt) {
-            $this->openItemsAcceptedFor = null;
         }
 
         $totals = PayrollData::totals($lines);
@@ -1280,12 +1259,9 @@ class RunWorkspace extends Component
             'cutoffWarning' => $cutoffWarning,
             'statutoryWarning' => $statutoryWarning,
             // The pay schedules to pick from, the period the chosen one
-            // gives these dates (its pay date and deadlines), and the
-            // released mark.
-            'schedulesReady' => PaySchedules::ready(),
+            // gives these dates (its deadlines).
             'schedules' => PaySchedules::ready() ? app(PayScheduleRecords::class)->list($actor)->map(static fn ($s): array => ['id' => $s->id, 'name' => $s->name, 'default' => (bool) $s->is_default])->values()->all() : [],
             'schedulePeriod' => $schedulePeriod,
-            'payDateShown' => $payDate,
             // Members with an adjustment still awaiting approval: finalize
             // refuses until it is reviewed or discarded.
             'pendingAdjustments' => $finalized ? [] : $this->pendingAdjustmentNames($employees),
@@ -1294,19 +1270,17 @@ class RunWorkspace extends Component
             'customDeductionLines' => $customDeductionLines,
             'exemptOrderWarning' => $exemptOrderWarning,
             'scheduleWarnings' => $scheduleWarnings,
+            // The hold names the Shift Roster; a link only for whoever may open it.
+            'canOpenRoster' => $actor->hasModule(ModuleCode::ROSTER),
             'leaveCancellationWarnings' => $leaveCancellationWarnings,
-            'openItems' => $openItems,
-            'openItemsAccepted' => $this->openItemsAcceptedFor !== null,
             // The advance payroll: the counted date, what it refuses, the
             // days paid ahead of attendance and each member's settlements.
             'attendanceThrough' => $attendanceThrough,
             'advanceError' => $advanceError,
-            'advance' => AdvanceText::summary($attendanceThrough, $this->end, $lines),
+            'advance' => AdvanceText::summary($attendanceThrough, $this->end, $lines, $countedThrough),
             'settlementLines' => $settlementLines,
             // Which members charged leave credits (a figure opens "Why this amount?").
             'leaveChargeLines' => $leaveChargeLines,
-            // Each open item links to where it is decided, for whoever may go there.
-            'openItemLinks' => ['dtr' => $actor->hasModule(ModuleCode::EDTR), 'leaves' => $actor->hasModule(ModuleCode::LEAVES)],
             // The catalog, only while the incentives dialog is open.
             'incentiveTypes' => $this->incentivesOpen && ! $finalized ? app(IncentiveTypeRecords::class)->list($actor) : new Collection,
             'incentivesEmployee' => $this->incentivesFor !== null ? $employees->get($this->incentivesFor) : null,
@@ -1668,22 +1642,21 @@ class RunWorkspace extends Component
     }
 
     /**
-     * The schedule notices beside the grid, in the person's words: who is
-     * judged by the system default on how many dates, and whose schedule
+     * The schedule notices beside the grid, in the person's words: who has
+     * dates with no shift in this period, and how many — the hold
+     * `FinalizePayroll` refuses by (ScheduleHold) — and whose schedule
      * changed after the draft was last saved.
      *
      * @param  Collection<int|string, EmployeePayData>  $employees
-     * @return array{unscheduled: list<string>, changed: list<string>, since: string}
+     * @return array{noShift: list<string>, changed: list<string>, since: string}
      */
     private function scheduleWarnings(Access $actor, ?PayrollRunView $run, Collection $employees): array
     {
         $notices = app(ScheduleNotices::class);
         $name = static fn (string $id): string => PayrollData::employeeName($employees->get($id));
 
-        $unscheduled = [];
-        foreach ($notices->unscheduledDays($actor, $this->members, $this->start, $this->end) as $employeeId => $days) {
-            $unscheduled[] = $name($employeeId).' ('.$days.' '.($days === 1 ? 'day' : 'days').')';
-        }
+        $members = $employees->only($this->members)->values()->all();
+        $noShift = ScheduleHold::names($members, ScheduleHold::noShiftDays($actor, $members, $this->start, $this->end));
 
         $changed = [];
         $savedAt = $run === null ? null : ($run->updated_at ?? $run->created_at);
@@ -1694,7 +1667,7 @@ class RunWorkspace extends Component
         }
 
         return [
-            'unscheduled' => $unscheduled,
+            'noShift' => $noShift,
             'changed' => $changed,
             'since' => $savedAt?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') ?? '',
         ];

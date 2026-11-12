@@ -28,6 +28,7 @@ use App\Support\Access;
 use App\Support\Money;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * SSS, PhilHealth, Pag-IBIG and withholding are computed through the REAL
@@ -77,6 +78,7 @@ function statFeatEmployee(string $code, array $overrides = []): EmployeeProfile
         'monthly_rate' => 30000,
         'is_active' => true,
     ], $overrides))->save();
+    ScheduleFixture::standard($employee);
 
     return $employee->refresh();
 }
@@ -379,7 +381,7 @@ it('shows the employer shares on the posted payslip and in the CSV, and keeps th
     // incentive columns after them).
     $export = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('exportCsv')
-        ->assertFileDownloaded('cyberonions-payroll-pr-stat-10.csv');
+        ->assertFileDownloaded('payroll-pr-stat-10.csv');
     $bytes = (string) base64_decode((string) data_get($export->effects, 'download.content'), true);
     $lines = explode("\r\n", (string) preg_replace('/^\x{FEFF}/u', '', $bytes));
     expect($lines[0])->toContain('"Net pay","SSS (employer)","PhilHealth (employer)","Pag-IBIG (employer)",')

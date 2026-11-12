@@ -39,6 +39,8 @@ use Illuminate\Support\Facades\Schema;
  * @property string|null $approval_reference
  * @property bool $counts_toward_13th
  * @property bool $pays_leave_cash_out
+ * @property string $cash_out_day_value FACTOR or DAILY: what one converted day of leave credits pays on the type that pays them (2026_11_09_0003, LeaveCashOutValue)
+ * @property float $cash_out_factor the FACTOR method's factor, 0.0481927 to start
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -65,6 +67,8 @@ class PayrollIncentiveType extends BaseModel
         'approval_reference',
         'counts_toward_13th',
         'pays_leave_cash_out',
+        'cash_out_day_value',
+        'cash_out_factor',
     ];
 
     /**
@@ -95,6 +99,7 @@ class PayrollIncentiveType extends BaseModel
         return [
             'is_taxable' => 'boolean',
             'amount' => 'float',
+            'cash_out_factor' => 'float',
             'month' => 'integer',
             'statuses' => 'array',
             'min_service_months' => 'integer',

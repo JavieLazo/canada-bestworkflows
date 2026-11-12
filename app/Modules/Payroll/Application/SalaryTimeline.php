@@ -16,6 +16,8 @@ use App\Support\Access;
  * later version taking over inside the period rides along as a dated
  * segment the engine prices from its date. A member with no version keeps
  * the record's rates and has no segments, which is the reference's shape.
+ * And each member's highest salary on record, which terminal leave is
+ * priced from.
  */
 final class SalaryTimeline
 {
@@ -55,6 +57,42 @@ final class SalaryTimeline
                 }
             }
             $out[] = $employee->withSalary($monthly, $daily, $later);
+        }
+
+        return $out;
+    }
+
+    /**
+     * The HIGHEST salary on record for each of `$employeeIds` — what
+     * terminal leave is priced from: of the approved versions that took
+     * effect by the employee's Date Resigned (by the period's end when
+     * none is set), the one with the highest monthly rate, the latest on a
+     * tie; with no monthly rate on any, the one with the highest daily
+     * rate. An employee with no version has the record's rates, undated.
+     *
+     * @param  list<EmployeePayData>  $employees  as read for the run
+     * @param  list<string>  $employeeIds
+     * @return array<string, array{from: ?string, monthly_rate: ?float, daily_rate: ?float}>
+     */
+    public static function highest(Access $actor, array $employees, array $employeeIds, string $periodEnd): array
+    {
+        $out = [];
+        foreach ($employees as $employee) {
+            if (! in_array($employee->id, $employeeIds, true)) {
+                continue;
+            }
+            $through = $employee->date_resigned?->format('Y-m-d') ?? $periodEnd;
+            $versions = app(SalaryHistory::class)->segments($actor, [$employee->id], '0001-01-01', $through)[$employee->id] ?? [];
+            $best = null;
+            foreach ($versions as $version) {
+                $key = [(float) ($version['monthly_rate'] ?? 0.0), (float) ($version['daily_rate'] ?? 0.0)];
+                if ($best === null || $key >= $best['key']) {
+                    $best = ['key' => $key, 'version' => $version];
+                }
+            }
+            $out[$employee->id] = $best === null
+                ? ['from' => null, 'monthly_rate' => $employee->monthly_rate, 'daily_rate' => $employee->daily_rate]
+                : ['from' => $best['version']['from'], 'monthly_rate' => $best['version']['monthly_rate'], 'daily_rate' => $best['version']['daily_rate']];
         }
 
         return $out;

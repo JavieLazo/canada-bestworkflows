@@ -19,13 +19,17 @@
     use App\Modules\Payroll\Domain\DeductionCalculation;
 @endphp
 <div class="space-y-6">
-    <div>
-        <h1 class="text-2xl font-bold tracking-tight">{{ $config['title'] }}</h1>
-        <p class="text-sm text-muted-foreground">{{ $config['description'] }}</p>
-    </div>
-
     @if ($slug === 'payroll-deductions')
-        @include('livewire.payroll.partials.settings-switch', ['activeView' => 'deductions'])
+        @include('livewire.payroll.partials.settings-header', [
+            'activeView' => 'deductions',
+            'title' => $config['title'],
+            'description' => $config['description'],
+        ])
+    @else
+        <div>
+            <h1 class="text-2xl font-bold tracking-tight">{{ $config['title'] }}</h1>
+            <p class="text-sm text-muted-foreground">{{ $config['description'] }}</p>
+        </div>
     @endif
 
     <section class="hris-card overflow-hidden">
@@ -191,14 +195,14 @@
                 <flux:modal.close>
                     <flux:button variant="outline">Cancel</flux:button>
                 </flux:modal.close>
-                <flux:button variant="primary" wire:click="deleteConfirmed">Delete</flux:button>
+                <flux:button variant="danger" wire:click="deleteConfirmed">Delete</flux:button>
             </div>
         </div>
     </flux:modal>
 
     {{-- The ReferenceDialog (reference-list.tsx:326-414). --}}
-    <flux:modal wire:model.self="dialogOpen" class="w-full max-w-lg">
-        <div class="space-y-4">
+    <flux:modal wire:model.self="dialogOpen" class="w-full {{ $slug === 'payroll-deductions' ? 'max-w-2xl' : 'max-w-lg' }} scroll-pb-32">
+        <div class="space-y-4 bg-inherit">
             <div class="space-y-2">
                 <flux:heading size="lg">
                     {{ $editing !== null ? "Edit {$config['noun']}" : "Add {$config['noun']}" }}
@@ -206,18 +210,18 @@
                         <span class="num ml-2 text-sm font-normal text-muted-foreground">{{ $editing->code }}</span>
                     @endif
                 </flux:heading>
-                <flux:text>
-                    @if ($slug === 'payroll-deductions')
-                        {{ $editing !== null ? 'Saving changes every draft payroll on its next preview; finalized payrolls keep their posted payslips.' : 'A deduction is a column of the Basic Payroll grid, on every draft payroll from its next preview.' }}
-                    @else
+                @if ($slug === 'payroll-deductions')
+                    @include('livewire.payroll.partials.settings-applies-note', ['class' => 'text-sm text-muted-foreground'])
+                @else
+                    <flux:text>
                         {{ $editing !== null
                             ? 'Renaming updates the option everywhere it is offered.'
                             : "The new {$config['noun']} becomes selectable across the system." }}
-                    @endif
-                </flux:text>
+                    </flux:text>
+                @endif
             </div>
 
-            <form class="space-y-4" wire:submit="save">
+            <form class="space-y-4 bg-inherit" wire:submit="save">
                 <div class="space-y-2">
                     <flux:label>{{ $config['nameLabel'] }}</flux:label>
                     <flux:input
@@ -239,12 +243,9 @@
                     {{-- Payroll Deductions: typed per employee, or a percentage of salary. --}}
                     <div class="space-y-3 border-t border-border pt-4">
                         <x-kit.select label="Computation" wire:model.live="formComputation">
-                            <flux:select.option value="TYPED">Typed per employee on each payroll</flux:select.option>
+                            <flux:select.option value="TYPED">Set per employee, or typed on each payroll</flux:select.option>
                             <flux:select.option value="PERCENT">Percentage of salary</flux:select.option>
                         </x-kit.select>
-                        @if ($editing !== null && is_array($editing->percent ?? null))
-                            <p class="text-xs text-muted-foreground">Changes apply to every draft payroll on its next preview; finalized payrolls keep their posted payslips.</p>
-                        @endif
                         @if ($formComputation === 'PERCENT')
                             <div class="grid gap-4 sm:grid-cols-2">
                                 <div class="space-y-2">
@@ -275,7 +276,7 @@
                                 <flux:switch id="deduction-pretax" wire:model.live="formBeforeTax" />
                                 <div>
                                     <flux:label for="deduction-pretax">Deducted before tax</flux:label>
-                                    <p class="text-xs text-muted-foreground">Turn on when the amount is not part of taxable pay.</p>
+                                    <p class="text-xs text-muted-foreground">Turn on when the amount is not part of taxable compensation.</p>
                                 </div>
                             </div>
                             @if ($ruleError !== null)
@@ -287,13 +288,18 @@
                     </div>
                 @endif
 
-                <flux:button
-                    type="submit"
-                    variant="primary"
-                    :icon="$editing !== null ? 'pencil' : 'plus'"
-                >
-                    {{ $editing !== null ? 'Save changes' : "Add {$config['noun']}" }}
-                </flux:button>
+                <div class="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex justify-end gap-2 border-t border-border bg-inherit px-6 py-3">
+                    <flux:modal.close>
+                        <flux:button variant="outline">Cancel</flux:button>
+                    </flux:modal.close>
+                    <flux:button
+                        type="submit"
+                        variant="primary"
+                        :icon="$editing !== null ? 'pencil' : 'plus'"
+                    >
+                        {{ $editing !== null ? 'Save changes' : "Add {$config['noun']}" }}
+                    </flux:button>
+                </div>
             </form>
         </div>
     </flux:modal>

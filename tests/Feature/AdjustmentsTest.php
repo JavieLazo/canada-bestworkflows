@@ -122,7 +122,7 @@ it('adds, renames and deletes categories for whoever manages the Payroll Setting
 
     Livewire::test(AdjustmentCategoriesPage::class)
         ->call('openAdd')->set('formName', 'Uniform allowance')->set('formKind', AdjustmentRule::KIND_EARNING)->set('formTax', AdjustmentRule::TAX_NOT_TAXED)->call('save')
-        ->assertSet('dialogOpen', false)->assertSee('Uniform allowance')->assertSee('Not taxed');
+        ->assertSet('dialogOpen', false)->assertSee('Uniform allowance')->assertSee('Not compensation');
     expect(adjCategory('Uniform allowance')->tax)->toBe(AdjustmentRule::TAX_NOT_TAXED);
 });
 
@@ -235,7 +235,7 @@ it('pays approved lines on the next payroll from the evidence, holds a pending o
 
     // The evidence replays the lines, whatever the ledger holds later.
     $json = PayrollInputs::json($after['inputs']->toArray());
-    expect(json_decode($json, true)['schema_version'])->toBe(23);
+    expect(json_decode($json, true)['schema_version'])->toBe(24);
     $restored = PayrollInputs::restore($json);
     expect($restored->fingerprint())->toBe($after['inputs']->fingerprint());
     $data = json_decode($json, true);

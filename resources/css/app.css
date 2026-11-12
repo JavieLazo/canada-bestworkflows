@@ -7,7 +7,9 @@
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../vendor/livewire/flux/stubs/**/*.blade.php';
 
-@custom-variant dark (&:where(.dark, .dark *));
+/* `hris-always-light` opts a surface out of dark mode. Both wheres keep the
+   variant's specificity at zero, as the plain `.dark` form had it. */
+@custom-variant dark (&:where(.dark, .dark *):where(:not(.hris-always-light, .hris-always-light *)));
 
 /*
  * HRIS design system — clean corporate HR. Ported from copems/src/styles.css.
@@ -74,7 +76,8 @@
     --shadow-lift: 0 2px 4px oklch(0.2 0.04 255 / 0.06), 0 18px 40px -18px oklch(0.2 0.04 255 / 0.28);
 }
 
-:root {
+:root,
+.hris-always-light {
     /* Drives every rounded-* utility and hris-card: inputs/buttons 4px,
        dialogs 6px, cards 10px. Pills and avatars stay fully round.
        Floor: --radius-sm is this minus 4px, so 0.25rem squares off small marks. */
@@ -223,6 +226,54 @@
 .dark {
     --color-accent: var(--accent);
     --color-accent-foreground: var(--accent-foreground);
+}
+
+/*
+ * A surface that stays light whatever the theme: the Application for Leave's
+ * dialogs. The light tokens are redeclared on it (the `:root` block above) and
+ * Flux's `dark:` utilities skip it (the `dark` variant at the top of this
+ * file). What cannot follow from those is set here: the text colour, inherited
+ * from a dark body, the browser's own controls, and the `--color-*` variables.
+ * Those are declared once on `:root`, so a rule that reads one directly (the
+ * `hris-table` and `pill` utilities, the base border colour) would otherwise
+ * inherit the value already resolved for dark. KEEP THE LIST EQUAL TO THE
+ * `@theme inline` BLOCK; LeaveFormSettingsTest compares them.
+ */
+.hris-always-light {
+    color-scheme: light;
+    color: var(--foreground);
+    --color-accent-content: var(--color-zinc-800);
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary-soft: var(--primary-soft);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-success-soft: var(--success-soft);
+    --color-warning: var(--warning);
+    --color-warning-soft: var(--warning-soft);
+    --color-danger: var(--danger);
+    --color-danger-foreground: var(--danger-foreground);
+    --color-danger-soft: var(--danger-soft);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-ring: var(--ring);
+    --color-sidebar: var(--sidebar);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-border: var(--sidebar-border);
 }
 
 [data-flux-button],

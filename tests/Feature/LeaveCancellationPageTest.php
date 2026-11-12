@@ -86,8 +86,8 @@ it('shows a fully cancelled request without calling its original approval reject
     $request->update(['start_date' => '2026-10-12', 'end_date' => '2026-10-12']);
     Livewire::test(Index::class)->call('show', $request->id)
         ->set('cancelDates', ['2026-10-12'])->set('cancelReason', 'No longer needed')
-        ->call('cancelSelectedDates')->assertSee('CANCELLED')->assertSee('Approved with pay.')
-        ->assertDontSee('Rejected.')->assertDontSee('Cancel future dates');
+        ->call('cancelSelectedDates')->assertSee('CANCELLED')->assertSeeHtml('data-decision>Approved as paid leave</p>')
+        ->assertDontSeeHtml('data-decision>Rejected</p>')->assertDontSee('Cancel future dates');
 });
 
 it('warns payroll about a manual Leave amount after cancellation without changing the override', function () {

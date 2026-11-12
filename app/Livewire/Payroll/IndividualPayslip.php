@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace App\Livewire\Payroll;
 
 use App\Domain\Enums\PayrollRunKind;
+use App\Livewire\Payroll\Support\PayslipSheet;
 use App\Models\Payslip;
 use App\Modules\Payroll\Application\Queries\PayrollRecords;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
+use App\Modules\Workforce\Contracts\EmployeeReportContext;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use Illuminate\Contracts\View\View;
@@ -54,22 +56,20 @@ class IndividualPayslip extends Component
 
         $employee = app(OperationalDirectory::class)->find($actor, $this->employeeId);
 
+        // A 13th month payslip has its own, shorter layout.
+        $yearly = ($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH;
+
         return view('livewire.payroll.individual-payslip', [
             'run' => $run,
             'payslip' => $payslip,
             'employee' => $employee,
-            // The incentive and bonus lines it posted, itemised.
-            'incentives' => $payslip === null ? [] : (app(PayslipRecords::class)->incentives($actor, [$payslip->id])[$payslip->id] ?? []),
-            // Named deductions stay as they were when this payslip posted.
-            'customDeductions' => $payslip === null ? [] : (app(PayslipRecords::class)->customDeductions($actor, [$payslip->id])[$payslip->id] ?? []),
-            // The Deductions lines in the Payroll Deductions list's order:
-            // the query keeps issued names and ordering from this payslip's
-            // snapshot, with a legacy issued-label fallback.
-            'deductionColumns' => $payslip === null ? collect() : app(PayslipRecords::class)->deductionColumns($actor, [$payslip->id]),
-            // The settlements of earlier presumed days it made (the advance payroll).
-            'settlements' => $payslip === null ? [] : (app(PayslipRecords::class)->settlements($actor, [$payslip->id])[$payslip->id] ?? []),
-            // A 13th month payslip has its own, shorter layout.
-            'yearly' => ($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH,
+            'yearly' => $yearly,
+            // The month's posted cut-offs on one sheet, issued lines as they posted.
+            'sheet' => $payslip === null ? null : PayslipSheet::issued(
+                $actor, $payslip, $employee, $yearly,
+                app(EmployeeReportContext::class)->payrollDepartments($actor, [$this->employeeId])[$this->employeeId] ?? '',
+                $run->name ?? '',
+            ),
         ]);
     }
 }

@@ -77,7 +77,9 @@ final class PayrollEvidenceFixture
      * categories go below 17, the pay-rule segments below 18, the salary
      * segments below 19, the contribution month and posted shares below 20,
      * the tax-free ceiling and benefit assignments below 21, the tax year and
-     * the whole-year keys below 22, a leave's half below 23.
+     * the whole-year keys below 22, a leave's half below 23, and a cash
+     * conversion's purpose and salary and the paying type's day value below
+     * 24.
      *
      * @param  array<string, mixed>  $inputs
      * @return array<string, mixed>
@@ -130,6 +132,16 @@ final class PayrollEvidenceFixture
                         unset($inputs['settlements'][$id][$i]['presumed']['leaves'][$j]['half']);
                     }
                 }
+            }
+        }
+        if ($schema < 24) {
+            foreach ($inputs['leave_cash_outs'] ?? [] as $id => $list) {
+                foreach ($list as $i => $entry) {
+                    unset($inputs['leave_cash_outs'][$id][$i]['purpose'], $inputs['leave_cash_outs'][$id][$i]['salary']);
+                }
+            }
+            if (is_array($inputs['cash_out_type'] ?? null)) {
+                unset($inputs['cash_out_type']['day_value'], $inputs['cash_out_type']['factor']);
             }
         }
         if ($schema < 22) {

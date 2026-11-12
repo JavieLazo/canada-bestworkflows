@@ -99,4 +99,20 @@ final class LeaveQuantity
 
         return $text === '-0' || $text === '' ? '0' : $text;
     }
+
+    /**
+     * As a leave card states a balance: a credit figure at three decimals,
+     * the fourth kept only when it is not zero (15.000, 13.750, 0.077,
+     * 43.3025). No unit word: the figure is credits, whatever the type
+     * counts them in.
+     */
+    public static function credits(float $value): string
+    {
+        $text = number_format(self::normalize($value), self::DECIMALS, '.', '');
+        if (str_ends_with($text, '0')) {
+            $text = substr($text, 0, -1);
+        }
+
+        return ltrim($text, '-') === '0.000' ? '0.000' : $text;
+    }
 }

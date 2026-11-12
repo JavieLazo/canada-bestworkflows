@@ -6,15 +6,19 @@ use App\Domain\Enums\ModuleCode;
 use App\Livewire\Payroll\RunWorkspace;
 use App\Livewire\Records\ReferenceListPage;
 use App\Models\PayrollDeduction;
+use App\Models\PayrollGovDeductionPolicy;
 use App\Models\Payslip;
 use App\Models\PayslipDeduction;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Payroll\Application\Catalogs\Deductions;
+use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Domain\DeductionCalculation;
+use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
 use App\Support\Access;
 use Illuminate\Support\Str;
@@ -27,8 +31,10 @@ use Tests\Support\PayrollEvidenceFixture;
  * whether it comes before tax — saved through the catalog and edited on
  * the Payroll Deductions page; payroll prices the shares on every draft,
  * reports the employer's, takes the before-tax part off the withholding
- * base, lets a typed amount override the employee share, captures the
- * rules in the evidence and posts the employer share with the line.
+ * base, lets a typed amount override the employee share (0 included: the
+ * share already paid, the employer's kept), gives a non-member neither
+ * share, captures the rules in the evidence and posts the employer share
+ * with the line.
  */
 function pctdPayrollActor(): User
 {
@@ -71,7 +77,7 @@ it('saves a percentage rule from the Payroll Deductions page and names each row\
     Livewire::test(ReferenceListPage::class, ['slug' => 'payroll-deductions'])
         ->assertSee('Computation')
         ->assertSee('SSS table')
-        ->assertSee('Typed per employee')
+        ->assertSee('Set per employee')
         ->call('openAdd')
         ->assertSet('formComputation', 'TYPED')
         ->set('formName', 'Provident Fund')
@@ -186,6 +192,54 @@ it('takes a before-tax share off the withholding base and posts the employer sha
     expect([$line->deduction_code, $line->name, $line->amount, $line->employer_amount])->toBe(['8', 'Provident Fund', 450.0, 450.0])
         ->and($posted->custom_deductions)->toBe(450.0);
     expect($fund->exists)->toBeTrue();
+});
+
+it('gives a non-member no line and no employer share, and finalizes them', function () {
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    PayrollEvidenceFixture::sourceFacts($employee);
+    $fund = pctdRow('8', 'Provident Fund');
+    $policy = new PayrollGovDeductionPolicy;
+    $policy->forceFill(['employee_id' => $employee->id, 'effective_from' => '2026-09-01', 'reason' => 'Not enrolled', 'status' => PayrollGovDeductionPolicy::APPROVED, 'approved_at' => '2026-09-01 00:00:00.000',
+        'params' => [...GovDeductionSettings::STANDARD, 'percent_rates' => [$fund->id => 0.0]]])->save();
+
+    $calc = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
+    expect($calc['customDeductionLines'][$employee->id] ?? [])->toBe([]);
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
+    expect($run->refresh()->status)->toBe('FINALIZED')
+        ->and(PayslipDeduction::query()->count())->toBe(0);
+});
+
+it('takes a typed zero on a percentage row as the employee share already paid, keeping the employer share', function () {
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    PayrollEvidenceFixture::sourceFacts($employee);
+    $fund = pctdRow('8', 'Provident Fund');
+    $typedRow = new PayrollDeduction;
+    $typedRow->forceFill(['code' => '9', 'name' => 'Union dues'])->save();
+
+    $calc = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor, draftCustomDeductions: [$employee->id => [$fund->id => 0]]);
+    expect($calc['customDeductionLines'][$employee->id][0])->toMatchArray(['amount' => 0.0, 'employer_amount' => 450.0, 'automatic' => false])
+        ->and($calc['drafts'][0]->custom_deductions)->toBe(0.0);
+
+    // The same on the screen; a zero on a row priced by hand removes the cell, as it always has.
+    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->call('updateCustomDeduction', $employee->id, $fund->id, '0')
+        ->call('updateCustomDeduction', $employee->id, $typedRow->id, '0');
+    expect($page->get('draftCustomDeductions'))->toEqual([$employee->id => [$fund->id => 0.0]]);
+    $page->call('save')->call('finalize');
+
+    expect($run->refresh()->status)->toBe('FINALIZED');
+    $line = PayslipDeduction::query()->sole();
+    expect([$line->name, $line->amount, $line->employer_amount])->toBe(['Provident Fund', 0.0, 450.0]);
+});
+
+it('refuses a typed zero on a row priced by hand, through the command', function () {
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    $typedRow = new PayrollDeduction;
+    $typedRow->forceFill(['code' => '9', 'name' => 'Union dues'])->save();
+
+    expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($run->id, $run->name, '2026-09-01', '2026-09-15', [$employee->id], [], [], [], [], 'REGULAR', [], [$employee->id => [$typedRow->id => 0]])))
+        ->toThrow(RuntimeException::class, 'Every custom deduction amount must be more than zero.');
 });
 
 it('captures the rules in the evidence, stales the preview when a rule changes and restores the older shape', function () {

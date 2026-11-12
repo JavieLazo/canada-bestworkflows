@@ -38,6 +38,9 @@ final class EmployeePosition
     /** The choice that leaves the stored position untouched. */
     public const string KEEP = '__keep__';
 
+    /** The department draft's "Not placed": positions placed in no department or unit. */
+    public const string NOT_PLACED = 'NONE';
+
     public const string UNKNOWN = 'Choose a position from Records Management.';
 
     /**

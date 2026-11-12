@@ -31,8 +31,10 @@
         given.
 
     Flux-free approximations, noted per control:
-      - the source's shadcn Select is Flux's native select; a "placeholder"
-        is a hidden disabled first option;
+      - the source's shadcn Select is the kit select. DELIBERATE DIVERGENCE:
+        its first option is a blank "Not set" that CAN BE PICKED, so a
+        choice made by mistake is cleared again; a required answer left
+        blank is refused by the step's own check;
       - ManagedSelect's empty-list note renders as a disabled option;
       - the popover DateField is <x-kit.date-field> (typed input + calendar
         popover), per the shared kit.
@@ -129,7 +131,7 @@
                 aria-label="{{ $aria }}"
                 :invalid="(bool) $error"
             >
-                <flux:select.option value="" disabled hidden>Not set</flux:select.option>
+                <flux:select.option value="">Not set</flux:select.option>
                 @if ($names === [])
                     <flux:select.option value="" disabled>Nothing on this list yet — add it in Records Management.</flux:select.option>
                 @endif
@@ -158,7 +160,7 @@
                 aria-label="{{ $aria }}"
                 :invalid="(bool) $error"
             >
-                <flux:select.option value="" disabled hidden>Not set</flux:select.option>
+                <flux:select.option value="">Not set</flux:select.option>
                 @foreach ($field['options'] ?? [] as $option)
                     <flux:select.option value="{{ $option['value'] }}">{{ $option['label'] }}</flux:select.option>
                 @endforeach

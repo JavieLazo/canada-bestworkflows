@@ -11,8 +11,21 @@ final readonly class AccountLabel
 {
     public function __construct(public int $id, public string $name, public ?string $employee_id, public bool $is_active, public ?DirectoryEmployee $employee = null) {}
 
-    public static function unlinked(int|string|null $id): string
+    /** The longest name an account without an employee record may carry. */
+    public const int NAME_CAP = 150;
+
+    /**
+     * What an account with no employee record is called: the name typed for
+     * it, else its number.
+     */
+    public static function unlinked(int|string|null $id, ?string $typed = null): string
     {
+        $typed = $typed === null ? '' : trim($typed);
+
+        if ($typed !== '') {
+            return $typed;
+        }
+
         return $id === null ? 'Account' : 'Account #'.$id;
     }
 

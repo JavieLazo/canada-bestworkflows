@@ -35,7 +35,11 @@
                         <tr wire:key="record-request-{{ $row->id }}">
                             <td><span class="block font-medium">{{ $row->employee_name }}</span><span class="block text-xs text-muted-foreground">Submitted by {{ $row->requested_by_name }}</span></td>
                             <td>{{ ChangeRequests::sectionLabel($row) }}<span class="block text-xs text-muted-foreground">{{ ['CREATE' => 'Add', 'UPDATE' => 'Update', 'DELETE' => 'Remove'][$row->operation] ?? $row->operation }}</span></td>
-                            <td class="num whitespace-nowrap">{{ $row->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') }}</td>
+                            @php($submittedAt = $row->created_at->setTimezone(ManilaClock::TZ))
+                            <td class="num whitespace-nowrap">
+                                <p>{{ $submittedAt->format('M d, Y') }}</p>
+                                <p class="text-xs text-muted-foreground">{{ $submittedAt->format('g:i A') }}</p>
+                            </td>
                             <td><span class="pill {{ $pill($row->status) }}">{{ ucfirst(strtolower($row->status)) }}</span></td>
                             <td><flux:button variant="ghost" size="sm" wire:click="show('{{ $row->id }}')">View</flux:button></td>
                         </tr>

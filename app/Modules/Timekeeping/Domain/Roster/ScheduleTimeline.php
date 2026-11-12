@@ -20,9 +20,11 @@ use App\Domain\Attendance\Shift as DomainShift;
  * a time-ordered ULID): the later-saved one wins.
  *
  * A weekday entry with no shift sends that weekday back to the default
- * shift, and a place entry with no kind sends it back to the Assigned
- * Worksite, from its date — how a return to the default is recorded without
- * erasing what came before. Cancelled changes never reach this class.
+ * shift, a default-shift entry with no shift clears the default shift, and
+ * a place entry with no kind sends it back to the Assigned Worksite, from
+ * its date — how a return to the default, or to no shift at all, is
+ * recorded without erasing what came before. Cancelled changes never reach
+ * this class.
  *
  * Pure: 'Y-m-d' strings and detached shifts in, detached shifts out. The
  * caller has already turned each weekday row into a shift that works (or
@@ -30,7 +32,7 @@ use App\Domain\Attendance\Shift as DomainShift;
  */
 final class ScheduleTimeline
 {
-    /** @var list<array{from: ?string, order: string, shift: DomainShift}> */
+    /** @var list<array{from: ?string, order: string, shift: ?DomainShift}> */
     private array $standing;
 
     /** @var array<int, list<array{from: ?string, order: string, shift: ?DomainShift}>> */
@@ -40,7 +42,7 @@ final class ScheduleTimeline
     private array $places;
 
     /**
-     * @param  list<array{from: ?string, order: string, shift: DomainShift}>  $standing
+     * @param  list<array{from: ?string, order: string, shift: ?DomainShift}>  $standing  a null shift clears the default shift
      * @param  list<array{from: ?string, order: string, weekday: int, shift: ?DomainShift}>  $weekdays
      * @param  list<array{from: ?string, order: string, weekday: int, kind: ?string, site: ?string}>  $places
      */
@@ -61,7 +63,8 @@ final class ScheduleTimeline
 
     /**
      * The whole recurring schedule on a date: its default shift with that
-     * date's weekday hours, or null when neither has ever been set. A
+     * date's weekday hours, or null when neither is set on it (never set,
+     * or cleared or sent back to the default by then). A
      * schedule with weekday hours but no default shift keeps the engine's
      * default for the other weekdays, as the weekly roster does.
      */
@@ -87,8 +90,8 @@ final class ScheduleTimeline
     /**
      * Which part of the recurring schedule decides a date's hours: that
      * weekday's own hours (WEEKLY), else the default shift (DEFAULT), else
-     * nothing (NONE) — the engine's default stands in, which is nobody's
-     * assigned schedule.
+     * nothing (NONE: never assigned, or cleared by then) — the engine's
+     * default stands in, which is nobody's assigned schedule.
      *
      * @return ScheduleBasis::SOURCE_WEEKLY|ScheduleBasis::SOURCE_DEFAULT|ScheduleBasis::SOURCE_NONE
      */
@@ -100,7 +103,9 @@ final class ScheduleTimeline
             return ScheduleBasis::SOURCE_WEEKLY;
         }
 
-        return self::latest($this->standing, $date) === null ? ScheduleBasis::SOURCE_NONE : ScheduleBasis::SOURCE_DEFAULT;
+        $i = self::latest($this->standing, $date);
+
+        return $i === null || $this->standing[$i]['shift'] === null ? ScheduleBasis::SOURCE_NONE : ScheduleBasis::SOURCE_DEFAULT;
     }
 
     /**

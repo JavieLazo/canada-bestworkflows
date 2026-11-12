@@ -116,6 +116,7 @@ function emplinkSave(Access $actor, EmployeeProfile $employee, array $changes): 
 function emplinkHireForm(WorkSite $site, string $positionId, string $email = 'juan.link@company.com'): array
 {
     return [
+        'employee_id_no' => 'ID-'.substr(md5($email), 0, 8),
         'first_name' => 'Juan', 'last_name' => 'Dela Cruz', 'phone' => '0917 123 4567', 'email' => $email,
         'birth_date' => '1990-05-01', 'res_street' => 'Rizal St.', 'sex' => 'Male', 'civil_status' => 'Single',
         'emergency_name' => 'Maria Dela Cruz', 'emergency_relation' => 'Spouse', 'emergency_phone' => '0917 987 6543',

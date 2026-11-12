@@ -35,6 +35,20 @@ final class StructureRecords
         return $row === null ? null : Snapshot::of($row, OrgNodeView::class);
     }
 
+    /**
+     * Who heads an office, for the Application for Leave: the unit's head
+     * where the unit has one, else its department's. Null when neither is
+     * set, and before the columns exist.
+     *
+     * @return array{name: string, designation: string}|null
+     */
+    public function officeHead(Access $actor, ?string $unitId, ?string $departmentId): ?array
+    {
+        abort_if($actor->userId === null, 403);
+
+        return StructureReads::officeHead($unitId, $departmentId);
+    }
+
     /** @return LengthAwarePaginator<int, StructureRowView> */
     public function page(Access $actor, string $search, int $page, int $perPage): LengthAwarePaginator
     {
@@ -92,6 +106,7 @@ final class StructureRecords
             'name' => $node->name,
             'description' => $node->description,
             'parent_id' => $node->parent_id,
+            'head' => trim(implode(', ', array_filter([(string) $node->getAttribute('head_name'), (string) $node->getAttribute('head_designation')]))),
             'first' => ($siblings[0] ?? null) === $node->id,
             'last' => ($siblings[count($siblings) - 1] ?? null) === $node->id,
             'blocked_by' => implode(', ', $held),

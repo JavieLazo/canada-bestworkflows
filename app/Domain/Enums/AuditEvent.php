@@ -83,6 +83,11 @@ use App\Support\AuditService;
  *   - ROSTER_PERIOD_SET, ROSTER_PERIOD_CANCELLED, ROSTER_CHANGE_CANCELLED.
  *     Temporary schedules for a date range, and cancelling a scheduled
  *     change: schedules are dated history the reference never kept.
+ *   - SHIFT_CLEARED. The reference could assign a shift but never take one
+ *     away; here clearing one is a dated change back to no shift.
+ *   - ROSTER_UNSCHEDULED_FILLED. The reference judged a date with no
+ *     schedule by its default and never asked; here such past dates hold
+ *     payroll until HR gives them a schedule.
  *   - LEAVE_CREDITS_SET. The reference stored two credit numbers on the
  *     employee record and never wrote them down; ems's leave credits (a row
  *     per employee, year and Leave Settings type) add the write that sets
@@ -350,13 +355,16 @@ enum AuditEvent: string
     /** A payroll document's signatory set or cleared (AuditService, SaveSignatory); the entity id is the slot. */
     case SIGNATORY_SET = 'SIGNATORY_SET';
 
+    /** An officer named on the Application for Leave set or cleared (AuditService, SaveLeaveSignatory); the entity id is the slot. */
+    case LEAVE_SIGNATORY_SET = 'LEAVE_SIGNATORY_SET';
+
     /** A pay schedule added or changed (RequiredAudit, SavePaySchedule). */
     case PAY_SCHEDULE_SAVED = 'PAY_SCHEDULE_SAVED';
 
     /** A pay schedule deleted (RequiredAudit, DeletePaySchedule). */
     case PAY_SCHEDULE_DELETED = 'PAY_SCHEDULE_DELETED';
 
-    /** A finalized payroll marked released — the pay went out (AuditService, MarkPayrollReleased); a mark that locks nothing. */
+    /** READ-ONLY: a finalized payroll marked released. Nothing emits it — a payroll's last status is FINALIZED; the case stays so stored rows keep their label. */
     case PAYROLL_RELEASED = 'PAYROLL_RELEASED';
 
     /** An adjustment category added or changed (RequiredAudit, SaveAdjustmentCategory). */
@@ -422,7 +430,15 @@ enum AuditEvent: string
     case SHIFT_UPDATED = 'SHIFT_UPDATED';
 
     /**
-     * The Shift Roster's Weekly locations dialog saved: where an employee
+     * Not in the reference vocabulary. The Shift Roster's Clear shift: from
+     * its effective date the employee has no default shift and no weekday
+     * hours (`ClearShift`). Entity `shifts`, id the EMPLOYEE's; one row per
+     * clearing that changed something, never for a no-op.
+     */
+    case SHIFT_CLEARED = 'SHIFT_CLEARED';
+
+    /**
+     * The Shift Roster's Default schedule saved its places: where an employee
      * works on each weekday, on `roster_locations`. Not in the reference
      * vocabulary — the reference had one Assigned Worksite per employee and
      * no such write.
@@ -445,6 +461,14 @@ enum AuditEvent: string
     /** A default-shift or weekly change was cancelled before it took effect. */
     case ROSTER_CHANGE_CANCELLED = 'ROSTER_CHANGE_CANCELLED';
 
+    /**
+     * Past dates that had no shift were given one, or a Rest day
+     * (`FillUnscheduledDates`): the one roster write that reaches back,
+     * and only onto dates nothing was scheduled on. Entity
+     * `roster_day_overrides`, id the EMPLOYEE's; one row per save.
+     */
+    case ROSTER_UNSCHEDULED_FILLED = 'ROSTER_UNSCHEDULED_FILLED';
+
     // ── Leave and travel requests ───────────────────────────────────────────
     // REQUEST_*, not LEAVE_*: one table, `leave_travel_requests`, carries leave,
     // official business and travel alike. LEAVE_CREDITS_SET is the one LEAVE_
@@ -455,6 +479,13 @@ enum AuditEvent: string
     case REQUEST_APPROVED = 'REQUEST_APPROVED';
 
     case REQUEST_REJECTED = 'REQUEST_REJECTED';
+
+    /**
+     * A leave manager recorded "For approval" or "For disapproval" on a
+     * pending request (RecommendAbsence); the request stays pending. The
+     * reason for a recommended disapproval stays on the request.
+     */
+    case REQUEST_RECOMMENDED = 'REQUEST_RECOMMENDED';
 
     /** Server-only. The filer taking back a still-pending request. */
     case REQUEST_WITHDRAWN = 'REQUEST_WITHDRAWN';
@@ -475,25 +506,28 @@ enum AuditEvent: string
     /** One leave type's credit rules set on Leave Credits settings (SaveLeaveTypeCredits). Entity id: the type's. */
     case LEAVE_TYPE_CREDITS_SET = 'LEAVE_TYPE_CREDITS_SET';
 
-    /** A minutes-to-days conversion table draft saved (SaveConversionTable). */
+    /** READ-ONLY: the minutes-to-days conversion table saved. Nothing emits it — the table is fixed (ConversionTables) and nobody edits it; the case stays so stored rows keep their label. */
     case LEAVE_CONVERSION_TABLE_SAVED = 'LEAVE_CONVERSION_TABLE_SAVED';
 
-    /** A conversion table version approved (RequiredAudit, ApproveConversionTable). */
+    /** READ-ONLY: a conversion table version approved. Nothing emits it — the table is fixed (ConversionTables); the case stays so stored rows keep their label. */
     case LEAVE_CONVERSION_TABLE_APPROVED = 'LEAVE_CONVERSION_TABLE_APPROVED';
 
-    /** A conversion table draft discarded (DeleteConversionTable). */
+    /** READ-ONLY: a conversion table draft discarded. Nothing emits it — there are no drafts to discard; the case stays so stored rows keep their label. */
     case LEAVE_CONVERSION_TABLE_DELETED = 'LEAVE_CONVERSION_TABLE_DELETED';
 
-    /** An earning preset saved or deleted on Leave Credits settings (SaveLeavePreset, DeleteLeavePreset). */
+    /** READ-ONLY: an earning preset saved or deleted on Leave Credits settings. Nothing emits it — presets fed an employee's own leave policy, and the rules are set on the leave type (LEAVE_RULE_SAVED); the case stays so stored rows keep their label. */
     case LEAVE_PRESET_SAVED = 'LEAVE_PRESET_SAVED';
 
-    /** One employee's leave policy draft saved or discarded (SaveLeavePolicy, DiscardLeavePolicy). Entity id: the employee's. */
+    /** READ-ONLY: one employee's own leave policy draft saved or discarded. Nothing emits it — the rules are set on the leave type (LEAVE_RULE_SAVED); the case stays so stored rows keep their label. Entity id: the employee's. */
     case LEAVE_POLICY_SAVED = 'LEAVE_POLICY_SAVED';
 
-    /** One employee's leave policy version approved (RequiredAudit, ApproveLeavePolicy). Entity id: the employee's. */
+    /** READ-ONLY: one employee's own leave policy version approved. Nothing emits it — the rules are set on the leave type (LEAVE_RULE_SAVED); the case stays so stored rows keep their label. Entity id: the employee's. */
     case LEAVE_POLICY_APPROVED = 'LEAVE_POLICY_APPROVED';
 
-    /** A month's leave earning posted to an employee's ledger by the schedule or "Post now" (PostLeaveEarnings). Entity id: the employee's. */
+    /** A leave type's rule saved on Leave Settings, in force from that day (RequiredAudit, SaveLeaveRule). Entity id: the version's. */
+    case LEAVE_RULE_SAVED = 'LEAVE_RULE_SAVED';
+
+    /** A month's leave earning posted to an employee's ledger by the schedule, or a waiting leave type acquired (PostLeaveEarnings). Entity id: the employee's. */
     case LEAVE_EARNINGS_POSTED = 'LEAVE_EARNINGS_POSTED';
 
     /** Attendance charged to an employee's leave credits by a finalized payroll (LeaveChargeQuery::post; best effort, after the finalizing transaction commits — the charge rows themselves commit with the payroll). Entity id: the employee's. */
@@ -510,6 +544,9 @@ enum AuditEvent: string
 
     /** A finalized payroll paid a cash-out and took the days off the ledger (LeaveCashOutQuery::post; best effort after commit, the rows themselves commit with the payroll). Entity id: the employee's. */
     case LEAVE_CASH_OUT_PAID = 'LEAVE_CASH_OUT_PAID';
+
+    /** A leave manager filed terminal leave for an employee who has left: one pending cash-out per type paid out on separation (FileTerminalLeave; best effort after commit). Entity id: the employee's. */
+    case TERMINAL_LEAVE_FILED = 'TERMINAL_LEAVE_FILED';
 
     // ── Projects ────────────────────────────────────────────────────────────
 

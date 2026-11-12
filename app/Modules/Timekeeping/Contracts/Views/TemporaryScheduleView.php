@@ -40,5 +40,11 @@ final readonly class TemporaryScheduleView
         public ?string $cancelled_at,
         public ?string $revision_of,
         public bool $can_change,
+        /**
+         * The dialog's draft for custom hours (`shift_choice` CUSTOM), null otherwise.
+         *
+         * @var array{start: string, end: string, break_start: string, break_end: string, grace: string}|null
+         */
+        public ?array $custom_hours = null,
     ) {}
 }

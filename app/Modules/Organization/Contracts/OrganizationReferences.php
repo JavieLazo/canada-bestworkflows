@@ -51,4 +51,12 @@ interface OrganizationReferences
      * @return array<string, PositionPlacementView>
      */
     public function placements(array $positionIds): array;
+
+    /**
+     * Who heads an office: the unit's head where it has one, else its
+     * department's. Null when neither is set.
+     *
+     * @return array{name: string, designation: string}|null
+     */
+    public function officeHead(?string $unitId, ?string $departmentId): ?array;
 }

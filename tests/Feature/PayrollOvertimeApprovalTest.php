@@ -32,11 +32,10 @@ use Tests\Support\PayrollReviewFixture;
  * DELIBERATE DIVERGENCE 7: payroll pays overtime only as the Daily Time
  * Record approved it, day by day — min(computed, approved, the Formulas cap)
  * — and never through a run-level switch. Unapproved overtime is excluded by
- * default; an explicit rejection is optional. It no longer posts unnoticed:
- * a day still awaiting a decision is open attendance, listed before you
- * finalize, and posts unpaid only once the officer ticks "Finalize anyway"
- * (OpenAttendanceItems, PayrollOpenItemsTest). Posted payslips remain
- * immutable.
+ * default; an explicit rejection is optional. A day still awaiting a
+ * decision is open attendance: it posts unpaid, and the audit trail and the
+ * evidence record it (OpenAttendanceItems, PayrollOpenItemsTest). Posted
+ * payslips remain immutable.
  *
  * The hourly rate is pinned at 200 (a stored override), so an overtime hour on
  * a work day is exactly 200 × 125% = 250.00.
@@ -180,10 +179,9 @@ it('finalizes with unapproved overtime excluded and approved overtime paid', fun
         ->and($draft->overtime_pay)->toBe(625.0);
 
     $run = payotRun($employee);
-    // The undecided 8 September is listed, and posts unpaid once accepted.
+    // The undecided 8 September posts unpaid, with nothing to accept.
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->assertSee('Overtime awaiting a decision for Ramon Aquino:')
-        ->call('toggleOpenItems')
+        ->assertDontSee('Overtime awaiting a decision')
         ->call('finalize');
 
     $posted = Payslip::query()->sole();
@@ -207,8 +205,8 @@ it('finalizes without any overtime decisions and preserves zero overtime in its 
         ->and($draft->overtime_pay)->toBe(0.0)
         ->and($draft->overtime_acknowledged)->toBeFalse();
 
-    // Accepted as it stands: the day posts with no overtime pay.
-    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id), acceptOpenItems: true);
+    // As it stands: the day posts with no overtime pay, nothing to accept.
+    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
     $posted = Payslip::query()->sole();
     $snapshot = PayrollFinalizationSnapshot::query()->sole();
     $payload = json_decode($snapshot->payload, true, 512, JSON_THROW_ON_ERROR);

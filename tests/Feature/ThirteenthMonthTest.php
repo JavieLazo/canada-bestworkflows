@@ -232,7 +232,7 @@ it('refuses a 13th month run that is not one calendar year, pays incentives, or 
         ->and(fn () => $save->handle($actor, new PayrollDraft(null, 'With incentives', '2026-01-01', '2026-12-31', [$id], [], [], [], [$id => [$type->id => 100]], 'THIRTEENTH_MONTH')))
         ->toThrow(RuntimeException::class, 'Incentives are paid on a regular payroll, not on the 13th month run.')
         ->and(fn () => $save->handle($actor, new PayrollDraft(null, 'Bad outside', '2026-01-01', '2026-12-31', [$id], [], [], [], [], 'THIRTEENTH_MONTH', [$id => '-5'])))
-        ->toThrow(RuntimeException::class, 'Type the basic pay earned outside EMS as a peso figure, or leave it empty.')
+        ->toThrow(RuntimeException::class, 'Type the basic pay from other records as a peso figure, or leave it empty.')
         ->and(fn () => $save->handle($actor, new PayrollDraft(null, 'Unknown kind', '2026-01-01', '2026-12-31', [$id], [], [], [], [], 'WEEKLY')))
         ->toThrow(RuntimeException::class, 'Choose which payroll this is.')
         // No withholding table is in force before the first version.
@@ -348,10 +348,10 @@ it('shows the figures, marks a typed withholding and clears it back to the compu
 
     $export = Livewire::test(ThirteenthMonthWorkspace::class, ['id' => $run->id])
         ->call('exportCsv')
-        ->assertFileDownloaded('cyberonions-13th-month-pr-13c.csv');
+        ->assertFileDownloaded('13th-month-pr-13c.csv');
     $bytes = (string) base64_decode((string) data_get($export->effects, 'download.content'), true);
     $lines = explode("\r\n", (string) preg_replace('/^\x{FEFF}/u', '', $bytes));
-    expect($lines[0])->toContain('"13th month pay","Tax-exempt","Over PHP 90,000","Withholding tax","Net pay"')
+    expect($lines[0])->toContain('"13th month pay","Tax-exempt","Taxable excess over PHP 90,000","Withholding tax","Net pay"')
         ->and($lines[1] ?? '')->toContain('"120000","0","120000","10000","10000","0","0","10000"');
 });
 

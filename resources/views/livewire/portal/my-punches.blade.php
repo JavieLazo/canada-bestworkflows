@@ -9,8 +9,6 @@
     over THIS employee's punches and redraws only when one of theirs lands.
     `.visible` pauses it while the card is scrolled out of view.
 --}}
-@use('App\Livewire\Portal\Support\PortalLabels')
-@use('App\Domain\Attendance\AttendanceLog', 'DomainAttendanceLog')
 @use('App\Domain\Attendance\Minutes')
 @use('App\Modules\Timekeeping\Domain\Roster\LocationKind')
 
@@ -40,8 +38,11 @@
                 @endif
                 @foreach ($rows as $l)
                     <tr wire:key="my-punch-{{ $l->id }}">
+                        {{-- When the punch landed, in Manila: the day, the time under it. --}}
+                        @php($punchedAt = $l->logged_at->setTimezone(\App\Support\ManilaClock::TZ))
                         <td class="num align-top break-words">
-                            {{ PortalLabels::fmtDateTime(DomainAttendanceLog::isoFromUtc($l->logged_at)) }}
+                            <p>{{ $punchedAt->format('M d, Y') }}</p>
+                            <p class="text-xs text-muted-foreground">{{ $punchedAt->format('g:i A') }}</p>
                         </td>
                         {{-- "Work from home", the site, or an em dash — LocationKind::label,
                              the live feed's spelling. The kind is stored on the punch. --}}

@@ -48,7 +48,7 @@ it('treats a part month by the partial rule: whole, pro-rata to the days employe
     expect(LeaveEarningRule::month(lerRule(['partial' => 'FULL']), $facts)['days'])->toBe(1.25)
         ->and(LeaveEarningRule::month(lerRule(['partial' => 'PRO_RATA']), $facts)['days'])->toBe(0.625)
         ->and(LeaveEarningRule::month(lerRule(['partial' => 'PRO_RATA']), $facts)['basis'])->toContain('11 of 22 scheduled days employed')
-        ->and(LeaveEarningRule::month(lerRule(['partial' => 'NONE']), $facts))->toBe(['days' => 0.0, 'basis' => 'a part month earns nothing']);
+        ->and(LeaveEarningRule::month(lerRule(['partial' => 'NONE']), $facts))->toBe(['days' => 0.0, 'basis' => 'a partial month accrues nothing']);
 });
 
 it('caps the balance and never earns a negative amount', function () {

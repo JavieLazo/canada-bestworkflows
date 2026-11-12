@@ -36,8 +36,8 @@ use App\Modules\Workforce\Contracts\Views\EmployeeProfileView;
  * date, a plain number for an amount (a measure without its unit), the
  * option's label for a select, the worksite by NAME (the record stores its
  * id), and the children as one cell of `Name (YYYY-MM-DD)` entries separated
- * by "; ". The view must carry the details ({@see Queries\EmployeeRecords::list()}
- * with `details`).
+ * by "; ". The view must carry the details ({@see Queries\EmployeeRecords::arranged()}
+ * with `details`, as the Employee Records CSV reads it).
  */
 final class EmployeeColumns
 {

@@ -285,7 +285,9 @@ it('prints stored complete payslip figures and copied incentive and deduction de
     $report = app(PayrollReports::class)->generate(payrollReportActor(), payrollReportCriteria('payslips'));
     expect($report->rows)->toHaveCount(1)->and($report->sections)->toHaveCount(1);
     $details = array_column($report->sections[0]['rows'], 1, 0);
-    expect($details['Overtime pay'])->toBe('45.25')->and($details['Overtime included in gross'])->toBe('No')
+    // Unapproved overtime prints no hours and no amount on the statement, only the flag.
+    expect($details)->not->toHaveKey('Overtime pay')->not->toHaveKey('Overtime hours')
+        ->and($details['Overtime included in gross'])->toBe('No')
         ->and($details['Stored taxable compensation'])->toBe('Not recorded')->and($details['Late deduction'])->toBe('10.00')
         ->and($details['Deduction detail: Posted loan (loan)'])->toBe('100.00')
         ->and($details['Incentive detail: Posted bonus (INC)'])->toBe('75.00')

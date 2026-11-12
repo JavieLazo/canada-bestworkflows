@@ -22,6 +22,8 @@ use Carbon\CarbonImmutable;
  * @property float $days
  * @property string $status
  * @property string|null $note
+ * @property string|null $purpose MONETIZATION or TERMINAL: what the request is for (2026_11_08_0005); null on a request made before the column
+ * @property bool $large_request whether the request reached the share of the balance its type asks a reason for (2026_11_09_0002); false before the column
  * @property int|null $requested_by
  * @property CarbonImmutable $requested_at
  * @property int|null $reviewed_by
@@ -51,7 +53,7 @@ class LeaveCashOut extends BaseModel
 
     protected $table = 'leave_cash_outs';
 
-    protected $fillable = ['employee_id', 'request_type', 'days', 'status', 'note', 'requested_at', 'review_note'];
+    protected $fillable = ['employee_id', 'request_type', 'days', 'status', 'note', 'purpose', 'large_request', 'requested_at', 'review_note'];
 
     /** @return array<string, string> */
     protected function casts(): array
@@ -59,6 +61,7 @@ class LeaveCashOut extends BaseModel
         return [
             'days' => 'float',
             'amount' => 'float',
+            'large_request' => 'boolean',
             'requested_at' => 'immutable_datetime',
             'reviewed_at' => 'immutable_datetime',
             'created_at' => 'immutable_datetime',

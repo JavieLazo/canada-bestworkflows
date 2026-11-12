@@ -23,6 +23,7 @@ use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
 use Illuminate\Support\Str;
+use Tests\Support\ScheduleFixture;
 
 /**
  * Weekly hours are scoped, copied, atomic with locations and kept after
@@ -71,6 +72,9 @@ function rshiftDraft(ShiftType $pattern, array $days = [3]): ShiftTypeDraft
 
 it('copies a chosen weekday independently of the pattern work week and combines hours with places', function () {
     $employee = rshiftEmployee();
+    // A week left partly to DEFAULT needs a shift assigned before to fall
+    // back on; one with the engine default's figures keeps every hour below.
+    ScheduleFixture::standard($employee);
     $actor = rshiftActor();
     $night = rshiftPattern();
     app(SaveRosterWeek::class)->handle($actor, $employee->id, [1 => $night->id, 2 => 'DEFAULT', 3 => 'REST'], [1 => 'WFH', 2 => 'DEFAULT']);
@@ -143,6 +147,8 @@ it('refuses a missing employee and KEEP on linked patterns or rest days', functi
 
 it('retains copied hours after pattern deletion and accepts KEEP only for that saved copy', function () {
     $employee = rshiftEmployee();
+    // The Default schedule needs a shift assigned before for the days it leaves.
+    ScheduleFixture::standard($employee);
     $actor = rshiftActor();
     $pattern = rshiftPattern();
     app(SaveRosterShifts::class)->handle($actor, $employee->id, [1 => $pattern->id]);
@@ -224,14 +230,17 @@ it('returns no schedule for an unrostered employee and batches mixed schedules',
         ->and(array_keys(app(ShiftRoster::class)->scheduleForEmployees([$employee->id, $unrostered->id])))->toBe([$employee->id]);
 });
 
-it('rolls a pattern edit back when its new standing week would leave only rest overrides', function () {
+it('leaves the stored week alone when a pattern is edited, so no edit moves a rest day', function () {
     $employee = rshiftEmployee();
     $actor = rshiftActor();
     $pattern = rshiftPattern(['work_days' => [1, 3]]);
     app(AssignShift::class)->handle($actor, $employee->id, $pattern->id);
     app(SaveRosterShifts::class)->handle($actor, $employee->id, [3 => 'REST']);
-    expect(fn () => app(SaveShiftType::class)->handle($actor, $pattern->id, rshiftDraft($pattern, [3])))->toThrow(RuntimeException::class, 'at least one working day');
+
+    // The form's days are not read: rest days are set on the employee.
+    app(SaveShiftType::class)->handle($actor, $pattern->id, rshiftDraft($pattern, [3]));
+
     expect($pattern->fresh()?->work_days)->toBe([1, 3])
-        ->and(Shift::query()->sole()->work_days)->toBe([1, 3])
-        ->and(AuditLog::query()->where('action', 'SHIFT_TYPE_UPDATED')->count())->toBe(0);
+        ->and(Shift::query()->orderByDesc('id')->firstOrFail()->work_days)->toBe([1, 3])
+        ->and(AuditLog::query()->where('action', 'SHIFT_TYPE_UPDATED')->count())->toBe(1);
 });

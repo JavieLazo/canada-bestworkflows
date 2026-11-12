@@ -51,6 +51,9 @@ class RosterScheduleChange extends BaseModel
 
     public const SOURCE_PATTERN_EDIT = 'PATTERN_EDIT';
 
+    /** The one-time move of a pattern's rest days onto the employee (`RestDayConversion`, 2026_11_12_0002). */
+    public const SOURCE_REST_DAYS = 'REST_DAYS';
+
     public const STATUS_ACTIVE = 'ACTIVE';
 
     public const STATUS_CANCELLED = 'CANCELLED';

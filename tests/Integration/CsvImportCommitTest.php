@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Models\AuditLog;
-use App\Models\LeaveType;
+use App\Models\PayrollDeduction;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
@@ -27,7 +27,7 @@ use Illuminate\Support\Facades\DB;
 function csvcommitActor(): Access
 {
     $role = Role::create(['name' => 'Importer', 'all_data' => true, 'is_system' => false]);
-    foreach ([ModuleCode::RECORDS] as $module) {
+    foreach ([ModuleCode::PAYROLL] as $module) {
         RoleModuleGrant::create(['role_id' => $role->id, 'module' => $module]);
     }
 
@@ -62,55 +62,58 @@ function csvcommitOutsideCount(string $sql): int
 
 it('commits a clean file once and writes its audit rows only after that commit', function () {
     $actor = csvcommitActor();
-    LeaveType::create(['code' => '1', 'name' => 'Sick Leave']);
+    PayrollDeduction::query()->delete();
+    PayrollDeduction::create(['code' => '1', 'name' => 'Canteen']);
 
-    $report = csvcommitRun($actor, 'records.leave-types', ['ID', 'Leave'], [['', 'Study Leave'], ['1', 'Sick Leave With Pay']], commit: true);
+    $report = csvcommitRun($actor, 'records.payroll-deductions', ['ID', 'Name'], [['', 'Union Dues'], ['1', 'Canteen Charges']], commit: true);
 
     expect($report->saved)->toBeTrue()
         ->and([$report->created, $report->updated])->toBe([1, 1])
         ->and(DB::connection()->transactionLevel())->toBe(0)
-        ->and(csvcommitOutsideCount("SELECT COUNT(*) FROM leave_types WHERE name IN ('Study Leave', 'Sick Leave With Pay')"))->toBe(2)
+        ->and(csvcommitOutsideCount("SELECT COUNT(*) FROM payroll_deductions WHERE name IN ('Union Dues', 'Canteen Charges')"))->toBe(2)
         ->and(AuditLog::query()->whereIn('action', [AuditEvent::REFERENCE_CREATED->value, AuditEvent::REFERENCE_UPDATED->value])->count())->toBe(2);
 });
 
 it('undoes a row the unique index refuses, keeps checking the rest, and keeps none of the file', function () {
     $actor = csvcommitActor();
-    LeaveType::create(['code' => '1', 'name' => 'Sick Leave']);
+    PayrollDeduction::query()->delete();
+    PayrollDeduction::create(['code' => '1', 'name' => 'Canteen']);
 
-    $report = csvcommitRun($actor, 'records.leave-types', ['ID', 'Leave'], [
-        ['', 'Bereavement Leave'],
-        ['', 'Sick Leave'],
-        ['', 'Study Leave'],
+    $report = csvcommitRun($actor, 'records.payroll-deductions', ['ID', 'Name'], [
+        ['', 'Medical Fund'],
+        ['', 'Canteen'],
+        ['', 'Union Dues'],
         ['1', ''],
     ], commit: true);
 
     expect($report->saved)->toBeFalse()
         ->and($report->created)->toBe(2)
         ->and($report->errors)->toBe([
-            ['row' => 3, 'message' => '"Sick Leave" is already on the list.'],
+            ['row' => 3, 'message' => '"Canteen" is already on the list.'],
             ['row' => 5, 'message' => 'Name is required.'],
         ])
         ->and(DB::connection()->transactionLevel())->toBe(0)
-        ->and(csvcommitOutsideCount('SELECT COUNT(*) FROM leave_types'))->toBe(1)
+        ->and(csvcommitOutsideCount('SELECT COUNT(*) FROM payroll_deductions'))->toBe(1)
         ->and(AuditLog::query()->count())->toBe(0);
 
     // The connection is healthy afterwards: the corrected file lands.
-    $retry = csvcommitRun($actor, 'records.leave-types', ['ID', 'Leave'], [['', 'Bereavement Leave'], ['', 'Study Leave']], commit: true);
+    $retry = csvcommitRun($actor, 'records.payroll-deductions', ['ID', 'Name'], [['', 'Medical Fund'], ['', 'Union Dues']], commit: true);
     expect($retry->saved)->toBeTrue()
-        ->and(LeaveType::query()->orderBy('code')->pluck('code', 'name')->all())->toBe(['Sick Leave' => '1', 'Bereavement Leave' => '2', 'Study Leave' => '3']);
+        ->and(PayrollDeduction::query()->orderBy('code')->pluck('code', 'name')->all())->toBe(['Canteen' => '1', 'Medical Fund' => '2', 'Union Dues' => '3']);
 });
 
 it('previews through the real commands without leaving a row, a code or an audit entry behind', function () {
     $actor = csvcommitActor();
-    LeaveType::create(['code' => '1', 'name' => 'Sick Leave']);
+    PayrollDeduction::query()->delete();
+    PayrollDeduction::create(['code' => '1', 'name' => 'Canteen']);
 
-    $report = csvcommitRun($actor, 'records.leave-types', ['ID', 'Leave'], [['', 'Study Leave'], ['', 'Bereavement Leave']], commit: false);
+    $report = csvcommitRun($actor, 'records.payroll-deductions', ['ID', 'Name'], [['', 'Union Dues'], ['', 'Medical Fund']], commit: false);
 
     expect([$report->created, $report->saved])->toBe([2, false])
-        ->and(csvcommitOutsideCount('SELECT COUNT(*) FROM leave_types'))->toBe(1)
+        ->and(csvcommitOutsideCount('SELECT COUNT(*) FROM payroll_deductions'))->toBe(1)
         ->and(AuditLog::query()->count())->toBe(0);
 
     // The previewed codes were never taken: the next real add mints 2.
-    csvcommitRun($actor, 'records.leave-types', ['ID', 'Leave'], [['', 'Study Leave']], commit: true);
-    expect(LeaveType::query()->where('name', 'Study Leave')->value('code'))->toBe('2');
+    csvcommitRun($actor, 'records.payroll-deductions', ['ID', 'Name'], [['', 'Union Dues']], commit: true);
+    expect(PayrollDeduction::query()->where('name', 'Union Dues')->value('code'))->toBe('2');
 });

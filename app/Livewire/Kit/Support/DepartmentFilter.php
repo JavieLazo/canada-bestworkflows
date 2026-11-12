@@ -7,14 +7,13 @@ namespace App\Livewire\Kit\Support;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Workforce\Application\EmployeePlacements;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
-use App\Modules\Workforce\Contracts\Views\EmployeeProfileView;
 use App\Support\Access;
 
 /**
  * The department filter that Employee Records ("Filter by department") and
  * the eDTR Daily Time Record ("Department or unit") share: the choices it
- * offers and what each one matches. Presentation only — it narrows rows the
- * owner's query has ALREADY scoped to the actor, and never widens them.
+ * offers. What each one matches is Workforce's `PlaceFilter`, applied in SQL
+ * by the owner queries AFTER their row scope, so it never widens them.
  *
  * The choices: "All departments", "Not placed", then every department in HR
  * order with its units indented beneath it. A department matches the people
@@ -65,27 +64,5 @@ final class DepartmentFilter
     public static function choice(string $value, array $options): string
     {
         return array_key_exists($value, $options) ? $value : self::ALL;
-    }
-
-    /** Whether one Employee Records row belongs under the chosen department, unit or Not placed. */
-    public static function matches(EmployeeProfileView $employee, string $choice): bool
-    {
-        if ($choice === self::ALL) {
-            return true;
-        }
-
-        $linked = is_string($employee->position_id) && $employee->position_id !== '';
-
-        if (! $linked) {
-            return false;
-        }
-
-        if ($choice === self::NOT_PLACED) {
-            return $employee->department_id === null;
-        }
-
-        // A department id is never a unit id, so one comparison each covers
-        // "the department and its units" and "this unit only".
-        return $employee->department_id === $choice || $employee->unit_id === $choice;
     }
 }

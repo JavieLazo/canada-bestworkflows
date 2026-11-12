@@ -9,7 +9,6 @@ use App\Livewire\Edtr\EdtrPage;
 use App\Livewire\Employees\Documents;
 use App\Livewire\Leaves\Index as LeavesPage;
 use App\Livewire\Payroll\Support\PayrollData;
-use App\Livewire\Roster\RosterPage;
 use App\Livewire\Users\Index as UsersPage;
 use App\Models\AttendanceLog;
 use App\Models\AttendanceRemark;
@@ -30,6 +29,7 @@ use App\Modules\IdentityAccess\Application\Commands\ResetAccountPassword;
 use App\Modules\IdentityAccess\Application\Queries\GetAccounts;
 use App\Modules\IdentityAccess\Infrastructure\PasswordWriter;
 use App\Modules\Payroll\Application\Commands\FinalizePayroll;
+use App\Modules\Timekeeping\Application\Commands\AssignShift;
 use App\Modules\Timekeeping\Application\Commands\CorrectPunches;
 use App\Modules\Timekeeping\Application\Commands\DecideOvertime;
 use App\Modules\Timekeeping\Application\Commands\DecidePendingOvertime;
@@ -52,6 +52,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Tests\Support\ScheduleFixture;
 
 /** Regression coverage for module boundaries, failure recovery, and preserved historical behavior. */
 /** @param list<string> $modules */
@@ -311,11 +312,10 @@ it('judges each date by the roster that applied to it now that effective dated s
         ['log_type' => 'TIME_OUT', 'logged_at' => '2026-08-04T16:00:00+08:00'],
     ]);
     $this->travelTo(new DateTimeImmutable('2026-08-03T06:00:00+08:00'));
-    $roster = Livewire::test(RosterPage::class);
-    $roster->call('pickPattern', $employee->id, $day->id)->call('confirmAssign');
+    app(AssignShift::class)->handle(app(Access::class), $employee->id, $day->id);
     $before = DtrCalculator::compute($logs, app(ShiftRoster::class)->scheduleForEmployee($employee->id, '2026-08-02', '2026-08-05'), [], '2026-08-03', '2026-08-04');
     $this->travelTo(new DateTimeImmutable('2026-08-04T06:00:00+08:00'));
-    $roster->call('pickPattern', $employee->id, $early->id)->call('confirmAssign');
+    app(AssignShift::class)->handle(app(Access::class), $employee->id, $early->id);
     $after = DtrCalculator::compute($logs, app(ShiftRoster::class)->scheduleForEmployee($employee->id, '2026-08-02', '2026-08-05'), [], '2026-08-03', '2026-08-04');
     expect(Shift::where('employee_id', $employee->id)->count())->toBe(2);
     expect($before[0]->lateMinutes)->toBe(0.0)->and($before[1]->lateMinutes)->toBe(0.0);
@@ -364,6 +364,7 @@ it('includes approved absence facts in an authorized DTR without requiring leave
 it('preserves best effort auditing until its durability policy is explicitly changed', function () {
     assessmentActor(['LEAVES']);
     $employee = assessmentEmployee();
+    ScheduleFixture::standard($employee);
     $leave = LeaveTravelRequest::create([
         'code' => 'LR-AUDIT', 'employee_id' => $employee->id, 'request_type' => 'VACATION_LEAVE',
         'day_type' => 'WHOLE_DAY', 'start_date' => '2026-08-03', 'end_date' => '2026-08-03',

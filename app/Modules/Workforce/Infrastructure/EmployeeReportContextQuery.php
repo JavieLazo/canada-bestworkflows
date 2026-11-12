@@ -50,4 +50,26 @@ final class EmployeeReportContextQuery implements EmployeeReportContext
 
         return $facts;
     }
+
+    public function payrollDepartments(Access $actor, array $ids): array
+    {
+        abort_unless($actor->hasModule(ModuleCode::PAYROLL), 403);
+        if ($ids === [] || ! EmployeePlacements::ready()) {
+            return [];
+        }
+        $query = EmployeeProfile::query()->whereKey($ids);
+        match ($actor->rowVisibility(ModuleCode::PAYROLL)) {
+            Access::ROWS_ALL => null,
+            Access::ROWS_OWN => $query->whereKey($actor->ownEmployeeId()),
+            Access::ROWS_NONE => $query->whereRaw('1 = 0'),
+        };
+        $employees = $query->get(['id', 'position_id']);
+        $placements = EmployeePlacements::of($employees);
+        $departments = [];
+        foreach ($employees as $employee) {
+            $departments[$employee->id] = (string) ($placements[$employee->id]['department_name'] ?? '');
+        }
+
+        return $departments;
+    }
 }

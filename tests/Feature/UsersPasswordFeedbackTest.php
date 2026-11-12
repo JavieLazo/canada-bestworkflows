@@ -37,6 +37,7 @@ it('maps a refused account password onto the create field and clears its respons
     $count = User::query()->count();
     Livewire::test(Index::class)
         ->call('openCreate')
+        ->set('createName', 'New Account')
         ->set('createEmail', 'new-account@example.test')
         ->set('createPassword', 'too-short')
         ->call('createAccount')

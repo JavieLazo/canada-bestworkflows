@@ -287,8 +287,30 @@
             </p>
         </div>
         <form class="mt-4 grid gap-4 sm:grid-cols-2" wire:submit="createAccount">
-            {{-- The employee comes first: a pick offers the record's contact
-                 email as the login email below, and names the sign-ins that
+            {{-- The name leads the form: the linked employee's, shown filled in
+                 and locked, or one typed for an account with no employee
+                 record. What was typed stays in the draft while an employee
+                 is picked, and comes back if the pick is taken off again. --}}
+            <div class="space-y-2 sm:col-span-2" wire:key="create-name-{{ $createEmployeeId === '' ? 'typed' : $createEmployeeId }}">
+                <flux:label>Name</flux:label>
+                @if ($createEmployeeId !== '')
+                    <flux:input disabled aria-label="Name" value="{{ $employeeName($employeesById[$createEmployeeId] ?? null) }}" />
+                @else
+                    <flux:input
+                        required
+                        maxlength="{{ \App\Modules\IdentityAccess\Contracts\AccountLabel::NAME_CAP }}"
+                        wire:model.live.blur="createName"
+                        aria-label="Name"
+                        aria-invalid="{{ $createNameError ? 'true' : 'false' }}"
+                        class="{{ $createNameError ? 'border-danger' : '' }}"
+                    />
+                    @if ($createNameError)
+                        <p class="text-xs text-danger">{{ $createNameError }}</p>
+                    @endif
+                @endif
+            </div>
+            {{-- A pick offers the record's contact email as the login email
+                 below, fills the name above, and names the sign-ins that
                  employee already has. --}}
             <div class="sm:col-span-2">
                 <flux:label>Link to employee record (optional)</flux:label>
@@ -422,6 +444,7 @@
                             return 'email' in saved && (
                                 $wire.accountEmail.trim() !== saved.email ||
                                 $wire.accountEmployeeId !== saved.employee ||
+                                ($wire.accountEmployeeId === '' && $wire.accountName.trim() !== saved.name) ||
                                 ($wire.accountId !== @js($actorUserId) && (
                                     $wire.accountRoleId !== saved.role ||
                                     $wire.accountIsActive !== saved.active
@@ -430,6 +453,27 @@
                         },
                     }"
                 >
+                    {{-- The name leads the form and follows the link below: the
+                         employee's, locked, while one is linked, else the one
+                         typed here. --}}
+                    <div class="space-y-2 sm:col-span-2" wire:key="account-name-{{ $accountId }}-{{ $accountEmployeeId === '' ? 'typed' : $accountEmployeeId }}">
+                        <flux:label for="account-name">Name</flux:label>
+                        @if ($accountEmployeeId !== '')
+                            <flux:input id="account-name" disabled aria-label="Name" value="{{ $employeeName($employeesById[$accountEmployeeId] ?? null) }}" />
+                        @else
+                            <flux:input
+                                id="account-name"
+                                maxlength="{{ \App\Modules\IdentityAccess\Contracts\AccountLabel::NAME_CAP }}"
+                                wire:model.live.blur="accountName"
+                                aria-label="Name"
+                                aria-invalid="{{ $accountNameError ? 'true' : 'false' }}"
+                                class="{{ $accountNameError ? 'border-danger' : '' }}"
+                            />
+                            @if ($accountNameError)
+                                <p class="text-xs text-danger">{{ $accountNameError }}</p>
+                            @endif
+                        @endif
+                    </div>
                     <div class="space-y-2">
                         <flux:label for="account-email">Email</flux:label>
                         <flux:input

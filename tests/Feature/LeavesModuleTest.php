@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Livewire\Leaves\Index;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
+use App\Models\LeaveCredit;
 use App\Models\LeaveTravelRequest;
 use App\Models\Notification;
 use App\Models\Role;
@@ -12,6 +13,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * The Leaves module: /leaves gates on the LEAVES grant, the scoped list is
@@ -64,6 +66,8 @@ function leavesEmployee(string $code, string $first, string $last): EmployeeProf
         'date_hired' => '2024-01-01',
         'is_active' => true,
     ])->save();
+
+    ScheduleFixture::standard($employee);
 
     return $employee;
 }
@@ -152,6 +156,45 @@ it('shows an all_data holder every request', function () {
         ->assertSee('Liza Domingo');
 });
 
+it('shows the Manila day and time each request was filed and sorts by it', function () {
+    $employee = leavesEmployee('EMP-001', 'Liza', 'Domingo');
+    // 17:00 UTC on Aug 3 is 1:00 AM on Aug 4 in Manila; 02:00 UTC is 10:00 AM.
+    leavesRequest($employee, 'LR-001', ['created_at' => '2026-08-03 17:00:00.000']);
+    leavesRequest($employee, 'LR-002', ['created_at' => '2026-08-01 02:00:00.000']);
+
+    leavesActor(['LEAVES'], allData: true);
+
+    $page = Livewire::test(Index::class)
+        ->assertDontSee('Aug 03, 2026');
+    $page->assertSeeInOrder(['Date filed', 'Leave period']);
+    $page->assertSeeInOrder(['LR-001', 'Aug 04, 2026', '1:00 AM', 'LR-002', 'Aug 01, 2026', '10:00 AM']);
+
+    $page->call('sortBy', 'filed');
+    $page->assertSeeInOrder(['LR-002', 'Aug 01, 2026', '10:00 AM', 'LR-001', 'Aug 04, 2026', '1:00 AM']);
+
+    $page->call('sortBy', 'filed');
+    $page->assertSeeInOrder(['LR-001', 'Aug 04, 2026', '1:00 AM', 'LR-002', 'Aug 01, 2026', '10:00 AM']);
+});
+
+it('opens with the newest filed request on top, and exports in that order when the link names no sort', function () {
+    $employee = leavesEmployee('EMP-001', 'Liza', 'Domingo');
+    // Ids and filing order disagree, so only the filed sort reads 2, 3, 1.
+    leavesRequest($employee, 'LR-001', ['created_at' => '2026-08-01 02:00:00.000']);
+    leavesRequest($employee, 'LR-002', ['created_at' => '2026-08-05 02:00:00.000']);
+    leavesRequest($employee, 'LR-003', ['created_at' => '2026-08-03 02:00:00.000']);
+
+    leavesActor(['LEAVES'], allData: true);
+
+    Livewire::test(Index::class)
+        ->assertSet('sortKey', 'filed')
+        ->assertSet('sortDir', 'desc')
+        ->assertSeeInOrder(['LR-002', 'LR-003', 'LR-001']);
+
+    $csv = test()->get('/leaves/export')->assertOk()->streamedContent();
+    expect(strpos($csv, 'LR-002'))->toBeLessThan((int) strpos($csv, 'LR-003'))
+        ->and(strpos($csv, 'LR-003'))->toBeLessThan((int) strpos($csv, 'LR-001'));
+});
+
 /*
 |--------------------------------------------------------------------------
 | The review flow
@@ -161,6 +204,8 @@ it('shows an all_data holder every request', function () {
 it('approves a pending leave with pay, recording actor, audit row and notification', function () {
     $employee = leavesEmployee('EMP-001', 'Liza', 'Domingo');
     $request = leavesRequest($employee, 'LR-001');
+    // Credits that cover the two days: approval pays what credits cover.
+    (new LeaveCredit)->forceFill(['employee_id' => $employee->getKey(), 'year' => 2026, 'request_type' => 'SICK', 'credits' => 5])->save();
 
     // The requester's login, so the notification has somewhere to land.
     $requester = User::factory()->create([
@@ -197,7 +242,7 @@ it('approves a pending leave with pay, recording actor, audit row and notificati
     expect($notification)->not->toBeNull();
     expect($notification->kind)->toBe('LEAVE_REVIEWED');
     expect($notification->title)->toBe('Request LR-001 approved');
-    expect($notification->body)->toBe('Approved with pay');
+    expect($notification->body)->toBe('Approved as paid leave');
     expect($notification->href)->toBe('/portal');
 });
 
@@ -216,7 +261,7 @@ it('approves official business with a null is_paid — the tri-state is load-bea
     expect($fresh->is_paid)->toBeNull();
 });
 
-it('rejects with a null is_paid whatever the caller sent', function () {
+it('disapproves with a null is_paid whatever the caller sent', function () {
     $employee = leavesEmployee('EMP-003', 'Marco', 'Cruz');
     $request = leavesRequest($employee, 'LR-003');
 
@@ -224,6 +269,7 @@ it('rejects with a null is_paid whatever the caller sent', function () {
 
     Livewire::test(Index::class)
         ->call('show', $request->getKey())
+        ->set('disapprovalReason', 'Not enough staff')
         ->call('review', 'REJECTED', true);
 
     $fresh = $request->fresh();
@@ -260,6 +306,7 @@ it('lets an all-data holder review their own request', function () {
 it('lets only one of two racing reviewers win', function () {
     $employee = leavesEmployee('EMP-007', 'Race', 'Condition');
     $request = leavesRequest($employee, 'LR-006');
+    (new LeaveCredit)->forceFill(['employee_id' => $employee->getKey(), 'year' => 2026, 'request_type' => 'SICK', 'credits' => 5])->save();
 
     leavesActor(['LEAVES'], allData: true);
 
@@ -271,7 +318,7 @@ it('lets only one of two racing reviewers win', function () {
     // …the second (same still-open dialog, as a racing reviewer would have)
     // must not overwrite it. The status WHERE clause on the UPDATE is the
     // server-side guard; this drives the same path end to end.
-    $component->call('show', $request->getKey())->call('review', 'REJECTED');
+    $component->call('show', $request->getKey())->set('disapprovalReason', 'Too late')->call('review', 'REJECTED');
 
     $fresh = $request->fresh();
     expect($fresh->status)->toBe('APPROVED');

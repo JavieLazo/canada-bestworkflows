@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Organization\Application;
 
 use App\Domain\Enums\ModuleCode;
+use App\Models\OrgNode;
 use App\Support\Access;
 use RuntimeException;
 
@@ -25,6 +26,9 @@ final class StructureInput
     public const int POSITION_NAME_MAX = 120;
 
     public const int DESCRIPTION_MAX = 2000;
+
+    /** A head of office's name and designation: the width of each `org_nodes` column. */
+    public const int HEAD_MAX = 200;
 
     public static function authorize(Access $access): void
     {
@@ -55,6 +59,38 @@ final class StructureInput
         }
 
         return $description === '' ? null : $description;
+    }
+
+    /**
+     * The head of office to store. Nothing when the caller does not edit it
+     * (both null), and nothing while the columns do not exist yet; blank
+     * clears it.
+     *
+     * @return array{head_name?: string|null, head_designation?: string|null}
+     */
+    public static function head(?string $name, ?string $designation): array
+    {
+        if (($name === null && $designation === null) || ! StructureReads::headsReady()) {
+            return [];
+        }
+        $name = trim((string) $name);
+        $designation = trim((string) $designation);
+        if (mb_strlen($name) > self::HEAD_MAX || mb_strlen($designation) > self::HEAD_MAX) {
+            throw new RuntimeException('A head of office\'s name or designation must be at most '.self::HEAD_MAX.' characters.');
+        }
+
+        return ['head_name' => $name === '' ? null : $name, 'head_designation' => $designation === '' ? null : $designation];
+    }
+
+    /** What a save did to the head of office, for the audit sentence; '' when nothing. */
+    public static function headSentence(OrgNode $node): string
+    {
+        if (! $node->wasChanged(['head_name', 'head_designation']) && ! ($node->wasRecentlyCreated && $node->head_name !== null)) {
+            return '';
+        }
+        $who = trim((string) $node->head_name.($node->head_designation === null ? '' : ", {$node->head_designation}"));
+
+        return '; head of office: '.($who === '' ? 'cleared' : $who);
     }
 
     /** "up" or "down"; anything else is refused. */

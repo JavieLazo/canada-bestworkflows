@@ -15,11 +15,14 @@ use App\Support\Access;
  *
  * An employee's entry: `policy_id`, `charges` (the policy's charge rules:
  * enabled, combine, late and absence orders), `conversion` (the table in
- * force on the period's end — version id, rows, hours_per_day, decimals —
- * or null), `balances` (token => name, available, below_zero_limit, as of
- * the capture), `year` (the credits year charged: the period's start year)
- * and `charged` (dates an earlier payslip charged, by kind). An employee
- * whose policy charges nothing has no entry.
+ * use when the payroll is worked out — its id, rows, hours_per_day,
+ * decimals — or null), `balances` (token => name, available, below_zero_limit, as of
+ * the capture, and — only for a leave type with a waiting period, or one
+ * not everyone may use — `available_from`, the first day it is the
+ * employee's (acquired, or eligible), before which no day is charged to
+ * it), `year` (the credits year charged: the period's start
+ * year) and `charged` (dates an earlier payslip charged, by kind). An
+ * employee whose terms charge nothing has no entry.
  */
 interface LeaveChargeSource
 {

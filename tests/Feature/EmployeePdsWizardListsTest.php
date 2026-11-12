@@ -80,6 +80,7 @@ function pdswizlSite(): WorkSite
 function pdswizlForm(WorkSite $site, string $email = 'rosa.lists@company.com'): array
 {
     return [
+        'employee_id_no' => 'ID-'.substr(md5($email), 0, 8),
         'first_name' => 'Rosa',
         'last_name' => 'Villanueva',
         'phone' => '0917 123 4567',
@@ -340,15 +341,16 @@ it('jumps to the first step with an error when Create is pressed', function () {
     $wizard = pdswizlFilled(pdswizlForm($site))->set('step', 6);
     pdswizlAddRow($wizard, 'eligibility', 0, ['rating' => '85.40']);
 
-    // A bad eligibility row and a missing worksite: Employee Details first.
-    $wizard->set('form.work_site_id', '')
+    // A bad eligibility row and a missing position: Employee Details first.
+    $position = $wizard->get('form.position_id');
+    $wizard->set('form.position_id', '')
         ->set('step', 12)
         ->call('create')
         ->assertNotDispatched('employee-created')
         ->assertSet('step', 3)
-        ->assertSee('Assigned Worksite is required.');
+        ->assertSee('Position is required.');
 
-    $wizard->set('form.work_site_id', $site->id)
+    $wizard->set('form.position_id', $position)
         ->set('step', 12)
         ->call('create')
         ->assertNotDispatched('employee-created')

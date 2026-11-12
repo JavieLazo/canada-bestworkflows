@@ -582,6 +582,22 @@ const PAYSLIP_ADVANCE_GUARDED_FLOOR = 6_921;
 */
 const PAYSLIP_LEAVE_CHARGE_GUARDED_FLOOR = 6_921;
 
+/*
+|--------------------------------------------------------------------------
+| The sixteenth divergence: a version that rounds prices like a register
+|--------------------------------------------------------------------------
+| The reference prices from unrounded rates, day by day. A Pay Basis & Rates
+| version with `rounding.decimals` set rounds the daily and hourly rates, adds
+| up the hours at each hourly rate and factor, and rounds each amount once:
+| a payroll register's ROUND(hours × hourly × factor, 2). The corpus carries
+| no such version, so every vector takes the reference path.
+|
+| NO FIELD IS RELAXED. The thirteenth divergence's guard recomputes every
+| vector under a saved version whose rounding is blank and requires the
+| reference path strictly, which proves a blank version adds nothing.
+| PayRulesTest pins the rounded pesos, MoneyRoundToTest the rounding itself.
+*/
+
 /**
  * Equivalent calculation inputs with a selected cancellation and with that
  * same date omitted from an otherwise identical set of single-day leaves.

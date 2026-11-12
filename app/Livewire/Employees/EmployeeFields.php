@@ -438,9 +438,8 @@ final class EmployeeFields
      * last, shared through App\Support\TextSort. Never ICU `Collator('en')`:
      * it would make the Employee Records order depend on whether ext-intl is
      * loaded on a host the company does not control; TextSort's docblock says
-     * why byte order wins. The list screen sorts in PHP because statusKey/label
-     * mapping cannot be expressed in SQL, exactly as the source sorts in the
-     * client.
+     * why byte order wins. The Employee Records table sorts in SQL through
+     * its twin, `SqlText::order`, which the two must keep agreeing with.
      */
     public static function compareText(?string $a, ?string $b): int
     {

@@ -79,7 +79,7 @@ final class DayCorrections
 
         $range = PayrollPeriod::attendanceDateRange(PayrollPeriod::addCalendarDays($date, -1), $date);
         $schedule = $this->roster->scheduleForEmployee($employeeId, $range['from'], $range['to']);
-        $rostered = $schedule?->forDate($date);
+        $rostered = $this->roster->rosteredShift($employeeId, $date, $schedule);
         $shift = $rostered ?? DomainShift::default();
 
         // The place a correction of this date writes: date override, weekday

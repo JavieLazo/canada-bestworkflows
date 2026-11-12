@@ -120,15 +120,43 @@ final class ModuleRegistry
      * would only be a second entry to the same page here"
      * (AppSidebar.tsx:124-126).
      *
+     * A group naming a `grant` is drawn for a holder of THAT grant, whether or
+     * not they hold the tree's own module, and for nobody else. So a tree can
+     * appear for a role that does not hold its module, carrying only the
+     * entries the role does hold.
+     *
      * @param  list<string>  $granted
      * @return list<array<string, mixed>>
      */
     public function navFor(array $granted): array
     {
-        return array_values(array_filter(
-            $this->grantedFor($granted),
-            static fn (array $module): bool => $module['code'] !== ModuleCode::PROFILE,
-        ));
+        $nav = [];
+
+        foreach ($this->all() as $module) {
+            if ($module['code'] === ModuleCode::PROFILE) {
+                continue;
+            }
+
+            $held = in_array($module['code'], $granted, true);
+
+            if (isset($module['groups'])) {
+                /** @var list<array<string, mixed>> $groups */
+                $groups = $module['groups'];
+                $module['groups'] = array_values(array_filter(
+                    $groups,
+                    static fn (array $group): bool => isset($group['grant'])
+                        ? in_array($group['grant'], $granted, true)
+                        : $held,
+                ));
+                $held = $held || $module['groups'] !== [];
+            }
+
+            if ($held) {
+                $nav[] = $module;
+            }
+        }
+
+        return $nav;
     }
 
     /**

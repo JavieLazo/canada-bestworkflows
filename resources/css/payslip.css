@@ -1,20 +1,35 @@
-/* The supplied payslip's compact layout, with EMS brand tokens and logo.
-   Extra system evidence lives outside this printable document. */
+/* PPMC's payslip sheet: a month's cut-offs in ruled frames. Extra system
+   evidence lives outside this printable document.
+
+   THE SHEET IS WHITE PAPER WHATEVER THE THEME: it carries `hris-always-light`,
+   which redeclares the underlying tokens. The `--color-*` aliases this file
+   reads were resolved at :root, so they are pointed at those tokens again. */
 .hris-payslip {
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-foreground: var(--foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-border: var(--border);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --slip-ink: var(--color-foreground);
+    --slip-rule: var(--color-border);
+    --slip-tint: var(--color-muted);
+    --slip-mute: var(--color-muted-foreground);
     width: 100%;
     max-width: 794px;
     min-width: 0;
     margin-inline: auto;
-    padding: 24px 28px 20px;
-    border-top: 3px solid var(--color-primary);
+    padding: 10mm 12mm;
     border-radius: 3px;
     background: var(--color-card);
     color: var(--color-card-foreground);
     box-shadow:
         0 4px 24px color-mix(in srgb, var(--color-foreground) 5%, transparent),
         0 0 0 1px var(--color-border);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-    font-size: 12px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 8pt;
     line-height: normal;
     -webkit-font-smoothing: antialiased;
     overflow-wrap: anywhere;
@@ -25,129 +40,344 @@ article.hris-payslip .num {
     font-variant-numeric: tabular-nums;
     letter-spacing: normal;
 }
-.hris-payslip-header {
+
+/* Page header */
+.hris-payslip-top {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: 18px;
-    margin-bottom: 10px;
-}
-.hris-payslip-brand {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 9px;
-    min-width: 0;
+    gap: 4mm;
+    padding-bottom: 2mm;
+    border-bottom: 2px solid var(--color-primary);
 }
 .hris-payslip-logo {
-    width: 180px;
+    width: 40mm;
     height: auto;
-    max-width: 100%;
     flex-shrink: 0;
     object-fit: contain;
 }
-.hris-payslip-company {
-    font-size: 20px;
-    letter-spacing: -0.65px;
-    font-weight: 700;
-    line-height: 1.2;
+.hris-payslip-org {
+    flex: 1;
+    min-width: 0;
+    color: var(--slip-mute);
+    font-size: 7.5pt;
 }
-.hris-payslip-subtitle {
-    margin-top: 3px;
-    color: var(--color-muted-foreground);
-    font-size: 9px;
+.hris-payslip-company {
+    color: var(--color-card-foreground);
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
 }
 .hris-payslip-document {
-    display: flex;
-    align-items: baseline;
-    gap: 12px;
-    text-align: right;
     flex-shrink: 0;
+    text-align: right;
 }
 .hris-payslip-document h2 {
     margin: 0;
-    font-size: 25px;
-    font-weight: 500;
-    letter-spacing: -0.8px;
-}
-.hris-payslip-record-id {
-    font-size: 9px;
-    color: var(--color-muted-foreground);
-    white-space: nowrap;
-}
-.hris-payslip-identity {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 20px;
-    align-items: center;
-    border-block: 1px solid var(--color-border);
-    padding: 9px 0;
-    margin-bottom: 8px;
-}
-.hris-payslip-label {
-    display: block;
-    font-size: 9px;
-    line-height: 1.25;
-    color: var(--color-muted-foreground);
-    font-weight: 600;
-    letter-spacing: 0.8px;
+    font-size: 12pt;
+    font-weight: 700;
+    letter-spacing: 1px;
     text-transform: uppercase;
-    margin-bottom: 5px;
 }
-.hris-payslip-employee {
-    font-size: 16px;
-    letter-spacing: -0.35px;
-    font-weight: 600;
-    line-height: 1.2;
-    margin: 0 0 4px;
+.hris-payslip-document p {
+    font-size: 8.5pt;
+    font-weight: 700;
 }
-.hris-payslip-employee-id {
-    font-size: 9px;
-    color: var(--color-muted-foreground);
+
+/* Employee block */
+.hris-payslip-emp {
+    display: grid;
+    grid-template-columns: 22mm 1fr 1fr 1fr;
+    margin: 2.5mm 0;
+    border: 1px solid var(--slip-ink);
 }
-.hris-payslip-period {
-    text-align: right;
+.hris-payslip-emp > div {
+    min-width: 0;
+    padding: 1mm 2mm;
+    border-right: 1px solid var(--slip-rule);
 }
-.hris-payslip-period-value {
-    font-size: 12px;
-    font-weight: 600;
-    line-height: 1.5;
+.hris-payslip-emp > div:last-child {
+    border-right: 0;
 }
-.hris-payslip-period-value span {
-    white-space: nowrap;
+.hris-payslip-emp dt {
+    color: var(--slip-mute);
+    font-size: 6pt;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
 }
-.hris-payslip-period-end {
-    margin-left: 3px;
+.hris-payslip-emp dd {
+    min-height: 4mm;
+    margin: 0;
+    font-size: 8.5pt;
+    font-weight: 700;
+}
+
+/* One cut-off */
+.hris-payslip-slip {
+    margin-bottom: 3mm;
+    border: 1px solid var(--slip-ink);
+}
+.hris-payslip-band {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0 3mm;
+    padding: 1mm 2.5mm;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+}
+.hris-payslip-band h3 {
+    margin: 0;
+    font-size: 8.5pt;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.hris-payslip-band span {
+    font-size: 7.5pt;
 }
 .hris-payslip-basis {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 10px;
-    margin: 0 0 10px;
-    padding: 0 0 8px;
-    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 4mm;
+    margin: 0;
+    padding: 0.6mm 2.5mm;
+    border-bottom: 1px solid var(--slip-ink);
+    background: var(--slip-tint);
+    font-size: 6.8pt;
+}
+.hris-payslip-basis > div {
+    display: flex;
+    gap: 1mm;
 }
 .hris-payslip-basis dt {
-    font-size: 9px;
-    color: var(--color-muted-foreground);
-    line-height: 1.3;
-    margin: 0 0 3px;
+    color: var(--slip-mute);
 }
 .hris-payslip-basis dd {
-    font-size: 11px;
-    font-weight: 600;
-    line-height: 1.3;
     margin: 0;
-    font-variant-numeric: tabular-nums;
+    font-weight: 700;
 }
-.hris-payslip-grid {
+.hris-payslip-cols {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 30px;
 }
-.hris-payslip-grid > * {
+.hris-payslip-col {
+    display: flex;
+    flex-direction: column;
     min-width: 0;
 }
+.hris-payslip-col:first-child {
+    border-right: 1px solid var(--slip-ink);
+}
+
+/* Line items */
+article.hris-payslip .hris-payslip-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: inherit;
+}
+article.hris-payslip .hris-payslip-table thead th {
+    position: static;
+    padding: 0.9mm 2.5mm;
+    border-bottom: 1px solid var(--slip-ink);
+    background: transparent;
+    color: inherit;
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+article.hris-payslip .hris-payslip-table thead th.num {
+    text-align: right;
+}
+article.hris-payslip .hris-payslip-table tbody th,
+article.hris-payslip .hris-payslip-table tbody td {
+    padding: 0.1mm 2.5mm;
+    border-bottom: 1px dotted var(--slip-rule);
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+    line-height: 3.1mm;
+    vertical-align: top;
+}
+article.hris-payslip .hris-payslip-table tbody th {
+    padding-left: 5mm;
+    font-weight: 400;
+    text-align: left;
+    white-space: normal;
+}
+article.hris-payslip .hris-payslip-table tbody td {
+    width: 26mm;
+    text-align: right;
+    white-space: nowrap;
+}
+article.hris-payslip .hris-payslip-table tbody tr:hover th,
+article.hris-payslip .hris-payslip-table tbody tr:hover td {
+    background: transparent;
+}
+article.hris-payslip .hris-payslip-table tr.hris-payslip-group th {
+    padding: 0.4mm 2.5mm 0.1mm;
+    border-bottom: 0;
+    background: var(--slip-tint);
+    font-size: 6.8pt;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+article.hris-payslip .hris-payslip-table tr.hris-payslip-basic th,
+article.hris-payslip .hris-payslip-table tr.hris-payslip-basic td {
+    font-weight: 700;
+}
+article.hris-payslip .hris-payslip-table tr.hris-payslip-detail th {
+    padding-left: 8mm;
+    color: var(--slip-mute);
+}
+article.hris-payslip .hris-payslip-table tr.hris-payslip-detail td {
+    color: var(--slip-mute);
+}
+article.hris-payslip .hris-payslip-table tr.hris-payslip-zero th,
+article.hris-payslip .hris-payslip-table tr.hris-payslip-zero td {
+    color: var(--slip-mute);
+}
+article.hris-payslip .hris-payslip-table tfoot th,
+article.hris-payslip .hris-payslip-table tfoot td {
+    padding: 0.9mm 2.5mm;
+    border-top: 1px solid var(--slip-ink);
+    border-bottom: 0;
+    background: transparent;
+    font-weight: 700;
+    text-align: left;
+}
+article.hris-payslip .hris-payslip-table tfoot td {
+    text-align: right;
+    white-space: nowrap;
+}
+article.hris-payslip .hris-payslip-table td.line-through {
+    color: var(--slip-mute);
+}
+.hris-payslip-quantity {
+    color: var(--color-muted-foreground);
+    font-size: 6.8pt;
+    font-weight: 400;
+    white-space: nowrap;
+}
+.hris-payslip-quantity.block {
+    display: block;
+    white-space: normal;
+}
+
+/* Net pay, at the foot of the earnings column */
+.hris-payslip-net {
+    margin-top: auto;
+    padding: 2mm 2.5mm;
+    border-top: 1px solid var(--slip-ink);
+}
+.hris-payslip-net > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 3mm;
+    line-height: 4mm;
+}
+.hris-payslip-net .num {
+    white-space: nowrap;
+}
+.hris-payslip-net .hris-payslip-pay {
+    margin-top: 1mm;
+    padding-top: 1mm;
+    border-top: 1.5px solid var(--slip-ink);
+    font-size: 10.5pt;
+    font-weight: 700;
+}
+.hris-payslip-pay span:first-child {
+    text-transform: uppercase;
+}
+
+/* Month summary and sign-off */
+.hris-payslip-after {
+    margin-top: 2mm;
+}
+article.hris-payslip .hris-payslip-month {
+    width: 100%;
+    border: 1px solid var(--slip-ink);
+    border-collapse: collapse;
+    font-size: inherit;
+}
+article.hris-payslip .hris-payslip-month th,
+article.hris-payslip .hris-payslip-month td {
+    padding: 0.9mm 2.5mm;
+    border-bottom: 1px solid var(--slip-rule);
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+    text-align: right;
+    white-space: nowrap;
+}
+article.hris-payslip .hris-payslip-month tbody th,
+article.hris-payslip .hris-payslip-month tfoot th {
+    font-weight: 400;
+    text-align: left;
+    white-space: normal;
+}
+article.hris-payslip .hris-payslip-month thead th {
+    position: static;
+    background: var(--slip-tint);
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+article.hris-payslip .hris-payslip-month thead th:first-child {
+    text-align: left;
+}
+article.hris-payslip .hris-payslip-month tbody tr:hover th,
+article.hris-payslip .hris-payslip-month tbody tr:hover td {
+    background: transparent;
+}
+article.hris-payslip .hris-payslip-month tfoot th,
+article.hris-payslip .hris-payslip-month tfoot td {
+    border-top: 1.5px solid var(--slip-ink);
+    border-bottom: 0;
+    font-weight: 700;
+}
+article.hris-payslip .hris-signatories {
+    gap: 8mm;
+    margin-top: 6mm;
+    padding-top: 0;
+    border-top: 0;
+    font-size: 8.5pt;
+}
+article.hris-payslip .hris-signatories > div > p:first-child {
+    color: inherit;
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+article.hris-payslip .hris-signatories > div > div {
+    margin-top: 7mm;
+    border-bottom-width: 1px;
+}
+article.hris-payslip .hris-signatories > div > p:not(:first-child) {
+    text-align: left;
+}
+article.hris-payslip .hris-signatories > div > p:last-child {
+    font-size: 7.5pt;
+}
+.hris-payslip-foot {
+    margin-top: 3mm;
+    padding-top: 1.5mm;
+    border-top: 1px solid var(--slip-rule);
+    color: var(--slip-mute);
+    font-size: 6.5pt;
+    text-align: center;
+}
+.reports-document .reports-statement {
+    padding: 0;
+    border: 0;
+}
+
+/* Supporting facts stay accessible without extending the printed sheet. */
 .hris-payslip-section-title {
     display: flex;
     justify-content: space-between;
@@ -166,116 +396,6 @@ article.hris-payslip .num {
     color: var(--color-muted-foreground);
     letter-spacing: 0.4px;
 }
-article.hris-payslip .hris-payslip-table {
-    border-collapse: collapse;
-    width: 100%;
-    table-layout: auto;
-    font-size: 11px;
-    line-height: 1.35;
-}
-article.hris-payslip .hris-payslip-table th,
-article.hris-payslip .hris-payslip-table td {
-    padding: 2px 0;
-    vertical-align: top;
-    border-bottom: 1px solid var(--color-border);
-    background: transparent;
-    color: inherit;
-    font-size: inherit;
-    text-transform: none;
-    letter-spacing: normal;
-}
-article.hris-payslip .hris-payslip-table th {
-    text-align: left;
-    font-weight: 400;
-    padding-right: 5px;
-    white-space: normal;
-}
-article.hris-payslip .hris-payslip-table td {
-    text-align: right;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-}
-article.hris-payslip .hris-payslip-table tr:hover {
-    background: transparent;
-}
-article.hris-payslip .hris-payslip-table tfoot th,
-article.hris-payslip .hris-payslip-table tfoot td {
-    border-top: 1px solid var(--color-primary);
-    border-bottom: 0;
-    font-weight: 700;
-    padding-top: 5px;
-    font-size: 11px;
-}
-article.hris-payslip .hris-payslip-basic th,
-article.hris-payslip .hris-payslip-basic td {
-    font-weight: 600;
-    background: var(--color-muted);
-}
-article.hris-payslip .hris-payslip-detail th {
-    padding-left: 12px;
-    color: var(--color-muted-foreground);
-}
-article.hris-payslip .hris-payslip-detail td {
-    color: var(--color-muted-foreground);
-    font-weight: 400;
-}
-.hris-payslip-quantity {
-    font-size: 9px;
-    white-space: nowrap;
-    color: var(--color-muted-foreground);
-    font-weight: 400;
-}
-.hris-payslip-quantity.block {
-    display: block;
-    white-space: normal;
-}
-article.hris-payslip .hris-payslip-table td.line-through {
-    color: var(--color-muted-foreground);
-}
-.hris-payslip-summary {
-    background: var(--color-primary-soft);
-    border: 1px solid var(--color-border);
-    border-radius: 4px;
-    padding: 10px 15px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 20px;
-    margin-top: 10px;
-}
-.hris-payslip-summary .hris-payslip-label {
-    color: var(--color-primary);
-    font-size: 11px;
-    margin-bottom: 5px;
-}
-.hris-payslip-summary p {
-    font-size: 10px;
-    line-height: 1.3;
-    color: var(--color-muted-foreground);
-    margin: 0;
-}
-.hris-payslip-summary .hris-payslip-net {
-    font-size: 28px;
-    line-height: 1.1;
-    letter-spacing: -0.8px;
-    font-weight: 650;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-    color: var(--color-primary);
-}
-.hris-payslip-net small {
-    font-size: 12px;
-    letter-spacing: 0;
-    font-weight: 500;
-    margin-right: 6px;
-}
-.reports-document .reports-statement {
-    padding: 0;
-    border: 0;
-}
-
-/* Supporting facts stay accessible without extending the supplied payslip. */
 .hris-payslip-details {
     width: 100%;
     max-width: 794px;
@@ -293,6 +413,11 @@ article.hris-payslip .hris-payslip-table td.line-through {
 .hris-payslip-details summary:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+}
+.hris-payslip-details-period {
+    padding: 0 16px 8px;
+    font-size: 11px;
+    font-weight: 700;
 }
 .hris-payslip-supplemental {
     display: grid;
@@ -328,92 +453,46 @@ article.hris-payslip .hris-payslip-table td.line-through {
     line-height: 1.5;
 }
 
-/* Container thresholds mirror the template's 720/480px page breakpoints,
-   accounting for its outer gutters and document padding inside EMS. */
+/* Narrower stages, measured on the sheet itself. Scoped to the document: the
+   stage below is a container too, and an unnamed query would otherwise reach
+   the details fold beside it. */
 @container (max-width: 648px) {
-    .hris-payslip-identity {
-        gap: 14px;
+    article.hris-payslip .hris-payslip-top {
+        flex-wrap: wrap;
     }
-    .hris-payslip-period-value {
-        font-size: 10px;
+    article.hris-payslip .hris-payslip-org {
+        flex-basis: 50%;
     }
-    .hris-payslip-grid {
-        gap: 20px;
-    }
-    .hris-payslip-document {
-        display: block;
-    }
-}
-@container (max-width: 418px) {
-    .hris-payslip-header {
-        align-items: flex-start;
-    }
-    .hris-payslip-brand {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 6px;
-    }
-    .hris-payslip-logo {
-        width: 156px;
-    }
-    .hris-payslip-document h2 {
-        font-size: 21px;
-    }
-    .hris-payslip-record-id {
-        margin-top: 3px;
-        white-space: normal;
-    }
-    .hris-payslip-company {
-        font-size: 16px;
-    }
-    .hris-payslip-identity {
-        grid-template-columns: minmax(0, 1fr);
-        gap: 13px;
-    }
-    .hris-payslip-employee {
-        font-size: 18px;
-    }
-    .hris-payslip-period {
+    article.hris-payslip .hris-payslip-document {
+        flex-basis: 100%;
         text-align: left;
     }
-    .hris-payslip-period-value {
-        font-size: 11px;
+    article.hris-payslip .hris-payslip-emp {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .hris-payslip-grid {
+    article.hris-payslip .hris-payslip-emp > div:nth-child(2) {
+        border-right: 0;
+    }
+    article.hris-payslip .hris-payslip-emp > div:nth-child(-n + 2) {
+        border-bottom: 1px solid var(--slip-rule);
+    }
+}
+@container (max-width: 480px) {
+    article.hris-payslip .hris-payslip-cols {
         grid-template-columns: minmax(0, 1fr);
-        gap: 20px;
     }
-    .hris-payslip-basis {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px 8px;
-        padding-bottom: 12px;
-        margin-bottom: 14px;
+    article.hris-payslip .hris-payslip-col:first-child {
+        border-right: 0;
+        border-bottom: 1px solid var(--slip-ink);
     }
-    article.hris-payslip .hris-payslip-table {
-        font-size: 12px;
-        line-height: 1.4;
+    article.hris-payslip .hris-signatories {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 4mm;
     }
-    article.hris-payslip .hris-payslip-table th,
-    article.hris-payslip .hris-payslip-table td {
-        padding-top: 5px;
-        padding-bottom: 5px;
-    }
-    article.hris-payslip .hris-payslip-table tfoot th,
-    article.hris-payslip .hris-payslip-table tfoot td {
-        font-size: 12px;
-    }
-    /* Scoped to the document: the stage below is a container too, and an
-       unnamed query would otherwise reach the details fold beside it. */
-    article.hris-payslip .hris-payslip-quantity {
-        font-size: 10px;
-    }
-    .hris-payslip-summary {
-        display: block;
-        padding: 14px;
-    }
-    .hris-payslip-summary .hris-payslip-net {
-        font-size: 32px;
-        margin-top: 12px;
+    article.hris-payslip .hris-payslip-table tbody th,
+    article.hris-payslip .hris-payslip-table tbody td {
+        padding-top: 0.6mm;
+        padding-bottom: 0.6mm;
     }
 }
 @media screen and (max-width: 720px) {
@@ -431,13 +510,12 @@ article.hris-payslip .hris-payslip-table td.line-through {
 }
 
 /* ON SCREEN the document grows with the room it is given; on paper it does
-   not. At its drawn size (794px, table text 11px) it sat small in the middle
-   of a 1,350px page. Each step below magnifies the WHOLE document — type,
-   spacing and rules together, so the supplied layout keeps its proportions —
-   to paint up to 880, 960, 1040 and 1120px wide (1.41× at most). The stage
-   is the wrapper every surface already puts round the document, so the step
-   follows the space actually available (a collapsed sidebar, the portal
-   dialog) rather than the window.
+   not. At its drawn size (794px) it sat small in the middle of a 1,350px page.
+   Each step below magnifies the WHOLE document — type, spacing and rules
+   together, so the layout keeps its proportions — to paint up to 880, 960,
+   1040 and 1120px wide (1.41× at most). The stage is the wrapper every surface
+   already puts round the document, so the step follows the space actually
+   available (a collapsed sidebar, the portal dialog) rather than the window.
 
    EACH STEP STARTS 20px BEFORE THE WIDTH IT PAINTS. A classic scrollbar
    takes about 17px from the stage when the page grows tall enough to
@@ -481,9 +559,12 @@ article.hris-payslip .hris-payslip-table td.line-through {
 }
 
 @media print {
+    /* NO PAGE MARGIN: the browser draws its date, title, address and page
+       number inside the margin, so with none it has nowhere to put them. The
+       sheet's own padding is the margin on paper. */
     @page payslip {
-        size: A5 landscape;
-        margin: 7mm;
+        size: A4 portrait;
+        margin: 0;
     }
     body:has(.hris-payslip) {
         display: block;
@@ -495,52 +576,89 @@ article.hris-payslip .hris-payslip-table td.line-through {
         padding: 0;
         overflow: visible;
     }
+    /* Only the payslip reaches the paper, however deep it sits in the page: the
+       screen's heading, clock and tabs are its neighbours at any level. A
+       payslip left in a CLOSED dialog prints nothing and hides nothing. */
+    body:has(.payslip-print:not(dialog:not([open]) *)) *:not(:has(.payslip-print)):not(.payslip-print):not(.payslip-print *) {
+        display: none !important;
+    }
+    body:has(.payslip-print:not(dialog:not([open]) *)) *:has(.payslip-print) {
+        min-height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+    }
+    /* The sheet can end partway down the page: the rest of the paper is white too. */
+    html:has(.payslip-print:not(dialog:not([open]) *)),
+    html:has(.payslip-print:not(dialog:not([open]) *)) body {
+        background: oklch(1 0 0) !important;
+        color-scheme: light;
+    }
     .payslip-print {
         page: payslip;
         margin: 0 !important;
     }
-    .hris-payslip {
-        --color-card: oklch(1 0 0);
-        --color-card-foreground: oklch(0.23 0.035 260);
-        --color-foreground: oklch(0.23 0.035 260);
-        --color-muted-foreground: oklch(0.45 0.025 258);
-        --color-border: oklch(0.85 0.01 252);
-        --color-muted: oklch(0.965 0.005 250);
-        --color-primary: oklch(0.45 0.15 258);
-        --color-primary-soft: oklch(0.95 0.025 258);
+    article.hris-payslip {
+        --muted: oklch(0.945 0.005 250);
+        --muted-foreground: oklch(0.45 0.025 258);
+        --border: oklch(0.8 0.01 252);
+        --primary: oklch(0.45 0.15 258);
+        --primary-foreground: oklch(1 0 0);
         page: payslip;
         max-width: none;
-        padding: 8px 0 0;
+        padding: 7mm 12mm;
         box-shadow: none;
         border-radius: 0;
         container-type: normal;
-        break-inside: avoid;
-        page-break-inside: avoid;
         print-color-adjust: exact;
         -webkit-print-color-adjust: exact;
     }
-    .hris-payslip-brand {
-        flex-direction: row;
-        align-items: center;
+    article.hris-payslip .hris-signatories > div > div {
+        margin-top: 6mm;
     }
-    .hris-payslip-logo {
-        width: 108pt;
+    /* The Reports print rules size every table on the page; the sheet keeps its own. */
+    article.hris-payslip .hris-table th,
+    article.hris-payslip .hris-table td {
+        font-size: inherit;
+        line-height: normal;
+    }
+    article.hris-payslip .hris-payslip-table thead th,
+    article.hris-payslip .hris-payslip-month thead th {
+        font-size: 7pt;
+    }
+    article.hris-payslip .hris-payslip-table tr.hris-payslip-group th {
+        font-size: 6.8pt;
+    }
+    /* Tight enough for a month with every line filled to stay on one page. */
+    article.hris-payslip .hris-payslip-table tbody th,
+    article.hris-payslip .hris-payslip-table tbody td {
+        padding-top: 0;
+        padding-bottom: 0;
+        line-height: 2.85mm;
+    }
+    article.hris-payslip .hris-payslip-slip {
+        margin-bottom: 2mm;
+    }
+    article.hris-payslip .hris-payslip-foot {
+        margin-top: 2mm;
     }
     article.hris-payslip .hris-table-wrap {
         overflow: visible;
     }
-    .hris-payslip-table tr,
-    .hris-payslip-summary {
-        break-inside: avoid;
+    .record-print .reports-source-notes.reports-statement-appendix {
+        padding: 10mm 12mm;
     }
-    .hris-payslip-section-title {
-        break-after: avoid;
+    .hris-payslip-slip,
+    .hris-payslip-after,
+    article.hris-payslip .hris-signatories {
+        break-inside: avoid;
+        page-break-inside: avoid;
     }
     .hris-payslip-details {
         display: none !important;
     }
     .reports-document .reports-statement,
-    .record-print.reports-document-statements {
+    .record-print.reports-document-statements:has(.hris-payslip) {
         page: payslip;
     }
     dialog[open]:has(.hris-payslip) {

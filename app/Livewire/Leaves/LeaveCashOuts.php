@@ -8,6 +8,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\TableDefaults;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Modules\Timekeeping\Application\Commands\FileTerminalLeave;
 use App\Modules\Timekeeping\Application\Commands\ReviewLeaveCashOut;
 use App\Modules\Timekeeping\Application\Queries\LeaveCashOutRecords;
 use App\Support\Access;
@@ -15,17 +16,19 @@ use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use RuntimeException;
 
 /**
- * Leave Management's Cash-outs tab: every request to cash leave credits out
- * that the actor may see — pending first — and, for an all-data LEAVES
- * holder, the approve / reject dialog. A child of Leaves\Index with its own
- * search, status filter and page name, like the Leave Policies tab. Reads
- * go through LeaveCashOutRecords behind the leave list's scope; the one
- * write is ReviewLeaveCashOut, which gates, re-resolves and audits for
- * itself.
+ * Leave Management's Cash conversions tab: every request to cash leave
+ * credits out that the actor may see — pending first — and, for an
+ * all-data LEAVES holder, the approve / reject dialog and the File terminal
+ * leave dialog (an employee who has left: the picker, then what would be
+ * paid out). A child of Leaves\Index with its own search, status filter and
+ * page name. Reads go through LeaveCashOutRecords behind the leave list's
+ * scope; the writes are ReviewLeaveCashOut and FileTerminalLeave, which
+ * gate, re-resolve and audit for themselves.
  */
 class LeaveCashOuts extends Component
 {
@@ -44,6 +47,14 @@ class LeaveCashOuts extends Component
     public bool $reviewApprove = true;
 
     public string $reviewNote = '';
+
+    public bool $terminalOpen = false;
+
+    /** The employee terminal leave is filed for, set only by the picker through employeePicked(). Id-bearing → #[Locked]. */
+    #[Locked]
+    public ?string $terminalEmployeeId = null;
+
+    public string $terminalNote = '';
 
     public function mount(): void
     {
@@ -119,6 +130,59 @@ class LeaveCashOuts extends Component
         Flux::toast(variant: 'success', text: $message);
     }
 
+    public function openTerminal(): void
+    {
+        if (! app(Access::class)->mayReadAllData(ModuleCode::LEAVES)) {
+            return;
+        }
+        $this->terminalEmployeeId = null;
+        $this->terminalNote = '';
+        $this->terminalOpen = true;
+    }
+
+    /** The picker's choice, kept only when the actor may file terminal leave for that employee. */
+    #[On('kit-employee-picked')]
+    public function employeePicked(string $name, string $id): void
+    {
+        $access = app(Access::class);
+        if ($name !== 'terminal-employee' || ! $access->mayReadAllData(ModuleCode::LEAVES)) {
+            return;
+        }
+        $this->terminalEmployeeId = app(LeaveCashOutRecords::class)->terminal($access, $id) === null ? null : $id;
+    }
+
+    public function fileTerminal(): void
+    {
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::LEAVES)) {
+            Flux::toast(variant: 'danger', text: 'Your role cannot manage organization-wide data.');
+
+            return;
+        }
+        if ($this->terminalEmployeeId === null) {
+            Flux::toast(variant: 'danger', text: 'Choose the employee who left.');
+
+            return;
+        }
+        try {
+            $message = app(FileTerminalLeave::class)->handle($access, $this->terminalEmployeeId, $this->terminalNote);
+        } catch (QueryException) {
+            Flux::toast(variant: 'danger', text: 'Terminal leave could not be filed. Try again.');
+
+            return;
+        } catch (RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        $this->terminalOpen = false;
+        $this->terminalEmployeeId = null;
+        $this->terminalNote = '';
+        $this->status = LeaveCashOutRecords::PENDING;
+        $this->resetPage(LeaveCashOutRecords::PAGE_NAME);
+        Flux::toast(variant: 'success', text: $message);
+    }
+
     public function render(): View
     {
         $access = app(Access::class);
@@ -132,6 +196,8 @@ class LeaveCashOuts extends Component
             'canManage' => $access->mayReadAllData(ModuleCode::LEAVES),
             'ownEmployeeId' => $access->hasEmployeeLink() ? $access->ownEmployeeId() : null,
             'reviewing' => $reviewing,
+            'terminalReady' => LeaveCashOutRecords::terminalReady(),
+            'terminal' => $this->terminalOpen && $this->terminalEmployeeId !== null ? $records->terminal($access, $this->terminalEmployeeId) : null,
         ]);
     }
 }

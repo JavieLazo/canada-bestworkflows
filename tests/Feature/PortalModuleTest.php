@@ -24,6 +24,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\PunchShiftFixture;
 
 /**
  * The Portal module: /portal gates on the PORTAL grant; every scoped list on
@@ -203,7 +204,8 @@ it('renders for an actor holding PORTAL', function () {
 
     $this->get('/portal')
         ->assertOk()
-        ->assertSee('My Portal');
+        ->assertSee('My Portal')
+        ->assertSee('Punch in and out, check your attendance and schedule, file leave and travel, and view your payslips and issued items.');
 });
 
 it('offers no exports on any My Portal tab', function (bool $allData) {
@@ -500,7 +502,7 @@ it('opens a payslip from its row, by pointer or keyboard, with no separate view 
         ->and($path->evaluate('count('.$row.'/ancestor::table/thead//th)'))->toBe(4.0);
 });
 
-it('opens the payslip as a bare sheet with nothing round it but its two controls', function () {
+it('opens the payslip as a bare sheet with nothing round it but its close button', function () {
     $mine = portalEmployee('EMP-BARE', 'Bare', 'Sheet');
     $own = portalPayslip($mine, '2026-08-01', '2026-08-15', 1500.00);
     portalActor(['PORTAL'], employeeId: $mine->getKey());
@@ -518,16 +520,46 @@ it('opens the payslip as a bare sheet with nothing round it but its two controls
         ->and($path->evaluate('count('.$dialog.$has('p-6').')'))->toBe(0.0)
         ->and($path->evaluate('count('.$dialog.$has('shadow-lg').')'))->toBe(0.0)
         ->and($path->evaluate('count('.$dialog.$has('ring').')'))->toBe(0.0)
-        // Inside it: the two controls, then the sheet. No heading and no period line of
+        // Inside it: the close button, then the sheet. No heading and no period line of
         // the dialog's own — the payslip names itself and prints its period its own way.
         ->and($path->evaluate('count('.$dialog.'/*)'))->toBe(2.0)
         ->and($path->evaluate('count('.$dialog.'//article)'))->toBe(1.0)
         ->and($path->evaluate('count('.$dialog.'//*[@data-flux-heading or @data-flux-text])'))->toBe(0.0)
-        ->and($path->evaluate('normalize-space(('.$dialog.'//button)[1])'))->toBe('Print')
-        ->and($path->evaluate('normalize-space(('.$dialog.'//button)[2])'))->toBe('Close')
-        ->and($path->evaluate('count('.$dialog.'//button)'))->toBe(2.0)
-        ->and($path->evaluate('string('.$dialog.')'))->toContain('01 Aug 2026')
+        // No Print button, and Close is an icon named for a screen reader, with no visible word.
+        ->and($path->evaluate('count('.$dialog.'//button)'))->toBe(1.0)
+        ->and($path->evaluate('string(('.$dialog.'//button)[1]/@aria-label)'))->toBe('Close')
+        ->and($path->evaluate('normalize-space(('.$dialog.'//button)[1])'))->toBe('')
+        ->and($path->evaluate('string('.$dialog.')'))->toContain('AUGUST 1–15, 2026')
         ->not->toContain('Aug 01, 2026');
+});
+
+it('totals the employee\'s own payslips under the list', function (bool $allData) {
+    $mine = portalEmployee('EMP-TOTAL', 'Total', 'Mine');
+    $other = portalEmployee('EMP-TOTAL-OTHER', 'Total', 'Other');
+    $first = portalPayslip($mine, '2026-08-01', '2026-08-15', 1000.10);
+    $first->forceFill(['gross_pay' => 1200.10, 'total_deductions' => 200.00])->save();
+    $second = portalPayslip($mine, '2026-08-16', '2026-08-31', 2000.20);
+    $second->forceFill(['gross_pay' => 2300.20, 'total_deductions' => 300.00])->save();
+    portalPayslip($other, '2026-08-01', '2026-08-15', 9999.99);
+    portalActor($allData ? ['PORTAL', 'PAYROLL'] : ['PORTAL'], $allData, $mine->getKey());
+
+    $document = new DOMDocument;
+    @$document->loadHTML('<?xml encoding="UTF-8">'.Livewire::test(PortalPage::class)->set('tab', 'payslips')->html());
+    $path = new DOMXPath($document);
+    $cell = static fn (int $n): string => $path->evaluate('normalize-space(//tfoot[@data-payslip-totals]/tr/td['.$n.'])');
+
+    // Someone who also runs payroll still totals only their own: the list is theirs alone.
+    expect($cell(1))->toBe('Total')
+        ->and($cell(2))->toBe('₱3,500.30')
+        ->and($cell(3))->toBe('₱500.00')
+        ->and($cell(4))->toBe('₱3,000.30');
+})->with(['portal employee' => false, 'payroll administrator' => true]);
+
+it('shows no total while no payslip has posted', function () {
+    $mine = portalEmployee('EMP-NO-TOTAL', 'No', 'Total');
+    portalActor(['PORTAL'], employeeId: $mine->getKey());
+
+    Livewire::test(PortalPage::class)->set('tab', 'payslips')->assertDontSeeHtml('data-payslip-totals');
 });
 
 it('aligns each amount heading over its right-aligned amounts', function () {
@@ -646,6 +678,7 @@ it('records a self-service punch with the browser fix and its accuracy', functio
         'geofence_exempt' => true,
     ]);
     $mine = portalEmployee('PORTAL-PUNCH', 'Liza', 'Domingo');
+    PunchShiftFixture::anyHour((string) $mine->getKey());
     $mine->forceFill(['work_site_id' => $site->getKey()])->save();
     portalActor(['PORTAL'], employeeId: (string) $mine->getKey());
 
@@ -699,10 +732,12 @@ it("keeps an all_data holder's leave credits card to their own rows", function (
         $card = portalCreditCard($page->html());
 
         expect($card)->toContain('Vacation Leave')
-            ->and($card)->toContain('<td class="num text-right">15</td>')
-            ->and($card)->toContain('<td class="num text-right">2</td>')
-            ->and($card)->toContain('>13</span>')
-            ->and($card)->not->toContain('Emergency Leave');
+            ->and($card)->toContain('<td class="num text-right">15.000</td>')
+            ->and($card)->toContain('<td class="num text-right">2.000</td>')
+            ->and($card)->toContain('>13.000</span>')
+            // Listed for me with nothing entered: 0, never the other employee's 42.5.
+            ->and($card)->toContain('Emergency Leave')
+            ->and(substr_count($card, 'data-no-credits'))->toBe(1);
     });
 });
 
@@ -724,7 +759,7 @@ it('shows an employee-less actor no credits card, only the link notice', functio
     });
 });
 
-it('tells a linked employee with nothing entered that no credits exist for the year', function () {
+it('lists every leave type at 0 for a linked employee with nothing entered for the year', function () {
     portalCreditType('LT-104', 'Vacation Leave');
     $mine = portalEmployee('EMP-204', 'No', 'Credits');
     $other = portalEmployee('EMP-205', 'Ana', 'Reyes');
@@ -739,14 +774,16 @@ it('tells a linked employee with nothing entered that no credits exist for the y
             ->set('tab', 'requests')
             ->set('type', 'VACATION_LEAVE')
             ->assertSeeHtml('data-leave-credits')
-            ->assertSee('No leave credits have been entered for 2026 yet.')
+            ->assertDontSee('No leave credits have been entered for 2026 yet.')
             ->assertDontSee('42.5')
             ->assertDontSee('77.5')
             ->assertDontSeeHtml('data-credit-hint');
 
-        // The empty state stands alone: no table of somebody else's rows, or
-        // of my other year's, behind it.
-        expect(portalCreditCard($page->html()))->not->toContain('<table');
+        // The type is listed at 0 — not somebody else's figure, nor my other year's.
+        $card = portalCreditCard($page->html());
+        expect($card)->toContain('Vacation Leave')
+            ->and($card)->toContain('data-no-credits')
+            ->and($card)->toContain('<td class="num text-right">0.000</td>');
     });
 });
 
@@ -778,7 +815,7 @@ it('renders the punch station without the credits card or a credits read', funct
     });
 });
 
-it('disables Submit and refuses filing when the draft exceeds the selected leave credits', function () {
+it('keeps Submit on and says which days would be without pay when the draft exceeds the selected leave credits', function () {
     portalCreditType('LT-106', 'Vacation Leave');
     $mine = portalEmployee('EMP-207', 'One', 'Left');
     portalCreditRow($mine, 'VACATION_LEAVE', 1);
@@ -792,17 +829,17 @@ it('disables Submit and refuses filing when the draft exceeds the selected leave
             ->set('dayType', 'WHOLE_DAY')
             ->set('start', '2026-09-28')
             ->set('end', '2026-09-29')
-            ->assertSeeHtml('data-credit-error')
-            ->assertSee('This request needs 2 days, but your available balance for this leave type in 2026 is 1 day.');
+            ->assertDontSeeHtml('data-credit-error')
+            ->assertSeeHtml('data-credit-notice')
+            ->assertSee('Your available Vacation Leave credits (1.000) cover 1 day of the 2 days; the other 1 day will be unpaid if approved.');
 
-        expect(portalCreditSubmitButton($page->html()))->toMatch('/\sdisabled(?:=|\s|>)/');
+        expect(portalCreditSubmitButton($page->html()))->not->toMatch('/\sdisabled(?:=|\s|>)/');
 
-        // Calling the action directly must not bypass the disabled button.
-        $page->call('file');
+        // A short balance never stops the request: it is filed.
+        $page->call('file')->assertSet('type', '');
 
-        expect(LeaveTravelRequest::query()->where('employee_id', $mine->getKey())->count())->toBe(0)
-            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(0)
-            ->and(Notification::query()->count())->toBe(0);
+        expect(LeaveTravelRequest::query()->where('employee_id', $mine->getKey())->count())->toBe(1)
+            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(1);
     });
 });
 
@@ -861,14 +898,14 @@ it('says which year a draft outside the panel year would be charged to', functio
             ->set('type', 'VACATION_LEAVE')
             ->set('start', '2027-01-05')
             ->set('end', '2027-01-05')
-            ->assertSeeHtml('data-credit-error')
-            ->assertSee('You have no available leave credits for the selected leave type in 2027.')
+            ->assertSeeHtml('data-credit-notice')
+            ->assertSee('You have no Vacation Leave credits available to cover this request: the whole request (1 day) will be unpaid if approved.')
             ->assertSee('This request falls in 2027; the credits shown are for 2026.')
             ->assertDontSee('This request needs');
     });
 });
 
-it('shows a refusal for a type with no credit entered and clears it when the selection has credits', function () {
+it('says a type with no credit entered would be without pay and clears it when the selection has credits', function () {
     portalCreditType('LT-110', 'Vacation Leave');
     portalCreditType('LT-111', 'Sick Leave');
     $mine = portalEmployee('EMP-211', 'Sick', 'Draft');
@@ -884,16 +921,18 @@ it('shows a refusal for a type with no credit entered and clears it when the sel
             ->set('end', '2026-09-29')
             ->assertSeeHtml('data-leave-credits')
             ->assertSee('Vacation Leave')
-            ->assertSeeHtml('data-credit-error');
-        $page->assertViewHas('submitDisabled', true);
-        $page->set('type', 'VACATION_LEAVE')
             ->assertDontSeeHtml('data-credit-error')
+            ->assertSeeHtml('data-credit-notice')
+            ->assertSee('You have no Sick Leave credits available to cover this request');
+        $page->assertViewHas('submitDisabled', false);
+        $page->set('type', 'VACATION_LEAVE')
+            ->assertDontSeeHtml('data-credit-notice')
             ->assertSeeHtml('data-credit-hint');
         $page->assertViewHas('submitDisabled', false);
     });
 });
 
-it('disables filing when the selected leave type has no remaining credits', function (string $name, string $token, ?float $credits) {
+it('files a leave type with no remaining credits, saying it would be without pay', function (string $name, string $token, ?float $credits, string $notice) {
     portalCreditType('LT-112', $name);
     $mine = portalEmployee('EMP-212', 'No', 'Balance');
     if ($credits !== null) {
@@ -901,26 +940,27 @@ it('disables filing when the selected leave type has no remaining credits', func
     }
     portalActor(['PORTAL'], employeeId: $mine->getKey());
 
-    portalCreditFrozen(function () use ($token): void {
+    portalCreditFrozen(function () use ($token, $notice): void {
         $page = Livewire::test(PortalPage::class)
             ->set('tab', 'requests')
             ->set('type', $token)
-            ->assertSee('You have no available leave credits for the selected leave type in 2026.');
-        $page->assertViewHas('submitDisabled', true);
-        expect(portalCreditSubmitButton($page->html()))->toMatch('/\sdisabled(?:=|\s|>)/');
+            ->set('start', '2026-09-28')
+            ->set('end', '2026-09-28')
+            ->assertSee($notice);
+        $page->assertViewHas('submitDisabled', false);
+        expect(portalCreditSubmitButton($page->html()))->not->toMatch('/\sdisabled(?:=|\s|>)/');
 
         $page->call('file');
-        expect(LeaveTravelRequest::query()->count())->toBe(0)
-            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(0)
-            ->and(Notification::query()->count())->toBe(0);
+        expect(LeaveTravelRequest::query()->count())->toBe(1)
+            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(1);
     });
 })->with([
-    'missing credits' => ['Vacation Leave', 'VACATION_LEAVE', null],
-    'zero credits' => ['Vacation Leave', 'VACATION_LEAVE', 0.0],
-    'Leave Without Pay' => ['Leave Without Pay', 'LEAVE_WITHOUT_PAY', null],
+    'missing credits' => ['Vacation Leave', 'VACATION_LEAVE', null, 'You have no Vacation Leave credits available to cover this request: the whole request (1 day) will be unpaid if approved.'],
+    'zero credits' => ['Vacation Leave', 'VACATION_LEAVE', 0.0, 'You have no Vacation Leave credits available to cover this request: the whole request (1 day) will be unpaid if approved.'],
+    'Leave Without Pay' => ['Leave Without Pay', 'LEAVE_WITHOUT_PAY', null, 'Leave Without Pay is unpaid leave: the 1 day will not be paid.'],
 ]);
 
-it('rechecks credits when an enabled form is submitted after its balance changed', function () {
+it('files with the balance as it stands when the form is submitted, even after it changed', function () {
     portalCreditType('LT-113', 'Vacation Leave');
     $mine = portalEmployee('EMP-213', 'Stale', 'Form');
     $credit = portalCreditRow($mine, 'VACATION_LEAVE', 1);
@@ -929,22 +969,23 @@ it('rechecks credits when an enabled form is submitted after its balance changed
     portalCreditFrozen(function () use ($credit): void {
         $page = Livewire::test(PortalPage::class)
             ->set('tab', 'requests')
-            ->set('type', 'VACATION_LEAVE');
+            ->set('type', 'VACATION_LEAVE')
+            ->set('start', '2026-09-28')
+            ->set('end', '2026-09-28')
+            ->assertDontSeeHtml('data-credit-notice');
         $page->assertViewHas('submitDisabled', false);
 
+        // The credit goes before Submit: the request is still filed, and
+        // approval will pay only what the credits then cover.
         $credit->delete();
-        $page->call('file')
-            ->assertSet('type', 'VACATION_LEAVE')
-            ->assertSee('You have no available leave credits');
-        $page->assertViewHas('submitDisabled', true);
+        $page->call('file')->assertSet('type', '');
 
-        expect(LeaveTravelRequest::query()->count())->toBe(0)
-            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(0)
-            ->and(Notification::query()->count())->toBe(0);
+        expect(LeaveTravelRequest::query()->count())->toBe(1)
+            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(1);
     });
 });
 
-it('uses the request year balance and recalculates eligibility when dates and day type change', function () {
+it('uses the request year balance and recalculates what would be without pay when dates and day type change', function () {
     portalCreditType('LT-114', 'Vacation Leave');
     $mine = portalEmployee('EMP-214', 'Year', 'Balance');
     portalCreditRow($mine, 'VACATION_LEAVE', 0);
@@ -954,13 +995,18 @@ it('uses the request year balance and recalculates eligibility when dates and da
     portalCreditFrozen(function (): void {
         $page = Livewire::test(PortalPage::class)
             ->set('tab', 'requests')
-            ->set('type', 'VACATION_LEAVE');
-        $page->assertViewHas('submitDisabled', true);
+            ->set('type', 'VACATION_LEAVE')
+            ->set('start', '2026-09-28')
+            ->set('end', '2026-09-28')
+            ->assertSee('the whole request (1 day) will be unpaid');
+        $page->assertViewHas('submitDisabled', false);
+        // 2027 holds half a credit: a whole day is not covered...
         $page->set('end', '2027-01-05')
             ->set('start', '2027-01-05')
-            ->assertSee('your available balance for this leave type in 2027 is 0.5 days.');
-        $page->assertViewHas('submitDisabled', true);
+            ->assertSee('the whole request (1 day) will be unpaid');
+        // ...a half day is, from 2027's credits.
         $page->set('dayType', 'HALF_DAY')
+            ->assertDontSeeHtml('data-credit-notice')
             ->assertSee('This request falls in 2027; the credits shown are for 2026.');
         $page->assertViewHas('submitDisabled', false);
         $page->call('file')

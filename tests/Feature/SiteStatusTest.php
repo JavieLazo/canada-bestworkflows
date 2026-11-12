@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Records\SitesPage;
 use App\Livewire\Records\Support\SitesExport;
-use App\Livewire\Roster\RosterPage;
+use App\Livewire\Roster\EmployeeSchedulePage;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\Project;
@@ -242,18 +242,26 @@ it('writes nothing when Site Settings flips a site without all_data', function (
     expect($site->fresh()?->is_active)->toBeTrue()->and(AuditLog::query()->count())->toBe(0);
 });
 
-it('offers an inactive site in the roster dialogs only where the employee already has it', function () {
+it('offers an inactive site on the employee’s month only where the employee already has it', function () {
     $active = sitestatSite('Makati Head Office');
     $retired = sitestatSite('Old Warehouse');
     $employee = sitestatEmployee($active);
     $actor = sitestatActor([ModuleCode::ROSTER, ModuleCode::RECORDS]);
     app(SaveRosterLocations::class)->handle($actor, $employee->id, [3 => $retired->id]);
+    app(SaveRosterDate::class)->handle($actor, $employee->id, '2026-10-09', 'DEFAULT', $retired->id);
     app(SetSiteStatus::class)->handle($actor, $retired->id, false);
+    $month = fn () => Livewire::test(EmployeeSchedulePage::class, ['employee' => $employee->id]);
 
-    $html = Livewire::test(RosterPage::class)->call('openLocations', $employee->id)->html();
-    // Once: Wednesday's own select. The other six selects do not offer it.
-    expect(substr_count($html, 'Old Warehouse (inactive)'))->toBe(1);
+    $html = $month()->call('openDefaultSchedule')->html();
+    // Twice: Wednesday's own select in the Default schedule (the other six
+    // selects do not offer it), and the side card's, which the page keeps
+    // for the browser because Oct 9 names it — hidden while nothing is picked.
+    $option = '~<option\s+hidden="hidden"\s+x-bind:hidden="[^"]*"\s+value="'.preg_quote($retired->id, '~').'"~';
+    expect(substr_count($html, 'Old Warehouse (inactive)'))->toBe(2)
+        ->and($html)->toMatch($option);
 
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->assertDontSee('Old Warehouse (inactive)');
+    // A picked date offers it only where that date's own schedule names it.
+    expect($month()->call('pick', '2026-10-06')->assertSee('Makati Head Office')->html())->toMatch($option);
+    $nine = $month()->call('pick', '2026-10-09')->assertSet('dayLocation', $retired->id)->html();
+    expect($nine)->not->toMatch($option)->toContain('Old Warehouse (inactive)');
 });

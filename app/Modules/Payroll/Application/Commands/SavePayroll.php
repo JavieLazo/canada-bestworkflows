@@ -96,7 +96,7 @@ final class SavePayroll
                 throw new RuntimeException('Custom deductions belong on a regular payroll, not on the 13th month run.');
             }
             if (array_filter($input->skippedRecurring, static fn (array $lines): bool => $lines !== []) !== []) {
-                throw new RuntimeException('Recurring lines belong on a regular payroll, not on the 13th month run.');
+                throw new RuntimeException('Recurring deductions and allowances belong on a regular payroll, not on the 13th month run.');
             }
             // Only a typed withholding applies; nothing else is on the run.
             $deductions = array_filter(array_map(
@@ -303,7 +303,7 @@ final class SavePayroll
         if ($typeIds !== [] && PayrollData::cashOutTypeReady()) {
             $cashOut = PayrollIncentiveType::query()->whereIn('id', array_keys($typeIds))->where('pays_leave_cash_out', true)->value('name');
             if ($cashOut !== null) {
-                throw new RuntimeException("{$cashOut} pays leave credit cash-outs and cannot be typed on a payroll.");
+                throw new RuntimeException("{$cashOut} pays leave credit cash conversions and cannot be typed on a payroll.");
             }
         }
 
@@ -311,8 +311,9 @@ final class SavePayroll
     }
 
     /**
-     * Positive member amounts only, with the same peso ceiling as other
-     * payroll inputs. Any unknown or system-managed row is refused below.
+     * Member amounts of zero or more, with the same peso ceiling as other
+     * payroll inputs. A zero stands only on a percentage row, and any
+     * unknown or system-managed row is refused, below.
      *
      * @param  array<string, array<string, mixed>>  $deductions
      * @param  list<string>  $members
@@ -323,7 +324,7 @@ final class SavePayroll
         $valid = [];
         foreach ($members as $employeeId) {
             foreach ($deductions[$employeeId] ?? [] as $typeId => $amount) {
-                if (! is_numeric($amount) || ! is_finite((float) $amount) || Money::round($amount) <= 0) {
+                if (! is_numeric($amount) || ! is_finite((float) $amount) || Money::round($amount) < 0) {
                     throw new RuntimeException('Every custom deduction amount must be more than zero.');
                 }
                 if (Money::round($amount) > PayrollData::MONEY_MAX) {
@@ -339,8 +340,10 @@ final class SavePayroll
     /**
      * A deleted row cannot become a typed charge, and neither can a row
      * payroll computes itself (its `calculation`): the engine's line and a
-     * typed line would both be deducted. Read inside the same save
-     * transaction as the lines are inserted.
+     * typed line would both be deducted. A zero stands only on a percentage
+     * row, where it means the employee's share is already paid for this
+     * cut-off. Read inside the same save transaction as the lines are
+     * inserted.
      *
      * @param  array<string, array<string, float>>  $deductions
      * @return array<string, array<string, float>>
@@ -356,7 +359,14 @@ final class SavePayroll
         if ($ids === []) {
             return $deductions;
         }
-        $rows = PayrollDeduction::query()->whereIn('id', array_keys($ids))->get(['id', 'calculation']);
+        $rows = PayrollDeduction::query()->whereIn('id', array_keys($ids))->get();
+        foreach ($deductions as $lines) {
+            foreach ($lines as $id => $amount) {
+                if ($amount <= 0.0 && $rows->firstWhere('id', (string) $id)?->percent === null) {
+                    throw new RuntimeException('Every custom deduction amount must be more than zero.');
+                }
+            }
+        }
         if ($rows->count() !== count($ids)) {
             throw new RuntimeException('A deduction type on this payroll no longer exists. Open the payroll again and save.');
         }
@@ -385,7 +395,7 @@ final class SavePayroll
                 continue;
             }
             if (! is_numeric($value) || ! is_finite((float) $value) || (float) $value < 0) {
-                throw new RuntimeException('Type the basic pay earned outside EMS as a peso figure, or leave it empty.');
+                throw new RuntimeException('Type the basic pay from other records as a peso figure, or leave it empty.');
             }
             if (Money::round($value) > PayrollData::MONEY_MAX) {
                 throw new RuntimeException('A basic pay figure is too large.');
@@ -429,12 +439,12 @@ final class SavePayroll
         foreach ($members as $employeeId) {
             $ids = $skipped[$employeeId] ?? [];
             if (! is_array($ids)) {
-                throw new RuntimeException('A skipped recurring line is not one this payroll knows. Open the payroll again and save.');
+                throw new RuntimeException('A skipped deduction or allowance is not one this payroll knows. Open the payroll again and save.');
             }
             $lineIds = [];
             foreach ($ids as $id) {
                 if (! is_string($id) || $id === '') {
-                    throw new RuntimeException('A skipped recurring line is not one this payroll knows. Open the payroll again and save.');
+                    throw new RuntimeException('A skipped deduction or allowance is not one this payroll knows. Open the payroll again and save.');
                 }
                 $lineIds[] = $id;
             }
@@ -462,7 +472,7 @@ final class SavePayroll
             return [];
         }
         if (! RecurringLines::ready()) {
-            throw new RuntimeException('Recurring lines can be skipped once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Recurring deductions and allowances can be skipped once this installation\'s upgrade finishes.');
         }
         $owners = PayrollRecurringLine::query()->whereIn('id', array_merge(...array_values($skipped)))->pluck('employee_id', 'id');
         $known = [];
@@ -470,7 +480,7 @@ final class SavePayroll
             foreach ($ids as $id) {
                 $owner = $owners[$id] ?? null;
                 if ($owner !== null && $owner !== $employeeId) {
-                    throw new RuntimeException('A skipped recurring line is not one this payroll knows. Open the payroll again and save.');
+                    throw new RuntimeException('A skipped deduction or allowance is not one this payroll knows. Open the payroll again and save.');
                 }
                 if ($owner !== null) {
                     $known[$employeeId][] = $id;

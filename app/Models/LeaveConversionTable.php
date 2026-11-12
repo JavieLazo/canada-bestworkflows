@@ -7,13 +7,14 @@ namespace App\Models;
 use Carbon\CarbonImmutable;
 
 /**
- * One version of the minutes-to-days conversion table (Leave Credits
- * settings): the hours in a day, the decimals and rounding rule, every
- * minute and hour row as a fraction of a day (`rows`), prepared as a DRAFT
- * by one person and APPROVED by another. An approved version never changes
- * and converts attendance charges from its effective date on. Attribution
- * columns have no user foreign key; Timekeeping's account retention keeps
- * the accounts they name.
+ * A minutes-to-days conversion table an earlier build stored: the hours in
+ * a day, the decimals and rounding rule, every minute and hour row as a
+ * fraction of a day (`rows`). HISTORY ONLY — the table in use is fixed in
+ * code (ConversionTables), and nothing reads or writes these rows. They
+ * stay for the audit trail and for payroll evidence that cites their ids;
+ * a DRAFT row is one nobody saved (the seeded standard table), APPROVED
+ * one that was in use. Attribution columns have no user foreign key;
+ * Timekeeping's account retention keeps the accounts they name.
  *
  * @property string $id
  * @property CarbonImmutable $effective_from

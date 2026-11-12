@@ -131,13 +131,20 @@
                     $invalid ? 'border-danger' : 'border-input',
                 ])
             >
+                {{-- A LONG VALUE ENDS IN "…", it never widens the field: w-0 +
+                     flex-1 gives the value no width of its own, so a grid
+                     cell, a flex row or a table cell sizes the field and the
+                     text is cut to it. Every caller sizes the box (it is
+                     w-full unless given a width), so nothing shrinks. The
+                     full value is in the trigger's title. --}}
                 <span
                     x-bind:id="$id('kit-select-value')"
                     x-text="label"
                     x-bind:class="{ 'text-muted-foreground': placeholder, 'font-medium': clearable }"
+                    x-effect="$el.closest('button').title = label"
                     data-kit-select-value
                     data-placeholder="{{ $first['placeholder'] ? 'true' : 'false' }}"
-                    @class(['min-w-0 truncate', 'text-muted-foreground' => $first['placeholder']])
+                    @class(['w-0 min-w-0 flex-1 truncate', 'text-muted-foreground' => $first['placeholder']])
                 >{{ $first['label'] }}</span>
                 {{-- Invisible, not removed, while the clear button sits over it:
                      the room it keeps stops a long value short of the button. --}}

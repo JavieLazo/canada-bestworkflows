@@ -43,7 +43,7 @@
             <p class="text-sm text-muted-foreground">
                 {{ $finalized
                     ? 'Finalized — these payslips are posted and no longer change.'
-                    : 'One twelfth of the basic pay each employee earned in the year, tax-free up to PHP 90,000 of benefits.' }}
+                    : 'One twelfth of the basic pay each employee earned in the year, tax-exempt up to ₱90,000 of benefits.' }}
             </p>
         </div>
 
@@ -112,25 +112,25 @@
         </header>
 
         @if ($reviewRequired && ! $finalized)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
-                Payroll inputs changed. Finalization was cancelled. Review the updated figures before posting.
-            </p>
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
+                Inputs changed, so finalizing was cancelled. Review the new figures before posting.
+            </x-payroll.notice>
         @endif
         @if ($cutoffError)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
                 {{ $cutoffError }}
-            </p>
+            </x-payroll.notice>
         @endif
         {{-- A warning, never a block: the withholding table's figures are not confirmed through 31 December (StatutoryTables). --}}
         @if ($statutoryWarning)
-            <p role="status" data-statutory-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
+            <x-payroll.notice tone="warning" data-statutory-warning class="border-b px-5 py-3">
                 {{ $statutoryWarning }}
-            </p>
+            </x-payroll.notice>
         @endif
         @if ($issue)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
                 {{ $issue['employee'] }}: {{ $issue['message'] }}
-            </p>
+            </x-payroll.notice>
         @endif
 
         @if ($lineCount > 0)
@@ -170,15 +170,15 @@
                         @endunless
                         <th @unless ($finalized) rowspan="2" @endunless class="text-right">13th month</th>
                         <th @unless ($finalized) rowspan="2" @endunless class="text-right">Tax-exempt</th>
-                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Over PHP 90,000</th>
-                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Withholding</th>
+                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Taxable excess over ₱90,000</th>
+                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Withholding tax</th>
                         <th @unless ($finalized) rowspan="2" @endunless class="text-right">Net Pay</th>
                         <th @unless ($finalized) rowspan="2" @endunless class="text-right">Actions</th>
                     </tr>
                     @unless ($finalized)
                         <tr>
-                            <th class="text-right">In EMS</th>
-                            <th class="text-right">Outside EMS</th>
+                            <th class="text-right">Paid in this system</th>
+                            <th class="text-right">From other records</th>
                             <th class="text-right">For the year</th>
                         </tr>
                     @endunless
@@ -236,7 +236,7 @@
                                         x-on:input="onInput($event)"
                                         x-on:focus="$event.target.select()"
                                         x-on:blur="settle()"
-                                        aria-label="{{ $nameForInput }} basic pay earned outside EMS"
+                                        aria-label="{{ $nameForInput }} basic pay from other records"
                                         x-on:change="$wire.updateOutside('{{ $p->employee_id }}', raw)"
                                         class="num h-8 w-full min-w-[7.5rem] rounded-md border border-border bg-background px-2.5 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                                     />
@@ -323,6 +323,6 @@
     @endif
 
     @include('livewire.payroll.partials.add-employees-dialog', [
-        'pickerNote' => "Everyone employed at some point of {$year}, resigned staff included. Unticking an employee removes them from this run.",
+        'pickerNote' => "Everyone employed at some point of {$year}, separated employees included. Unticking an employee removes them from this run.",
     ])
 </div>

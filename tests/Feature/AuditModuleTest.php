@@ -153,10 +153,71 @@ it('narrows by the action filter and resets to page 1', function () {
     auditActor(['AUDIT'], allData: true);
 
     Livewire::test(Index::class)
-        ->set('action', 'LOGIN_SUCCESS')
+        ->set('action', 'Signed in')
         ->assertSet('paginators.page', 1)
         ->assertSee('Maria Reyes signed in')
         ->assertDontSee('Employee Liza Domingo created');
+});
+
+it('shows Action as plain words and Entity as words, keeping the action code in its title', function () {
+    auditEntry('REQUEST_REJECTED', 'leave_travel_requests', 'Sick Leave for Liza Domingo', 'Ana Cruz');
+    auditEntry('LEGACY_THING_DONE', 'legacy_rows', 'An older entry', 'Ana Cruz');
+
+    auditActor(['AUDIT'], allData: true);
+
+    Livewire::test(Index::class)
+        ->assertSeeHtml('<span title="REQUEST_REJECTED">Leave/OB request disapproved</span>')
+        ->assertDontSeeHtml('pill-info')
+        ->assertSeeHtml('>Leave/OB request</td>')
+        ->assertSeeHtml('>Legacy thing done</span>')
+        ->assertSeeHtml('>Legacy rows</td>')
+        ->assertDontSeeHtml('>leave_travel_requests<')
+        ->assertViewHas('actions', ['Leave/OB request disapproved', 'Legacy thing done'])
+        ->assertViewHas('entities', ['Leave/OB request', 'Legacy rows']);
+});
+
+it('offers one entity choice for tables that share a label, and filters by it', function () {
+    auditEntry('BOOTSTRAP_ADMIN', 'users', 'First admin created', 'System');
+    auditEntry('LOGIN_SUCCESS', 'user_accounts', 'Maria Reyes signed in', 'Maria Reyes');
+    auditEntry('HOLIDAY_CREATED', 'holidays', 'Rizal Day added', 'Ana Cruz');
+
+    auditActor(['AUDIT'], allData: true);
+
+    $page = Livewire::test(Index::class);
+    $page->assertViewHas('entities', ['Holiday', 'User account']);
+
+    $page->set('entity', 'User account')
+        ->assertSee('First admin created')
+        ->assertSee('Maria Reyes signed in')
+        ->assertDontSee('Rizal Day added');
+});
+
+it('finds an entry by its action label as well as its code', function () {
+    auditEntry('REQUEST_REJECTED', 'leave_travel_requests', 'Sick Leave for Liza Domingo', 'Ana Cruz');
+    auditEntry('HOLIDAY_CREATED', 'holidays', 'Rizal Day added', 'Ana Cruz');
+
+    auditActor(['AUDIT'], allData: true);
+
+    Livewire::test(Index::class)
+        ->set('search', 'disapproved')
+        ->assertSee('Sick Leave for Liza Domingo')
+        ->assertDontSee('Rizal Day added')
+        ->set('search', 'holiday_created')
+        ->assertSee('Rizal Day added')
+        ->assertDontSee('Sick Leave for Liza Domingo');
+});
+
+it('sorts the Action column by the label it shows', function () {
+    // By code SITE_CREATED < USER_CREATED; by label "Account created" < "Worksite added".
+    auditEntry('SITE_CREATED', 'work_sites', 'Makati added', 'Ana Cruz');
+    auditEntry('USER_CREATED', 'user_accounts', 'Account for Liza created', 'Ana Cruz');
+
+    auditActor(['AUDIT'], allData: true);
+
+    Livewire::test(Index::class)
+        ->call('sortBy', 'action')
+        ->assertSet('sortDir', 'asc')
+        ->assertSeeInOrder(['Account for Liza created', 'Makati added']);
 });
 
 it('searches action, actor and details as one needle', function () {

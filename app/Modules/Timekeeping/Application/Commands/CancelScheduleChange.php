@@ -67,6 +67,9 @@ final class CancelScheduleChange
         if ($saved->source === RosterScheduleChange::SOURCE_PATTERN_EDIT) {
             throw new RuntimeException('That change came from editing a shift pattern. Edit the pattern in Shifting Settings to change it.');
         }
+        if ($saved->source === RosterScheduleChange::SOURCE_REST_DAYS) {
+            throw new RuntimeException('That change moved the rest days onto this employee. Change a rest day in the weekly schedule instead.');
+        }
         $from = $saved->effective_from->format('Y-m-d');
         if ($from < ManilaClock::todayKey()) {
             throw new RuntimeException('That change is already in effect. Make a new change instead of cancelling it.');

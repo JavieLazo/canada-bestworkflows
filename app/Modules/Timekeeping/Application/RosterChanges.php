@@ -15,7 +15,7 @@ use Carbon\CarbonImmutable;
  * How the roster commands record a change as dated history instead of
  * overwriting it: each command that writes opens one `roster_schedule_changes`
  * row that its new default-shift, weekday-hours or weekday-place rows belong
- * to — the Weekly schedule dialog runs two commands, so it can open one for
+ * to — the Default schedule dialog runs two commands, so it can open one for
  * hours and one for places — and an assignment that stops applying is cut
  * short or cancelled with who and when, never deleted.
  *
@@ -40,13 +40,20 @@ final class RosterChanges
     /**
      * Stop an assignment after `$lastDate` — before its first date to cancel
      * it outright. Its dates up to `$lastDate` keep the hours and place they
-     * had.
+     * had. One cancelled already, and still applying up to its cut, is only
+     * cut shorter: who cancelled it and when stay those of the first
+     * cancellation, and the later cut is the change that replaced it.
      */
     public static function cancelAssignment(Access $actor, RosterDayOverride $row, string $lastDate): void
     {
-        $row->status = RosterDayOverride::STATUS_CANCELLED;
         // A calendar day stays a bare Y-m-d string (time-and-DTR guide).
         $row->forceFill(['cut_after' => $lastDate]);
+        if ($row->status === RosterDayOverride::STATUS_CANCELLED && $row->cancelled_at !== null) {
+            $row->save();
+
+            return;
+        }
+        $row->status = RosterDayOverride::STATUS_CANCELLED;
         $row->cancelled_at = CarbonImmutable::now('UTC');
         $row->cancelled_by = self::accountId($actor);
         $row->save();

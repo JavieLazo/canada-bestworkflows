@@ -43,6 +43,11 @@ it('keeps each share under the monthly cap, halved like the base', function () {
         ->and(percentDeductionWith(['employee' => 2.5, 'employer' => 0.0])->sharesFor(33333.33, '2026-09-01'))->toBe(['employee' => 416.67, 'employer' => 0.0]);
 });
 
+it('takes an employee\'s own rate with the employer share, and at 0 neither share', function () {
+    expect(percentDeductionWith()->withEmployeeShare(5.0)->sharesFor(30000.0, '2026-09-01'))->toBe(['employee' => 750.0, 'employer' => 450.0])
+        ->and(percentDeductionWith()->withEmployeeShare(0.0)->sharesFor(30000.0, '2026-09-01'))->toBe(['employee' => 0.0, 'employer' => 0.0]);
+});
+
 it('reads figures strictly and names what is wrong', function () {
     $good = percentDeductionWith()->toArray();
     expect(PercentDeduction::error($good))->toBeNull()

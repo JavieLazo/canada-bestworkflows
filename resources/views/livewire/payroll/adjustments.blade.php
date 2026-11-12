@@ -28,7 +28,7 @@
         <h1 class="text-2xl font-bold tracking-tight">Adjustments</h1>
         <p class="text-sm text-muted-foreground">
             Differences paid or recovered on a later payroll: a correction of salary, a refund, a tax shortfall, an overpayment to recover.
-            A line is prepared by one payroll officer and approved by another, then the next payroll with the employee on it pays it.
+            A line is prepared and then approved by a payroll officer, and the next payroll with the employee on it pays it.
         </p>
     </div>
 
@@ -84,7 +84,7 @@
                             <td>
                                 {{ $row->category_name }}
                                 <span class="block text-xs text-muted-foreground">
-                                    {{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Earning, taxable' : 'Earning, not taxed') }}
+                                    {{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Earning, taxable' : 'Earning, not compensation') }}
                                 </span>
                             </td>
                             <td class="num whitespace-nowrap text-right">{{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? '−' : '' }}{{ Hris::peso($row->amount) }}</td>
@@ -144,7 +144,7 @@
             <x-kit.select label="Category" wire:model="formCategoryId">
                 <flux:select.option value="">Choose one</flux:select.option>
                 @foreach ($categories as $category)
-                    <flux:select.option value="{{ $category->id }}">{{ $category->name }} · {{ $category->kind === AdjustmentRule::KIND_DEDUCTION ? 'deduction' : ($category->tax === AdjustmentRule::TAX_TAXABLE ? 'taxable earning' : 'earning, not taxed') }}</flux:select.option>
+                    <flux:select.option value="{{ $category->id }}">{{ $category->name }} · {{ $category->kind === AdjustmentRule::KIND_DEDUCTION ? 'deduction' : ($category->tax === AdjustmentRule::TAX_TAXABLE ? 'taxable earning' : 'earning, not compensation') }}</flux:select.option>
                 @endforeach
             </x-kit.select>
             <div class="grid gap-4 sm:grid-cols-2">

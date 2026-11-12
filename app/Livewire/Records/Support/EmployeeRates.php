@@ -98,7 +98,7 @@ final class EmployeeRates
     public static function summary(?array $figures): string
     {
         $figures ??= PayRules::fromFormulas()->toArray();
-        $basis = ($figures['basis'] ?? null) === PayRules::BASIS_MONTHLY ? 'Monthly basis' : 'Daily basis';
+        $basis = ($figures['basis'] ?? null) === PayRules::BASIS_MONTHLY ? 'Monthly-paid' : 'Daily-paid';
         $value = Hris::moneyText($figures['daily_rate']['value'] ?? 0);
         $method = match ($figures['daily_rate']['method'] ?? null) {
             PayRules::METHOD_FACTOR => "a day is the monthly rate × 12 ÷ {$value}",

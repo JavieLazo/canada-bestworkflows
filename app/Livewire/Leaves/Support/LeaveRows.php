@@ -52,6 +52,9 @@ final class LeaveRows
         $sorted = $visible->sort(static function (LeaveTravelRequest $a, LeaveTravelRequest $b) use ($described, $sortKey): int {
             return match ($sortKey) {
                 'employee' => LeaveLabels::compareText($a->employee?->last_name, $b->employee?->last_name),
+                // When the request was filed: the stored instant, to the
+                // millisecond; the id settles a tie, so the order is stable.
+                'filed' => ($a->created_at->getTimestampMs() <=> $b->created_at->getTimestampMs()) ?: CodeSort::compare($a->code, $b->code),
                 'date' => LeaveLabels::compareText($a->start_date->format('Y-m-d'), $b->start_date->format('Y-m-d'))
                     ?: LeaveLabels::compareText($a->end_date->format('Y-m-d'), $b->end_date->format('Y-m-d')),
                 'description' => LeaveLabels::compareText($described[$a->id], $described[$b->id]),

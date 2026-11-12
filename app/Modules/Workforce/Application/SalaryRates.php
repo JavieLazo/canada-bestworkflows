@@ -11,6 +11,7 @@ use App\Models\EmployeeSalaryRate;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
+use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -174,11 +175,12 @@ final class SalaryRates
     }
 
     /**
-     * An Employee Details edit that changed the rates, recorded as the
-     * version dated today — approved by whoever made the edit, the way the
-     * record always took it — so the history stays one. A version already
-     * dated today is brought to the new rates instead. Called inside the
-     * edit's transaction, after the profile row is written.
+     * An Employee Details edit that changed the rates: the employee's ONE
+     * salary row is brought to the record's rates (replace()), approved by
+     * whoever made the edit, the way the record always took it. Called
+     * inside the edit's transaction, after the profile row is written.
+     * `$today` is unused now that a salary carries no date of its own; it
+     * stays in the signature for the callers that pass it.
      */
     public static function recordProfileEdit(Access $actor, EmployeeProfile $employee, ?float $monthlyBefore, ?float $dailyBefore, string $today): void
     {
@@ -188,31 +190,50 @@ final class SalaryRates
         if (self::money($monthlyBefore) === self::money($employee->monthly_rate) && self::money($dailyBefore) === self::money($employee->daily_rate)) {
             return;
         }
-        // The rates the record held before this edit are its first version
-        // when none exists yet, so the history starts whole.
-        self::ensureBaseline($employee, $monthlyBefore, $dailyBefore);
-        $row = EmployeeSalaryRate::query()
-            ->where('employee_id', $employee->id)
-            ->whereDate('effective_from', $today)
-            ->where('status', '!=', EmployeeSalaryRate::REJECTED)
-            ->lockForUpdate()
-            ->first() ?? new EmployeeSalaryRate;
-        $row->fill([
-            'employee_id' => $employee->id,
-            'effective_from' => $today,
+        self::replace($actor, $employee, 'Changed on Employee Details');
+    }
+
+    /**
+     * Writes the record's rates as the employee's ONE salary row. AN
+     * EMPLOYEE HAS ONE SALARY, NOT A LIST OF DATED VERSIONS: the row in use
+     * is brought to the rates and stretched back over every date the list
+     * covered (the hire date for a first one), and every other row — an
+     * earlier salary, one still to start, one awaiting approval — is
+     * removed. Payroll therefore prices a draft's whole period at the
+     * salary as it stands, and a finalized payslip keeps the salary its
+     * evidence captured. The caller holds the employee's row lock and has
+     * written the rates onto the profile.
+     */
+    public static function replace(Access $actor, EmployeeProfile $employee, string $reason): EmployeeSalaryRate
+    {
+        $today = ManilaClock::todayKey();
+        $rows = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->lockForUpdate()->orderBy('effective_from')->orderBy('id')->get();
+        // The row in use today, else the earliest: the one the change is written on.
+        $kept = $rows->last(static fn (EmployeeSalaryRate $row): bool => $row->status === EmployeeSalaryRate::APPROVED
+            && $row->effective_from->format('Y-m-d') <= $today) ?? $rows->first();
+
+        if ($kept === null) {
+            $kept = new EmployeeSalaryRate(['employee_id' => $employee->id, 'effective_from' => $employee->date_hired->format('Y-m-d')]);
+        } else {
+            $kept->effective_from = CarbonImmutable::parse(min($rows->first()->effective_from->format('Y-m-d'), $employee->date_hired->format('Y-m-d')), 'UTC');
+            EmployeeSalaryRate::query()->where('employee_id', $employee->id)->whereKeyNot($kept->id)->delete();
+        }
+        $kept->fill([
             'monthly_rate' => $employee->monthly_rate,
             'daily_rate' => $employee->daily_rate,
-            'reason' => 'Changed on Employee Details',
+            'reason' => $reason,
             'reference' => null,
             'status' => EmployeeSalaryRate::APPROVED,
             'review_note' => null,
         ]);
-        $row->prepared_by = $actor->userId === null ? null : (int) $actor->userId;
-        $row->prepared_by_name = $actor->userId === null ? null : mb_substr($actor->fullName, 0, 200);
-        $row->approved_by = $row->prepared_by;
-        $row->approved_by_name = $row->prepared_by_name;
-        $row->approved_at = CarbonImmutable::now('UTC');
-        $row->save();
+        $kept->prepared_by = $actor->userId === null ? null : (int) $actor->userId;
+        $kept->prepared_by_name = $actor->userId === null ? null : mb_substr($actor->fullName, 0, 200);
+        $kept->approved_by = $kept->prepared_by;
+        $kept->approved_by_name = $kept->prepared_by_name;
+        $kept->approved_at = CarbonImmutable::now('UTC');
+        $kept->save();
+
+        return $kept;
     }
 
     /**

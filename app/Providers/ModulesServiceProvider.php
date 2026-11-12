@@ -203,8 +203,9 @@ final class ModulesServiceProvider extends ServiceProvider
      * changes file); the Daily Time Record, whose computed days are read on
      * the tab and corrected in its dialog, never downloaded; and the
      * General Records lists — Position and Departments & Units, which have
-     * pages of their own, and Document and Employment, which
-     * {@see ReferenceListPage::csvLists()} leaves out.
+     * pages of their own, and Document and Employment — and the leave types
+     * on Leave Settings, the three {@see ReferenceListPage::csvLists()}
+     * leaves out.
      *
      * @return array<string, Closure(): TableExport>
      */
@@ -246,10 +247,10 @@ final class ModulesServiceProvider extends ServiceProvider
     }
 
     /**
-     * The tables that take a CSV import: the Records settings (leave types,
-     * payroll deductions, sites, holidays, shift patterns, incentive
-     * types), projects and tasks. Audit, payroll evidence, punches,
-     * employees, the roster, leave credits, self-service rows and the
+     * The tables that take a CSV import: the Records settings (payroll
+     * deductions, sites, holidays, shift patterns, incentive types),
+     * projects and tasks. Audit, payroll evidence, punches, employees, the
+     * roster, leave credits, the leave types, self-service rows and the
      * General Records lists (Position, Departments & Units, Document,
      * Employment) have no import.
      *

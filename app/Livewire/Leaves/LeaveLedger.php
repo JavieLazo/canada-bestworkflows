@@ -23,13 +23,14 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use RuntimeException;
 
-/** One annual ledger shared by HR and the employee's strictly own, read-only portal. */
+/**
+ * The annual leave ledger on Leave Management's Leave Ledger tab. An all-data
+ * LEAVES holder picks any employee in scope and records credit entries; any
+ * other LEAVES holder reads only their own record. My Portal has no ledger.
+ */
 class LeaveLedger extends Component
 {
     use WithTableFilters;
-
-    #[Locked]
-    public bool $own = false;
 
     #[Locked]
     public string $employeeId = '';
@@ -57,12 +58,11 @@ class LeaveLedger extends Component
 
     public string $note = '';
 
-    public function mount(bool $own = false): void
+    public function mount(): void
     {
-        $this->own = $own;
         $access = $this->access();
         $this->year = LeaveCredits::currentYear();
-        if ($own || ! $access->mayReadAllData(ModuleCode::LEAVES)) {
+        if (! $access->mayReadAllData(ModuleCode::LEAVES)) {
             $this->employeeId = $access->hasEmployeeLink() ? $access->ownEmployeeId() : '';
         }
     }
@@ -71,7 +71,7 @@ class LeaveLedger extends Component
     public function employeePicked(string $name, string $id): void
     {
         $access = $this->access();
-        if ($name !== 'ledger-employee' || $this->own || ! $access->mayReadAllData(ModuleCode::LEAVES)) {
+        if ($name !== 'ledger-employee' || ! $access->mayReadAllData(ModuleCode::LEAVES)) {
             return;
         }
         if (app(OperationalDirectory::class)->find($access, $id) !== null) {
@@ -146,7 +146,7 @@ class LeaveLedger extends Component
     private function access(): Access
     {
         $access = app(Access::class);
-        abort_unless($access->hasModule($this->own ? ModuleCode::PORTAL : ModuleCode::LEAVES), 403);
+        abort_unless($access->hasModule(ModuleCode::LEAVES), 403);
 
         return $access;
     }
@@ -161,16 +161,14 @@ class LeaveLedger extends Component
 
     private function canEdit(Access $access): bool
     {
-        return ! $this->own && $access->mayReadAllData(ModuleCode::LEAVES)
+        return $access->mayReadAllData(ModuleCode::LEAVES)
             && $this->employeeId !== '' && $this->employeeId !== $access->employeeId;
     }
 
     public function render(): View
     {
         $access = $this->access();
-        // Self-service is pinned afresh, even when this account can manage leave.
-        $employeeId = $this->own
-            ? ($access->hasEmployeeLink() ? $access->ownEmployeeId() : '') : $this->employeeId;
+        $employeeId = $this->employeeId;
         $records = app(LeaveLedgerRecords::class);
         $balances = $records->summary($access, $employeeId, $this->year);
         $types = app(LeaveCreditRecords::class)->creditableTypes($access);
@@ -186,7 +184,7 @@ class LeaveLedger extends Component
             'historyTypes' => $historyTypes,
             'rows' => $this->acceptPage($records->page($access, $employeeId, $this->year, $this->type,
                 (int) $this->getPage('ledgerPage'), $this->perPage), 'ledgerPage'),
-            'canPick' => ! $this->own && $access->mayReadAllData(ModuleCode::LEAVES),
+            'canPick' => $access->mayReadAllData(ModuleCode::LEAVES),
             'canEdit' => $this->canEdit($access),
             'today' => ManilaClock::todayKey(),
         ]);

@@ -39,10 +39,10 @@ final class SaveBenefitAssignment
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! BenefitAssignments::ready()) {
-            throw new RuntimeException('Benefits can be assigned once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Incentives can be assigned once this installation\'s upgrade finishes.');
         }
         if (! PayrollPeriod::isPayrollDate($startsOn)) {
-            throw new RuntimeException('Enter the date the benefit starts.');
+            throw new RuntimeException('Enter the date the incentive starts.');
         }
         $endsOn = $endsOn === null || trim($endsOn) === '' ? null : trim($endsOn);
         if ($endsOn !== null && (! PayrollPeriod::isPayrollDate($endsOn) || $endsOn < $startsOn)) {
@@ -72,11 +72,11 @@ final class SaveBenefitAssignment
         }
         $type = PayrollIncentiveType::query()->whereKey($typeId)->first();
         if ($type === null) {
-            throw new RuntimeException('Choose a benefit from Incentives & Bonuses.');
+            throw new RuntimeException('Choose an incentive from Incentives & Bonuses.');
         }
         try {
             if (! PayrollData::benefitRuleOf($type)->isScheduled()) {
-                throw new RuntimeException("{$type->name} is typed per payroll; only a benefit with a schedule can be assigned.");
+                throw new RuntimeException("{$type->name} is typed per payroll; only an incentive with a schedule can be assigned.");
             }
         } catch (InvalidArgumentException $e) {
             throw new RuntimeException("{$type->name} has a rule payroll cannot read: ".$e->getMessage());

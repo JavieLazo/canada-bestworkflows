@@ -374,8 +374,8 @@ class ThirteenthMonthWorkspace extends Component
             return null;
         }
 
-        $headers = ['ID', 'Employee ID', 'Employee', 'Year', 'Basic pay in EMS', 'Basic pay outside EMS', 'Basic pay for the year',
-            '13th month pay', 'Tax-exempt', 'Over PHP 90,000', 'Withholding tax', 'Net pay'];
+        $headers = ['ID', 'Employee ID', 'Employee', 'Year', 'Basic pay in this system', 'Basic pay from other records', 'Basic pay for the year',
+            '13th month pay', 'Tax-exempt', 'Taxable excess over PHP 90,000', 'Withholding tax', 'Net pay'];
         $rows = [];
         foreach ($lines as $p) {
             $e = $employees->get($p->employee_id);
@@ -388,7 +388,7 @@ class ThirteenthMonthWorkspace extends Component
         }
 
         $run = $this->runId !== null ? app(PayrollRecords::class)->find($actor, $this->runId) : null;
-        $filename = 'cyberonions-13th-month-'.mb_strtolower((string) ($run->code ?? $this->year)).'.csv';
+        $filename = '13th-month-'.mb_strtolower((string) ($run->code ?? $this->year)).'.csv';
         $csv = Csv::build($headers, $rows);
         Flux::toast(text: 'Exported '.count($lines).' lines.', variant: 'success');
 

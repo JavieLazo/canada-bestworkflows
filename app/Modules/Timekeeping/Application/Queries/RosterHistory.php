@@ -16,6 +16,7 @@ use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Organization\Contracts\Views\WorkSiteView;
 use App\Modules\Timekeeping\Contracts\Views\ScheduleChangeView;
 use App\Modules\Timekeeping\Contracts\Views\TemporaryScheduleView;
+use App\Modules\Timekeeping\Domain\Roster\CustomHours;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Support\Access;
@@ -106,7 +107,8 @@ final class RosterHistory
             $cancelled = $change->status === RosterScheduleChange::STATUS_CANCELLED;
             $sets = [];
             foreach ($standing[$change->id] ?? [] as $row) {
-                $sets[] = 'Default shift: '.self::hours(DomainShift::fromArray($row->toArray()));
+                // A cleared shift's hours are filler, never shown.
+                $sets[] = 'Default shift: '.($row->clearsShift() ? 'none (cleared)' : self::hours(DomainShift::fromArray($row->toArray())));
             }
             foreach ($weekdays[$change->id] ?? [] as $row) {
                 $sets[] = HrisFormat::weekday($row->weekday).': '.($row->shift_data === null ? 'default shift' : ($row->is_rest_day ? 'Rest day' : $row->shift_name.' · '.self::hours(DomainShift::fromArray($row->shift_data))));
@@ -122,7 +124,7 @@ final class RosterHistory
                 made_at: self::stamp($change->created_at),
                 cancelled_by: $change->cancelled_by === null ? null : $accounts->get($change->cancelled_by),
                 cancelled_at: self::stamp($change->cancelled_at),
-                can_cancel: $canManage && ! $cancelled && $from >= $today && $change->source !== RosterScheduleChange::SOURCE_PATTERN_EDIT,
+                can_cancel: $canManage && ! $cancelled && $from >= $today && ! in_array($change->source, [RosterScheduleChange::SOURCE_PATTERN_EDIT, RosterScheduleChange::SOURCE_REST_DAYS], true),
             );
         }
 
@@ -143,7 +145,12 @@ final class RosterHistory
                 hours: $row->shift_data === null || $row->is_rest_day ? null : self::hours(DomainShift::fromArray($row->shift_data)),
                 place: $row->location_kind === null ? null : LocationKind::label($row->location_kind, $row->site_id === null ? null : $sites->get($row->site_id)?->name),
                 works_rest_days: $row->include_rest_days && $row->shift_data !== null && ! $row->is_rest_day,
-                shift_choice: $row->is_rest_day ? 'REST' : ($row->shift_data === null ? 'DEFAULT' : ($row->shift_type_id ?? 'KEEP')),
+                shift_choice: match (true) {
+                    $row->is_rest_day => 'REST',
+                    $row->shift_data === null => 'DEFAULT',
+                    CustomHours::isCustom($row->shift_type_id, $row->shift_name, $row->shift_data) => 'CUSTOM',
+                    default => $row->shift_type_id ?? 'KEEP',
+                },
                 location_choice: $row->location_kind === LocationKind::WFH ? LocationKind::WFH : ($row->site_id ?? 'DEFAULT'),
                 made_by: $row->created_by === null ? null : $accounts->get($row->created_by),
                 made_at: self::stamp($row->created_at),
@@ -151,6 +158,8 @@ final class RosterHistory
                 cancelled_at: self::stamp($row->cancelled_at),
                 revision_of: $row->revision_of,
                 can_change: $canManage && in_array($state, ['UPCOMING', 'ACTIVE'], true),
+                custom_hours: ! $row->is_rest_day && $row->shift_data !== null && CustomHours::isCustom($row->shift_type_id, $row->shift_name, $row->shift_data)
+                    ? CustomHours::input($row->shift_data) : null,
             );
         }
 

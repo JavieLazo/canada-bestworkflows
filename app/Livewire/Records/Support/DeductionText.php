@@ -59,7 +59,7 @@ final class DeductionText
         }
         $percent = $row->percent ?? null;
 
-        return is_array($percent) ? self::percent($percent) : 'Typed per employee';
+        return is_array($percent) ? self::percent($percent) : 'Set per employee';
     }
 
     /** The pill tier of a row's computation. */

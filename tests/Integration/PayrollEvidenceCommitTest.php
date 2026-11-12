@@ -16,10 +16,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
+use Tests\Support\ScheduleFixture;
 
 /** MariaDB proves storage rollback, repeatable input capture and independently committed edits. */
 it('rolls back every finalization write when MariaDB rejects a storage step', function (string $step) {
-    ['actor' => $actor, 'run' => $run] = PayrollEvidenceFixture::make();
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     $receipt = PayrollReviewFixture::token($actor, $run->id);
     $table = ['evidence' => 'payroll_finalization_snapshots', 'payslip' => 'payslips', 'status' => 'payroll_runs', 'audit' => 'audit_logs'][$step];
     $event = $step === 'status' ? 'UPDATE' : 'INSERT';
@@ -41,6 +43,7 @@ it('rolls back every finalization write when MariaDB rejects a storage step', fu
 
 it('rejects a source change committed by a different connection after preview', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     $receipt = PayrollReviewFixture::token($actor, $run->id);
     config(['database.connections.evidence_writer' => config('database.connections.mysql')]);
     try {

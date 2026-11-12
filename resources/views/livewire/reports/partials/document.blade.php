@@ -1,12 +1,13 @@
 {{-- Detached owner-produced facts; payslips use the shared compact print layout with supporting details on screen. --}}
 @php
+    use App\Livewire\Payroll\Support\PayslipDocument;
     use App\Support\HrisFormat;
 @endphp
 <div @class(['record-print reports-document', 'reports-document-statements' => $type === 'payslips'])>
     <header @class(['reports-document-header', 'print:hidden' => in_array($type, ['payslips', 'attendance-reports'], true) && $document->sections !== [] && ($generated['view'] ?? '') !== 'analysis'])>
         <div class="reports-document-heading">
             <div class="reports-brand">
-                <x-brand-logo />
+                <x-brand-logo variant="wordmark" />
                 <div class="min-w-0">
                     <p class="font-semibold">{{ config('copems.company_name') }}</p>
                     <p class="reports-overline">Management Information System</p>
@@ -52,15 +53,17 @@
                 @include('livewire.reports.partials.table', ['columns' => $document->columns, 'reportRows' => $document->rows, 'totals' => $document->totals, 'numericColumns' => $document->numericColumns])
             </section>
         @endif
-        @if ($document->sections !== [])
+        @if ($document->sections !== [] && $type === 'payslips')
+            @php $sheets = PayslipDocument::reportSheets($document->sections); @endphp
+            @foreach ($sheets as $sheet)
+                @include('livewire.reports.partials.statement', ['sheet' => $sheet, 'statementNumber' => $loop->iteration, 'statementCount' => count($sheets)])
+            @endforeach
+        @elseif ($document->sections !== [])
             @foreach ($document->sections as $section)
                 @php
                     $sectionNumber = $loop->iteration;
-                    $sectionKind = $section['kind'] ?? ($type === 'payslips' ? 'payslip' : 'table');
+                    $sectionKind = $section['kind'] ?? 'table';
                 @endphp
-                @if ($sectionKind === 'payslip')
-                    @include('livewire.reports.partials.statement', ['statement' => $section, 'statementNumber' => $sectionNumber, 'statementCount' => count($document->sections)])
-                @else
                     <article @class(['reports-detail-section', 'reports-attendance-sheet' => $sectionKind === 'attendance'])>
                         @if ($sectionKind === 'attendance')
                             <div class="reports-sheet-brand">
@@ -99,7 +102,6 @@
                             </div>
                         @endif
                     </article>
-                @endif
             @endforeach
         @else
             <section class="reports-detail-section">

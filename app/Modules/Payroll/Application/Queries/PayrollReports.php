@@ -13,6 +13,7 @@ use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Contracts\Views\PayslipDeductionView;
 use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
+use App\Modules\Workforce\Contracts\EmployeeReportContext;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
@@ -343,6 +344,7 @@ final class PayrollReports
         $ids = array_values($payslips->map(static fn (Payslip $row): string => $row->id)->all());
         $incentives = $records->incentives($actor, $ids);
         $deductions = $records->customDeductions($actor, $ids);
+        $departments = app(EmployeeReportContext::class)->payrollDepartments($actor, array_values($payslips->map(static fn (Payslip $row): string => $row->employee_id)->unique()->all()));
         $rows = [];
         $sections = [];
         foreach ($payslips as $payslip) {
@@ -351,6 +353,8 @@ final class PayrollReports
             $sections[] = [
                 'title' => PayrollData::employeeName($employees->get($payslip->employee_id)).' · '.$payslip->period_start->format('Y-m-d').' to '.$payslip->period_end->format('Y-m-d'),
                 'kind' => 'payslip',
+                'employee_key' => $payslip->employee_id,
+                'office' => $departments[$payslip->employee_id] ?? '',
                 'columns' => ['Item', 'Value'],
                 'rows' => $lines,
                 'identity' => array_map(static fn (array $line): array => ['label' => $line[0], 'value' => $line[1]], array_slice($lines, 0, 7)),
@@ -416,7 +420,7 @@ final class PayrollReports
         foreach ([
             'daily_rate' => 'Daily rate', 'work_days' => 'Work days', 'holiday_days' => 'Holidays worked', 'rest_days' => 'Rest days worked',
             'absence_days' => 'Absence days', 'paid_leave_days' => 'Paid leave days', 'unpaid_leave_days' => 'Unpaid leave days',
-            'presumed_days' => 'Days paid in advance',
+            'presumed_days' => 'Days paid as scheduled',
             'work_days_pay' => 'Work days pay', 'holiday_pay' => 'Holiday pay', 'rest_day_pay' => 'Rest day pay',
             'basic_pay' => 'Basic pay subtotal', 'allowances' => 'Allowances', 'total_base_pay' => 'Base pay with allowances subtotal',
             'overtime_hours' => 'Overtime hours', 'overtime_pay' => 'Overtime pay', 'night_differential' => 'Night differential',
@@ -431,7 +435,15 @@ final class PayrollReports
             'total_deductions' => 'Total deductions', 'net_pay' => 'Net pay',
             'sss_er' => 'SSS employer', 'philhealth_er' => 'PhilHealth employer', 'pagibig_er' => 'Pag-IBIG employer',
         ] as $key => $label) {
+            // Unapproved overtime shows no amount anywhere in Payroll: the
+            // flag below says it was left out, the figure stays unprinted.
+            if (in_array($key, ['overtime_hours', 'overtime_pay'], true) && ! $payslip->overtime_acknowledged) {
+                continue;
+            }
             $rows[] = [$label, self::money($payslip->getAttribute($key))];
+        }
+        if ((float) ($payslip->tax_refund ?? 0.0) !== 0.0) {
+            $rows[] = ['Tax refund', self::money($payslip->tax_refund)];
         }
         $rows[] = ['Overtime included in gross', $payslip->overtime_acknowledged ? 'Yes' : 'No'];
         $rows[] = ['Stored taxable compensation', $payslip->taxable_compensation === null ? 'Not recorded' : self::money($payslip->taxable_compensation)];

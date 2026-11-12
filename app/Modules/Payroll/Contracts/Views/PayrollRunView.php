@@ -24,9 +24,6 @@ use Illuminate\Support\Collection;
  * @property-read string|null $schedule_id  the pay schedule the dates came from; null on a run made without one or before schedules existed
  * @property-read CarbonImmutable|null $pay_date  when the pay goes out; null on a legacy run
  * @property-read string|null $contribution_month  `YYYY-MM`; null reads the period's first day
- * @property-read CarbonImmutable|null $released_at  the "released" mark; null until marked
- * @property-read int|null $released_by
- * @property-read string|null $released_by_name
  * @property-read CarbonImmutable|null $finalized_at
  * @property-read int|null $finalized_by
  * @property-read CarbonImmutable $created_at

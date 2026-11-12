@@ -46,11 +46,12 @@ final class EditAssignment
     public function __construct(private readonly EmployeeDirectory $employees, private readonly DatedChange $change) {}
 
     /**
+     * @param  string|array<array-key, mixed>  $shiftChoice  DEFAULT, REST, KEEP, a pattern id, or custom hours (`CustomHours`)
      * @param  list<string>  $replace  ids of OTHER saved assignments the person chose to replace on shared dates
      *
      * @throws AssignmentConflict
      */
-    public function handle(Access $actor, string $assignmentId, string $from, ?string $to, string $shiftChoice, string $locationChoice, bool $workOnRestDays = false, array $replace = [], ?string $confirmed = null): string
+    public function handle(Access $actor, string $assignmentId, string $from, ?string $to, string|array $shiftChoice, string $locationChoice, bool $workOnRestDays = false, array $replace = [], ?string $confirmed = null): string
     {
         [$prepare, $write, $employeeId, $requested, $end] = $this->parts($actor, $assignmentId, $from, $to, $shiftChoice, $locationChoice, $workOnRestDays, $replace);
         $impact = $this->change->run($actor, [$employeeId], $requested, $end, $write, $confirmed, $prepare);
@@ -61,11 +62,12 @@ final class EditAssignment
     }
 
     /**
+     * @param  string|array<array-key, mixed>  $shiftChoice  DEFAULT, REST, KEEP, a pattern id, or custom hours (`CustomHours`)
      * @param  list<string>  $replace
      *
      * @throws AssignmentConflict
      */
-    public function preview(Access $actor, string $assignmentId, string $from, ?string $to, string $shiftChoice, string $locationChoice, bool $workOnRestDays = false, array $replace = []): ScheduleImpact
+    public function preview(Access $actor, string $assignmentId, string $from, ?string $to, string|array $shiftChoice, string $locationChoice, bool $workOnRestDays = false, array $replace = []): ScheduleImpact
     {
         [$prepare, $write, $employeeId, $requested, $end] = $this->parts($actor, $assignmentId, $from, $to, $shiftChoice, $locationChoice, $workOnRestDays, $replace);
 
@@ -73,10 +75,11 @@ final class EditAssignment
     }
 
     /**
+     * @param  string|array<array-key, mixed>  $shiftChoice  DEFAULT, REST, KEEP, a pattern id, or custom hours (`CustomHours`)
      * @param  list<string>  $replace
      * @return array{0: Closure(): void, 1: Closure(string, string): bool, 2: string, 3: string|null, 4: string}
      */
-    private function parts(Access $actor, string $assignmentId, string $from, ?string $to, string $shiftChoice, string $locationChoice, bool $workOnRestDays, array $replace): array
+    private function parts(Access $actor, string $assignmentId, string $from, ?string $to, string|array $shiftChoice, string $locationChoice, bool $workOnRestDays, array $replace): array
     {
         if (! $actor->mayReadAllData(ModuleCode::ROSTER)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
@@ -106,7 +109,7 @@ final class EditAssignment
         if (count(CalendarDays::each($started ? $first : $from, max($to, $started ? $first : $from))) > SaveAssignment::MAX_DAYS) {
             throw new RuntimeException('A temporary schedule covers at most one year. For a lasting change, change the default shift or the weekly schedule.');
         }
-        $shiftChoice = trim($shiftChoice);
+        $shiftChoice = AssignmentWriter::choice($shiftChoice);
         if ($shiftChoice === '') {
             throw new RuntimeException('Pick a shift for these dates.');
         }

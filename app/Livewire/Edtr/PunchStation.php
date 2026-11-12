@@ -241,6 +241,12 @@ class PunchStation extends Component
             // punch for, or an onsite day whose site does not resolve (no
             // Assigned Worksite, or one since deleted). A WFH day never disables.
             'punchDisabled' => $this->employeeId === '' || $today === null || (! $wfhToday && $todaySite === null),
+            // No shift on the date a Time In would land: RecordPunch refuses
+            // one, so its button is off and the card says why. Time Out is
+            // off too unless a Time In is open for it to close — a night
+            // begun while a shift still applied — which RecordPunch takes.
+            'noShift' => $today?->has_shift === false,
+            'noShiftCanClose' => $today?->has_shift === false && $today->open_time_in === true,
             'lockedName' => $this->lockedEmployeeId === null
                 ? ''
                 : Hris::employeeName(app(OperationalDirectory::class)->find($access, $this->lockedEmployeeId)),

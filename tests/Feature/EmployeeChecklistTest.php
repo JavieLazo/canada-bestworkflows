@@ -10,6 +10,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Platform\Reports\ReportCriteria;
 use App\Support\Access;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use Illuminate\View\ViewException;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -48,6 +49,22 @@ function eclActor(array $modules, bool $allData = true, ?string $employeeId = nu
     app()->forgetInstance(Access::class);
 
     return $actor;
+}
+
+/**
+ * Employees named "Person 01" … with fixed codes, so a numeric search term
+ * matches only its own row (eclEmployee's random code could contain it).
+ *
+ * @return Collection<int, EmployeeProfile>
+ */
+function eclNumbered(int $count, ?string $position = null): Collection
+{
+    return collect(range(1, $count))->map(static function (int $n) use ($position): EmployeeProfile {
+        $employee = eclEmployee(sprintf('Person %02d', $n), $position);
+        $employee->forceFill(['employee_code' => sprintf('ECL-%04d', $n)])->save();
+
+        return $employee;
+    });
 }
 
 it('preserves active-only assignments and allows an existing inactive assignee to be removed', function () {
@@ -317,4 +334,90 @@ it('can explicitly select the complete 201-person workforce and preserve it in d
     expect($selected)->toHaveCount(201)
         ->and(array_diff($employees->pluck('id')->all(), $selected))->toBe([])
         ->and(ReportCriteria::from($criteria->query())->employeeIds)->toBe($selected);
+});
+
+it('draws one page of matches while the counts and bulk selection cover every match', function () {
+    $employees = eclNumbered(25, 'Driver');
+    eclActor([ModuleCode::PAYROLL]);
+
+    // The list is a window of one table page; "25 matching", Select all and
+    // Deselect matching still mean all 25.
+    $component = Livewire::test(EmployeeChecklist::class, ['withFilters' => true, 'activeOnly' => false]);
+    expect(substr_count($component->html(), 'type="checkbox"'))->toBe(EmployeeChecklist::PAGE_SIZE);
+    $component->assertViewHas('matchingCount', 25)
+        ->assertViewHas('matchedSelectedCount', 0)
+        ->assertSeeHtml('Showing <span class="num">20</span> of <span class="num">25</span>')
+        ->assertSee('search or narrow the filters to find the others.');
+    $component->call('selectAll')->assertViewHas('matchedSelectedCount', 25);
+    expect($component->get('value'))->toHaveCount(25);
+
+    $component->set('search', 'person 25')
+        ->assertViewHas('matchingCount', 1)
+        ->assertViewHas('matchedSelectedCount', 1)
+        ->assertDontSeeHtml('data-ecl-more');
+    $component->call('deselectMatching');
+    expect($component->get('value'))->toHaveCount(24)
+        ->not->toContain((string) $employees->last()?->getKey());
+});
+
+it('says to keep typing when a task checklist has more matches than it draws', function () {
+    eclNumbered(25);
+    eclActor([ModuleCode::PROJECTS]);
+
+    // The live line says it for a screen reader, which never reaches the
+    // visible (aria-hidden) footer by Tab.
+    $component = Livewire::test(EmployeeChecklist::class)
+        ->assertSeeHtml('Showing <span class="num">20</span> of <span class="num">25</span>')
+        ->assertSee('keep typing to narrow.')
+        ->assertSee('Showing the first 20 of 25 employees. Keep typing to narrow.');
+    expect(substr_count($component->html(), 'type="checkbox"'))->toBe(EmployeeChecklist::PAGE_SIZE);
+});
+
+it('draws already-ticked task assignees first when they sort past the page, even after they left', function () {
+    eclNumbered(25);
+    $late = eclEmployee('Zed');
+    $former = eclEmployee('Yuri', active: false);
+    eclActor([ModuleCode::PROJECTS]);
+
+    // A crew member past row 20 — or one who has since left — can be
+    // unticked straight from the list as it opens.
+    $component = Livewire::test(EmployeeChecklist::class, ['value' => [(string) $late->getKey(), (string) $former->getKey()]]);
+    preg_match_all('/type="checkbox"[^>]*value="([^"]+)"/', $component->html(), $boxes);
+
+    expect($boxes[1])->toHaveCount(EmployeeChecklist::PAGE_SIZE + 2)
+        ->and(array_slice($boxes[1], 0, 2))->toEqualCanonicalizing([(string) $late->getKey(), (string) $former->getKey()]);
+    $component->call('toggle', (string) $former->getKey())->assertSet('value', [(string) $late->getKey()]);
+
+    // Typing shows the matches in order, nothing lifted.
+    $component->set('search', 'person');
+    preg_match_all('/type="checkbox"[^>]*value="([^"]+)"/', $component->html(), $typed);
+    expect($typed[1])->toHaveCount(EmployeeChecklist::PAGE_SIZE)
+        ->not->toContain((string) $late->getKey());
+});
+
+it('applies the active-staff rule through every active filter of a filtered checklist', function () {
+    eclEmployee('Active');
+    $ticked = eclEmployee('Ticked', active: false);
+    eclEmployee('Former', active: false);
+    eclActor([ModuleCode::PAYROLL]);
+
+    // Filtered rows ∩ (active ∪ ticked), drawn and counted by the database.
+    $component = Livewire::test(EmployeeChecklist::class, ['withFilters' => true, 'value' => [(string) $ticked->getKey()]]);
+    $component->assertViewHas('matchingCount', 2)
+        ->assertSee('Active Employee')
+        ->assertSee('Ticked Employee')
+        ->assertDontSee('Former Employee');
+
+    $component->set('active', 'INACTIVE')
+        ->assertViewHas('matchingCount', 1)
+        ->assertViewHas('matchedSelectedCount', 1)
+        ->assertSee('Ticked Employee')
+        ->assertDontSee('Active Employee');
+
+    $component->set('active', 'ACTIVE')
+        ->assertViewHas('matchingCount', 1)
+        ->assertViewHas('matchedSelectedCount', 0)
+        ->assertSee('Active Employee')
+        ->assertDontSee('Former Employee');
+    expect($component->get('value'))->toBe([(string) $ticked->getKey()]);
 });

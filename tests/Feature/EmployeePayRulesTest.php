@@ -264,37 +264,31 @@ it('opens Pay Basis & Rates for one employee to an all-data payroll officer, and
     $page = Livewire::test(PayRulesPage::class)
         ->assertSet('scope', $employee->id)
         ->assertSee('Ren Paged (this employee)')
-        ->assertSee('No rates of their own yet: Ren Paged follows the Regular override.')
+        ->assertSee('Ren Paged follows the Regular override, which the form shows.')
         // The form starts from the status override it falls back to.
         ->assertSet('formMethod', PayRules::METHOD_DIVISOR)
         ->assertSet('formDivisor', '25')
         ->set('formDivisor', '20')
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Own contract')
         ->call('save')
         ->assertSet('formError', null)
-        // A draft: listed as waiting, pricing nobody until it is approved.
-        ->assertSee('Awaiting approval')
-        ->assertSee('No rates of their own yet: Ren Paged follows the Regular override.');
+        // In use at once: no draft, no approval step, no date.
+        ->assertDontSee('Awaiting approval')
+        ->assertSee("Ren Paged's own rates, in place of the Regular override.", false);
     $own = PayrollPayRule::query()->where('scope', $employee->id)->sole();
-    expect($own->scope_type)->toBe(PayrollPayRule::SCOPE_EMPLOYEE)->and($own->status)->toBe(PayrollPayRule::DRAFT)->and($own->params['daily_rate']['value'] ?? null)->toEqual(20.0);
-    // The preparer approves from the page themselves.
-    Livewire::withQueryParams(['for' => $employee->id]);
-    $page = Livewire::test(PayRulesPage::class)
-        ->call('approveVersion', $own->id)
-        ->assertSee("Ren Paged's own rates start on", false);
-    expect($own->refresh()->status)->toBe(PayrollPayRule::APPROVED);
+    expect($own->scope_type)->toBe(PayrollPayRule::SCOPE_EMPLOYEE)
+        ->and($own->status)->toBe(PayrollPayRule::APPROVED)
+        ->and($own->effective_from->format('Y-m-d'))->toBe('2025-01-01')
+        ->and($own->params['daily_rate']['value'] ?? null)->toEqual(20.0)
+        ->and(app(PayRulesStore::class)->resolve('2026-10-01', '2026-10-15', $regular->id, $employee->id)['entry']['scope'])->toBe($employee->id);
 
+    // Removing them returns the employee to the general rules, at once.
     $page->assertSee('Return to the Regular override')
-        ->set('formEffectiveFrom', '2027-01-01')
-        ->set('formReason', 'Contract ended')
         ->call('returnToGeneral')
         ->assertSet('formError', null)
-        ->assertSee('Follows the Regular override again.');
-    $follows = PayrollPayRule::query()->where('scope', $employee->id)->where('effective_from', '2027-01-01')->sole();
-    expect($follows->params)->toBeNull()->and($follows->status)->toBe(PayrollPayRule::DRAFT);
-    $page->call('discardVersion', $follows->id);
-    expect(PayrollPayRule::query()->whereKey($follows->id)->exists())->toBeFalse();
+        ->assertSee('Ren Paged follows the Regular override, which the form shows.')
+        ->assertSet('formDivisor', '25');
+    expect(PayrollPayRule::query()->where('scope', $employee->id)->exists())->toBeFalse()
+        ->and(app(PayRulesStore::class)->resolve('2026-10-01', '2026-10-15', $regular->id, $employee->id)['entry']['scope'])->toBe($regular->id);
 
     // A Records manager without Payroll cannot open one employee's rates: the page falls back to the company rule.
     eprActor(['RECORDS']);
@@ -306,20 +300,19 @@ it('opens Pay Basis & Rates for one employee to an all-data payroll officer, and
 
 it('opens Pay Basis & Rates to payroll officers, who save the company rules with all data', function () {
     eprActor(['PAYROLL'], allData: false);
-    $this->get('/payroll/settings/pay-rates')->assertOk()->assertSee('Payroll access to all data');
+    $this->get('/records/payroll-settings/pay-rates')->assertOk()->assertSee('Payroll access to all data');
+    $before = PayrollPayRule::query()->sole()->params;
     Livewire::test(PayRulesPage::class)
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Without all data')
+        ->set('formMatrix.ORDINARY.overtime', '150')
         ->call('save');
-    expect(PayrollPayRule::query()->count())->toBe(1);
+    expect(PayrollPayRule::query()->sole()->params)->toEqual($before);
 
     // Whoever manages payroll manages its settings (PayrollSettingsAccess).
     eprActor(['PAYROLL']);
     Livewire::test(PayRulesPage::class)
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Payroll manages its settings')
+        ->set('formMatrix.ORDINARY.overtime', '150')
         ->call('save');
-    expect(PayrollPayRule::query()->count())->toBe(2);
+    expect(PayrollPayRule::query()->sole()->params['overtime']['rate'])->toBe(1.5);
 });
 
 it('lists an employee with rates of their own as customized and says what prices them', function () {
@@ -334,7 +327,10 @@ it('lists an employee with rates of their own as customized and says what prices
     eprEmployee('Company', 'Probationary');
     eprActor(['PAYROLL']);
 
+    // The list opens on everyone; Only customized narrows it.
     Livewire::test(EmployeePaySettingsPage::class)
+        ->assertSee('Plain')
+        ->set('onlyCustomized', true)
         ->assertSee('Ownrates')->assertSee('Own rates')
         ->assertSee('Soon')->assertSee('Regular override, own from 01 Nov 2026')
         ->assertDontSee('Plain')
@@ -344,7 +340,7 @@ it('lists an employee with rates of their own as customized and says what prices
 
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $own->id])
         ->assertSee('Their own rates')
-        ->assertSee('Daily basis · a day is the monthly rate ÷ 20')
+        ->assertSee('Daily-paid · a day is the monthly rate ÷ 20')
         ->assertSee(route('records.pay-rates', ['for' => $own->id]), false);
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $soon->id])
         ->assertSee('The Regular override')

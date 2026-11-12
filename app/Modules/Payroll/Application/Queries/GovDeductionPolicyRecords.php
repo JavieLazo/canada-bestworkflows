@@ -50,19 +50,8 @@ final class GovDeductionPolicyRecords
         return $out;
     }
 
-    /** How many versions wait for approval, across employees. */
-    public function draftCount(Access $actor): int
-    {
-        abort_unless($actor->mayReadAllData(ModuleCode::PAYROLL), 403);
-        if (! GovDeductionPolicyStore::ready()) {
-            return 0;
-        }
-
-        return PayrollGovDeductionPolicy::query()->where('status', PayrollGovDeductionPolicy::DRAFT)->count();
-    }
-
     /**
-     * The employees with a draft waiting, for the list and the Overview.
+     * The employees with a draft waiting, for the list.
      *
      * @return list<string>
      */

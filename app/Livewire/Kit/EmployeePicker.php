@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Livewire\Kit;
 
+use App\Livewire\Concerns\TableDefaults;
 use App\Modules\Workforce\Contracts\DirectoryEmployee as EmployeeProfile;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
@@ -51,10 +52,18 @@ use Livewire\Component;
  * {@see OperationalDirectory}, shared with the multi-select
  * {@see EmployeeChecklist} so the two controls can never disagree about who
  * an actor may see. The actor is re-read from the session EVERY request —
- * never cached on a property, never taken from the client.
+ * never cached on a property, never taken from the client. The list shows
+ * the first {@see PAGE_SIZE} matches and says how many there are in all.
  */
 class EmployeePicker extends Component
 {
+    /**
+     * The list draws one table page of matches, never the whole directory:
+     * the search runs on the server, so typing finds everyone else, and a
+     * picker on a 300-person page does not carry 300 rows of markup.
+     */
+    public const int PAGE_SIZE = TableDefaults::DEFAULT_PAGE_SIZE;
+
     /** The selected employee's id, or "" for none. Id-bearing → #[Locked]. */
     #[Locked]
     public string $value = '';
@@ -85,7 +94,7 @@ class EmployeePicker extends Component
 
     /**
      * Offer ACTIVE employees only, for a control that starts something
-     * new — the roster's Assign shift dialog. Off by default: the eDTR and
+     * new — Inventory's issue dialogs. Off by default: the eDTR and
      * the punch station look up people who have left as well. Enforced on
      * the pick and the trigger too, not only on the list, because the id
      * arrives from the client.
@@ -139,20 +148,43 @@ class EmployeePicker extends Component
 
     public function render(): mixed
     {
+        $selected = $this->selectedEmployee();
+        $page = app(OperationalDirectory::class)->firstPage(app(Access::class), self::PAGE_SIZE, search: $this->search, filters: $this->filters());
+
         return view('livewire.kit.employee-picker', [
-            'visible' => $this->visibleEmployees(),
-            'selected' => $this->selectedEmployee(),
+            'visible' => $this->withSelected(new Collection($page->items()), $selected),
+            'total' => $page->total(),
+            'selected' => $selected,
             'listId' => 'epk-'.$this->getId().'-list',
             'buttonId' => $this->triggerId ?? 'epk-'.$this->getId().'-trigger',
         ]);
     }
 
-    /** @return Collection<int, EmployeeProfile> */
-    protected function visibleEmployees(): Collection
+    /** @return array{place: string, active?: string} */
+    private function filters(): array
     {
-        $visible = app(OperationalDirectory::class)->list(app(Access::class), search: $this->search, filters: ['place' => $this->department]);
+        return ['place' => $this->department] + ($this->activeOnly ? ['active' => 'ACTIVE'] : []);
+    }
 
-        return $this->activeOnly ? $visible->filter(static fn (EmployeeProfile $e): bool => $e->is_active)->values() : $visible;
+    /**
+     * Puts the chosen employee first when they fall outside the page of an
+     * EMPTY search — the list as it opens — so the highlight still lands on
+     * them and Enter keeps them instead of picking whoever sorts first. Once
+     * the user types, the list is the matches in order and the highlight
+     * starts at the top, as it always has.
+     *
+     * @param  Collection<int, EmployeeProfile>  $visible
+     * @return Collection<int, EmployeeProfile>
+     */
+    private function withSelected(Collection $visible, ?EmployeeProfile $selected): Collection
+    {
+        if ($selected === null || $this->search !== '' || $visible->contains(static fn (EmployeeProfile $e): bool => $e->id === $selected->id)) {
+            return $visible;
+        }
+
+        $matches = app(OperationalDirectory::class)->list(app(Access::class), [$selected->id], $this->search, $this->filters())->isNotEmpty();
+
+        return $matches ? $visible->prepend($selected)->values() : $visible;
     }
 
     protected function selectedEmployee(): ?EmployeeProfile

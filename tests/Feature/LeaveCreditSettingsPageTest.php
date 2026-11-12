@@ -8,15 +8,11 @@ use App\Models\EmployeeProfile;
 use App\Models\LeaveConversionTable;
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
-use App\Models\LeavePolicyPreset;
 use App\Models\LeaveType;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
-use App\Modules\Timekeeping\Application\Commands\ApproveConversionTable;
 use App\Modules\Timekeeping\Application\Commands\RecordLeaveCredit;
-use App\Modules\Timekeeping\Application\Commands\SaveConversionTable;
-use App\Modules\Timekeeping\Application\Commands\SaveLeavePreset;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\ConversionTables;
 use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
@@ -27,13 +23,13 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * Leave Credits settings (Records › Leave Credits): each leave type's
- * credit rules, the minutes-to-days conversion tables and the policy
- * presets. Whoever manages Leave Settings (all-data RECORDS) or leave
+ * Leave Settings (Records › Leave Settings): each leave type's credit
+ * rules on the Leave types tab and the minutes-to-days conversion table on
+ * a tab of its own (the leave rules are in LeaveRulesTest). Whoever manages Leave Settings (all-data RECORDS) or leave
  * (all-data LEAVES) changes them; any holder of either module reads them.
- * A conversion table is drafted by one person and approved by ANOTHER,
- * never changes once approved, and the approved version in force on a date
- * is the one that converts. Credits hold four decimals.
+ * The minutes-to-days conversion table is FIXED — the standard table at an
+ * 8-hour day, three decimals, a half rounding down — always in use, shown
+ * read-only, and never taken from a stored row. Credits hold four decimals.
  */
 
 /** @param list<string> $modules */
@@ -60,12 +56,6 @@ function lcsType(string $name): LeaveType
     return $type;
 }
 
-/** @return array<string, mixed> */
-function lcsTableInput(string $from = '2026-11-01', string $rounding = 'HALF_DOWN'): array
-{
-    return ['effective_from' => $from, 'hours_per_day' => '8', 'decimals' => '3', 'rounding' => $rounding, 'reference' => 'Table II', 'rows' => MinuteConversion::rows(8, 3, $rounding)];
-}
-
 /*
 |--------------------------------------------------------------------------
 | The page
@@ -79,10 +69,40 @@ it('opens for RECORDS or LEAVES holders and turns everyone else away', function 
     $this->get('/records/leave-credits')->assertRedirect();
 
     lcsActor(['LEAVES'], allData: false);
-    $this->get('/records/leave-credits')->assertOk()->assertSee('Leave Credits')->assertSee('Your role can view these settings.');
+    $this->get('/records/leave-credits')->assertOk()->assertSee('Leave Settings')->assertSee('Your role can view these settings.');
 
     lcsActor(['RECORDS']);
-    $this->get('/records/leave-credits')->assertOk()->assertSee('Minutes to days')->assertSee('Policy presets');
+    $this->get('/records/leave-credits')->assertOk()->assertSee('Conversion table')->assertDontSee('Posting and charging')->assertSee('Leave types')->assertDontSee('Policy presets')
+        // A Records manager adds leave types here, with no CSV to export or import.
+        ->assertSee('Add leave type')->assertDontSee('Export CSV')->assertDontSee('Import CSV');
+});
+
+it('keeps the conversion table on a tab of its own, opened from the strip or the address', function () {
+    lcsActor();
+    lcsType('Vacation Leave');
+
+    // The page opens on the leave types; the conversion table is not drawn until its tab is chosen.
+    Livewire::test(LeaveCreditSettingsPage::class)
+        ->assertSet('tab', 'types')
+        ->assertSeeHtml('data-leave-type="VACATION_LEAVE"')
+        ->assertDontSeeHtml('data-conversion-tables')
+        ->set('tab', 'table')
+        ->assertSeeHtml('data-conversion-tables')
+        ->assertSee('Conversion of Working Hours/Minutes into Fraction of a Day')
+        ->assertDontSeeHtml('data-leave-type="VACATION_LEAVE"')
+        // An unknown tab collapses back to the leave types.
+        ->set('tab', 'policies')
+        ->assertSet('tab', 'types')
+        ->assertSeeHtml('data-leave-type="VACATION_LEAVE"');
+
+    // The tab rides in the address, under the same guard.
+    $this->get('/records/leave-credits?tab=table')->assertOk()
+        ->assertSeeHtml('data-conversion-tables')
+        ->assertDontSeeHtml('data-leave-type="VACATION_LEAVE"');
+    Livewire::withQueryParams(['tab' => 'nonsense']);
+    Livewire::test(LeaveCreditSettingsPage::class)
+        ->assertSet('tab', 'types')
+        ->assertDontSeeHtml('data-conversion-tables');
 });
 
 it('sets a leave type\'s credit rules from the dialog, audits it, and refuses a holder without all data', function () {
@@ -116,134 +136,163 @@ it('sets a leave type\'s credit rules from the dialog, audits it, and refuses a 
     expect($vacation->refresh()->earns_credits)->toBeTrue();
 });
 
-/*
-|--------------------------------------------------------------------------
-| Conversion tables
-|--------------------------------------------------------------------------
-*/
-
-it('drafts a conversion table from the formula, lets the preparer approve it, and resolves the version in force by date', function () {
-    $this->travelTo(new DateTimeImmutable('2026-11-10T10:00:00+08:00'));
-    // The seeded preset (2026_11_02_0018) is cleared: this test drafts its own first version.
-    LeaveConversionTable::query()->delete();
-    $preparer = lcsActor();
-
-    $page = Livewire::test(LeaveCreditSettingsPage::class)
-        ->call('openTable')
-        ->assertSet('tableOpen', true)
-        ->assertSet('tableMinutes.30', '0.062')
-        ->assertSet('tableHours.8', '1.000')
-        ->set('tableForm.effective_from', '2026-11-01')
-        ->set('tableForm.reference', 'Table II')
-        ->set('tableMinutes.30', '0.063')
-        ->call('saveTable')
-        ->assertSet('tableOpen', false)
-        ->assertSeeHtml('data-conversion-differences')
-        ->assertSee('30 min: table 0.063, formula 0.062');
-    $draft = LeaveConversionTable::query()->sole();
-    expect($draft->status)->toBe('DRAFT')
-        ->and($draft->created_by)->toBe((int) $preparer->userId)
-        ->and($draft->rows['minutes']['30'] ?? $draft->rows['minutes'][30])->toBe('0.063')
-        ->and(ConversionTables::inForce('2026-11-10'))->toBeNull();
-
-    // The preparer approves their own draft from the page: one administrator runs the whole flow.
-    $approver = $preparer;
-    $page->call('approveTable', $draft->id);
-    $draft->refresh();
-    expect($draft->status)->toBe('APPROVED')
-        ->and($draft->approved_by)->toBe((int) $approver->userId)
-        ->and($draft->approved_at)->not->toBeNull()
-        ->and(AuditLog::query()->where('action', 'LEAVE_CONVERSION_TABLE_APPROVED')->exists())->toBeTrue()
-        ->and(ConversionTables::inForce('2026-10-31'))->toBeNull()
-        ->and(ConversionTables::inForce('2026-11-10')?->id)->toBe($draft->id)
-        ->and(ConversionTables::entry('2026-11-10')['rows']['minutes'][30])->toBe('0.063');
-
-    // An approved version never changes, and a second version on the same date is refused.
-    expect(fn () => app(SaveConversionTable::class)->handle($approver, $draft->id, lcsTableInput()))->toThrow(RuntimeException::class, 'never changes');
-    expect(fn () => app(SaveConversionTable::class)->handle($approver, null, lcsTableInput()))->toThrow(RuntimeException::class, 'already takes effect');
-
-    // A later version wins from its own date; a draft can be discarded.
-    $later = app(SaveConversionTable::class)->handle($approver, null, lcsTableInput('2026-12-01', 'HALF_UP'));
-    expect(ConversionTables::inForce('2026-12-15')?->id)->toBe($draft->id);
-    app(ApproveConversionTable::class)->handle($preparer, $later);
-    expect(ConversionTables::inForce('2026-12-15')?->id)->toBe($later)
-        ->and(ConversionTables::inForce('2026-11-20')?->id)->toBe($draft->id);
-    $discard = app(SaveConversionTable::class)->handle($approver, null, lcsTableInput('2027-01-01'));
-    Livewire::test(LeaveCreditSettingsPage::class)->call('deleteTable', $discard);
-    expect(LeaveConversionTable::query()->whereKey($discard)->exists())->toBeFalse()
-        ->and(LeaveConversionTable::query()->count())->toBe(2);
-});
-
-it('refuses conversion rows that are not fractions of a day at the version\'s decimals', function () {
-    LeaveConversionTable::query()->delete();
-    $actor = lcsActor();
-    $input = lcsTableInput();
-    $input['rows']['minutes'][30] = '0.0625';
-    expect(fn () => app(SaveConversionTable::class)->handle($actor, null, $input))->toThrow(RuntimeException::class, 'up to 3 decimals');
-    $input = lcsTableInput();
-    unset($input['rows']['hours'][8]);
-    expect(fn () => app(SaveConversionTable::class)->handle($actor, null, $input))->toThrow(RuntimeException::class, 'Hours row 8 is missing');
-    $input = lcsTableInput();
-    $input['hours_per_day'] = '7.333';
-    expect(fn () => app(SaveConversionTable::class)->handle($actor, null, $input))->toThrow(RuntimeException::class, 'whole number of minutes');
-    expect(LeaveConversionTable::query()->count())->toBe(0);
-});
-
-/*
-|--------------------------------------------------------------------------
-| Presets and precision
-|--------------------------------------------------------------------------
-*/
-
-it('saves a preset only over types whose rules allow it, and deletes it', function () {
-    $actor = lcsActor();
+it('refuses a charge order another charged leave type holds, from the command and from both dialogs, and warns before the save', function () {
+    $access = lcsActor();
     $vacation = lcsType('Vacation Leave');
     $sick = lcsType('Sick Leave');
-    app(SaveLeaveTypeCredits::class)->handle($actor, $vacation->id, ['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => true, 'charge_absence' => true, 'charge_order' => '1', 'below_zero_limit' => '0']);
-    app(SaveLeaveTypeCredits::class)->handle($actor, $sick->id, ['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => true, 'charge_order' => '2', 'below_zero_limit' => '0']);
+    $settings = static fn (bool $charged, string $order): array => ['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => $charged, 'charge_order' => $order, 'below_zero_limit' => '0'];
+    app(SaveLeaveTypeCredits::class)->handle($access, $vacation->id, $settings(true, '1'));
 
-    $params = [
-        'posting_day' => 'MONTH_END', 'unpaid_counts' => ['UNPAID_LEAVE', 'ABSENCE'],
-        'earning' => [
-            'VACATION_LEAVE' => ['amount' => '1.25', 'method' => 'TABLE', 'table' => [['up_to' => '0', 'credits' => '1.25'], ['up_to' => '1', 'credits' => '1.208'], ['up_to' => '2', 'credits' => '1.167']], 'partial' => 'PRO_RATA', 'cap' => null],
-            'SICK_LEAVE' => ['amount' => '1.25', 'method' => 'FLAT', 'table' => [], 'partial' => 'FULL', 'cap' => '300'],
-        ],
-        'charges' => ['enabled' => true, 'combine' => 'DAY', 'late' => ['VACATION_LEAVE'], 'absence' => ['VACATION_LEAVE', 'SICK_LEAVE']],
-    ];
-    $message = app(SaveLeavePreset::class)->handle($actor, null, 'Regular', $params);
-    $preset = LeavePolicyPreset::query()->sole();
-    expect($message)->toBe('Preset "Regular" saved.')
-        ->and($preset->params['earning']['VACATION_LEAVE']['table'][1])->toEqual(['up_to' => 1, 'credits' => 1.208])
-        ->and($preset->params['earning']['SICK_LEAVE']['cap'])->toEqual(300)
-        ->and($preset->params['charges']['absence'])->toBe(['VACATION_LEAVE', 'SICK_LEAVE'])
-        ->and(AuditLog::query()->where('action', 'LEAVE_PRESET_SAVED')->value('details'))->toContain('Sick Leave 1.25 a month · Vacation Leave 1.25 a month (lookup table) · posts at month end · charges to credits: lateness Vacation Leave; absences Vacation Leave, Sick Leave');
+    // The command refuses the second charged type on order 1, and writes nothing.
+    expect(fn () => app(SaveLeaveTypeCredits::class)->handle($access, $sick->id, $settings(true, '1')))
+        ->toThrow(RuntimeException::class, 'Deduction priority 1 is already used by Vacation Leave. Each leave type with credit deductions needs its own priority.');
+    expect($sick->refresh()->charge_absence)->toBeFalse()
+        ->and(AuditLog::query()->where('action', 'LEAVE_TYPE_CREDITS_SET')->count())->toBe(1);
 
-    // Sick Leave may not be charged for lateness, so a preset that charges it is refused.
-    $bad = $params;
-    $bad['charges']['late'] = ['SICK_LEAVE'];
-    expect(fn () => app(SaveLeavePreset::class)->handle($actor, null, 'Bad', $bad))->toThrow(RuntimeException::class, 'cannot be charged for lateness');
-    $bad = $params;
-    $bad['earning']['SPECIAL'] = $params['earning']['SICK_LEAVE'];
-    expect(fn () => app(SaveLeavePreset::class)->handle($actor, null, 'Bad', $bad))->toThrow(RuntimeException::class, 'cannot earn credits');
+    // A type charged for nothing is in no order; a type keeps its own number on a re-save.
+    expect(app(SaveLeaveTypeCredits::class)->handle($access, $sick->id, $settings(false, '1')))->toBe('Credit rules saved for Sick Leave.')
+        ->and(app(SaveLeaveTypeCredits::class)->handle($access, $vacation->id, [...$settings(true, '1'), 'below_zero_limit' => '1']))->toBe('Credit rules saved for Vacation Leave.');
 
-    Livewire::test(LeaveCreditSettingsPage::class)
-        ->assertSee('Regular')
-        ->call('openPreset', $preset->id)
-        ->assertSet('presetForm.name', 'Regular')
-        ->assertSet('presetForm.earning.VACATION_LEAVE.method', 'TABLE')
-        ->assertSet('presetForm.charge_absence.SICK_LEAVE', true)
-        ->call('addPresetRow', 'VACATION_LEAVE')
-        ->assertCount('presetForm.earning.VACATION_LEAVE.rows', 4)
-        ->call('removePresetRow', 'VACATION_LEAVE', 3)
-        ->assertCount('presetForm.earning.VACATION_LEAVE.rows', 3)
-        ->set('presetForm.name', 'Regular staff')
-        ->call('savePreset')
-        ->assertSet('presetOpen', false);
-    expect($preset->refresh()->name)->toBe('Regular staff');
+    // The settings dialog warns as the order is typed, refuses the save, and takes a free number.
+    $page = Livewire::test(LeaveCreditSettingsPage::class)
+        ->call('openType', $sick->id)
+        ->assertDontSeeHtml('data-charge-order-warning')
+        ->set('typeForm.charge_absence', true)
+        ->assertSeeHtml('data-charge-order-warning')
+        ->assertSee('Deduction priority 1 is already used by Vacation Leave.')
+        ->call('saveType')
+        ->assertSet('typeOpen', true);
+    expect($sick->refresh()->charge_absence)->toBeFalse();
+    $page->set('typeForm.charge_order', '2')
+        ->assertDontSeeHtml('data-charge-order-warning')
+        ->call('saveType')
+        ->assertSet('typeOpen', false);
+    expect($sick->refresh()->charge_absence)->toBeTrue()
+        ->and($sick->charge_order)->toBe(2);
 
-    Livewire::test(LeaveCreditSettingsPage::class)->call('deletePreset', $preset->id);
-    expect(LeavePolicyPreset::query()->count())->toBe(0);
+    // Adding a type: the same warning, and the refusal leaves no half-made type behind.
+    $page->call('openAdd')
+        ->set('newName', 'Forced Leave')
+        ->set('typeForm.charge_absence', true)
+        ->set('typeForm.charge_order', '2')
+        ->assertSee('Deduction priority 2 is already used by Sick Leave.')
+        ->call('saveNewType')
+        ->assertSet('addOpen', true)
+        ->assertSet('addError', 'Deduction priority 2 is already used by Sick Leave. Each leave type with credit deductions needs its own priority.');
+    expect(LeaveType::query()->where('name', 'Forced Leave')->exists())->toBeFalse();
+    $page->set('typeForm.charge_order', '3')
+        ->call('saveNewType')
+        ->assertSet('addOpen', false);
+    expect(LeaveType::query()->where('name', 'Forced Leave')->value('charge_order'))->toBe(3);
 });
+
+it('asks Add leave type in the order a leave is set up: filing first, then the rule, then the credit settings it decides', function () {
+    lcsActor();
+
+    // The Add dialog's own markup: the rule dialog earlier on the page draws the same rule fields.
+    $add = strstr(Livewire::test(LeaveCreditSettingsPage::class)->call('openAdd')->html(), 'data-add-leave-type-dialog') ?: '';
+    $markers = ['data-settings-filing', 'data-rule-waiting', 'data-add-credit-settings', 'data-settings-cash-out'];
+    $at = array_map(static fn (string $marker): int|false => strpos($add, $marker), $markers);
+    expect($at)->not->toContain(false);
+    $sorted = $at;
+    sort($sorted);
+    expect($at)->toBe($sorted);
+
+    // A leave without pay holds no credits: the credit settings are not asked.
+    Livewire::test(LeaveCreditSettingsPage::class)->call('openAdd')
+        ->set('typeForm.filing', 'UNPAID')
+        ->assertSeeHtml('data-settings-filing')
+        ->assertDontSeeHtml('data-add-credit-settings')
+        ->assertDontSeeHtml('data-settings-cash-out');
+});
+
+it('lays the Filing and credit settings out in two balanced columns: filing over balance, deductions over cash conversion', function () {
+    lcsActor();
+    $type = lcsType('Vacation Leave');
+
+    $html = Livewire::test(LeaveCreditSettingsPage::class)->call('openType', $type->id)->html();
+    $dialog = strstr($html, 'data-type-rules-dialog') ?: '';
+    $columns = strstr($dialog, 'data-settings-columns') ?: '';
+    $markers = ['data-settings-filing', 'data-settings-balance', 'data-settings-charging', 'data-settings-cash-out'];
+    $at = array_map(static fn (string $marker): int|false => strpos($columns, $marker), $markers);
+    expect($at)->not->toContain(false);
+    $sorted = $at;
+    sort($sorted);
+    expect($at)->toBe($sorted);
+    // The right column opens with the deductions: they come after the left column's two cards close.
+    expect(substr_count(substr($columns, 0, (int) $at[2]), 'class="space-y-4"'))->toBe(2);
+});
+
+it('flags the charged leave types that already share a charge order in the table', function () {
+    lcsActor();
+    // As an installation may hold them from before the rule: both charged and both left at 0.
+    foreach (['Vacation Leave', 'Sick Leave', 'Birthday Leave'] as $name) {
+        lcsType($name)->forceFill(['charge_absence' => $name !== 'Birthday Leave', 'charge_order' => 0])->save();
+    }
+
+    $html = Livewire::test(LeaveCreditSettingsPage::class)
+        ->assertSee('Same priority as Sick Leave')
+        ->assertSee('Same priority as Vacation Leave')
+        ->html();
+    // Birthday Leave is charged for nothing, so its 0 is flagged nowhere.
+    expect(substr_count($html, 'data-charge-order-clash'))->toBe(2);
+});
+
+/*
+|--------------------------------------------------------------------------
+| The conversion table
+|--------------------------------------------------------------------------
+*/
+
+it('uses the fixed standard table whatever is stored, and shows it to managers and viewers with nothing to edit', function () {
+    // A table an earlier build saved, with a row changed by hand: history only, never read.
+    LeaveConversionTable::query()->delete();
+    $stored = new LeaveConversionTable;
+    $stored->forceFill([
+        'effective_from' => '2026-01-01', 'hours_per_day' => 8, 'decimals' => 3, 'rounding' => 'HALF_UP',
+        'rows' => ['minutes' => [...MinuteConversion::rows(8, 3, 'HALF_UP')['minutes'], 30 => '0.070'], 'hours' => MinuteConversion::rows(8, 3, 'HALF_UP')['hours']],
+        'reference' => 'Our own', 'status' => 'APPROVED',
+    ])->save();
+
+    expect(ConversionTables::entry())->toBe([
+        'version_id' => 'CSC_STANDARD', 'hours_per_day' => 8.0, 'decimals' => 3, 'rounding' => 'HALF_DOWN',
+        'rows' => MinuteConversion::rows(8, 3, 'HALF_DOWN'),
+    ])
+        ->and(ConversionTables::entry()['rows']['minutes'][30])->toBe('0.062')
+        ->and(ConversionTables::entry()['rows']['hours'][8])->toBe('1.000');
+
+    // A manager sees the heading and the rows alone: no settings line, edit button, dialog or warning.
+    lcsActor();
+    Livewire::test(LeaveCreditSettingsPage::class)
+        ->set('tab', 'table')
+        ->assertSee('Conversion of Working Hours/Minutes into Fraction of a Day')
+        ->assertDontSee('Minutes to days')
+        ->assertSeeHtml('data-conversion-rows')
+        ->assertSeeHtml('wire:key="shown-minute-30"')
+        ->assertSee('0.062')
+        ->assertDontSee('hours a day')
+        ->assertDontSee('Civil Service Commission')
+        ->assertDontSee('0.070')
+        ->assertDontSee('Edit table')
+        ->assertDontSee('Set up table')
+        ->assertDontSeeHtml('data-conversion-dialog')
+        ->assertDontSeeHtml('data-late-waits-for-table')
+        ->assertDontSee('How late and undertime minutes become fractions of a day');
+
+    // A viewer without all data sees the same table.
+    lcsActor(['RECORDS'], allData: false);
+    Livewire::test(LeaveCreditSettingsPage::class)
+        ->set('tab', 'table')
+        ->assertSeeHtml('wire:key="shown-minute-30"')
+        ->assertDontSee('0.070');
+    expect($stored->refresh()->rounding)->toBe('HALF_UP')->and(LeaveConversionTable::query()->count())->toBe(1);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Precision
+|--------------------------------------------------------------------------
+*/
 
 it('keeps credits to four decimals in the ledger and the allocation', function () {
     $actor = lcsActor();

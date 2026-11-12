@@ -8,6 +8,7 @@ use App\Livewire\Leaves\Index as LeavesIndex;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
+use App\Models\LeaveCredit;
 use App\Models\LeaveTravelRequest;
 use App\Models\Notification;
 use App\Models\PayrollRun;
@@ -23,6 +24,7 @@ use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * A day on a posted payslip is what payroll paid. Its overtime decision,
@@ -64,6 +66,8 @@ function paidEmployee(string $first = 'Liza', string $last = 'Domingo'): Employe
         'employee_code' => 'PAID-'.random_int(10000, 99999), 'first_name' => $first, 'last_name' => $last,
         'employment_status' => 'Regular', 'date_hired' => '2024-01-01', 'is_active' => true, 'monthly_rate' => 30000,
     ])->save();
+
+    ScheduleFixture::standard($employee);
 
     return $employee;
 }
@@ -176,6 +180,13 @@ function paidRequest(EmployeeProfile $employee, array $overrides = []): LeaveTra
     return $request;
 }
 
+/** Sick credits that cover the request: approval with pay pays what the credits cover. */
+function paidSickCredits(EmployeeProfile $employee): void
+{
+    $credit = new LeaveCredit;
+    $credit->forceFill(['employee_id' => $employee->getKey(), 'year' => 2026, 'request_type' => 'SICK', 'credits' => 10])->save();
+}
+
 /**
  * Someone holding Payroll, who should hear about it, and the reviewer who approves.
  *
@@ -192,6 +203,7 @@ function paidReviewers(): array
 it('approves leave onto paid days, and says so to the reviewer, the audit trail and Payroll', function () {
     $employee = paidEmployee('Ramon', 'Aquino');
     paidPayslip($employee, PayrollRunKind::REGULAR);
+    paidSickCredits($employee);
     $request = paidRequest($employee);
     ['officer' => $officer, 'reviewer' => $reviewer] = paidReviewers();
 
@@ -230,6 +242,7 @@ it('approves leave clear of any posted payslip exactly as before', function () {
     $employee = paidEmployee();
     paidPayslip($employee, PayrollRunKind::REGULAR);
     paidPayslip($employee, PayrollRunKind::THIRTEENTH_MONTH, '2026-01-01', '2026-12-31');
+    paidSickCredits($employee);
     $request = paidRequest($employee, ['start_date' => '2026-09-16', 'end_date' => '2026-09-17']);
     paidReviewers();
 
@@ -238,19 +251,19 @@ it('approves leave clear of any posted payslip exactly as before', function () {
         ->assertDontSeeHtml('data-paid-dates-warning');
     $outcome = app(ReviewAbsence::class)->handle(app(Access::class), $request->id, 'APPROVED', true);
 
-    expect($outcome)->toBe('approved with pay')
+    expect($outcome)->toBe('approved as paid leave')
         ->and(AuditLog::query()->where('action', 'REQUEST_APPROVED')->sole()->details)->toBe('Request LR-PAID approved')
         ->and(Notification::query()->where('kind', 'LEAVE_APPROVED_ON_PAID_DAYS')->exists())->toBeFalse();
 });
 
-it('rejects a request onto paid days without telling Payroll', function () {
+it('disapproves a request onto paid days without telling Payroll', function () {
     $employee = paidEmployee();
     paidPayslip($employee, PayrollRunKind::REGULAR);
     $request = paidRequest($employee);
     paidReviewers();
 
-    expect(app(ReviewAbsence::class)->handle(app(Access::class), $request->id, 'REJECTED'))->toBe('rejected')
-        ->and(AuditLog::query()->where('action', 'REQUEST_REJECTED')->sole()->details)->toBe('Request LR-PAID rejected')
+    expect(app(ReviewAbsence::class)->handle(app(Access::class), $request->id, 'REJECTED', null, 'Already paid as an absence'))->toBe('disapproved')
+        ->and(AuditLog::query()->where('action', 'REQUEST_REJECTED')->sole()->details)->toBe('Request LR-PAID disapproved')
         ->and(Notification::query()->where('kind', 'LEAVE_APPROVED_ON_PAID_DAYS')->exists())->toBeFalse();
 });
 

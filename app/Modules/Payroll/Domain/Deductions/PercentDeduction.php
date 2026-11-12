@@ -118,13 +118,15 @@ final class PercentDeduction
     }
 
     /**
-     * The same rule with an employee's own share in place of the row's —
-     * the rate they chose (0: not a member; the employer share stays the
-     * row's). Read from the employee's Contributions & tax version.
+     * The same rule with an employee's own share in place of the row's,
+     * read from their Contributions & tax version. 0 MEANS NOT A MEMBER:
+     * no employee share and no employer share either. A member whose share
+     * is already paid for one cut-off stays on their rate and has 0 typed
+     * on that payroll, which keeps the employer's.
      */
     public function withEmployeeShare(float $percent): self
     {
-        return new self($percent, $this->employer, $this->base, $this->frequency, $this->cap, $this->beforeTax);
+        return new self($percent, $percent > 0.0 ? $this->employer : 0.0, $this->base, $this->frequency, $this->cap, $this->beforeTax);
     }
 
     /** Whether a payroll period is one the deduction is taken on: every payroll, or the month's second cut-off (a period starting after the 15th). */

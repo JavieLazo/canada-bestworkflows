@@ -6,11 +6,11 @@ use App\Models\AttendanceLog;
 use App\Models\AttendanceRemark;
 use App\Models\Concerns\ScopesToActor;
 use App\Models\EmployeeDocument;
-use App\Models\EmployeeLeavePolicy;
 use App\Models\EmployeeProfile;
 use App\Models\EmployeeSalaryRate;
 use App\Models\InventoryItem;
 use App\Models\InventoryReceipt;
+use App\Models\LeaveAcquisition;
 use App\Models\LeaveAttendanceCharge;
 use App\Models\LeaveCashOut;
 use App\Models\LeaveCredit;
@@ -55,7 +55,7 @@ use Illuminate\Support\Str;
 /**
  * Every directly scoped model, with its employee foreign key and module code.
  *
- * @return array<string, array{class-string<AttendanceLog|AttendanceRemark|Shift|RosterLocation|RosterShift|RosterDayOverride|RosterScheduleChange|LeaveTravelRequest|LeaveCredit|LeaveCreditEntry|OvertimeApproval|EmployeeDocument|Payslip|InventoryItem|InventoryReceipt|EmployeeLeavePolicy|LeaveEarningPosting|LeaveAttendanceCharge|LeaveCashOut|PayrollAdjustment|EmployeeSalaryRate|PayrollEmployeeBenefit|PayrollTaxBalance|PayrollRecurringLineEntry>, string, string}>
+ * @return array<string, array{class-string<AttendanceLog|AttendanceRemark|Shift|RosterLocation|RosterShift|RosterDayOverride|RosterScheduleChange|LeaveTravelRequest|LeaveCredit|LeaveCreditEntry|OvertimeApproval|EmployeeDocument|Payslip|InventoryItem|InventoryReceipt|LeaveEarningPosting|LeaveAttendanceCharge|LeaveCashOut|LeaveAcquisition|PayrollAdjustment|EmployeeSalaryRate|PayrollEmployeeBenefit|PayrollTaxBalance|PayrollRecurringLineEntry>, string, string}>
  */
 function scopedModels(): array
 {
@@ -71,10 +71,10 @@ function scopedModels(): array
         'LeaveTravelRequest' => [LeaveTravelRequest::class, 'employee_id', 'LEAVES'],
         'LeaveCredit' => [LeaveCredit::class, 'employee_id', 'LEAVES'],
         'LeaveCreditEntry' => [LeaveCreditEntry::class, 'employee_id', 'LEAVES'],
-        'EmployeeLeavePolicy' => [EmployeeLeavePolicy::class, 'employee_id', 'LEAVES'],
         'LeaveEarningPosting' => [LeaveEarningPosting::class, 'employee_id', 'LEAVES'],
         'LeaveAttendanceCharge' => [LeaveAttendanceCharge::class, 'employee_id', 'LEAVES'],
         'LeaveCashOut' => [LeaveCashOut::class, 'employee_id', 'LEAVES'],
+        'LeaveAcquisition' => [LeaveAcquisition::class, 'employee_id', 'LEAVES'],
         'PayrollAdjustment' => [PayrollAdjustment::class, 'employee_id', 'PAYROLL'],
         'PayrollEmployeeBenefit' => [PayrollEmployeeBenefit::class, 'employee_id', 'PAYROLL'],
         'PayrollTaxBalance' => [PayrollTaxBalance::class, 'employee_id', 'PAYROLL'],

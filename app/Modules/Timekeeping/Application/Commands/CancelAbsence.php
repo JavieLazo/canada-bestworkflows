@@ -13,6 +13,7 @@ use App\Models\LeaveTravelRequest;
 use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Application\LeaveCharges;
 use App\Modules\Timekeeping\Application\LeaveCreditWriter;
+use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
@@ -108,9 +109,12 @@ final class CancelAbsence
             // still open, the frozen cost shrinks; once that year is closed
             // — its whole balance already carried forward — the frozen cost
             // stays as the closing balance read it, and the days return as an
-            // ADJUSTMENT entry in the live year instead. An older row with no
-            // frozen cost keeps the calendar-day rule, whose read already
-            // leaves cancelled dates out.
+            // ADJUSTMENT entry in the live year instead. A leave type with set
+            // days holds no credits and no year closes on it: its frozen cost
+            // always shrinks. An older row with no frozen cost keeps the
+            // calendar-day rule, whose read already leaves cancelled dates
+            // out. A cancelled date left WITHOUT PAY gives nothing back: it
+            // cost nothing.
             $returned = '';
             if (LeaveBalances::ready() && $request->credit_dates !== null && LeaveCreditPolicy::wouldConsume($request->request_type, $request->is_paid)) {
                 $counted = LeaveBalances::usedDates($request);
@@ -119,7 +123,7 @@ final class CancelAbsence
                 $days = LeaveCreditPolicy::selectedDays($request->day_type, $given);
                 $creditsYear = LeaveBalances::creditsYear($request);
                 $liveYear = LeaveCharges::liveYear($request->employee_id, $creditsYear);
-                if ($liveYear === $creditsYear) {
+                if ($liveYear === $creditsYear || ! LeaveTypeCreditRecords::of($request->request_type)->filedAgainstCredits()) {
                     $request->credit_dates = $kept;
                     $request->credit_days = LeaveCreditPolicy::selectedDays($request->day_type, $kept);
                 } elseif ($days > 0) {

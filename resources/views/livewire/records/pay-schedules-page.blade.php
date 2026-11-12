@@ -13,15 +13,11 @@
     use App\Modules\Payroll\Domain\Schedules\PaySchedule;
 @endphp
 <div class="space-y-6">
-    <div>
-        <h1 class="text-2xl font-bold tracking-tight">Pay Schedules</h1>
-        <p class="text-sm text-muted-foreground">
-            How a month is cut into salary periods, when each is paid, what a pay date on a weekend or holiday does, and the deadlines before it.
-            A new payroll takes its dates and pay date from the default schedule; a payroll already made keeps what it recorded.
-        </p>
-    </div>
-
-    @include('livewire.payroll.partials.settings-switch', ['activeView' => 'schedules'])
+    @include('livewire.payroll.partials.settings-header', [
+        'activeView' => 'schedules',
+        'title' => 'Pay Schedules',
+        'description' => 'When each salary period is paid.',
+    ])
 
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">

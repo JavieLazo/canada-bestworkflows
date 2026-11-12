@@ -39,12 +39,12 @@ final class BenefitText
         BenefitRule::PRORATION_DAYS => 'By paid days',
     ];
 
-    /** The tax categories, as the table, the dialog and the CSV name them. */
+    /** The tax categories, as the screens name them; the CSV keeps its own words (ImportIncentiveTypes::TAX). */
     public const array TAXES = [
         BenefitRule::TAX_TAXABLE => 'Taxable',
         BenefitRule::TAX_EXEMPT => 'Tax-exempt',
         BenefitRule::TAX_DE_MINIMIS => 'De minimis',
-        BenefitRule::TAX_NOT_INCOME => 'Not income',
+        BenefitRule::TAX_NOT_INCOME => 'Not compensation',
     ];
 
     /** The pill tier of each category. */
@@ -71,10 +71,18 @@ final class BenefitText
         };
     }
 
-    /** How often, in words: "Every payroll", "Monthly · 1st cut-off", "Yearly · May", "One-time". */
+    /**
+     * How often, in words: "Every payroll", "Monthly · 1st cut-off",
+     * "Yearly · May", "One-time". An amount typed per payroll has no schedule
+     * of its own — it is paid on whichever payroll it is typed on — so it
+     * reads "When typed", never "One-time".
+     */
     public static function frequency(object $type): string
     {
         $frequency = $type->frequency ?? BenefitRule::FREQUENCY_ONCE;
+        if ($frequency === BenefitRule::FREQUENCY_ONCE && ($type->amount_type ?? BenefitRule::AMOUNT_TYPED) === BenefitRule::AMOUNT_TYPED) {
+            return 'When typed';
+        }
         if ($frequency === BenefitRule::FREQUENCY_YEARLY) {
             return 'Yearly · '.(self::MONTHS[(int) ($type->month ?? 0)] ?? '—');
         }

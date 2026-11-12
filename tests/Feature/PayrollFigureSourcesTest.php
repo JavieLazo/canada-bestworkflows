@@ -75,8 +75,8 @@ it('explains a marked figure: the checks in order and the one payroll used', fun
 
     $page->call('openWhy', $employee->id, 'row:'.$loan->id)
         ->assertSee('SSS Loan · Synthetic Evidence')
-        ->assertSee('2. Their recurring line')
-        ->assertSee('₱500.00 a payroll, ₱750.00 left to pay before this one.');
+        ->assertSee('2. Their recurring deduction or allowance')
+        ->assertSee('₱500.00 a payroll, ₱750.00 balance before this one.');
 });
 
 it('opens no explanation for someone off the payroll or a cell it does not know', function () {

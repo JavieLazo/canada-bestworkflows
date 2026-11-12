@@ -6,7 +6,7 @@ use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Kit\CsvImport;
 use App\Models\AuditLog;
-use App\Models\LeaveType;
+use App\Models\PayrollDeduction;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
@@ -29,13 +29,14 @@ use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
- * The shared CSV transfer, driven through the Leave Settings list: an export
- * is the table's own scoped, searched and sorted rows; the template is its
- * header; an import previews through the owner's real command and rolls it
- * back, then saves every row in one transaction — or, if any row fails,
- * nothing at all. A refused file's upload is deleted at once. Only the
- * table's writers are offered the import, and every action — down to one
- * row() — re-checks.
+ * The shared CSV transfer, driven through the Payroll Deductions list (the
+ * one reference list that still carries a CSV): an export is the table's
+ * own scoped, searched and sorted rows; the template is its header; an
+ * import previews through the owner's real command and rolls it back, then
+ * saves every row in one transaction — or, if any row fails, nothing at
+ * all. A refused file's upload is deleted at once. Only the table's writers
+ * are offered the import, and every action — down to one row() — re-checks.
+ * The leave types have no CSV at all.
  */
 
 /** @param list<string> $modules */
@@ -53,27 +54,27 @@ function xferActor(array $modules, bool $allData): User
     return $user;
 }
 
-function xferLeaveType(string $code, string $name): LeaveType
+function xferDeduction(string $code, string $name): PayrollDeduction
 {
-    $type = new LeaveType;
-    $type->forceFill(['code' => $code, 'name' => $name])->save();
+    $deduction = new PayrollDeduction;
+    $deduction->forceFill(['code' => $code, 'name' => $name])->save();
 
-    return $type;
+    return $deduction;
 }
 
 /**
  * @param  list<list<string>>  $rows
  * @param  list<string>  $headers
  */
-function xferFile(array $rows, array $headers = ['ID', 'Leave']): UploadedFile
+function xferFile(array $rows, array $headers = ['ID', 'Name']): UploadedFile
 {
-    return UploadedFile::fake()->createWithContent('leave-types.csv', Csv::build($headers, $rows));
+    return UploadedFile::fake()->createWithContent('deductions.csv', Csv::build($headers, $rows));
 }
 
 /** @return Testable<CsvImport> */
 function xferDialog(): Testable
 {
-    return Livewire::test(CsvImport::class, ['table' => 'records.leave-types', 'template' => '/records/leave-types/export?template=1']);
+    return Livewire::test(CsvImport::class, ['table' => 'records.payroll-deductions', 'template' => '/records/payroll-settings/payroll-deductions/export?template=1']);
 }
 
 /** @return list<string> Livewire's temporary uploads still on disk */
@@ -84,62 +85,64 @@ function xferUploads(): array
 
 beforeEach(function () {
     Storage::fake('local');
-    xferLeaveType('1', 'Paternity Leave');
-    xferLeaveType('2', 'Sick Leave');
-    xferLeaveType('3', 'Emergency Leave');
+    // The computed deductions the migrations seed are cleared: the fixture is these three.
+    PayrollDeduction::query()->delete();
+    xferDeduction('1', 'Uniform Loan');
+    xferDeduction('2', 'Canteen');
+    xferDeduction('3', 'Emergency Loan');
 });
 
 it('exports the rows the list shows, searched and sorted as on screen, never cached', function () {
-    xferActor([ModuleCode::RECORDS], allData: false);
+    xferActor([ModuleCode::PAYROLL], allData: false);
 
-    $response = $this->get('/records/leave-types/export?q=er&sort=name&dir=desc')->assertOk();
+    $response = $this->get('/records/payroll-settings/payroll-deductions/export?q=loan&sort=name&dir=desc')->assertOk();
 
-    expect($response->streamedContent())->toBe(Csv::BOM.'"ID","Leave"'."\r\n".'"1","Paternity Leave"'."\r\n".'"3","Emergency Leave"')
-        ->and($response->headers->get('Content-Disposition'))->toStartWith('attachment; filename="leave-types-')
+    expect($response->streamedContent())->toBe(Csv::BOM.'"ID","Name"'."\r\n".'"1","Uniform Loan"'."\r\n".'"3","Emergency Loan"')
+        ->and($response->headers->get('Content-Disposition'))->toStartWith('attachment; filename="deductions-')
         ->and($response->headers->get('Cache-Control'))->toContain('no-store')
         ->and($response->headers->get('X-Content-Type-Options'))->toBe('nosniff');
 });
 
 it('serves the header alone as the template, and ignores a table key in the query string', function () {
-    xferActor([ModuleCode::RECORDS], allData: false);
+    xferActor([ModuleCode::PAYROLL], allData: false);
 
-    $response = $this->get('/records/leave-types/export?template=1&table=records.sites')->assertOk();
+    $response = $this->get('/records/payroll-settings/payroll-deductions/export?template=1&table=records.sites')->assertOk();
 
-    expect($response->streamedContent())->toBe(Csv::BOM.'"ID","Leave"')
-        ->and($response->headers->get('Content-Disposition'))->toBe('attachment; filename="leave-types-template.csv"');
+    expect($response->streamedContent())->toBe(Csv::BOM.'"ID","Name"')
+        ->and($response->headers->get('Content-Disposition'))->toBe('attachment; filename="deductions-template.csv"');
 });
 
 it('turns the export away from an actor without the page grant, as the page itself', function () {
     xferActor([ModuleCode::EMPLOYEES], allData: true);
 
-    $response = $this->get('/records/leave-types/export')->assertRedirect();
+    $response = $this->get('/records/payroll-settings/payroll-deductions/export')->assertRedirect();
 
     expect($response->headers->get('Content-Disposition'))->toBeNull();
 });
 
 it('previews an import through the real command and keeps none of it', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
 
     xferDialog()
         ->call('openDialog')
-        ->set('file', xferFile([['', 'Study Leave'], ['2', 'Sick Leave With Pay']]))
+        ->set('file', xferFile([['', 'Union Dues'], ['2', 'Canteen Charges']]))
         ->assertSet('report.created', 1)
         ->assertSet('report.updated', 1)
         ->assertSet('report.errors', [])
         ->assertSee('Ready to import');
 
-    expect(LeaveType::query()->count())->toBe(3)
-        ->and(LeaveType::query()->where('code', '2')->value('name'))->toBe('Sick Leave')
+    expect(PayrollDeduction::query()->count())->toBe(3)
+        ->and(PayrollDeduction::query()->where('code', '2')->value('name'))->toBe('Canteen')
         ->and(AuditLog::query()->count())->toBe(0);
 });
 
 it('saves every row and audits each change once confirmed, then refreshes the page', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
     $uploads = xferUploads();
 
     xferDialog()
         ->call('openDialog')
-        ->set('file', xferFile([['', 'Study Leave'], ['2', 'Sick Leave With Pay']]))
+        ->set('file', xferFile([['', 'Union Dues'], ['2', 'Canteen Charges']]))
         ->call('import')
         ->assertSet('open', false)
         ->assertSet('report', null)
@@ -147,44 +150,44 @@ it('saves every row and audits each change once confirmed, then refreshes the pa
         ->assertDispatched('toast-show', fn (string $name, array $params): bool => ($params['slots']['text'] ?? null) === 'Imported: 1 added, 1 updated.');
 
     expect(xferUploads())->toBe($uploads)
-        ->and(LeaveType::query()->where('name', 'Study Leave')->value('code'))->toBe('4')
-        ->and(LeaveType::query()->where('code', '2')->value('name'))->toBe('Sick Leave With Pay')
+        ->and(PayrollDeduction::query()->where('name', 'Union Dues')->value('code'))->toBe('4')
+        ->and(PayrollDeduction::query()->where('code', '2')->value('name'))->toBe('Canteen Charges')
         ->and(AuditLog::query()->where('action', AuditEvent::REFERENCE_CREATED->value)->count())->toBe(1)
         ->and(AuditLog::query()->where('action', AuditEvent::REFERENCE_UPDATED->value)->count())->toBe(1);
 });
 
 it('saves nothing when any row fails, names every failing row, and deletes the refused upload', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
     $uploads = xferUploads();
 
     xferDialog()
         ->call('openDialog')
-        ->set('file', xferFile([['', 'Bereavement Leave'], ['1', ''], ['99', 'Study Leave'], ['', 'Emergency Leave']]))
+        ->set('file', xferFile([['', 'Medical Fund'], ['1', ''], ['99', 'Union Dues'], ['', 'Emergency Loan']]))
         ->assertSet('report.failed', 3)
         ->assertSet('report.errors', [
             ['row' => 3, 'message' => 'Name is required.'],
-            ['row' => 4, 'message' => 'ID 99 is not on the list. Leave ID blank to add a new leave type.'],
-            ['row' => 5, 'message' => '"Emergency Leave" is already on the list.'],
+            ['row' => 4, 'message' => 'ID 99 is not on the list. Leave ID blank to add a new deduction.'],
+            ['row' => 5, 'message' => '"Emergency Loan" is already on the list.'],
         ])
         ->assertSet('file', null)
-        ->assertSet('pickedName', 'leave-types.csv')
-        ->assertSee('leave-types.csv')
+        ->assertSet('pickedName', 'deductions.csv')
+        ->assertSee('deductions.csv')
         ->call('import')
         ->assertDispatched('toast-show', fn (string $name, array $params): bool => ($params['slots']['text'] ?? null) === 'Choose a CSV file first.');
 
     expect(xferUploads())->toBe($uploads)
-        ->and(LeaveType::query()->count())->toBe(3)
-        ->and(LeaveType::query()->where('name', 'Bereavement Leave')->exists())->toBeFalse()
+        ->and(PayrollDeduction::query()->count())->toBe(3)
+        ->and(PayrollDeduction::query()->where('name', 'Medical Fund')->exists())->toBeFalse()
         ->and(AuditLog::query()->count())->toBe(0);
 });
 
 it('counts an untouched export as unchanged and writes no audit row', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
-    $export = $this->get('/records/leave-types/export')->streamedContent();
+    xferActor([ModuleCode::PAYROLL], allData: true);
+    $export = $this->get('/records/payroll-settings/payroll-deductions/export')->streamedContent();
 
     xferDialog()
         ->call('openDialog')
-        ->set('file', UploadedFile::fake()->createWithContent('leave-types.csv', $export))
+        ->set('file', UploadedFile::fake()->createWithContent('deductions.csv', $export))
         ->assertSet('report.unchanged', 3)
         ->call('import');
 
@@ -192,46 +195,46 @@ it('counts an untouched export as unchanged and writes no audit row', function (
 });
 
 it('deletes the last upload when another file is picked, and the rest on Cancel', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
     $uploads = xferUploads();
 
     $dialog = xferDialog()
         ->call('openDialog')
-        ->set('file', xferFile([['', 'Bereavement Leave']]))
-        ->set('file', xferFile([['', 'Study Leave']]))
+        ->set('file', xferFile([['', 'Medical Fund']]))
+        ->set('file', xferFile([['', 'Union Dues']]))
         ->assertSet('report.created', 1);
     // The second pick's file and Livewire's note beside it, nothing of the first.
     expect(array_diff(xferUploads(), $uploads))->toHaveCount(2);
 
     $dialog->set('open', false)->assertSet('file', null)->assertSet('pickedName', '');
     expect(xferUploads())->toBe($uploads)
-        ->and(LeaveType::query()->count())->toBe(3);
+        ->and(PayrollDeduction::query()->count())->toBe(3);
 });
 
 it('keeps nothing when a row stops passing between the preview and the import', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
     $uploads = xferUploads();
     $dialog = xferDialog()
         ->call('openDialog')
-        ->set('file', xferFile([['', 'Bereavement Leave'], ['2', 'Sick Leave With Pay']]))
+        ->set('file', xferFile([['', 'Medical Fund'], ['2', 'Canteen Charges']]))
         ->assertSet('report.errors', []);
 
-    xferLeaveType('9', 'Bereavement Leave'); // someone else adds it meanwhile
+    xferDeduction('9', 'Medical Fund'); // someone else adds it meanwhile
 
     $dialog->call('import')
         ->assertSet('open', true)
-        ->assertSet('report.errors', [['row' => 2, 'message' => '"Bereavement Leave" is already on the list.']])
+        ->assertSet('report.errors', [['row' => 2, 'message' => '"Medical Fund" is already on the list.']])
         ->assertSet('file', null)
-        ->assertSet('pickedName', 'leave-types.csv')
+        ->assertSet('pickedName', 'deductions.csv')
         ->assertDispatched('toast-show', fn (string $name, array $params): bool => ($params['slots']['text'] ?? null) === 'Nothing was imported. Fix the rows listed, then choose the file again.');
 
     expect(xferUploads())->toBe($uploads)
-        ->and(LeaveType::query()->where('code', '2')->value('name'))->toBe('Sick Leave')
+        ->and(PayrollDeduction::query()->where('code', '2')->value('name'))->toBe('Canteen')
         ->and(AuditLog::query()->count())->toBe(0);
 });
 
 it('logs a failed row by class, code and line, never the SQL or the values it carried', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
     $import = new class implements TableImport
     {
         public function layout(Access $actor, string $context): ImportLayout
@@ -271,8 +274,8 @@ it('refuses a direct row() call from an actor no import allows, on every importa
     $refused = [];
     foreach ($transfers->importKeys() as $key) {
         try {
-            // 'Leave' is the fixture list's own name column: a row that got past the gate would add a leave type.
-            $transfers->import($key)->row(app(Access::class), '', new ImportRow(2, ['ID' => '', 'Name' => 'Guard', 'Leave' => 'Study Leave']));
+            // 'Name' is the fixture list's own name column: a row that got past the gate would add a deduction.
+            $transfers->import($key)->row(app(Access::class), '', new ImportRow(2, ['ID' => '', 'Name' => 'Guard']));
             $refused[$key] = null;
         } catch (HttpException $e) {
             $refused[$key] = $e->getStatusCode();
@@ -281,25 +284,25 @@ it('refuses a direct row() call from an actor no import allows, on every importa
 
     expect($refused)->toHaveCount(count($transfers->importKeys()))
         ->and(array_unique(array_values($refused)))->toBe([403])
-        ->and(LeaveType::query()->count())->toBe(3);
+        ->and(PayrollDeduction::query()->count())->toBe(3);
 });
 
 it('refuses a file whose header is missing a column', function () {
-    xferActor([ModuleCode::RECORDS], allData: true);
+    xferActor([ModuleCode::PAYROLL], allData: true);
 
     xferDialog()
-        ->set('file', xferFile([['', 'Study Leave']], ['Code', 'Title']))
-        ->assertSet('report.errors', [['row' => 1, 'message' => 'Missing columns: ID, Leave. Start from the template or an export of this table.']]);
+        ->set('file', xferFile([['', 'Union Dues']], ['Code', 'Title']))
+        ->assertSet('report.errors', [['row' => 1, 'message' => 'Missing columns: ID, Name. Start from the template or an export of this table.']]);
 });
 
 it('offers no import to a reader without all_data, and refuses its actions', function () {
-    xferActor([ModuleCode::RECORDS], allData: false);
+    xferActor([ModuleCode::PAYROLL], allData: false);
 
     xferDialog()->assertDontSee('Import CSV')
-        ->set('file', xferFile([['', 'Study Leave']]))
+        ->set('file', xferFile([['', 'Union Dues']]))
         ->assertForbidden();
 
-    expect(LeaveType::query()->count())->toBe(3);
+    expect(PayrollDeduction::query()->count())->toBe(3);
 });
 
 it('refuses a table key nobody registered', function () {

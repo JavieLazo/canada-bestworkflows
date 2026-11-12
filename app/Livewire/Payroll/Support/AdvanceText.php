@@ -27,15 +27,22 @@ final class AdvanceText
      * is settled on this payroll; null when nothing is advanced or settled.
      *
      * @param  iterable<PayslipDraft|PayslipView>  $lines  the drafts or posted payslips
-     * @return array{through: ?string, from: ?string, to: ?string, days: int, members: int, settled: int, total: float}|null
+     * @param  array<string, ?string>  $countedThrough  each member's own counted date (PayrollAdvance::countedThrough); `earlier` counts those pulled back before the run's
+     * @return array{through: ?string, from: ?string, to: ?string, days: int, members: int, settled: int, total: float, earlier: int}|null
      */
-    public static function summary(?string $through, string $end, iterable $lines): ?array
+    public static function summary(?string $through, string $end, iterable $lines, array $countedThrough = []): ?array
     {
         $range = PayrollAdvance::presumedRange($through, $end);
         $days = 0;
         $members = 0;
         $settled = 0;
         $total = 0.0;
+        $earlier = 0;
+        foreach ($countedThrough as $date) {
+            if ($through !== null && $date !== null && $date < $through) {
+                $earlier++;
+            }
+        }
         foreach ($lines as $line) {
             $presumed = (float) ($line->presumed_days ?? 0.0);
             if ($presumed > 0) {
@@ -52,7 +59,7 @@ final class AdvanceText
             return null;
         }
 
-        return ['through' => $through, 'from' => $range['from'] ?? null, 'to' => $range['to'] ?? null, 'days' => $days, 'members' => $members, 'settled' => $settled, 'total' => $total];
+        return ['through' => $through, 'from' => $range['from'] ?? null, 'to' => $range['to'] ?? null, 'days' => $days, 'members' => $members, 'settled' => $settled, 'total' => $total, 'earlier' => $earlier];
     }
 
     /**
@@ -68,17 +75,17 @@ final class AdvanceText
         $steps = [];
         foreach ($lines as $line) {
             $steps[] = [
-                'label' => 'Settlement for '.self::days($line['from'], $line['to']).' · payroll '.$line['run_code'],
-                'detail' => 'Paid in advance '.Hris::peso($line['presumed_amount']).' for '.self::dayCount($line['presumed']['work_days'] ?? 0.0).' scheduled '.(($line['presumed']['work_days'] ?? 0.0) == 1.0 ? 'day' : 'days')
+                'label' => 'Prior cut-off adjustment for '.self::days($line['from'], $line['to']).' · payroll '.$line['run_code'],
+                'detail' => 'Paid as scheduled '.Hris::peso($line['presumed_amount']).' for '.self::dayCount($line['presumed']['work_days'] ?? 0.0).' scheduled '.(($line['presumed']['work_days'] ?? 0.0) == 1.0 ? 'day' : 'days')
                     .'; from attendance the days are worth '.Hris::peso($line['actual_amount']).self::changes($line['actual']).'. Difference '.Hris::peso($line['amount']).'.',
                 'state' => 'used',
             ];
         }
         if ($steps === []) {
-            $steps[] = ['label' => 'Nothing to settle', 'detail' => 'No earlier payslip of theirs has days paid in advance that are still unsettled.', 'state' => 'unused'];
+            $steps[] = ['label' => 'Nothing to adjust', 'detail' => 'No earlier payslip of theirs has days paid as scheduled that are not yet adjusted.', 'state' => 'unused'];
         }
 
-        return ['title' => 'Settlement · '.$employeeName, 'amount' => $amount, 'steps' => $steps];
+        return ['title' => 'Prior cut-off adjustment · '.$employeeName, 'amount' => $amount, 'steps' => $steps];
     }
 
     /**

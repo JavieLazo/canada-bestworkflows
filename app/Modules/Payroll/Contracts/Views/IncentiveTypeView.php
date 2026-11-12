@@ -29,6 +29,8 @@ use Carbon\CarbonImmutable;
  * @property-read string|null $approval_reference
  * @property-read bool|null $counts_toward_13th
  * @property-read bool|null $pays_leave_cash_out  the one type leave credit cash-outs are paid as; null before the column exists
+ * @property-read string|null $cash_out_day_value  FACTOR or DAILY: what one converted day pays (LeaveCashOutValue); null before the column exists
+ * @property-read float|null $cash_out_factor  the FACTOR method's factor; null before the column exists
  * @property-read CarbonImmutable $created_at
  * @property-read CarbonImmutable|null $updated_at
  */

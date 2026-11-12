@@ -83,11 +83,16 @@ it('exports the audit trail only to an all-data AUDIT holder, as the table shows
     AuditService::record(app(Access::class), AuditEvent::SITE_CREATED, 'work_sites', 'x', 'Makati added');
     AuditService::record(app(Access::class), AuditEvent::HOLIDAY_CREATED, 'holidays', 'y', 'Rizal Day added');
 
-    $lines = texpCsv('/audit/export?action=SITE_CREATED');
+    $lines = texpCsv('/audit/export?action='.rawurlencode('Worksite added'));
     expect($lines[0])->toBe(['Timestamp', 'Actor', 'Action', 'Entity', 'Details'])
         ->and(count($lines))->toBe(2)
         ->and($lines[1][1])->toBe($admin->name)
+        ->and($lines[1][2])->toBe('Worksite added')
+        ->and($lines[1][3])->toBe('Worksite')
         ->and($lines[1][4])->toBe('Makati added');
+
+    // A link built from the stored code still narrows the same way.
+    expect(texpCsv('/audit/export?action=SITE_CREATED&entity=work_sites'))->toBe($lines);
 
     texpActor([ModuleCode::AUDIT], allData: false);
     expect(texpCsv('/audit/export'))->toHaveCount(1);
@@ -96,13 +101,15 @@ it('exports the audit trail only to an all-data AUDIT holder, as the table shows
 it('exports leave requests without the reason only the review dialog shows', function () {
     $ana = texpEmployee('11', 'Ana');
     $request = new LeaveTravelRequest;
-    $request->forceFill(['code' => '5', 'employee_id' => $ana->id, 'request_type' => 'SICK', 'day_type' => 'WHOLE_DAY', 'start_date' => '2026-08-10', 'end_date' => '2026-08-11', 'reason' => 'Private matter', 'status' => 'PENDING'])->save();
+    $request->forceFill(['code' => '5', 'employee_id' => $ana->id, 'request_type' => 'SICK', 'day_type' => 'WHOLE_DAY', 'start_date' => '2026-08-10', 'end_date' => '2026-08-11', 'reason' => 'Private matter', 'status' => 'PENDING', 'created_at' => '2026-08-03 17:00:00.000'])->save();
     texpActor([ModuleCode::LEAVES], allData: true);
 
     $lines = texpCsv('/leaves/export');
-    expect($lines[0])->toBe(['ID', 'Employee', 'Position', 'Start date', 'End date', 'Description', 'Day type', 'Status', 'Pay', 'Cancelled dates'])
+    expect($lines[0])->toBe(['ID', 'Employee', 'Position', 'Date filed', 'Start date', 'End date', 'Description', 'Day type', 'Status', 'Pay', 'Cancelled dates'])
         ->and($lines[1][0])->toBe('5')
-        ->and($lines[1][3])->toBe('2026-08-10')
+        // Filed at 17:00 UTC on Aug 3 is 01:00 on Aug 4 in Manila.
+        ->and($lines[1][3])->toBe('2026-08-04')
+        ->and($lines[1][4])->toBe('2026-08-10')
         ->and(implode(',', array_merge(...$lines)))->not->toContain('Private matter');
 });
 

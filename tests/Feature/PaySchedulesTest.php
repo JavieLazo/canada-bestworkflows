@@ -20,7 +20,6 @@ use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Payroll\Application\Commands\DeletePaySchedule;
-use App\Modules\Payroll\Application\Commands\MarkPayrollReleased;
 use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\Commands\SavePaySchedule;
 use App\Modules\Payroll\Application\PayrollDraft;
@@ -41,10 +40,10 @@ use Livewire\Livewire;
  * payroll records which schedule gave it its dates, its pay date and its
  * contribution month; the withholding table is picked by the pay date and
  * the contributions by the contribution month; the run list and workspace
- * show the pay date and the schedule's deadlines; a finalized payroll can
- * be marked released; and payroll officers are reminded of a pay date
- * with no finalized payroll behind it. Nothing here moves a peso on a run
- * made without a schedule.
+ * do not show the pay date; a payroll's last status
+ * is FINALIZED; and payroll officers are reminded of a pay date with no
+ * finalized payroll behind it. Nothing here moves a peso on a run made
+ * without a schedule.
  */
 
 /** @param list<string> $modules */
@@ -193,7 +192,7 @@ it('records the schedule, pay date and contribution month on a payroll, picks th
         ->and($tables->resolve('2026-11-16', '2026-11-30', '2026-12-01', '2026-12')->tables[StatutorySchedule::SSS]['version_id'])->toBe($sssDecember->id);
 });
 
-it('starts a new payroll from the default schedule on the workspace, follows the dates, and shows the pay date on the list', function () {
+it('starts a new payroll from the default schedule on the workspace, follows the dates, and keeps the pay date off the screens', function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-20 02:00:00', 'UTC'));
     $actor = pschActor();
     $employee = pschEmployee('Workspace');
@@ -219,28 +218,26 @@ it('starts a new payroll from the default schedule on the workspace, follows the
     $run = PayrollRun::query()->sole();
     expect($run->schedule_id)->toBe($schedule)->and($run->pay_date?->format('Y-m-d'))->toBe('2026-11-30');
 
-    Livewire::test(PayrollIndex::class)->assertSee('Pay date')->assertSee('Nov 30, 2026');
+    Livewire::test(PayrollIndex::class)->assertDontSee('Pay date');
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertDontSee('Pay date');
 });
 
-it('marks a finalized payroll released once, audited, and never a draft', function () {
-    $actor = pschActor();
-    $employee = pschEmployee('Released');
-    $run = new PayrollRun;
-    $run->forceFill(['code' => 'PR-REL', 'name' => 'Released payroll', 'period_start' => '2026-10-01', 'period_end' => '2026-10-15', 'status' => PayrollRunStatus::DRAFT, 'kind' => PayrollRunKind::REGULAR])->save();
-    expect(fn () => app(MarkPayrollReleased::class)->handle($actor, $run->id))->toThrow(RuntimeException::class, 'Only a finalized payroll is released.');
-    $run->forceFill(['status' => PayrollRunStatus::FINALIZED, 'finalized_at' => CarbonImmutable::now('UTC')])->save();
-
-    expect(app(MarkPayrollReleased::class)->handle($actor, $run->id))->toBe('Payroll PR-REL marked released.');
-    $run->refresh();
-    expect($run->released_at)->not->toBeNull()
-        ->and($run->released_by)->toBe((int) $actor->userId)
-        ->and(AuditLog::query()->where('action', AuditEvent::PAYROLL_RELEASED->value)->sole()->details)->toBe('Payroll PR-REL Released payroll marked released')
-        ->and(fn () => app(MarkPayrollReleased::class)->handle($actor, $run->id))->toThrow(RuntimeException::class, 'This payroll is already marked released.')
-        ->and(fn () => app(MarkPayrollReleased::class)->handle(pschActor(['PAYROLL'], allData: false), $run->id))->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');
+it('shows a finalized payroll as FINALIZED alone, even one marked released before', function () {
     pschActor();
-    Livewire::test(PayrollIndex::class)->assertSee('data-released-pill', false);
-    Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertSee('Released')->assertDontSee('Mark as released');
-    unset($employee);
+    $run = new PayrollRun;
+    $run->forceFill(['code' => 'PR-REL', 'name' => 'Earlier payroll', 'period_start' => '2026-10-01', 'period_end' => '2026-10-15', 'attendance_through' => '2026-10-10', 'status' => PayrollRunStatus::FINALIZED, 'kind' => PayrollRunKind::REGULAR, 'finalized_at' => CarbonImmutable::now('UTC'), 'released_at' => CarbonImmutable::now('UTC'), 'released_by_name' => 'Earlier officer'])->save();
+
+    Livewire::test(PayrollIndex::class)
+        ->assertSee('FINALIZED')
+        ->assertDontSee('Released')
+        ->assertDontSeeHtml('data-released-pill')
+        ->assertDontSeeHtml('data-advance-pill');
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSee('FINALIZED')
+        ->assertDontSee('Released')
+        ->assertDontSee('Mark as released');
+
+    expect(method_exists(RunWorkspace::class, 'markReleased'))->toBeFalse();
 });
 
 /* |---| The reminders |---| */
@@ -277,11 +274,11 @@ it('reminds payroll officers of a pay date with no finalized payroll behind it, 
 it('adds, edits, re-defaults and deletes schedules from the page, previewing the coming pay dates', function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-10 02:00:00', 'UTC'));
     pschActor(['PAYROLL'], allData: false);
-    $this->get('/payroll/settings/pay-schedules')->assertOk()->assertSee('Semi-monthly, paid on the last day')->assertDontSee('openAdd');
+    $this->get('/records/payroll-settings/pay-schedules')->assertOk()->assertSee('Semi-monthly, paid on the last day')->assertDontSee('openAdd');
     Livewire::test(PaySchedulesPage::class)->call('openAdd')->assertSet('dialogOpen', false);
 
     pschActor();
-    $this->get('/payroll/settings/pay-schedules')->assertOk()->assertSee('openAdd')->assertSee('Default');
+    $this->get('/records/payroll-settings/pay-schedules')->assertOk()->assertSee('openAdd')->assertSee('Default');
     Livewire::test(PaySchedulesPage::class)
         ->call('openAdd')
         ->assertSet('dialogOpen', true)
@@ -322,5 +319,5 @@ it('adds, edits, re-defaults and deletes schedules from the page, previewing the
         ->assertDontSee('schedule-'.$added->id, false);
     expect($seeded->refresh()->is_default)->toBeTrue()->and(PayrollPaySchedule::query()->count())->toBe(1);
 
-    expect($this->get('/payroll/settings/pay-schedules/export')->assertOk()->streamedContent())->toContain('Semi-monthly, paid on the last day')->toContain('Paid on the last day of each period');
+    expect($this->get('/records/payroll-settings/pay-schedules/export')->assertOk()->streamedContent())->toContain('Semi-monthly, paid on the last day')->toContain('Paid on the last day of each period');
 });

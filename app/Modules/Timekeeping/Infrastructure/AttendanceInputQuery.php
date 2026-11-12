@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Infrastructure;
 
 use App\Domain\Attendance\AttendanceLog as DomainLog;
-use App\Domain\Attendance\LeaveRequest as DomainLeave;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Models\AttendanceLog;
 use App\Models\LeaveTravelRequest;
 use App\Models\OvertimeApproval;
 use App\Modules\Timekeeping\Application\LeaveHalves;
+use App\Modules\Timekeeping\Application\LeavePayDates;
 use App\Modules\Timekeeping\Application\OvertimeCategoryColumn;
 use App\Modules\Timekeeping\Application\OvertimeCreditColumn;
 use App\Modules\Timekeeping\Contracts\AttendanceInputs;
@@ -100,7 +100,7 @@ final class AttendanceInputQuery implements AttendanceSource
         $leaves = LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')->whereIn('employee_id', $employeeIds)
             ->when($boundedLeaves, static fn ($query) => $query
                 ->whereDate('start_date', '<=', $end)->whereDate('end_date', '>=', $start))
-            ->get(LeaveHalves::columns(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid']));
+            ->get(LeaveHalves::columns(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid', ...(LeavePayDates::ready() ? ['unpaid_dates'] : [])]));
         $logMap = [];
         foreach ($logs as $log) {
             $logMap[$log->employee_id][] = DomainLog::fromArray([
@@ -108,16 +108,13 @@ final class AttendanceInputQuery implements AttendanceSource
                 'log_type' => $log->log_type, 'logged_at' => $log->logged_at,
             ]);
         }
+        // A leave approved partly with pay reaches the engine as its paid
+        // part and its part without pay (LeavePayDates).
         $leaveMap = [];
         foreach ($leaves as $leave) {
-            $leaveMap[$leave->employee_id][] = DomainLeave::fromArray([
-                'id' => $leave->id, 'employee_id' => $leave->employee_id,
-                'request_type' => $leave->request_type, 'day_type' => $leave->day_type,
-                'start_date' => $leave->start_date, 'end_date' => $leave->end_date,
-                'status' => $leave->status, 'is_paid' => $leave->is_paid,
-                'cancelled_dates' => $leave->cancelledDates(),
-                'half' => LeaveHalves::of($leave->half ?? null),
-            ]);
+            foreach (LeavePayDates::domain($leave, LeaveHalves::of($leave->half ?? null)) as $part) {
+                $leaveMap[$leave->employee_id][] = $part;
+            }
         }
         // The DTR's overtime decisions for the EXACT period — not the padded
         // punch span: the engine prices overtime on the shift-start date,

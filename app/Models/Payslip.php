@@ -112,7 +112,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property float|null $ceiling_benefits
  * @property float $taxable_benefits_excess
  * @property float|null $taxable_compensation
- * @property CarbonImmutable|null $attendance_through the advance payroll's counted date (PayrollAdvance); null when the whole period was read
+ * @property CarbonImmutable|null $attendance_through this member's counted date on an advance payroll (the run's, pulled back before an unfinished day; PayrollAdvance::countedThrough), the day before the period at the earliest; null when the whole period was read
  * @property float $presumed_days days paid ahead of their attendance
  * @property float $settlement the settlement of earlier presumed days inside gross pay, positive or negative
  * @property float $leave_charged_days the days of leave credits the payslip charged for lateness, undertime and absences

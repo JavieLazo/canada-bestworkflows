@@ -26,5 +26,17 @@ final readonly class LocationOnDateView
         public ?string $site_name,
         /** True when a roster_locations row decided it; false means the Assigned Worksite fallback. */
         public bool $from_roster,
+        /**
+         * Whether a shift is rostered on the date — answered for the punch
+         * station only, which refuses a Time In without one; null where it
+         * was not asked (the correction dialog reads ShiftOnDateView).
+         */
+        public ?bool $has_shift = null,
+        /**
+         * Whether a Time In is open for a Time Out pressed now to close —
+         * answered for the punch station only (`PunchPairing`, the rule
+         * RecordPunch pairs by); null where it was not asked.
+         */
+        public ?bool $open_time_in = null,
     ) {}
 }

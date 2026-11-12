@@ -16,6 +16,7 @@ use App\Platform\ReadModels\Record;
  * @property-read string $name
  * @property-read string|null $description
  * @property-read string|null $parent_id
+ * @property-read string $head  who heads the office, as one line, or ''
  * @property-read bool $first  first among its siblings: Move up is disabled
  * @property-read bool $last  last among its siblings: Move down is disabled
  * @property-read string $blocked_by  what keeps it from being deleted — "2 units, 2 positions" — or ''

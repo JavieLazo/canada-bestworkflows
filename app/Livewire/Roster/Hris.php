@@ -13,6 +13,7 @@ use App\Modules\Timekeeping\Contracts\Views\RosterLocationView;
 use App\Modules\Timekeeping\Contracts\Views\RosterShiftView;
 use App\Modules\Timekeeping\Contracts\Views\ShiftTypeView;
 use App\Modules\Timekeeping\Contracts\Views\ShiftView;
+use App\Modules\Timekeeping\Domain\Roster\CustomHours;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Support\EmployeeName;
@@ -40,6 +41,18 @@ final class Hris
     public static function fmtHm(?string $value): string
     {
         return HrisFormat::hm($value);
+    }
+
+    /**
+     * A custom-hours draft as the option the day selects offer: "7:00 AM–3:00
+     * PM (custom)", or "Custom hours" while a time is still missing.
+     */
+    public static function customHoursLabel(mixed $hours): string
+    {
+        $start = is_array($hours) && is_string($hours['start'] ?? null) ? trim($hours['start']) : '';
+        $end = is_array($hours) && is_string($hours['end'] ?? null) ? trim($hours['end']) : '';
+
+        return $start === '' || $end === '' ? CustomHours::NAME : self::fmtHm($start).'–'.self::fmtHm($end).' (custom)';
     }
 
     /** "Job Order", "JOB_ORDER" and "job order" are one status (hris.ts:382-387). */
@@ -121,6 +134,14 @@ final class Hris
         return $shift->break_minutes ? $shift->break_minutes.' min' : '—';
     }
 
+    /** A pattern's hours alone, for an option label: "7:00 AM–4:00 PM", or "8 h per day" when flexible. */
+    public static function patternHours(ShiftType|ShiftTypeView $pattern): string
+    {
+        return $pattern->mode === DomainShift::MODE_FLEXIBLE
+            ? HrisFormat::hoursPerDay($pattern->required_hours)
+            : self::fmtHm($pattern->start_time).'–'.self::fmtHm($pattern->end_time);
+    }
+
     /**
      * The one-line description of a chosen pattern under the dialog's select
      * (add-shift-dialog.tsx:160-170). The FLEXIBLE branch forwards to
@@ -161,8 +182,8 @@ final class Hris
      * Monday–Friday when there is no row or it predates `work_days`), then
      * each weekday choice — a REST pick rests that day, a pattern pick works
      * it regardless of the pattern's own work week (the time-and-DTR guide).
-     * The table's Location cell and the Weekly schedule dialog's rest-day
-     * hints both read this, so the two cannot disagree.
+     * The Default schedule dialog's rest-day hints and placeSummary() both
+     * read this, so the two cannot disagree.
      *
      * @param  list<int>|null  $workDays  the standing row's `work_days`
      * @param  array<int, bool>  $overrides  weekday => works, from the saved weekday shifts or the dialog's draft

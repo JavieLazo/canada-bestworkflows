@@ -52,12 +52,16 @@ it('holds the counted date inside the period, keeps the presumed count non-negat
     $next = advschemaPayslip($employee->id, '2026-09-16', '2026-09-30', null);
 
     foreach ([
-        'a counted date before the period' => ['attendance_through' => '2026-08-31'],
+        'a counted date two days before the period' => ['attendance_through' => '2026-08-30'],
         'a counted date on the period end' => ['attendance_through' => '2026-09-15'],
         'negative presumed days' => ['presumed_days' => -1],
     ] as $case => $changes) {
         expect(fn () => DB::table('payslips')->where('id', $advance->id)->update($changes))->toThrow(QueryException::class, null, $case);
     }
+    // The day before the period is allowed (2026_11_05_0001): a member whose first counted day was
+    // unfinished is counted through it, every day presumed (PayrollAdvance::countedThrough).
+    expect(DB::table('payslips')->where('id', $advance->id)->update(['attendance_through' => '2026-08-31']))->toBe(1);
+    DB::table('payslips')->where('id', $advance->id)->update(['attendance_through' => '2026-09-14']);
 
     DB::table('payslip_settlements')->insert(advschemaSettlement($next, $advance));
     foreach ([
@@ -116,4 +120,39 @@ it('resumes each advance-payroll migration from a partial run', function () {
         ->and(Schema::hasForeignKey('payslip_settlements', ['payslip_id']))->toBeTrue()
         ->and(Schema::hasForeignKey('payslip_settlements', ['settled_payslip_id']))->toBeTrue()
         ->and(Schema::hasColumn('payslips', 'presumed_days'))->toBeTrue();
+
+    // The original CHECK is back; the relaxation (2026_11_05_0001) is the next migration's.
+    $relaxed = require base_path('database/migrations/2026_11_05_0001_relax_payslip_counted_date_check_table.php');
+    $relaxed->up();
+    $relaxed->up();
+});
+
+it('relaxes the counted-date CHECK to the day before the period, from any step, and puts it back', function () {
+    expect(in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true))->toBeTrue();
+    $relaxed = require base_path('database/migrations/2026_11_05_0001_relax_payslip_counted_date_check_table.php');
+    $employee = EmployeeProfile::create(['employee_code' => 'ADVS-2', 'first_name' => 'Relaxed', 'last_name' => 'Schema', 'date_hired' => '2024-01-01', 'employment_status' => 'Regular', 'is_active' => true]);
+    $clause = static fn (): string => strtolower((string) DB::table('information_schema.CHECK_CONSTRAINTS')
+        ->whereRaw('CONSTRAINT_SCHEMA = DATABASE()')->where('TABLE_NAME', 'payslips')->where('CONSTRAINT_NAME', 'psl_through_chk')->value('CHECK_CLAUSE'));
+
+    // As migrated: the day before is allowed, two days before and the period end are not.
+    expect($clause())->toContain('interval 1 day');
+    $payslip = advschemaPayslip($employee->id, '2026-09-01', '2026-09-15', '2026-08-31');
+    expect(fn () => DB::table('payslips')->where('id', $payslip->id)->update(['attendance_through' => '2026-08-30']))->toThrow(QueryException::class);
+    DB::table('payslips')->where('id', $payslip->id)->update(['attendance_through' => '2026-09-14']);
+
+    // down() restores the original bound; up() twice relaxes it again and changes nothing the second time.
+    $relaxed->down();
+    expect($clause())->not->toContain('interval 1 day')
+        ->and(fn () => DB::table('payslips')->where('id', $payslip->id)->update(['attendance_through' => '2026-08-31']))->toThrow(QueryException::class);
+    $relaxed->up();
+    $relaxed->up();
+    expect($clause())->toContain('interval 1 day')
+        ->and(DB::table('payslips')->where('id', $payslip->id)->update(['attendance_through' => '2026-08-31']))->toBe(1);
+
+    // A run stopped after the drop, before the add, resumes at the add.
+    DB::statement('ALTER TABLE `payslips` DROP CONSTRAINT `psl_through_chk`');
+    $relaxed->up();
+    expect($clause())->toContain('interval 1 day');
+    // Back inside the original bound, so the suite's rollback (down(), the strict CHECK) can run.
+    DB::table('payslips')->where('id', $payslip->id)->update(['attendance_through' => '2026-09-14']);
 });

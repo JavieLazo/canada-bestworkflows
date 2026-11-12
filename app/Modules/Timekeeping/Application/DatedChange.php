@@ -40,7 +40,8 @@ use RuntimeException;
  * and schedule rows. `$write` receives the employee and the date and returns
  * whether it wrote anything; a refusal anywhere rolls every employee back.
  *
- * `preview()` runs the same body and always rolls back.
+ * `preview()` runs the same body and always rolls back. `run()` tells each
+ * employee whose schedule changed (`ScheduleChangeNotice`).
  */
 final class DatedChange
 {
@@ -91,7 +92,14 @@ final class DatedChange
      */
     public function run(Access $actor, array $employeeIds, ?string $requested, ?string $to, Closure $write, ?string $confirmed = null, ?Closure $prepare = null): ScheduleImpact
     {
-        return $this->execute($actor, $employeeIds, $requested, $to, $write, $confirmed, $prepare, commit: true);
+        $impact = $this->execute($actor, $employeeIds, $requested, $to, $write, $confirmed, $prepare, commit: true);
+        // Each employee whose schedule changed is told, once it is saved: a
+        // refusal or a change held for review has thrown before this.
+        foreach ($impact->effective as $employeeId => $from) {
+            ScheduleChangeNotice::tell($actor, (string) $employeeId, $from, $to);
+        }
+
+        return $impact;
     }
 
     /**

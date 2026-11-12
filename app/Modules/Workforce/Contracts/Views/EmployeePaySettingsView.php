@@ -24,6 +24,8 @@ use Carbon\CarbonImmutable;
  * @property-read string|null $middle_name
  * @property-read string $last_name
  * @property-read string|null $suffix
+ * @property-read string|null $position the position's name, shown under the name as Employee Records shows it
+ * @property-read string|null $photo_path the public portrait, for the list's avatar
  * @property-read string|null $employment_status
  * @property-read string|null $employment_status_id
  * @property-read CarbonImmutable|null $date_hired

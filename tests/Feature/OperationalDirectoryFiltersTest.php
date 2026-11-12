@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /** Operational employee filters and sorting remain downstream of native permission and ID scope. */
@@ -150,4 +151,49 @@ it('retains operational search terms for Employee ID suffix and position with ne
 
     expect(app(OperationalDirectory::class)->list(odfAccess(), search: '2026-118 Jr Driver', filters: ['active' => 'ACTIVE'])->pluck('id')->all())
         ->toBe([$matched->id]);
+});
+
+it('reads only the first page from the database, in list order, and keeps the row scope', function () {
+    $rows = collect(range(1, 25))->map(static fn (int $n): EmployeeProfile => odfEmployee([
+        'employee_code' => sprintf('ODF-%04d', $n), 'last_name' => sprintf('Staff %02d', $n),
+    ]));
+    $admin = odfAccess();
+    $directory = app(OperationalDirectory::class);
+
+    DB::enableQueryLog();
+    $page = $directory->firstPage($admin, 20);
+    $sql = collect(DB::getQueryLog())->map(static fn (array $entry): string => mb_strtolower(str_replace('`', '"', (string) $entry['query'])));
+    DB::disableQueryLog();
+
+    // The database counts every match and returns only the page's rows —
+    // never the whole directory sliced afterwards.
+    expect($page->total())->toBe(25)
+        ->and(collect($page->items())->pluck('id')->all())->toBe($directory->list($admin)->take(20)->pluck('id')->all())
+        ->and($sql->contains(static fn (string $q): bool => str_contains($q, 'count(*)')))->toBeTrue()
+        ->and($sql->contains(static fn (string $q): bool => str_contains($q, 'limit 20')))->toBeTrue()
+        ->and($directory->firstPage($admin, 0)->perPage())->toBe(1)
+        ->and($directory->firstPage($admin, 500)->perPage())->toBe(100);
+
+    // The same scope as list(): nobody for an unlinked actor without a
+    // relevant all-data grant, only their own record for a linked one.
+    expect($directory->firstPage(odfAccess([ModuleCode::PROFILE]), 20)->total())->toBe(0);
+    $ownPage = $directory->firstPage(odfAccess([ModuleCode::PROFILE], allData: false, employee: $rows[3]), 20);
+    expect($ownPage->total())->toBe(1)
+        ->and(collect($ownPage->items())->pluck('id')->all())->toBe([$rows[3]->id]);
+});
+
+it('lets kept ids past the active filter but not past the search, the ids or the row scope', function () {
+    $active = odfEmployee(['employee_code' => 'ODF-0001', 'first_name' => 'Ana', 'last_name' => 'Garcia']);
+    $gone = odfEmployee(['employee_code' => 'ODF-0002', 'first_name' => 'Ben', 'last_name' => 'Reyes', 'is_active' => false]);
+    odfEmployee(['employee_code' => 'ODF-0003', 'first_name' => 'Cara', 'last_name' => 'Santos', 'is_active' => false]);
+    $directory = app(OperationalDirectory::class);
+    $admin = odfAccess();
+    $keep = ['active' => 'ACTIVE', 'keep' => [$gone->id]];
+    $ids = static fn (iterable $rows): array => collect($rows)->pluck('id')->all();
+
+    expect($ids($directory->list($admin, filters: $keep)))->toBe([$active->id, $gone->id])
+        ->and($directory->firstPage($admin, 20, filters: $keep)->total())->toBe(2)
+        ->and($ids($directory->list($admin, search: 'garcia', filters: $keep)))->toBe([$active->id])
+        ->and($ids($directory->list($admin, [$active->id], filters: $keep)))->toBe([$active->id])
+        ->and($ids($directory->list(odfAccess([ModuleCode::PROFILE], allData: false, employee: $active), filters: $keep)))->toBe([$active->id]);
 });

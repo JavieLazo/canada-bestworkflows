@@ -29,6 +29,8 @@ use Carbon\CarbonImmutable;
  * @property string|null $description
  * @property string|null $parent_id
  * @property int $sort_order
+ * @property string|null $head_name the head of this office, named on the Application for Leave
+ * @property string|null $head_designation
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable|null $updated_at
  */
@@ -57,6 +59,8 @@ class OrgNode extends BaseModel
         'description',
         'parent_id',
         'sort_order',
+        'head_name',
+        'head_designation',
     ];
 
     /** @return array<string, string> */

@@ -10,8 +10,10 @@ use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveCredits;
 use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
+use App\Modules\Timekeeping\Application\Queries\LeaveRuleRecords;
 use App\Modules\Timekeeping\Contracts\Views\LeaveBalanceView;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
@@ -51,10 +53,18 @@ class LeaveCredits extends Component
     public const string PAGE_NAME = 'creditsPage';
 
     /**
-     * The year shown. Plain filter state, deliberately unlocked: a select
-     * writes it, `updatedYear()` collapses anything outside the three
-     * offered years back to the current one, and it carries no id.
+     * The day the balances are read as of, 'Y-m-d'. Plain filter state,
+     * deliberately unlocked: the date field writes it, `updatedAsOf()`
+     * collapses anything outside the three offered years back to today,
+     * and it carries no id.
      */
+    public string $asOf = '';
+
+    /**
+     * The credits year of that day — the year the Set credits dialog
+     * enters. Follows `$asOf`; nothing on the page sets it on its own.
+     */
+    #[Locked]
     public int $year = 0;
 
     /**
@@ -63,8 +73,7 @@ class LeaveCredits extends Component
      * re-resolving the id against the actor's visible directory, and
      * `saveCredits()` clears it once the command has written. A client-side
      * Cancel or Escape leaves it staged, which is harmless — the next open
-     * overwrites it and nothing reads it but the dialog (the RosterPage
-     * `$locationsEmployeeId` shape).
+     * overwrites it and nothing reads it but the dialog.
      */
     #[Locked]
     public string $creditsEmployeeId = '';
@@ -86,6 +95,7 @@ class LeaveCredits extends Component
     public function mount(): void
     {
         $this->sortKey = 'employee';
+        $this->asOf = ManilaClock::todayKey();
         $this->year = self::currentYear();
     }
 
@@ -114,11 +124,25 @@ class LeaveCredits extends Component
         return [$year - 1, $year, $year + 1];
     }
 
-    /** Anything but one of the offered years collapses to the current one; the page starts over. */
-    public function updatedYear(mixed $value): void
+    /**
+     * The day a typed value stands for: a real date inside the offered
+     * years (last, this, next), else today.
+     */
+    public static function asOfDate(mixed $value): string
     {
-        $year = is_numeric($value) ? (int) $value : 0;
-        $this->year = in_array($year, self::yearOptions(), true) ? $year : self::currentYear();
+        $date = is_string($value) ? trim($value) : '';
+        $valid = preg_match('/\A\d{4}-\d{2}-\d{2}\z/', $date) === 1
+            && checkdate((int) substr($date, 5, 2), (int) substr($date, 8, 2), (int) substr($date, 0, 4))
+            && in_array(LeaveCreditPolicy::yearOf($date), self::yearOptions(), true);
+
+        return $valid ? $date : ManilaClock::todayKey();
+    }
+
+    /** Anything but a date inside the offered years collapses to today; the page starts over. */
+    public function updatedAsOf(mixed $value): void
+    {
+        $this->asOf = self::asOfDate($value);
+        $this->year = LeaveCreditPolicy::yearOf($this->asOf);
         $this->resetPage(self::PAGE_NAME);
     }
 
@@ -158,7 +182,7 @@ class LeaveCredits extends Component
 
         $draft = [];
         foreach (app(LeaveCreditRecords::class)->balances($access, $employeeId, $this->year) as $balance) {
-            $draft[$balance->request_type] = $balance->credited === null ? '' : LeaveCreditPolicy::format($balance->credited);
+            $draft[$balance->request_type] = $balance->credited === null ? '' : LeaveQuantity::credits($balance->credited);
         }
 
         $this->creditsEmployeeId = $employeeId;
@@ -168,7 +192,7 @@ class LeaveCredits extends Component
     }
 
     /**
-     * The Set credits dialog's Save — RosterPage::saveLocations()'s shape.
+     * The Set credits dialog's Save.
      * A fresh Access is gated here so a refused actor gets the toast at once;
      * the command gates again (all_data + LEAVES), refuses a self-edit,
      * re-resolves the employee, re-validates every field and audits — the
@@ -240,27 +264,34 @@ class LeaveCredits extends Component
 
         $records = app(LeaveCreditRecords::class);
         $types = $records->creditableTypes($access);
-        $balances = $records->balancesForEmployees($access, $this->year, $pageIds);
+        // The table reads the books as they stood on the chosen day.
+        $balances = $records->balancesAsOf($access, $this->asOf, $pageIds);
         $canEdit = $access->mayReadAllData(ModuleCode::LEAVES);
 
-        // The dialog's derived state: its employee and the year's rows, from
-        // the page's batch when the row is on it, else one more read.
+        // The dialog's derived state: its employee and the year's allocation
+        // AS IT STANDS NOW, which is what Set credits edits — never the
+        // as-of figures the table shows.
         $dialogEmployee = $this->creditsEmployeeId === ''
             ? null
             : app(OperationalDirectory::class)->find($access, $this->creditsEmployeeId);
         /** @var list<LeaveBalanceView> $dialogRows */
         $dialogRows = $dialogEmployee === null
             ? []
-            : ($balances[$dialogEmployee->id] ?? $records->balances($access, $dialogEmployee->id, $this->year));
+            : $records->balances($access, $dialogEmployee->id, $this->year);
 
         return view('livewire.leaves.leave-credits', [
             'rows' => $rows,
             'types' => $types,
             'balances' => $balances,
-            'years' => self::yearOptions(),
+            'standing' => app(LeaveRuleRecords::class)->standing($access, $pageIds),
+            'lastRun' => app(LeaveRuleRecords::class)->lastRun($access),
+            'asOf' => $this->asOf,
             'canEdit' => $canEdit,
             'dialogEmployee' => $dialogEmployee,
             'dialogRows' => $dialogRows,
+            // The types the dialog's employee may not use: HR may still set
+            // their credits, and the dialog says what that does.
+            'dialogIneligible' => $dialogEmployee === null ? [] : (app(LeaveRuleRecords::class)->ineligible($access, [$dialogEmployee->id])[$dialogEmployee->id] ?? []),
         ]);
     }
 }

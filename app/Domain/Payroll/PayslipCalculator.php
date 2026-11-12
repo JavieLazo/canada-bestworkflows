@@ -402,9 +402,10 @@ final class PayslipCalculator
         // per-hour figure that ignores the stored hourly override (the night
         // add-on, a rest day) prices from it.
         $derivedHourlyFor = static fn (string $date): float => $rulesOn($date)->roundRate($dailyFor($date) / $dailyHoursFor($date));
-        // A premium hourly rate (the hourly times a factor) as the version
-        // wants it multiplied by hours: rounded when it rounds, else the
-        // reference's own `(hours) * hourly * factor` left-to-right.
+        // A version that rounds prices a premium the way a payroll register
+        // does: the hours at one rate and factor added up, then the amount
+        // rounded once (`priceBuckets`). One that does not keeps the
+        // reference's own `(hours) * hourly * factor`, day by day.
         $roundsOn = static fn (string $date): bool => $rulesOn($date)->roundingDecimals !== null;
 
         // The stored hourly rate may be an intentional override, but it is
@@ -439,9 +440,7 @@ final class PayslipCalculator
             $rulesOn($date)->rates->maxNsdHours,
             $dailyHoursFor($date),
         );
-        $nsdPerNight = static fn (string $date, float $addOn): float => $roundsOn($date)
-            ? $rulesOn($date)->roundRate($derivedHourlyFor($date) * $addOn) * $nightHoursFor($date)
-            : $derivedHourlyFor($date) * $addOn * $nightHoursFor($date);
+        $nsdPerNight = static fn (string $date, float $addOn): float => $derivedHourlyFor($date) * $addOn * $nightHoursFor($date);
         $holidayTypes = [];
         $holidayCount = [];
         foreach ($days as $day) {
@@ -525,6 +524,10 @@ final class PayslipCalculator
         $restDays = 0;
         $restDayEarnings = 0.0;
         $nightsWorked = 0;
+        // DIVERGENCE 16: the hours a version that rounds prices once per bucket.
+        $restBuckets = [];
+        $nightBuckets = [];
+        $overtimeBuckets = [];
 
         $dayByDate = [];
         foreach ($days as $day) {
@@ -651,9 +654,11 @@ final class PayslipCalculator
                     // DIVERGENCE 13: the REST matrix cell, else the Rest Day rate.
                     $restCell = $dayRules->matrix['REST']['worked'];
                     $restFactor = $restCell === null ? $dayRates->restDayRate : $restCell / 100;
-                    $restDayEarnings += $roundsOn($day->date)
-                        ? $dayRules->roundRate($derivedHourlyFor($day->date) * $restFactor) * $restHours
-                        : $derivedHourlyFor($day->date) * $restFactor * $restHours;
+                    if ($roundsOn($day->date)) {
+                        self::addToBucket($restBuckets, $restHours, $derivedHourlyFor($day->date), $restFactor);
+                    } else {
+                        $restDayEarnings += $derivedHourlyFor($day->date) * $restFactor * $restHours;
+                    }
                 } else {
                     $workedDays += 1;
                     $paidDaysByMonth[$dayMonth] = ($paidDaysByMonth[$dayMonth] ?? 0.0) + 1;
@@ -777,7 +782,7 @@ final class PayslipCalculator
         $computedLeavePay = Money::round($leaveEarnings);                         // [R02a] DIVERGENCE 6
         $work_days_pay = Money::round($paid_day_pay - $computedLeavePay);         // [R02b] DIVERGENCE 6
         $holiday_pay = Money::round($holidayEarnings);                            // [R03] payroll.ts:498
-        $rest_day_pay = Money::round($restDayEarnings);                           // [R04] payroll.ts:499
+        $rest_day_pay = Money::round($restDayEarnings + self::priceBuckets($restBuckets)); // [R04] payroll.ts:499
         $basic_pay = Money::round($work_days_pay + $holiday_pay + $rest_day_pay); // [R05] payroll.ts:500
 
         // payroll.ts:502-509 — `s.absences + incompleteDays`: ABSENT days,
@@ -810,8 +815,13 @@ final class PayslipCalculator
          * outside `entered()` (payroll.ts:524-528); so does this.
          */
         $enteredNsd = $earningsOverride['night_differential'] ?? null;
+        foreach ($nightGroups as $key => $nights) {
+            if ($roundsOn($nightDates[$key])) {
+                self::addToBucket($nightBuckets, $nightHoursFor($nightDates[$key]) * $nights, $derivedHourlyFor($nightDates[$key]), $nightAddOns[$key]);
+            }
+        }
         $computedNsd = array_sum(array_map(
-            static fn (string $key): float => $nsdPerNight($nightDates[$key], $nightAddOns[$key]) * $nightGroups[$key],
+            static fn (string $key): float => $roundsOn($nightDates[$key]) ? 0.0 : $nsdPerNight($nightDates[$key], $nightAddOns[$key]) * $nightGroups[$key],
             array_keys($nightGroups),
         ));
         // DIVERGENCE 13: night pay on overtime hours, when the version says
@@ -917,11 +927,13 @@ final class PayslipCalculator
             }
 
             $overtimeMinutes += $minutes;
-            // DIVERGENCE 16: the overtime hour's rate rounded before the hours
-            // multiply it, when the version rounds.
-            $overtimeEarnings += $roundsOn($day->date)
-                ? ($minutes / 60) * $dayRules->roundRate($hourlyFor($day->date) * $dayRate)
-                : ($minutes / 60) * $hourlyFor($day->date) * $dayRate;
+            // DIVERGENCE 16: a version that rounds prices these hours with the
+            // rest at this rate, once, after the loop.
+            if ($roundsOn($day->date)) {
+                self::addToBucket($overtimeBuckets, $minutes / 60, $hourlyFor($day->date), $dayRate);
+            } else {
+                $overtimeEarnings += ($minutes / 60) * $hourlyFor($day->date) * $dayRate;
+            }
 
             // DIVERGENCE 13: the overtime hours that fall in the night
             // window, after the scheduled shift ends, earn the night add-on.
@@ -930,19 +942,21 @@ final class PayslipCalculator
                 $span = ShiftResolver::shiftSpan($schedule->forDate($day->date));
                 if ($span !== null) {
                     $nightOvertime = ShiftResolver::nightMinutesBetween($span[1], $span[1] + $minutes, $dayRules->nightStart, $dayRules->nightEnd);
-                    $nightOvertimeEarnings += $roundsOn($day->date)
-                        ? $dayRules->roundRate($derivedHourlyFor($day->date) * $nightAddOnFor($day->date, $dayType, $holiday)) * ($nightOvertime / 60)
-                        : $derivedHourlyFor($day->date) * $nightAddOnFor($day->date, $dayType, $holiday) * ($nightOvertime / 60);
+                    if ($roundsOn($day->date)) {
+                        self::addToBucket($nightBuckets, $nightOvertime / 60, $derivedHourlyFor($day->date), $nightAddOnFor($day->date, $dayType, $holiday));
+                    } else {
+                        $nightOvertimeEarnings += $derivedHourlyFor($day->date) * $nightAddOnFor($day->date, $dayType, $holiday) * ($nightOvertime / 60);
+                    }
                 }
             }
         }
 
-        $night_differential ??= Money::round($nightOnOvertime                    // [R08] payroll.ts:528
+        $night_differential ??= Money::round(($nightOnOvertime                   // [R08] payroll.ts:528
             ? $computedNsd + $nightOvertimeEarnings
-            : $computedNsd);
+            : $computedNsd) + self::priceBuckets($nightBuckets));
 
         $overtime_hours = Money::round($overtimeMinutes / 60);                    // [R09] payroll.ts:556
-        $overtime_pay = Money::round($overtimeEarnings);                          // [R10] payroll.ts:557
+        $overtime_pay = Money::round($overtimeEarnings + self::priceBuckets($overtimeBuckets)); // [R10] payroll.ts:557
         // Null: the reference's run-level switch. Under per-day approval the
         // approved minutes ARE the acknowledgement, so the flag reports
         // whether any approved overtime reached gross.
@@ -1334,6 +1348,39 @@ final class PayslipCalculator
         }
 
         return $result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Premium buckets (DIVERGENCE 16), for a version that rounds.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Adds hours to the bucket of their hourly rate and factor.
+     *
+     * @param  array<string, array{hours: float, hourly: float, factor: float}>  $buckets
+     */
+    private static function addToBucket(array &$buckets, float $hours, float $hourly, float $factor): void
+    {
+        $key = $hourly.'|'.$factor;
+        $buckets[$key] = ['hours' => ($buckets[$key]['hours'] ?? 0.0) + $hours, 'hourly' => $hourly, 'factor' => $factor];
+    }
+
+    /**
+     * Each bucket's ROUND(hours × hourly × factor, 2), summed: centavos
+     * whatever decimals the rates were rounded to, because this is a peso
+     * amount, not a rate. 0.0 with no buckets, so a version that does not
+     * round adds nothing to the reference's figure.
+     *
+     * @param  array<string, array{hours: float, hourly: float, factor: float}>  $buckets
+     */
+    private static function priceBuckets(array $buckets): float
+    {
+        $total = 0.0;
+        foreach ($buckets as $bucket) {
+            $total += Money::roundTo($bucket['hours'] * $bucket['hourly'] * $bucket['factor'], 2);
+        }
+
+        return $total;
     }
 
     // ─────────────────────────────────────────────────────────────────────────

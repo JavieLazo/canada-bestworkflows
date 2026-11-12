@@ -314,45 +314,37 @@ final class EmployeeFields
     ];
 
     /**
-     * The dialog's REQUIRED set (add-employee-dialog.tsx:31-49) — everything
-     * HR needs on day one. NEITHER identifier is here: `employee_code` is
-     * assigned rather than typed, and `employee_id_no` is the company's own
-     * number, which often does not exist yet on the day someone is hired.
+     * The hire wizard's REQUIRED answers. DELIBERATE DIVERGENCE from the
+     * reference's set (add-employee-dialog.tsx:31-49): a hire needs only who
+     * the person is and how to reach them — the company's Employee ID, the
+     * name, the position (and through it the department), the contact
+     * number, the email, the date of birth and the civil status. Sex, the
+     * emergency contact, the employment status, the worksite, the date
+     * joined and the rates may all be left for later; CreateEmployee fills
+     * in what the record cannot be saved without (the date joined, the
+     * status). `employee_code` is assigned rather than typed.
      *
-     * DELIBERATE DIVERGENCE — `monthly_rate` is in the set but is required
-     * only while no Rate Per Day is entered: either rate gives payroll its pay
-     * per day. Ask isRequired(), never this list, for that one key.
-     *
-     * The residential address is required as a GROUP, not part by part: at
-     * least one of its seven parts (EmployeeInput::stepErrors, on the
-     * Addresses step). A field carrying `requiredWhenShown` is required only
-     * while it is shown (isRequired()).
+     * Two more are required outside this list (EmployeeInput::stepErrors):
+     * the DEPARTMENT, on the step that asks for the position, and the
+     * residential ADDRESS as a group — at least one of its seven parts. A
+     * field carrying `requiredWhenShown` is required only while it is shown
+     * (isRequired()).
      *
      * @var list<string>
      */
     public const array REQUIRED = [
-        'first_name', 'last_name', 'phone', 'email', 'birth_date',
-        'sex', 'civil_status',
-        'emergency_name', 'emergency_relation', 'emergency_phone',
-        'position', 'employment_status', 'work_site_id', 'date_hired', 'monthly_rate',
+        'employee_id_no', 'first_name', 'last_name', 'phone', 'email', 'birth_date',
+        'civil_status', 'position',
     ];
 
     /**
      * Whether the hire wizard must have an answer for `$key`, given the rest
-     * of the form: REQUIRED, except that Rate Per Month may be left blank
-     * once a Rate Per Day above zero is entered (see REQUIRED).
+     * of the form: REQUIRED, or a `requiredWhenShown` field while it shows.
      *
      * @param  array<string, mixed>  $form
      */
     public static function isRequired(string $key, array $form): bool
     {
-        if ($key === 'monthly_rate') {
-            $daily = $form['daily_rate'] ?? '';
-            $daily = is_string($daily) || is_int($daily) || is_float($daily) ? trim((string) $daily) : '';
-
-            return ! (is_numeric($daily) && (float) $daily > 0);
-        }
-
         $field = self::field($key);
 
         if ($field !== null && isset($field['requiredWhenShown'])) {
@@ -396,7 +388,7 @@ final class EmployeeFields
      * they are payroll's, not the 201 file's. A new hire gets the column
      * defaults (every switch on, no fixed amount, no override, SEMI_MONTHLY)
      * — the standard computation — and a payroll officer changes an
-     * employee's on their pay page under Payroll → Payroll Settings: the
+     * employee's on their pay page under Records → Payroll Settings: the
      * hourly rate in place (UpdateEmployeePaySettings), the contribution and
      * withholding settings as dated, approved Payroll versions laid over the
      * columns payroll reads through EmployeePayContextQuery. A one-payroll
@@ -2058,9 +2050,9 @@ final class EmployeeFields
      * last, shared through App\Support\TextSort. Byte order, never ICU
      * `Collator('en')`, so the Employee Records order does not depend on
      * whether ext-intl is loaded on a host the company does not control;
-     * TextSort's docblock says why byte order wins. The list screen sorts in
-     * PHP because statusKey/label mapping cannot be expressed in SQL, exactly
-     * as the source sorts in the client.
+     * TextSort's docblock says why byte order wins. The Employee Records
+     * table sorts in SQL through its twin, `SqlText::order`, which the two
+     * must keep agreeing with.
      */
     public static function compareText(?string $a, ?string $b): int
     {

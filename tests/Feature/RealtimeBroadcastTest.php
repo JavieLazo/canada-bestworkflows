@@ -23,6 +23,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\PunchShiftFixture;
 
 /**
  * Realtime: who may subscribe to what, what actually leaves the process, and
@@ -223,6 +224,7 @@ it('announces a punch on the all-punches channel and the employee\'s own', funct
     $this->withoutDefer();
 
     $employee = rtEmployee(rtSite());
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     $this->actingAs(rtUser(['EDTR'], allData: true));
 
     Livewire::test(PunchStation::class)
@@ -281,6 +283,7 @@ it('records the punch even when the broadcaster is unreachable', function () {
     $this->withoutDefer();
 
     $employee = rtEmployee(rtSite());
+    PunchShiftFixture::anyHour((string) $employee->getKey());
     $this->actingAs(rtUser(['EDTR'], allData: true));
 
     Livewire::test(PunchStation::class)

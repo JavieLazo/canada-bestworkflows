@@ -11,6 +11,7 @@ use App\Modules\IdentityAccess\Application\Commands\ResetAccountPassword;
 use App\Modules\IdentityAccess\Application\PasswordPolicy;
 use App\Modules\IdentityAccess\Application\Queries\GetAccounts;
 use App\Modules\IdentityAccess\Application\TemporaryPassword;
+use App\Modules\IdentityAccess\Contracts\AccountLabel;
 use App\Modules\IdentityAccess\Contracts\Views\RoleView as Role;
 use App\Modules\IdentityAccess\Contracts\Views\UserView as User;
 use App\Modules\Workforce\Application\Queries\AccountEmployees;
@@ -121,6 +122,15 @@ class Index extends Component
     public string $createEmployeeId = '';
 
     /**
+     * The name of an account with no employee record. Kept as typed while an
+     * employee is picked, and ignored by the save: the record names the
+     * account then.
+     */
+    public string $createName = '';
+
+    public ?string $createNameError = null;
+
+    /**
      * The inline email message (`emailErr`): set when the field is left, when
      * a pick offers an address, and by a save refused for the address's shape.
      */
@@ -149,6 +159,11 @@ class Index extends Component
     #[Locked]
     public string $accountEmployeeId = '';
 
+    /** The typed name of an account with no employee record; ignored while one is linked. */
+    public string $accountName = '';
+
+    public ?string $accountNameError = null;
+
     /**
      * The status switch. Form INPUT for the target row, not the actor's own
      * authority — {@see self::saveAccount()} drops it for the actor's own
@@ -160,7 +175,7 @@ class Index extends Component
      * The last loaded or saved details keep the form actions hidden until
      * a draft differs, including across selector and validation requests.
      *
-     * @var array{email: string, role: string, employee: string, active: bool}|array{}
+     * @var array{email: string, role: string, employee: string, name: string, active: bool}|array{}
      */
     #[Locked]
     public array $accountOriginal = [];
@@ -417,8 +432,17 @@ class Index extends Component
             return;
         }
 
+        // An account with no employee record is named here; a linked one
+        // takes the record's name, so nothing typed is sent for it.
+        $name = $this->createEmployeeId === '' ? trim($this->createName) : '';
+        $this->createNameError = self::nameError($name, $this->createEmployeeId === '');
+
+        if ($this->createNameError !== null) {
+            return;
+        }
+
         try {
-            app(ManageAccounts::class)->create($actor, $email, $password, $this->createRoleId, $this->createEmployeeId);
+            app(ManageAccounts::class)->create($actor, $email, $password, $this->createRoleId, $this->createEmployeeId, $name);
         } catch (ValidationException $e) {
             $this->showPasswordErrors($e, 'createPassword');
 
@@ -489,8 +513,16 @@ class Index extends Component
             return;
         }
 
+        // Blank is allowed on an existing account: it reads by its number.
+        $name = $this->accountEmployeeId === '' ? trim($this->accountName) : '';
+        $this->accountNameError = self::nameError($name, false);
+
+        if ($this->accountNameError !== null) {
+            return;
+        }
+
         try {
-            $account = app(ManageAccounts::class)->update($actor, $this->accountId, $email, $this->accountRoleId, $this->accountEmployeeId, $this->accountIsActive);
+            $account = app(ManageAccounts::class)->update($actor, $this->accountId, $email, $this->accountRoleId, $this->accountEmployeeId, $this->accountIsActive, $name);
         } catch (QueryException $e) {
             report($e);
             Flux::toast(variant: 'danger', text: 'Could not update the account');
@@ -838,13 +870,31 @@ class Index extends Component
         $this->accountEmail = (string) $account->email;
         $this->accountRoleId = $account->role_id === null ? '' : (string) $account->role_id;
         $this->accountEmployeeId = $account->employee_id === null ? '' : (string) $account->employee_id;
+        $this->accountName = (string) ($account->account_name ?? '');
+        $this->accountNameError = null;
         $this->accountIsActive = (bool) $account->is_active;
         $this->accountOriginal = [
             'email' => $this->accountEmail,
             'role' => $this->accountRoleId,
             'employee' => $this->accountEmployeeId,
+            'name' => $this->accountName,
             'active' => $this->accountIsActive,
         ];
+    }
+
+    /**
+     * Why a typed account name cannot be used, or null. `$required` is the
+     * New-account form's rule for an account with no employee record.
+     */
+    private static function nameError(string $name, bool $required): ?string
+    {
+        if ($name === '') {
+            return $required ? 'Enter a name for the account, or link an employee record.' : null;
+        }
+
+        return mb_strlen($name) > AccountLabel::NAME_CAP
+            ? 'Name must be at most '.AccountLabel::NAME_CAP.' characters.'
+            : null;
     }
 
     private function resetCreateForm(): void
@@ -855,6 +905,8 @@ class Index extends Component
         $this->createGenerated = '';
         $this->createRoleId = '';
         $this->createEmployeeId = '';
+        $this->createName = '';
+        $this->createNameError = null;
         $this->createEmailError = null;
         $this->resetValidation('createPassword');
     }
@@ -902,6 +954,8 @@ class Index extends Component
         $this->accountEmailError = null;
         $this->accountRoleId = '';
         $this->accountEmployeeId = '';
+        $this->accountName = '';
+        $this->accountNameError = null;
         $this->accountIsActive = true;
         $this->accountOriginal = [];
         $this->cancelPasswordReset();

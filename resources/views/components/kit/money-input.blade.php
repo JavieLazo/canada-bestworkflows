@@ -13,10 +13,14 @@
 
     Usage (inside a Livewire component):
         <x-kit.money-input wire:model="form.monthly_rate" aria-label="Monthly rate" />
+
+    `placeholder` says what a BLANK field means where blank is not zero
+    ("From the table"); left out, it reads 0.00.
 --}}
 @props([
     'id' => null,
     'disabled' => false,
+    'placeholder' => '0.00',
     'ariaLabel' => null,
     'ariaInvalid' => null,
 ])
@@ -112,7 +116,7 @@
         :disabled="$disabled"
         inputmode="decimal"
         autocomplete="off"
-        placeholder="0.00"
+        :placeholder="$placeholder"
         :aria-label="$ariaLabel"
         :aria-invalid="$ariaInvalid ? 'true' : null"
         :class="$class"

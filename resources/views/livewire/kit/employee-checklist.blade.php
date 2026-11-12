@@ -5,8 +5,9 @@
     (payroll/run-workspace.blade.php) reduced to what a dialog field needs — a
     search box, a summary of who is ticked, and a scrolling employee list
     with a native checkbox per row. The LIST is server-rendered from
-    the scoped, searched query; a tick round-trips through toggle(), which
-    re-checks the id against the actor's directory.
+    the scoped, searched query, one page of matches at a time; a tick
+    round-trips through toggle(), which re-checks the id against the actor's
+    directory.
 
     Each row is a <label> wrapping its checkbox, so clicking the name toggles
     the box once (the label forwards the click) and there is no double-fire to
@@ -128,4 +129,20 @@
             </label>
         @endforeach
     </div>
+
+    {{-- One page of matches is drawn (EmployeeChecklist::PAGE_SIZE); the
+         search and the filters reach the rest, and the bulk buttons above
+         already act on every match. The live line is always on the page,
+         so it can announce the page appearing; the visible footer repeats
+         it aria-hidden, because Tab never reaches a paragraph. --}}
+    <p class="sr-only" aria-live="polite" data-ecl-status>
+        @if ($total > count($visible))
+            Showing the first {{ number_format(count($visible)) }} of {{ number_format($total) }} employees. {{ $withFilters ? 'Search or narrow the filters to find the others.' : 'Keep typing to narrow.' }}
+        @endif
+    </p>
+    @if ($total > count($visible))
+        <p aria-hidden="true" class="text-xs text-muted-foreground" data-ecl-more>
+            Showing <span class="num">{{ number_format(count($visible)) }}</span> of <span class="num">{{ number_format($total) }}</span> — {{ $withFilters ? 'search or narrow the filters to find the others.' : 'keep typing to narrow.' }}
+        </p>
+    @endif
 </div>

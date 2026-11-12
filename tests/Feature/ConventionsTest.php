@@ -416,13 +416,13 @@ it('locks every id-bearing public property on a component, or documents why not'
 
     expect($offenders)->toBe([], 'An id-bearing public property is neither #[Locked] nor documented as a sanctioned exception.');
 
-    // 38 observed on a green run (including RosterPage::$locationsEmployeeId,
+    // 102 observed on a green run (including EmployeeSchedulePage::$employeeId,
     // LeaveCredits::$creditsEmployeeId, the WorkManagement submission-mode set,
     // and IncentiveTypesPage::$editingId/$deletingId — RunWorkspace's locked
     // $incentivesFor is outside the *Id scan); a drop means a locked id
     // property was removed or renamed — check that it was deliberate.
     expect($locked)->toBeGreaterThanOrEqual(
-        38,
+        102,
         "Found {$locked} #[Locked] id properties, below the pinned floor.",
     );
 });
@@ -508,12 +508,13 @@ it('resolves Access inside every Livewire action that writes', function () {
 
     expect($offenders)->toBe([], 'A Livewire action writes without resolving Access. Re-check mayReadAllData()/hasModule() or ownership at the top of the action.');
 
-    // 66 observed on a green run (including RosterPage::saveLocations(),
-    // LeaveCredits::saveCredits(), the WorkManagement submission-mode set, the
-    // DTR's four overtime decisions and IncentiveTypesPage::save()/
-    // deleteConfirmed()); a drop means a writing action disappeared or stopped
+    // 178 observed on a green run (including EmployeeSchedulePage::saveDays()/
+    // saveDefaultSchedule()/confirmReview(), LeaveCredits::saveCredits(), the
+    // WorkManagement submission-mode set, the DTR's four overtime decisions,
+    // IncentiveTypesPage::save()/deleteConfirmed() and ShiftTypesPage::save()/
+    // confirmReview()); a drop means a writing action disappeared or stopped
     // being recognised as one — check that it was deliberate.
-    expect($checked)->toBeGreaterThanOrEqual(66, "Found {$checked} writing actions, below the pinned floor.");
+    expect($checked)->toBeGreaterThanOrEqual(178, "Found {$checked} writing actions, below the pinned floor.");
 });
 
 it('keeps domain models on BaseModel and users.id on bigint', function () {

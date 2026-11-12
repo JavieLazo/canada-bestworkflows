@@ -27,6 +27,7 @@
     same figures, one round-trip later.
 --}}
 @php
+    use App\Domain\Enums\PayrollRunKind;
     use App\Livewire\Payroll\Support\LeaveChargeText;
     use App\Livewire\Payroll\Support\PayrollData;
     use App\Modules\Payroll\Domain\DeductionCalculation;
@@ -51,7 +52,7 @@
                 :href="route('payroll.index')"
                 wire:navigate
             >
-                Employee Payroll
+                {{ PayrollRunKind::LABELS[PayrollRunKind::REGULAR] }}
             </flux:button>
             <h1 class="text-2xl font-bold tracking-tight">
                 {{ $run ? $run->name : 'Create payroll' }}
@@ -66,31 +67,17 @@
                     ? 'Finalized — these payslips are posted and no longer change.'
                     : 'Name the payroll, set its period, then add the employees it covers.' }}
             </p>
-            {{-- The pay date and the schedule's deadlines before it, and the released mark once set. --}}
-            @if ($payDateShown !== null || ($run?->released_at ?? null) !== null)
+            {{-- The schedule's deadlines, when it has any. --}}
+            @if (($schedulePeriod['deadlines'] ?? []) !== [])
                 <p class="text-sm text-muted-foreground" data-pay-schedule-line>
-                    @if ($payDateShown !== null)
-                        Pay date <span class="num">{{ PayrollData::fmtDate($payDateShown) }}</span>
-                    @endif
-                    @if ($schedulePeriod !== null)
-                        @foreach ($schedulePeriod['deadlines'] as $deadline)
-                            · {{ $deadline['label'] }} by <span class="num">{{ PayrollData::fmtDate($deadline['date']) }}</span>
-                        @endforeach
-                    @endif
-                    @if (($run?->released_at ?? null) !== null)
-                        · <span class="pill pill-success-strong" data-released-pill>Released</span>
-                        {{ $run->released_at->setTimezone(\App\Support\ManilaClock::TZ)->format('M d, Y, g:i A') }} by {{ $run->released_by_name ?? 'an unnamed account' }}
-                    @endif
+                    @foreach ($schedulePeriod['deadlines'] as $deadline)
+                        {{ $loop->first ? '' : '· ' }}{{ $deadline['label'] }} by <span class="num">{{ PayrollData::fmtDate($deadline['date']) }}</span>
+                    @endforeach
                 </p>
             @endif
         </div>
 
         <div class="flex flex-wrap gap-2">
-            @if ($run && $finalized && $schedulesReady && ($run->released_at ?? null) === null)
-                <flux:button variant="outline" icon="banknotes" wire:click="markReleased" wire:loading.attr="disabled">
-                    Mark as released
-                </flux:button>
-            @endif
             @if ($lineCount > 0)
                 {{-- Green like every Export CSV (x-kit.export-button); a wire:click because the grid streams its own file. --}}
                 <flux:button variant="primary" icon="arrow-down-tray" wire:click="exportCsv" class="hris-button-success">
@@ -119,7 +106,7 @@
                         icon="lock-closed"
                         wire:click="finalize"
                         wire:loading.attr="disabled"
-                        :disabled="count($members) === 0 || $cutoffError !== null || $advanceError !== null || $invalidDraft !== null || $readinessIssue !== null || $dirty || (! $openItems->isEmpty() && ! $openItemsAccepted)"
+                        :disabled="count($members) === 0 || $cutoffError !== null || $advanceError !== null || $invalidDraft !== null || $readinessIssue !== null || $scheduleWarnings['noShift'] !== [] || $dirty"
                     >
                         Finalize
                     </flux:button>
@@ -139,214 +126,182 @@
                 />
             </div>
             <div class="w-[11rem] space-y-2">
-                <flux:label>Date from</flux:label>
-                <x-kit.date-field wire:model.live="start" :disabled="$finalized" aria-label="Date from" />
+                <flux:label>Period from</flux:label>
+                <x-kit.date-field wire:model.live="start" :disabled="$finalized" aria-label="Period from" />
             </div>
             <div class="w-[11rem] space-y-2">
-                <flux:label>Date to</flux:label>
-                <x-kit.date-field wire:model.live="end" :disabled="$finalized" aria-label="Date to" />
+                <flux:label>Period to</flux:label>
+                <x-kit.date-field wire:model.live="end" :disabled="$finalized" aria-label="Period to" />
             </div>
-            {{-- The advance payroll (PayrollAdvance): attendance is read through
-                 this day, and the scheduled days after it are paid as full days
-                 and settled on the next payroll. Blank, or the last day of the
-                 period, reads the whole period. --}}
-            <div class="w-[13rem] space-y-2" data-attendance-through>
-                <flux:label>Attendance counted through</flux:label>
-                <x-kit.date-field wire:model.live="attendanceThrough" :disabled="$finalized" aria-label="Attendance counted through" />
-            </div>
-            @if ($schedulesReady)
-                {{-- The pay schedule the dates come from (PaySchedules) and the
-                     day the pay goes out: filled from the schedule when the
-                     dates are one of its periods, typed otherwise. --}}
-                <div class="w-[14rem]" data-pay-schedule>
-                    <x-kit.select label="Pay schedule" wire:model.live="scheduleId" :disabled="$finalized">
-                        <flux:select.option value="">No schedule</flux:select.option>
-                        @foreach ($schedules as $schedule)
-                            <flux:select.option value="{{ $schedule['id'] }}">{{ $schedule['name'] }}{{ $schedule['default'] ? ' (default)' : '' }}</flux:select.option>
-                        @endforeach
-                    </x-kit.select>
-                </div>
-                <div class="w-[11rem] space-y-2" data-pay-date>
-                    <flux:label>Pay date</flux:label>
-                    <x-kit.date-field wire:model.live="payDate" :disabled="$finalized" aria-label="Pay date" />
-                </div>
-            @endif
+            {{-- The counted date is not a field: a draft is counted through yesterday
+                 while its period runs (RunWorkspace::followTodayCountedThrough), and the
+                 panel above the grid says so. --}}
+            {{-- The pay schedule and the pay date are not asked for: the company's
+                 default schedule gives the dates their pay date and contribution
+                 month (PaySchedules, filled in mount and on a date change), and the
+                 subtitle shows the pay date. The properties stay for the commands. --}}
             @if (! $finalized)
                 <flux:button variant="primary" icon="plus" wire:click="openPicker">
                     Add employee
                 </flux:button>
             @endif
         </header>
-        @if (! $finalized)
-            <p class="border-b border-border px-5 py-2 text-xs text-muted-foreground">
-                Attendance counted through: leave it blank to read the whole period. Set a day (yesterday at the latest) to pay the scheduled days after it in full now; lateness, absences, overtime and night pay on those days are settled on the next payroll.
-            </p>
-        @endif
-
         @if ($reviewRequired && ! $finalized)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
-                Payroll inputs changed. Finalization was cancelled. Review the updated figures before posting.
-            </p>
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
+                Inputs changed, so finalizing was cancelled. Review the new figures before posting.
+            </x-payroll.notice>
         @endif
         @if ($cutoffError)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
                 {{ $cutoffError }}
                 @if ($cutoffMembers !== [])
-                    <span class="mt-1 block text-xs">Employees on this payroll: {{ implode(', ', $cutoffMembers) }} — change the dates, or take an employee off through Add employee.</span>
+                    <span class="mt-1 block text-xs">On this payroll: {{ implode(', ', $cutoffMembers) }}. Change the dates, or remove someone through Add employee.</span>
                 @endif
-            </p>
+            </x-payroll.notice>
         @endif
         @if ($advanceError)
-            <p role="alert" data-advance-error class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
+            <x-payroll.notice tone="danger" data-advance-error class="border-b px-5 py-3">
                 {{ $advanceError }}
-            </p>
+            </x-payroll.notice>
         @endif
         @if ($invalidDraft)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
                 {{ $invalidDraft['employee'] }}: {{ $invalidDraft['message'] }}
-            </p>
+            </x-payroll.notice>
         @endif
         {{-- The advance payroll: what this payroll pays ahead of attendance,
              and what it settles from earlier ones. Information, never a block:
              the days after the counted date are paid as scheduled by design. --}}
         @if ($advance !== null)
-            <div role="status" data-advance class="space-y-1 border-b border-primary/20 bg-primary-soft px-5 py-3 text-sm text-foreground">
+            <x-payroll.notice tone="info" data-advance class="border-b px-5 py-3">
                 @if ($advance['from'] !== null)
+                    {{-- Every payroll is processed before its period ends, so this is the
+                         normal case and is not called out as an "advance": the counted date
+                         and what the days after it are paid as are stated plainly. --}}
                     <p>
-                        <span class="font-semibold">Paid in advance:</span>
-                        attendance is counted through <span class="num">{{ HrisFormat::date($advance['through']) }}</span>.
+                        <span class="font-semibold">Attendance is counted through <span class="num">{{ HrisFormat::date($advance['through']) }}</span>.</span>
+                        {{-- The day count is every employee's days added together, so it can
+                             be far more than the days in the range: it is always worded as a
+                             total across the employees. --}}
                         @if ($advance['days'] > 0)
-                            <span class="num">{{ $advance['days'] }}</span> scheduled {{ $advance['days'] === 1 ? 'day' : 'days' }}
-                            from <span class="num">{{ HrisFormat::date($advance['from']) }}</span> to <span class="num">{{ HrisFormat::date($advance['to']) }}</span>
-                            {{ $advance['members'] === 1 ? 'for 1 employee are' : 'for '.$advance['members'].' employees are' }} paid as full days now.
+                            @if ($advance['from'] === $advance['to'])
+                                The working day on <span class="num">{{ HrisFormat::date($advance['from']) }}</span> is
+                            @else
+                                The working days from <span class="num">{{ HrisFormat::date($advance['from']) }}</span> to <span class="num">{{ HrisFormat::date($advance['to']) }}</span> are
+                            @endif
+                            paid in full ahead of attendance:
+                            @if ($advance['members'] === 1)
+                                <span class="num">{{ $advance['days'] }}</span> {{ $advance['days'] === 1 ? 'day' : 'days' }} for 1 employee.
+                            @else
+                                <span class="num">{{ $advance['days'] }}</span> days in total across <span class="num">{{ $advance['members'] }}</span> employees.
+                            @endif
+                            Any difference from actual attendance is adjusted on the next payroll.
                         @else
-                            The days from <span class="num">{{ HrisFormat::date($advance['from']) }}</span> to <span class="num">{{ HrisFormat::date($advance['to']) }}</span> are paid as scheduled.
+                            <span class="num">{{ HrisFormat::date($advance['from']) }}</span> to <span class="num">{{ HrisFormat::date($advance['to']) }}</span>:
+                            paid as scheduled and adjusted on the next payroll.
                         @endif
-                        Lateness, absences, overtime and night pay on those days are settled on each employee's next payroll.
                     </p>
+                    {{-- An unfinished day (a Time In without a Time Out) among the counted
+                         days is assumed to finish: that member is counted through the day
+                         before it and the rest is paid as scheduled too (PayrollAdvance::countedThrough). --}}
+                    @if ($advance['earlier'] > 0)
+                        <p data-advance-earlier>
+                            {{ $advance['earlier'] === 1 ? '1 employee has' : $advance['earlier'].' employees have' }} a Time In without a Time Out among the counted days.
+                            From that day on, they are paid as scheduled and adjusted once it is finished.
+                        </p>
+                    @endif
                 @endif
                 @if ($advance['settled'] > 0)
                     <p data-advance-settled>
-                        <span class="font-semibold">Settles earlier days:</span>
-                        {{ $advance['settled'] === 1 ? '1 employee has' : $advance['settled'].' employees have' }} days paid in advance on an earlier payroll settled here
-                        (<span class="num">{{ PayrollData::peso($advance['total']) }}</span> in all). Select a Settlement figure to see how it was found.
+                        <span class="font-semibold">Adjusts earlier days:</span>
+                        <span class="num">{{ PayrollData::peso($advance['total']) }}</span> for {{ $advance['settled'] === 1 ? '1 employee' : $advance['settled'].' employees' }}.
+                        Select a Prior Cut-off Adjustment figure for details.
                     </p>
                 @endif
-            </div>
+            </x-payroll.notice>
         @endif
         @if ($readinessIssue)
-            <p role="alert" class="border-b border-danger/20 bg-danger-soft px-5 py-3 text-sm text-danger">
+            <x-payroll.notice tone="danger" class="border-b px-5 py-3">
                 {{ $readinessIssue['employee'] }}: {{ $readinessIssue['message'] }}
-            </p>
+            </x-payroll.notice>
         @endif
         {{-- A warning, never a block (CutoffAdvice): the statutory lines
              follow the semi-monthly rule, which a range of days other than a
-             1st–15th or 16th–end cut-off only approximates. --}}
+             1st–15th or 16th–end cut-off only approximates. Worded here and
+             not in CutoffAdvice::WARNING: that file is in the calculator's
+             fingerprint, so editing its text would stale every open preview. --}}
         @if ($cutoffWarning)
-            <p role="status" data-cutoff-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
-                {{ $cutoffWarning }}
-            </p>
+            <x-payroll.notice tone="warning" data-cutoff-warning class="border-b px-5 py-3">
+                This payroll is not a 1st–15th or 16th–end-of-month cut-off. Contributions and tax still follow the semi-monthly rules. Check those cells before finalizing.
+            </x-payroll.notice>
         @endif
         {{-- A warning, never a block: a Contribution & Tax Table whose figures
              are not confirmed as far as this period reaches (StatutoryTables). --}}
         @if ($statutoryWarning)
-            <p role="status" data-statutory-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
+            <x-payroll.notice tone="warning" data-statutory-warning class="border-b px-5 py-3">
                 {{ $statutoryWarning }}
-            </p>
+            </x-payroll.notice>
         @endif
-        {{-- Also a warning, never a block: the PHP 90,000 exemption is
+        {{-- Also a warning, never a block: the ₱90,000 exemption is
              spent in the order payrolls are finalized. --}}
         @if ($exemptOrderWarning)
-            <p role="status" data-exempt-order-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
-                An open payroll that ends earlier this year also pays tax-exempt incentives to someone here.
-                The PHP 90,000 exemption is spent in the order payrolls are finalized, so finalize that one first.
-            </p>
+            <x-payroll.notice tone="warning" data-exempt-order-warning class="border-b px-5 py-3">
+                Finalize the earlier open payroll first. It also pays tax-exempt incentives to someone here, and the ₱90,000 exemption is used in finalizing order.
+            </x-payroll.notice>
         @endif
-        {{-- Also warnings, never blocks. Dates nobody assigned a schedule
-             for are judged by the system default, which is not the
-             employee's record; a schedule changed after the draft was saved
-             has already moved the amounts shown, and finalizing needs the
-             receipt of exactly what is shown. How payroll should treat
-             unscheduled dates is an open question, so it is said, not
-             stopped. --}}
+        {{-- Two holds, then a warning. An adjustment awaiting approval and a
+             date with no shift (judged by the engine's default week, which
+             is nobody's schedule) each hold finalizing until they are dealt
+             with; FinalizePayroll refuses by the same reads. A schedule
+             changed after the draft was saved has already moved the amounts
+             shown, and finalizing needs the receipt of exactly what is
+             shown, so it is said, not stopped. --}}
         @if ($pendingAdjustments !== [])
-            <p role="status" data-pending-adjustments class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
+            <x-payroll.notice tone="warning" data-pending-adjustments class="border-b px-5 py-3">
                 An adjustment is awaiting approval for <span class="font-medium">{{ implode(', ', $pendingAdjustments) }}</span>.
-                Finalizing waits until it is reviewed or discarded on <flux:link :href="route('payroll.adjustments')" wire:navigate>Adjustments</flux:link>.
-            </p>
+                Review or discard it on <flux:link :href="route('payroll.adjustments')" wire:navigate>Adjustments</flux:link> before finalizing.
+            </x-payroll.notice>
         @endif
-        @if ($scheduleWarnings['unscheduled'] !== [])
-            <p role="status" data-unscheduled-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
-                No assigned schedule on some dates of this period:
-                <span class="num">{{ implode(', ', $scheduleWarnings['unscheduled']) }}</span>.
-                Absences, lateness and deductions on those dates are measured against the system default
-                (8:00 AM – 5:00 PM, Monday to Friday), which nobody assigned. Check their Daily Time Record before finalizing.
-            </p>
+        @if ($scheduleWarnings['noShift'] !== [])
+            <x-payroll.notice tone="warning" data-no-shift-hold class="border-b px-5 py-3">
+                Some dates in this period have no shift for <span class="font-medium">{{ implode(', ', $scheduleWarnings['noShift']) }}</span>.
+                Set their schedule in @if ($canOpenRoster)<flux:link :href="route('roster.index')" wire:navigate>Shift Roster</flux:link>@else Shift Roster @endif before finalizing.
+            </x-payroll.notice>
         @endif
         @if ($scheduleWarnings['changed'] !== [])
-            <p role="status" data-schedule-changed-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
+            <x-payroll.notice tone="warning" data-schedule-changed-warning class="border-b px-5 py-3">
                 Schedules changed after this draft was last saved ({{ $scheduleWarnings['since'] }}):
                 {{ implode(', ', $scheduleWarnings['changed']) }}.
                 The amounts shown already follow the schedule each date has now. Review them before finalizing.
-            </p>
+            </x-payroll.notice>
         @endif
 
-        @foreach ($leaveCancellationWarnings as $warning)
-            <p role="status" data-leave-cancellation-warning class="border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
-                Leave dates cancelled for {{ PayrollData::employeeName($employees->get($warning['employee_id'])) }}:
-                <span class="num">{{ implode(', ', $warning['dates']) }}</span>.
-                @if ($warning['overridden'])
-                    The manually entered Leave amount still applies. Review it and clear the Leave cell to use the calculated amount, or retain it intentionally before finalizing.
-                @else
-                    The calculation excludes those leave dates. Review attendance and pay before finalizing.
-                @endif
-            </p>
-        @endforeach
-
-        {{-- Before you finalize (OpenAttendanceItems): what attendance has not
-             finished deciding. Finalize waits for the tick, which holds for
-             exactly the figures shown and clears when any of them changes;
-             FinalizePayroll refuses without it and records what was accepted. --}}
-        @if (! $finalized && ! $openItems->isEmpty())
-            <div role="status" data-open-items class="space-y-2 border-b border-warning/20 bg-warning-soft px-5 py-3 text-sm text-foreground">
-                <p class="font-semibold">Before you finalize</p>
-                <ul class="list-disc space-y-1 ps-5">
-                    @if ($openItems->periodOpen)
-                        <li data-open-period>
-                            This period isn't over yet: <span class="num">{{ HrisFormat::date($end) }}</span> hasn't ended. Days still to come are paid as absences.
-                        </li>
-                    @endif
-                    @foreach ($openItems->overtime as $employeeId => $dates)
-                        <li wire:key="open-overtime-{{ $employeeId }}" data-open-overtime>
-                            Overtime awaiting a decision for {{ PayrollData::employeeName($employees->get($employeeId)) }}:
-                            <span class="num">{{ implode(', ', array_map(HrisFormat::date(...), $dates)) }}</span>.
-                            @if ($openItemLinks['dtr'])
-                                <flux:link :href="route('edtr.index', ['tab' => 'dtr', 'employee' => $employeeId])" target="_blank">Open their Daily Time Record</flux:link>
-                            @endif
-                        </li>
-                    @endforeach
-                    @foreach ($openItems->requests as $employeeId => $pending)
-                        <li wire:key="open-requests-{{ $employeeId }}" data-open-requests>
-                            Awaiting review for {{ PayrollData::employeeName($employees->get($employeeId)) }}:
-                            {{ implode('; ', array_map(static fn (array $request): string => HrisFormat::requestDescription($request['type']).', '.HrisFormat::date($request['start']).($request['end'] !== $request['start'] ? ' to '.HrisFormat::date($request['end']) : ''), $pending)) }}.
-                            @if ($openItemLinks['leaves'])
-                                <flux:link :href="route('leaves.index')" target="_blank">Open Leave Management</flux:link>
-                            @endif
-                        </li>
-                    @endforeach
-                </ul>
-                <p class="text-xs text-muted-foreground">
-                    Undecided overtime pays nothing, and can't be decided once this payroll is finalized.
-                    A pending request is unpaid, and approving it afterwards won't change these payslips.
+        {{-- One band however many employees: a count, and the names folded
+             away (a native <details wire:ignore.self>, so the reader's open
+             state survives a re-render; nothing it holds changes attributes). --}}
+        @if ($leaveCancellationWarnings !== [])
+            <x-payroll.notice tone="warning" data-leave-cancellation-warning class="border-b px-5 py-3">
+                <p>
+                    <span class="font-semibold">Leave dates cancelled</span>
+                    for {{ count($leaveCancellationWarnings) === 1 ? '1 employee' : count($leaveCancellationWarnings).' employees' }} since the last save. Review before finalizing.
                 </p>
-                @if ($run && ! $reviewRequired)
-                    <flux:checkbox
-                        :checked="$openItemsAccepted"
-                        wire:click="toggleOpenItems"
-                        label="Finalize anyway, paying these as they stand"
-                    />
-                @endif
-            </div>
+                <details wire:ignore.self class="mt-1 text-sm">
+                    <summary class="cursor-pointer text-xs font-medium text-primary">Show details</summary>
+                    <ul class="mt-2 list-disc space-y-1 ps-5">
+                        @foreach ($leaveCancellationWarnings as $warning)
+                            <li wire:key="leave-cancelled-{{ $warning['employee_id'] }}">
+                                {{ PayrollData::employeeName($employees->get($warning['employee_id'])) }}:
+                                <span class="num">{{ implode(', ', $warning['dates']) }}</span>.
+                                @if ($warning['overridden'])
+                                    The manually entered Leave amount still applies. Clear the Leave cell to use the calculated amount.
+                                @else
+                                    The calculation excludes those leave dates.
+                                @endif
+                            </li>
+                        @endforeach
+                    </ul>
+                </details>
+            </x-payroll.notice>
         @endif
 
         @if ($lineCount > 0)
@@ -356,7 +311,7 @@
                     <dd class="num mt-1 text-xl font-bold">{{ $lineCount }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gross income</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gross pay</dt>
                     <dd class="num mt-1 text-xl font-bold">{{ PayrollData::peso($totals['gross_pay']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
@@ -388,7 +343,7 @@
             scrollport never scrolls — so the header rides up with the page.
 
             The x-axis it does scroll is what `hris-table-pin-first` is for:
-            somewhere out past Gross Income the row stops saying whose row it
+            somewhere out past Gross Pay the row stops saying whose row it
             is, so the Employee cell stays put while the figures slide under
             it. Employee HAS TO REMAIN THE FIRST COLUMN of every section —
             thead, tbody and tfoot — because that is what the utility pins.
@@ -398,7 +353,7 @@
             <div class="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3 text-xs text-muted-foreground" data-figure-key>
                 <span>Figures that are not the company settings' are marked:</span>
                 <span class="pill pill-primary">Own</span><span>the employee's pay settings</span>
-                <span class="pill pill-muted">Recurring</span><span>a recurring line</span>
+                <span class="pill pill-muted">Recurring</span><span>a recurring deduction or allowance</span>
                 <span class="pill pill-caution">Typed</span><span>typed on this payroll.</span>
                 <span class="font-medium text-foreground">Select a mark to see why the figure is that amount.</span>
             </div>
@@ -429,23 +384,24 @@
                         <th class="text-right">Rest</th>
                         {{-- Where the days go that Work does not count. --}}
                         <th class="text-right">Paid Leave</th>
-                        {{-- Of the Work days, those paid before their attendance was in (the advance payroll). --}}
-                        <th class="text-right">In Advance</th>
+                        {{-- Of the Work days, those paid as scheduled before their attendance was in (PayrollAdvance). --}}
+                        <th class="text-right">As Scheduled</th>
                         {{-- Days of leave credits charged for lateness, undertime and absences, by the employee's leave policy. --}}
-                        <th class="text-right">Leave Charged</th>
+                        <th class="text-right">Credits Deducted</th>
 
-                        <th class="text-right">Basic Salary</th>
+                        <th class="text-right">Basic Pay</th>
                         <th class="text-right">Allowance</th>
-                        <th class="text-right">Total</th>
+                        {{-- Basic pay plus the allowance. --}}
+                        <th class="text-right">Subtotal</th>
                         <th class="text-right">OT Pay</th>
                         <th class="text-right">NSD</th>
-                        <th class="text-right">Leave</th>
+                        <th class="text-right">Leave Pay</th>
                         <th class="text-right">Other Earnings</th>
                         {{-- The settlement of days paid in advance on an earlier payroll, positive or negative. --}}
-                        <th class="text-right">Settlement</th>
+                        <th class="text-right">Prior Cut-off Adjustment</th>
                         {{-- Incentives and bonuses, taxed and tax-exempt together. --}}
                         <th class="text-right">Incentives</th>
-                        <th class="text-right">Gross Income</th>
+                        <th class="text-right">Gross Pay</th>
 
                         @foreach ($columnRows as $column)
                             {{-- The name ends the cell unless the column is a percentage, whose rule follows on its own line (an expression, not a directive: a Blade conditional would put a Livewire block marker after the name). --}}
@@ -453,7 +409,7 @@
                         @endforeach
                         <th class="text-right">Other Deductions</th>
                         @if ($lateUndertimeOn)
-                            <th class="text-right">Undertimes</th>
+                            <th class="text-right">Undertime</th>
                             <th class="text-right">Late</th>
                         @endif
                         <th class="text-right">Total</th>
@@ -531,7 +487,7 @@
                                     <button
                                         type="button"
                                         wire:click="openWhy('{{ $p->employee_id }}', 'leave')"
-                                        aria-label="Why are {{ LeaveChargeText::credits($chargedDays) }} days of {{ $nameForInput }}'s leave credits charged?"
+                                        aria-label="Why are {{ LeaveChargeText::credits($chargedDays) }} days of {{ $nameForInput }}'s leave credits deducted?"
                                         class="num inline-flex h-8 w-full min-w-[6rem] items-center justify-end rounded-md border border-border bg-background px-2.5 text-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring {{ $chargedDays > 0 ? '' : 'text-muted-foreground' }}"
                                     >
                                         {{ $chargedDays > 0 ? LeaveChargeText::credits($chargedDays) : '—' }}
@@ -567,7 +523,7 @@
                             <td class="text-right">
                                 <span
                                     class="{{ $p->overtime_acknowledged ? 'num text-success' : 'num text-muted-foreground line-through' }}"
-                                    title="{{ $p->overtime_acknowledged ? 'Approved: included in gross income.' : 'Not approved: excluded from gross income.' }}"
+                                    title="{{ $p->overtime_acknowledged ? 'Approved: included in gross pay.' : 'Not approved: excluded from gross pay.' }}"
                                 >
                                     {{ PayrollData::peso($p->overtime_pay) }}
                                 </span>
@@ -608,7 +564,7 @@
                                     <button
                                         type="button"
                                         wire:click="openWhy('{{ $p->employee_id }}', 'settlement')"
-                                        aria-label="Why is {{ $nameForInput }}'s settlement {{ PayrollData::peso($settlementAmount) }}?"
+                                        aria-label="Why is {{ $nameForInput }}'s prior cut-off adjustment {{ PayrollData::peso($settlementAmount) }}?"
                                         class="num inline-flex h-8 w-full min-w-[7.5rem] items-center justify-end rounded-md border border-border bg-background px-2.5 text-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring {{ $settlementAmount < 0 ? 'text-danger' : '' }}"
                                     >
                                         {{ PayrollData::peso($settlementAmount) }}
@@ -748,7 +704,7 @@
                                         square
                                         icon="arrow-path"
                                         wire:click="openRecurring('{{ $p->employee_id }}')"
-                                        aria-label="Recurring lines for {{ $nameForInput }}"
+                                        aria-label="Recurring deductions and allowances for {{ $nameForInput }}"
                                     />
                                 @endif
                                 {{-- A new tab: the draft keeps any unsaved edit, and recomputes with the new settings on its next change. --}}
@@ -841,7 +797,7 @@
                         <flux:heading size="lg" id="why-heading">{{ $why['title'] }}</flux:heading>
                         <flux:text class="text-sm text-muted-foreground">
                             <span class="num font-semibold text-foreground">{{ ($why['unit'] ?? '') === 'days' ? LeaveChargeText::days($why['amount']) : PayrollData::peso($why['amount']) }}</span> on this payroll.
-                            {{ $whyCell === 'settlement' ? 'Found from the days paid in advance on earlier payrolls, each priced again from its attendance:' : ($whyCell === 'leave' ? 'Charged to leave credits first, by the leave policy; only what credits did not cover is priced to pay:' : 'Payroll takes the first of these that is set:') }}
+                            {{ $whyCell === 'settlement' ? 'Found from the days paid as scheduled on earlier payrolls, each priced again from its attendance:' : ($whyCell === 'leave' ? 'Deducted from leave credits first, by the leave settings; only what the credits did not cover is priced to pay:' : 'Payroll takes the first of these that is set:') }}
                         </flux:text>
                     </div>
                     <ol class="divide-y divide-border rounded-md border border-border">
@@ -877,7 +833,7 @@
         </flux:modal>
     @endif
 
-    {{-- Recurring lines dialog: one member's standing deductions and incentives on this payroll,
+    {{-- Recurring deductions & allowances dialog: one member's standing deductions and incentives on this payroll,
          each skipped here or not. Nothing is written until Save. --}}
     @if (! $finalized)
         <flux:modal
@@ -887,7 +843,7 @@
         >
             <div class="space-y-4">
                 <div class="space-y-1">
-                    <flux:heading size="lg" id="recurring-heading">Recurring lines · {{ PayrollData::employeeName($recurringEmployee) }}</flux:heading>
+                    <flux:heading size="lg" id="recurring-heading">Recurring deductions &amp; allowances · {{ PayrollData::employeeName($recurringEmployee) }}</flux:heading>
                     <flux:text class="text-sm text-muted-foreground">
                         Proposed on every payroll they are due on. Skip one to leave it off this payroll only; a typed amount in its cell replaces the proposal.
                     </flux:text>
@@ -897,7 +853,7 @@
                         <li class="flex flex-wrap items-center justify-between gap-3 px-4 py-3" wire:key="recurring-{{ $line['id'] }}">
                             <div class="min-w-0">
                                 <p class="font-medium">{{ $line['name'] }}
-                                    <span class="text-xs font-normal text-muted-foreground">· {{ $line['kind'] === 'DEDUCTION' ? 'deduction' : 'incentive' }}</span>
+                                    <span class="text-xs font-normal text-muted-foreground">· {{ $line['kind'] === 'DEDUCTION' ? 'deduction' : 'allowance' }}</span>
                                 </p>
                                 <p class="text-xs text-muted-foreground">
                                     @if (! $line['due'])
@@ -908,7 +864,7 @@
                                         <span class="num">{{ PayrollData::peso($line['proposed']) }}</span> on this payroll.
                                     @endif
                                     @if ($line['left'] !== null)
-                                        <span class="num">{{ PayrollData::peso($line['left']) }}</span> left to pay.
+                                        Balance: <span class="num">{{ PayrollData::peso($line['left']) }}</span>.
                                     @endif
                                     @if ($line['note'])
                                         {{ $line['note'] }}
@@ -924,13 +880,13 @@
                             @endif
                         </li>
                     @empty
-                        <li class="px-4 py-3 text-sm text-muted-foreground">No recurring line is live on this payroll.</li>
+                        <li class="px-4 py-3 text-sm text-muted-foreground">No recurring deduction or allowance is active on this payroll.</li>
                     @endforelse
                 </ul>
                 <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
                     @if ($recurringFor !== null && $paySettingsLinks)
                         <flux:link :href="route('records.employee-pay-settings.show', ['employee' => $recurringFor])" target="_blank" class="text-sm">
-                            Manage recurring lines
+                            Manage recurring deductions and allowances
                         </flux:link>
                     @endif
                     <flux:button variant="primary" wire:click="$set('recurringOpen', false)">Done</flux:button>

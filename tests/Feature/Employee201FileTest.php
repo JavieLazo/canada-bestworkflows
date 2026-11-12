@@ -143,6 +143,7 @@ function e201Employee(WorkSite $site): EmployeeProfile
 function e201ValidForm(WorkSite $site): array
 {
     return [
+        'employee_id_no' => '2026-201',
         'first_name' => 'Juan',
         'last_name' => 'Dela Cruz',
         'phone' => '0917 123 4567',
@@ -503,7 +504,7 @@ it('hires through the thirteen-step wizard with the sheet\'s lines, the height i
         ->toBe([['Lucas Dela Cruz', '2019-02-14'], ['Mia Dela Cruz', null]]);
 
     // The command hands back a view that already carries the children.
-    $view = app(CreateEmployee::class)->handle(app(Access::class), ['email' => 'second.201@company.com', 'children' => [['name' => 'Solo', 'birth_date' => '']]] + e201ValidForm($site));
+    $view = app(CreateEmployee::class)->handle(app(Access::class), ['employee_id_no' => '2026-202', 'email' => 'second.201@company.com', 'children' => [['name' => 'Solo', 'birth_date' => '']]] + e201ValidForm($site));
     expect($view->children)->toBe([['name' => 'Solo', 'birth_date' => null]])
         ->and(EmployeeChild::query()->where('employee_id', $view->id)->count())->toBe(1);
 });

@@ -8,11 +8,13 @@ use App\Livewire\Leaves\LeaveCredits;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveCredit;
+use App\Models\LeaveCreditEntry;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
+use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
 use App\Support\Access;
 use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
@@ -146,12 +148,12 @@ function lctabRowHtml(string $html, EmployeeProfile $employee): string
     return Str::before(Str::after($html, $needle), '</tr>');
 }
 
-/** The review dialog's credits line alone, from its data attribute to the end of its paragraph. */
+/** The review dialog's credits section alone, from its data attribute to the end of the section. */
 function lctabCreditsLine(string $html): string
 {
     expect($html)->toContain('data-credits-line');
 
-    return Str::before(Str::after($html, 'data-credits-line'), '</p>');
+    return Str::before(Str::after($html, 'data-credits-line'), '</section>');
 }
 
 /** The no-row cell: an em dash in muted text, distinct from the identity meta's own dash. */
@@ -178,7 +180,7 @@ it('honours ?tab=credits on mount, collapses an unknown tab to the requests and 
     Livewire::withQueryParams(['tab' => 'credits']);
     Livewire::test(Index::class)
         ->assertSet('tab', 'credits')
-        ->assertSee('Remaining leave credits for the selected year.')
+        ->assertSee('Leave credits as of this date.')
         ->assertSeeHtml('>Vacation Leave</span></th>')
         ->assertDontSee('LR-001');
 
@@ -186,7 +188,7 @@ it('honours ?tab=credits on mount, collapses an unknown tab to the requests and 
     Livewire::test(Index::class)
         ->assertSet('tab', 'requests')
         ->assertSee('LR-001')
-        ->assertDontSee('Remaining leave credits for the selected year.');
+        ->assertDontSee('Leave credits as of this date.');
 
     // A client-side $set with a made-up value collapses too; a real switch
     // forgets the open request so the dialog cannot outlive its tab.
@@ -201,7 +203,7 @@ it('honours ?tab=credits on mount, collapses an unknown tab to the requests and 
         ->assertSet('tab', 'credits')
         ->assertSet('detailOpen', false)
         ->assertSet('openId', null)
-        ->assertSee('Remaining leave credits for the selected year.')
+        ->assertSee('Leave credits as of this date.')
         ->assertDontSee('LR-001');
 });
 
@@ -216,7 +218,7 @@ it('renders GET /leaves?tab=credits for a LEAVES holder with the child on the pa
         ->assertOk()
         ->assertSee('Leave Credits')
         ->assertSee('&quot;name&quot;:&quot;leaves.leave-credits&quot;', false)
-        ->assertSee('Remaining leave credits for the selected year.')
+        ->assertSee('Leave credits as of this date.')
         ->assertSee('Ana Reyes')
         ->assertDontSee('No request matches those filters.');
 });
@@ -250,13 +252,13 @@ it('shows an all_data LEAVES holder every employee with remaining days per type 
     $html = $page->html();
     expect(lctabRowHtml($html, $ana))
         ->toContain(LCTAB_NO_ROW)
-        ->toContain('>11 days</span>')
+        ->toContain('>11.000</span>')
         ->not->toContain('pill-caution');
     expect(lctabRowHtml($html, $ben))
         ->toContain('pill pill-caution')
-        ->toContain('>0 days</span>')
+        ->toContain('>0.000</span>')
         ->toContain(LCTAB_NO_ROW)
-        ->not->toContain('>15 days</span>');
+        ->not->toContain('>15.000</span>');
 });
 
 it('shows an own-rows LEAVES holder only their own row without the menu, and an unlinked one nobody', function () {
@@ -276,8 +278,8 @@ it('shows an own-rows LEAVES holder only their own row without the menu, and an 
 
     $html = $page->html();
     expect(lctabRowHtml($html, $ana))
-        ->toContain('>15 days</span>');
-    expect($html)->not->toContain('>10 days</span>');
+        ->toContain('>15.000</span>');
+    expect($html)->not->toContain('>10.000</span>');
 
     // No employee link and no all_data: the directory answers nobody,
     // never everybody.
@@ -330,7 +332,7 @@ it('opens the Set credits dialog seeded from the year balances for a visible emp
     Livewire::test(LeaveCredits::class)
         ->call('openCredits', (string) $ana->getKey())
         ->assertSet('creditsEmployeeId', (string) $ana->getKey())
-        ->assertSet('creditDraft', ['SICK_LEAVE' => '', 'VACATION_LEAVE' => '12.5', 'EMERGENCY_LEAVE' => '3'], true)
+        ->assertSet('creditDraft', ['SICK_LEAVE' => '', 'VACATION_LEAVE' => '12.500', 'EMERGENCY_LEAVE' => '3.000'], true)
         ->assertDispatched('modal-show', name: 'leave-credits')
         ->assertSee('Leave credits · Ana Reyes · 2026')
         ->assertSeeHtml('wire:key="leave-credits-'.$ana->getKey().'"')
@@ -357,7 +359,7 @@ it('saves the dialog through the command, closes it, repaints the row and writes
 
     $page = Livewire::test(LeaveCredits::class)
         ->call('openCredits', (string) $ana->getKey())
-        ->assertSet('creditDraft.VACATION_LEAVE', '15')
+        ->assertSet('creditDraft.VACATION_LEAVE', '15.000')
         ->set('creditDraft.VACATION_LEAVE', '12.5')
         ->set('creditDraft.SICK_LEAVE', '7')
         ->call('saveCredits')
@@ -368,9 +370,9 @@ it('saves the dialog through the command, closes it, repaints the row and writes
 
     // The row repaints from the stored year in the same response.
     expect(lctabRowHtml($page->html(), $ana))
-        ->toContain('>7 days</span>')
-        ->toContain('>12.5 days</span>')
-        ->not->toContain('>15 days</span>');
+        ->toContain('>7.000</span>')
+        ->toContain('>12.500</span>')
+        ->not->toContain('>15.000</span>');
 
     $stored = LeaveCredit::query()
         ->where('employee_id', (string) $ana->getKey())
@@ -429,35 +431,90 @@ it('keeps the dialog open and writes nothing when the command refuses the save',
 
 /* ── the year select and the paginator ───────────────────────────────────── */
 
-it('collapses a year outside the offered three to the current one, keeps last year and reads that year', function () {
+it('collapses a date outside the offered three years to today, keeps last year and reads that year', function () {
     lctabTypes();
     $ana = lctabEmployee('Ana', 'Reyes');
     lctabCredit($ana, 'VACATION_LEAVE', 15.0);
     lctabCredit($ana, 'VACATION_LEAVE', 10.0, 2025);
     lctabActor([ModuleCode::LEAVES], allData: true);
 
-    // The select posts strings; the property is an int.
+    // The date field posts 'Y-m-d'; the year follows the date and nothing sets it directly.
     $page = Livewire::test(LeaveCredits::class)
+        ->assertSet('asOf', '2026-09-26')
         ->assertSet('year', 2026, true)
-        ->set('year', '2099')
+        ->set('asOf', '2099-06-01')
+        ->assertSet('asOf', '2026-09-26')
         ->assertSet('year', 2026, true)
-        ->set('year', '2025')
+        ->set('asOf', '2025-12-31')
         ->assertSet('year', 2025, true);
     expect(lctabRowHtml($page->html(), $ana))
-        ->toContain('>10 days</span>')
-        ->not->toContain('>15 days</span>');
+        ->toContain('>10.000</span>')
+        ->not->toContain('>15.000</span>');
 
-    $page->set('year', '2027')->assertSet('year', 2027, true);
+    $page->set('asOf', '2027-01-01')->assertSet('year', 2027, true);
     expect(lctabRowHtml($page->html(), $ana))
         ->toContain(LCTAB_NO_ROW)
-        ->not->toContain('>10 days</span>')
-        ->not->toContain('>15 days</span>');
+        ->not->toContain('>10.000</span>')
+        ->not->toContain('>15.000</span>');
 
-    $page->set('year', '1999')->assertSet('year', 2026, true);
-    expect(lctabRowHtml($page->html(), $ana))->toContain('>15 days</span>');
+    $page->set('asOf', 'not-a-date')->assertSet('asOf', '2026-09-26')->assertSet('year', 2026, true);
+    expect(fn () => $page->set('year', 2025))->toThrow(CannotUpdateLockedPropertyException::class);
+    expect(lctabRowHtml($page->html(), $ana))->toContain('>15.000</span>');
 });
 
-it('paginates under its own creditsPage name, clamps at the last page and starts over on a year change', function () {
+it('reads the books as they stood on the chosen day: later entries taken back, later approvals not yet used, a baseline kept', function () {
+    lctabTypes();
+    $ana = lctabEmployee('Ana', 'Reyes');
+    $ben = lctabEmployee('Ben', 'Santos');
+    $entry = static function (EmployeeProfile $employee, string $key, string $kind, float $days, string $manila): void {
+        $row = new LeaveCreditEntry;
+        $row->forceFill(['employee_id' => (string) $employee->getKey(), 'year' => 2026, 'request_type' => $key, 'kind' => $kind,
+            'days' => $days, 'note' => 'Fixture', 'created_at' => ManilaClock::instant($manila)->utc()])->save();
+    };
+    // Ana's Vacation Leave: 15 on the books before movements were kept, 1.25 earned on 1 Sep, 0.077 charged on 16 Sep.
+    lctabCredit($ana, 'VACATION_LEAVE', 16.173);
+    $entry($ana, 'VACATION_LEAVE', 'BASELINE', 15.0, '2026-09-01T18:00:00');
+    $entry($ana, 'VACATION_LEAVE', 'ACCRUAL', 1.25, '2026-09-01T18:00:01');
+    $entry($ana, 'VACATION_LEAVE', 'CHARGE', -0.077, '2026-09-16T10:00:00');
+    // Her Sick Leave: 15 with no movement, and two days of sick leave approved with pay on 20 Aug.
+    lctabCredit($ana, 'SICK_LEAVE', 15.0);
+    lctabRequest($ana, 'LR-APPROVED', ['status' => 'APPROVED', 'is_paid' => true,
+        'reviewed_at' => ManilaClock::instant('2026-08-20T09:00:00')->utc()->format('Y-m-d H:i:s.v')]);
+    // Ben's Vacation Leave was first entered on 5 Sep.
+    lctabCredit($ben, 'VACATION_LEAVE', 5.0);
+    $entry($ben, 'VACATION_LEAVE', 'OPENING', 5.0, '2026-09-05T09:00:00');
+    $actor = lctabActor([ModuleCode::LEAVES], allData: true);
+    $access = Access::forActor($actor);
+    $ids = [(string) $ana->getKey(), (string) $ben->getKey()];
+    $left = static fn (array $rows): array => array_map(static fn (array $list): array => array_column(array_map(static fn ($b): array => ['k' => $b->request_type, 'v' => $b->remaining], $list), 'v', 'k'), $rows);
+
+    // Today is the ordinary balance, by the one rule.
+    $records = app(LeaveCreditRecords::class);
+    expect($left($records->balancesAsOf($access, '2026-09-26', $ids)))->toBe($left($records->balancesForEmployees($access, 2026, $ids)));
+
+    $page = Livewire::test(LeaveCredits::class);
+    expect(lctabRowHtml($page->html(), $ana))->toContain('>13.000</span>')->toContain('>16.173</span>')
+        ->and(lctabRowHtml($page->html(), $ben))->toContain('>5.000</span>');
+
+    // 10 Sep: the charge of the 16th is not on the books yet.
+    $page->set('asOf', '2026-09-10');
+    expect(lctabRowHtml($page->html(), $ana))->toContain('>13.000</span>')->toContain('>16.250</span>')
+        ->and(lctabRowHtml($page->html(), $ben))->toContain('>5.000</span>');
+
+    // 15 Aug: neither the earning nor the charge, the leave not yet approved, and Ben's credit not entered.
+    $page->set('asOf', '2026-08-15');
+    $row = lctabRowHtml($page->html(), $ana);
+    expect(substr_count($row, '>15.000</span>'))->toBe(2)
+        ->and($row)->not->toContain('>13.000</span>')
+        ->and(lctabRowHtml($page->html(), $ben))->toContain(LCTAB_NO_ROW)->not->toContain('5.000');
+
+    // Set credits still edits the allocation as it stands now, whatever day the table shows.
+    $page->call('openCredits', (string) $ana->getKey())
+        ->assertSet('creditDraft.VACATION_LEAVE', '16.173')
+        ->assertSet('creditDraft.SICK_LEAVE', '15.000');
+});
+
+it('paginates under its own creditsPage name, clamps at the last page and starts over on a date change', function () {
     lctabTypes();
     for ($i = 1; $i <= 21; $i++) {
         lctabEmployee('Test', sprintf('Row%02d', $i));
@@ -476,7 +533,7 @@ it('paginates under its own creditsPage name, clamps at the last page and starts
         ->call('nextPage', 'creditsPage')
         ->assertSet('paginators.creditsPage', 2)
         ->assertSee('Test Row21')
-        ->set('year', '2025')
+        ->set('asOf', '2025-12-31')
         ->assertSet('paginators.creditsPage', 1)
         ->assertSee('Test Row01')
         ->assertDontSee('Test Row21');
@@ -495,15 +552,15 @@ it('shows a pending leave request against its type credit: credited, used, left 
     $page = Livewire::test(Index::class)
         ->call('show', $request->getKey())
         ->assertSet('detailOpen', true)
-        ->assertSee('this request needs 2')
-        ->assertSee('credited ·')
+        ->assertSee('This request needs 2.000')
         ->assertSeeHtmlInOrder([
             'data-credits-line',
-            'Sick Leave credits 2026',
-            '<span class="num">15</span> credited',
-            '<span class="num">0</span> used',
-            '<span class="num">15</span> left',
-            '<span class="num">this request needs 2</span>',
+            'Sick Leave credits · 2026',
+            '<span class="num text-sm">This request needs 2.000</span>',
+            'Total credited</dt>', '>15.000</dd>',
+            'Used</dt>', '>0.000</dd>',
+            'Available balance</dt>', 'text-success">15.000</dd>',
+            'Credit usage', '0.00%',
         ]);
 
     expect(lctabCreditsLine($page->html()))
@@ -522,10 +579,10 @@ it('flags a pending request that needs more than is left', function () {
         ->call('show', $request->getKey())
         ->assertSeeHtml('pill pill-caution')
         ->assertSeeHtmlInOrder([
-            '<span class="num">1</span> credited',
-            '<span class="num">0</span> used',
-            '<span class="num">1</span> left',
-            'class="num pill pill-caution">this request needs 2</span>',
+            'class="num text-sm pill pill-caution">This request needs 2.000</span>',
+            'Total credited</dt>', '>1.000</dd>',
+            'Used</dt>', '>0.000</dd>',
+            'Available balance</dt>', '>1.000</dd>',
         ]);
 
     expect(lctabCreditsLine($page->html()))->toContain('pill pill-caution');
@@ -540,14 +597,16 @@ it('says what an approved with-pay request counted, its days already inside used
 
     $page = Livewire::test(Index::class)
         ->call('show', $request->getKey())
-        ->assertSee('this request counted 2')
+        ->assertSee('This request counted 2.000')
         ->assertSeeHtmlInOrder([
             'data-credits-line',
-            'Sick Leave credits 2026',
-            '<span class="num">15</span> credited',
-            '<span class="num">2</span> used',
-            '<span class="num">13</span> left',
-            '<span class="num">this request counted 2</span>',
+            'Sick Leave credits · 2026',
+            '<span class="num text-sm text-muted-foreground">This request counted 2.000</span>',
+            'Total credited</dt>', '>15.000</dd>',
+            'Used</dt>', '>2.000</dd>',
+            'Available balance</dt>', '>13.000</dd>',
+            // 2 of 15 used.
+            'Credit usage', '13.33%', 'aria-valuenow="13.333',
         ]);
 
     expect(lctabCreditsLine($page->html()))
@@ -564,8 +623,9 @@ it('says when no credit has been entered for the type of a pending request', fun
     $page = Livewire::test(Index::class)
         ->call('show', $request->getKey())
         ->assertSee('No 2026 Sick Leave credits entered')
-        ->assertSee('this request needs 2')
-        ->assertDontSee('credited ·');
+        ->assertSee('This request needs 2.000')
+        ->assertDontSee('Total credited')
+        ->assertDontSee('Credit usage');
 
     // Nothing to exceed: no caution without an entered credit.
     expect(lctabCreditsLine($page->html()))->not->toContain('pill-caution');

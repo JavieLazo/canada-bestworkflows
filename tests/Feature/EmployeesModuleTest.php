@@ -25,6 +25,7 @@ use App\Modules\Workforce\Application\Commands\ReviewRecordChange;
 use App\Modules\Workforce\Application\Commands\UpdateEmployee;
 use App\Modules\Workforce\Application\EmployeeColumns;
 use App\Modules\Workforce\Application\EmployeeInput;
+use App\Modules\Workforce\Application\EmployeePosition;
 use App\Modules\Workforce\Application\EmploymentHistoryRecorder;
 use App\Modules\Workforce\Application\Queries\EmploymentHistoryRecords;
 use App\Modules\Workforce\Domain\Contact\PhoneRule;
@@ -170,6 +171,7 @@ it('hires an employee through the wizard and audits it', function () {
 
     Livewire::test(AddEmployeeDialog::class)
         ->call('openDialog')
+        ->set('form.employee_id_no', '2026-001')
         ->set('form.first_name', 'Juan')
         ->set('form.last_name', 'Dela Cruz')
         ->set('form.phone', '09171234567')
@@ -550,34 +552,103 @@ it('keeps a Rate Per Day beside Rate Per Month on the record, and saves a blank 
     expect($employee->refresh()->daily_rate)->toBeNull();
 });
 
-it('hires with only a Rate Per Day, and refuses a hire with neither rate', function () {
+it('hires with no rate, with only a Rate Per Day, or with only a Rate Per Month', function () {
     $site = seedEmployeesReferences();
     $admin = employeesUser(employeesRole([ModuleCode::EMPLOYEES], true));
 
     $this->actingAs($admin);
 
-    // Rate Per Month stops being required (and loses its asterisk) once a
-    // Rate Per Day above zero is entered; Rate Per Day itself never is.
-    expect(EmployeeFields::isRequired('monthly_rate', ['daily_rate' => '']))->toBeTrue()
-        ->and(EmployeeFields::isRequired('monthly_rate', ['daily_rate' => '0']))->toBeTrue()
+    // Neither rate is a required answer of the hire, whatever the other holds.
+    expect(EmployeeFields::isRequired('monthly_rate', ['daily_rate' => '']))->toBeFalse()
         ->and(EmployeeFields::isRequired('monthly_rate', ['daily_rate' => '850']))->toBeFalse()
         ->and(EmployeeFields::isRequired('daily_rate', []))->toBeFalse()
         ->and(EmployeeFields::isRequired('first_name', ['daily_rate' => '850']))->toBeTrue();
 
-    $before = EmployeeProfile::query()->count();
-    expect(fn () => app(CreateEmployee::class)->handle(app(Access::class), ['monthly_rate' => '', 'daily_rate' => ''] + employeesValidForm($site)))
-        ->toThrow(RuntimeException::class, 'Rate Per Month is required unless a Rate Per Day is entered.');
-    expect(EmployeeProfile::query()->count())->toBe($before)
-        ->and(AuditLog::query()->count())->toBe(0);
+    $none = app(CreateEmployee::class)->handle(app(Access::class), ['monthly_rate' => '', 'daily_rate' => ''] + employeesValidForm($site));
+    $hired = EmployeeProfile::query()->findOrFail($none->id);
+    expect($hired->monthly_rate)->toBe(0.0)
+        ->and($hired->daily_rate)->toBeNull();
 
-    $daily = app(CreateEmployee::class)->handle(app(Access::class), ['monthly_rate' => '', 'daily_rate' => '850'] + employeesValidForm($site));
+    $daily = app(CreateEmployee::class)->handle(app(Access::class), ['employee_id_no' => '2026-002', 'email' => 'daily.hire@company.com', 'monthly_rate' => '', 'daily_rate' => '850'] + employeesValidForm($site));
     $hired = EmployeeProfile::query()->findOrFail($daily->id);
     expect($hired->daily_rate)->toBe(850.0)
         ->and($hired->monthly_rate)->toBe(0.0);
 
     // A monthly-only hire carries no Rate Per Day at all.
-    $monthly = app(CreateEmployee::class)->handle(app(Access::class), ['email' => 'second.hire@company.com'] + employeesValidForm($site));
+    $monthly = app(CreateEmployee::class)->handle(app(Access::class), ['employee_id_no' => '2026-003', 'email' => 'second.hire@company.com'] + employeesValidForm($site));
     expect(EmployeeProfile::query()->findOrFail($monthly->id)->daily_rate)->toBeNull();
+});
+
+it('requires only the ten answers of a hire, and fills in what the record cannot be saved without', function () {
+    seedEmployeesReferences();
+    $this->actingAs(employeesUser(employeesRole([ModuleCode::EMPLOYEES], true)));
+
+    $errors = [];
+    foreach (array_keys(EmployeeFields::wizard()) as $step) {
+        $errors += EmployeeInput::stepErrors(EmployeeFields::blankForm() + ['department_id' => '', 'unit_id' => ''], $step);
+    }
+
+    expect($errors)->toEqualCanonicalizing([
+        'employee_id_no' => 'Employee ID is required.',
+        'first_name' => 'First Name is required.',
+        'last_name' => 'Last Name is required.',
+        'birth_date' => 'Date of Birth is required.',
+        'civil_status' => 'Civil Status is required.',
+        'phone' => 'Mobile no. is required.',
+        'email' => 'Email is required.',
+        'residential_address' => 'Residential address is required — fill in at least one part.',
+        'department' => 'Department is required.',
+        'position' => 'Position is required.',
+    ])->and(array_keys($errors))->toEqualCanonicalizing([
+        'employee_id_no', 'first_name', 'last_name', 'birth_date', 'civil_status', 'phone', 'email',
+        'residential_address', 'department', 'position',
+    ]);
+
+    // "Not placed" names no department, whatever position is picked under it.
+    $position = (string) Position::query()->where('name', 'Driver')->value('id');
+    $notPlaced = EmployeeInput::stepErrors(['department_id' => EmployeePosition::NOT_PLACED, 'position_id' => $position] + EmployeeFields::blankForm(), 3);
+    expect($notPlaced)->toHaveKey('department')
+        ->and($notPlaced)->not->toHaveKey('position');
+
+    // Only those answers: no sex, emergency contact, status, worksite, date joined or rate.
+    $view = app(CreateEmployee::class)->handle(app(Access::class), [
+        'employee_id_no' => '2026-010', 'first_name' => 'Ana', 'last_name' => 'Reyes', 'phone' => '0917 123 4567',
+        'email' => 'ana.minimal@company.com', 'birth_date' => '1992-03-04', 'civil_status' => 'Single',
+        'res_city' => 'Tayabas City', 'position_id' => $position,
+        'employment_status' => '', 'date_hired' => '', 'work_site_id' => '', 'monthly_rate' => '',
+    ] + EmployeeFields::blankForm());
+    $hired = EmployeeProfile::query()->findOrFail($view->id);
+
+    expect($hired->employee_id_no)->toBe('2026-010')
+        ->and($hired->position)->toBe('Driver')
+        ->and($hired->work_site_id)->toBeNull()
+        ->and($hired->sex)->toBeNull()
+        ->and($hired->emergency_name)->toBeNull()
+        ->and($hired->monthly_rate)->toBe(0.0)
+        ->and($hired->employment_status)->toBe('Probationary')
+        ->and($hired->date_hired->format('Y-m-d'))->toBe(EmployeeFields::todayKey())
+        ->and($view->employment_status)->toBe('Probationary');
+});
+
+it('lets every dropdown of the hire wizard be set back to blank', function () {
+    seedEmployeesReferences();
+    $this->actingAs(employeesUser(employeesRole([ModuleCode::EMPLOYEES], true)));
+
+    $wizard = Livewire::test(AddEmployeeDialog::class)->call('openDialog');
+
+    foreach (array_keys(EmployeeFields::wizard()) as $step) {
+        $html = $wizard->set('step', $step)->html();
+
+        // No dropdown opens on a hidden, disabled placeholder that cannot be picked again.
+        expect($html)->not->toMatch('/<option[^>]*value=""[^>]*(disabled[^>]*hidden|hidden[^>]*disabled)/');
+    }
+
+    $wizard->set('step', 0)->set('form.civil_status', 'Single')->set('form.sex', 'Male')
+        ->set('form.civil_status', '')->set('form.sex', '')
+        ->assertSet('form.civil_status', '')
+        ->call('goNext')->assertSet('step', 0)
+        ->assertSee('Civil Status is required.')
+        ->assertDontSee('Sex at birth is required.');
 });
 
 it('carries the suffix through the wizard and into the collapsed full name', function () {
@@ -588,6 +659,7 @@ it('carries the suffix through the wizard and into the collapsed full name', fun
 
     Livewire::test(AddEmployeeDialog::class)
         ->call('openDialog')
+        ->set('form.employee_id_no', '2026-001')
         ->set('form.first_name', 'Juan')
         ->set('form.middle_name', 'Reyes')
         ->set('form.last_name', 'Dela Cruz')
@@ -734,6 +806,7 @@ it('no longer carries leave credits on the record page or in the hire wizard', f
 function employeesValidForm(WorkSite $site): array
 {
     return [
+        'employee_id_no' => '2026-001',
         'first_name' => 'Juan',
         'last_name' => 'Dela Cruz',
         'phone' => '0917 123 4567',
@@ -801,7 +874,7 @@ it('names the shape problem of one answer on its own step', function (string $ke
     'a rate over the schema cap' => ['monthly_rate', '100000000', 3, 'Rate Per Month must be at most 99,999,999.'],
     'a rate the money box is still settling' => ['monthly_rate', '25000.', 3, null],
     'a sub-peso rate' => ['monthly_rate', '.5', 3, null],
-    'no rate of either kind' => ['monthly_rate', '', 3, 'Rate Per Month is required unless a Rate Per Day is entered.'],
+    'no rate of either kind' => ['monthly_rate', '', 3, null],
     'a negative day rate' => ['daily_rate', '-1', 3, 'Rate Per Day must be a positive number.'],
     'a day rate with three decimals' => ['daily_rate', '850.123', 3, 'Rate Per Day must be a plain amount with at most two decimals, like 25000.50.'],
     'a day rate over its cap' => ['daily_rate', '10000000', 3, 'Rate Per Day must be at most 9,999,999.'],

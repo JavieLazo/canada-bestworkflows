@@ -48,20 +48,20 @@ function prpageStatus(string $name): EmploymentStatusOption
 }
 
 it('gates the page on the PAYROLL grant and shows a read-only form to a holder without all data', function () {
-    $this->get('/payroll/settings/pay-rates')->assertRedirect(route('login'));
+    $this->get('/records/payroll-settings/pay-rates')->assertRedirect(route('login'));
 
     prpageActor(false);
-    $this->get('/payroll/settings/pay-rates')
+    $this->get('/records/payroll-settings/pay-rates')
         ->assertOk()
         ->assertSee('Pay Basis &amp; Rates', false)
         ->assertSee('Rates by day type')
         ->assertSee('Ordinary workday')
-        ->assertSee('Two regular holidays on a rest day')
-        ->assertSee('01 Jan 2025')
-        ->assertSee('Current')
+        ->assertSee('Double holiday on a rest day')
+        // One set of rules: no version list, no date and no reason to give.
+        ->assertDontSee('Versions')->assertDontSee('Effective from')->assertDontSee('Superseded')
         ->assertSee('Rest day, overtime hour: 162.5% is below the usual minimum of 169%.')
         ->assertSee('Your role can view these rules.')
-        ->assertDontSee('Save as new version')
+        ->assertDontSee('Applies to all draft payrolls now.')
         ->assertDontSee('Fill in from a preset');
 
     $count = PayrollPayRule::query()->count();
@@ -105,26 +105,29 @@ it('fills the form from the seeded version and from the presets without saving a
     expect(PayrollPayRule::query()->count())->toBe(1);
 });
 
-it('saves a new version through the command, keeping a percentage shown unchanged as its stored fraction', function () {
+it('replaces the company rules in place, keeping a percentage shown unchanged as its stored fraction', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
     prpageActor();
+    $seeded = PayrollPayRule::query()->sole();
+
     $page = Livewire::test(PayRulesPage::class)
-        // Today, the earliest day a version may start.
-        ->assertSet('formEffectiveFrom', '2026-10-12')
+        ->assertSee('Applies to all draft payrolls now.')
         ->set('formMatrix.REST.overtime', '169')
         ->set('formMatrix.REST.night', '143')
         ->set('formMatrix.REGULAR.unworked', '100')
         ->set('formMatrix.DOUBLE.unworked', '200')
         ->assertDontSee('is below the usual minimum')
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Rates at the minimums')
+        ->assertSee('Unsaved changes')
         ->call('save')
         ->assertSet('formError', null)
-        ->assertSet('formEffectiveFrom', '2026-11-02')
-        ->assertSet('formReason', '');
+        ->assertDontSee('Unsaved changes');
 
-    $saved = PayrollPayRule::query()->where('effective_from', '2026-11-01')->sole();
-    expect($saved->scope)->toBe(PayrollPayRule::COMPANY)
+    // The same row carries the new rules from the date it always covered: nothing is added beside it.
+    $saved = PayrollPayRule::query()->sole();
+    expect($saved->id)->toBe($seeded->id)
+        ->and($saved->scope)->toBe(PayrollPayRule::COMPANY)
+        ->and($saved->effective_from->format('Y-m-d'))->toBe('2025-01-01')
+        ->and($saved->status)->toBe(PayrollPayRule::APPROVED)
         ->and($saved->params['overtime']['rate'])->toBe(1.25)
         ->and($saved->params['night'])->toEqual(['rate' => 0.1, 'max_hours' => 8.0, 'start' => 1320, 'end' => 1800, 'on_overtime' => false])
         ->and($saved->params['rest_day']['rate'])->toBe(1.3)
@@ -132,68 +135,99 @@ it('saves a new version through the command, keeping a percentage shown unchange
         ->and($saved->params['matrix']['REST'])->toEqual(['worked' => null, 'overtime' => 169.0, 'night' => 143.0, 'unworked' => 0.0])
         ->and($saved->params['matrix']['REGULAR']['unworked'])->toEqual(100)
         ->and($saved->params['matrix']['ORDINARY'])->toEqual(['worked' => null, 'overtime' => null, 'night' => null, 'unworked' => 0.0])
-        ->and(AuditLog::query()->where('action', AuditEvent::PAY_RULES_SAVED->value)->where('entity_id', $saved->id)->exists())->toBeTrue();
-    $page->assertSee('01 Nov 2026')->assertSee('Upcoming');
+        ->and(AuditLog::query()->where('action', AuditEvent::PAY_RULES_SAVED->value)->where('entity_id', $saved->id)
+            ->where('details', 'Pay Basis & Rates replaced for the company')->exists())->toBeTrue();
 
-    // The form reloads from the version in force (the seeded one, with its
-    // shortfalls), so the next save starts from the upcoming version instead.
-    // The next version must start later; a changed base rate is converted once.
-    $page->call('loadVersion', $saved->id)
+    // The form shows what was saved; a changed base rate is converted once on the next save.
+    $page->assertSet('formMatrix.REST.overtime', '169')
         ->set('formMatrix.ORDINARY.overtime', '150')
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Higher overtime')
-        ->call('save')
-        ->assertSet('formError', 'A version already starts on 01 Nov 2026. Choose a later date.');
-    expect(PayrollPayRule::query()->count())->toBe(2);
-    $page->set('formEffectiveFrom', '2026-12-01')
         ->call('save')
         ->assertSet('formError', null);
-    expect(PayrollPayRule::query()->where('effective_from', '2026-12-01')->sole()->params['overtime']['rate'])->toBe(1.5);
-
-    // A superseded version can be shown in the form.
-    $page->call('loadVersion', $saved->id)
-        ->assertSet('loadedId', $saved->id)
-        ->assertSet('formMatrix.ORDINARY.overtime', '125')
-        ->assertSee('In the form')
-        ->assertSee('Showing the upcoming version from')
-        ->assertSee('01 Nov 2026');
+    expect(PayrollPayRule::query()->sole()->params['overtime']['rate'])->toBe(1.5)
+        ->and(AuditLog::query()->where('action', AuditEvent::PAY_RULES_SAVED->value)->count())->toBe(2);
 });
-
-it('requires a reason and a date for every version and refuses a scope that is not on the Employment list', function () {
+it('asks for no reason or date, refuses a bad figure and ignores a scope that is not on the Employment list', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
     prpageActor();
     $page = Livewire::test(PayRulesPage::class)
         ->assertSee('Rest day, overtime hour: 162.5% is below the usual minimum of 169%.')
         ->assertSee('Regular holiday, not worked: 0% is below the usual minimum of 100%.')
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->call('save')
-        ->assertSet('formError', 'Enter the reason for this version.');
-    expect(PayrollPayRule::query()->count())->toBe(1);
-
-    // A date inside a payroll period is accepted: that payroll prices each day by its version (DIVERGENCE 17).
-    $page->set('formReason', 'Managerial staff')
-        ->set('formEffectiveFrom', 'soon')
-        ->call('save')
-        ->assertSet('formError', 'Enter the date the rules take effect.');
-    expect(PayrollPayRule::query()->count())->toBe(1);
-
-    $page->set('formEffectiveFrom', '2026-11-10')
+        // A rate below the usual minimum is a warning, never a refusal, and no reason is asked.
         ->call('save')
         ->assertSet('formError', null);
-    expect(PayrollPayRule::query()->where('effective_from', '2026-11-10')->sole()->reason)->toBe('Managerial staff');
+    expect(PayrollPayRule::query()->count())->toBe(1);
 
     // A scope that is not on the Employment list is ignored: the select stays where it was.
     $page->set('scope', 'not-a-status')
         ->assertSet('scope', PayrollPayRule::COMPANY);
-    expect(PayrollPayRule::query()->count())->toBe(2);
 
-    // Changing the scope reloads the form, so the bad cell is typed after it.
-    $page->set('scope', PayrollPayRule::COMPANY)
-        ->set('formMatrix.SPECIAL.worked', 'lots')
-        ->set('formEffectiveFrom', '2026-12-01')
-        ->set('formReason', 'x')
+    $page->set('formMatrix.SPECIAL.worked', 'lots')
         ->call('save')
         ->assertSet('formError', 'Special non-working day, worked day: enter a percentage, or leave it blank.');
+    expect(PayrollPayRule::query()->count())->toBe(1);
+});
+it('marks a rate below the usual minimum as a warning, and only an unreadable cell as an error', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
+    prpageActor();
+    $input = static function (string $html, string $cell): string {
+        preg_match('/<input[^>]*formMatrix\.'.preg_quote($cell, '/').'"[^>]*>/', $html, $match);
+
+        return $match[0] ?? '';
+    };
+
+    $page = Livewire::test(PayRulesPage::class);
+    $low = $input($page->html(), 'REST.overtime');
+    expect($low)->toContain('border-warning!')->toContain('aria-invalid="false"')
+        ->and($low)->not->toContain('border-danger!')
+        // Editable cells read as editable: the card's own fill, never the page's grey.
+        ->and($low)->toContain('bg-card')
+        ->and($low)->not->toContain('bg-background');
+
+    $page->set('formMatrix.SPECIAL.worked', 'lots')->call('save');
+    $bad = $input($page->html(), 'SPECIAL.worked');
+    expect($bad)->toContain('border-danger!')->toContain('aria-invalid="true"');
+});
+
+it('names whose rules the form holds, explains the cell borders, and lists the warnings above the table', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
+    prpageActor();
+    $status = prpageStatus('Job Order');
+
+    $page = Livewire::test(PayRulesPage::class)
+        ->assertSee('Editing:')
+        ->assertSee('the company rule.')
+        ->assertSee('Base rate: the other cells are worked out from it')
+        ->assertSee('Daily limits')
+        ->assertSee('Other rates and checks');
+    $html = $page->html();
+    // A warning names cells of the table, so it is read with them in view.
+    expect(strpos($html, 'data-rates-legend'))->toBeLessThan((int) strpos($html, 'is below the usual minimum'))
+        ->and(strpos($html, 'is below the usual minimum'))->toBeLessThan((int) strpos($html, '<table class="hris-table">'));
+
+    // ONE frame holds the form: six parts, each under a band naming it, in the order a rule is worked out.
+    $at = static fn (string $name): int => (int) strpos($html, '>'.$name.'</h2>');
+    $parts = [$at('Pay basis'), $at('Daily rate'), $at('Night work'), $at('Rates by day type'), $at('Daily limits'), $at('Other rates and checks')];
+    $sorted = $parts;
+    sort($sorted);
+    expect(substr_count($html, 'data-rates-form'))->toBe(1)
+        ->and(substr_count($html, 'data-rates-part'))->toBe(6)
+        ->and($parts[0])->toBeGreaterThan((int) strpos($html, 'data-rates-form'))
+        ->and($parts)->toBe($sorted)
+        ->and(count(array_unique($parts)))->toBe(6);
+
+    $page->set('scope', $status->id)
+        ->assertSee('the Job Order override.')
+        ->assertDontSee('the company rule.');
+});
+
+it('says a saved change applies at once, with no effective date, and keeps Save in view', function () {
+    prpageActor();
+
+    Livewire::test(PayRulesPage::class)
+        ->assertDontSee('effective date')
+        ->assertSee('Applies to all draft payrolls now.')
+        ->assertSeeHtml('sticky bottom-4')
+        ->assertSeeHtml('data-rates-save');
 });
 
 it('saves an override for one employment status that starts from the company rule', function () {
@@ -206,20 +240,19 @@ it('saves an override for one employment status that starts from the company rul
         ->assertSee('Contract of Service')
         ->assertDontSee('Contract of Service (override)')
         ->set('scope', $contract->id)
-        ->assertSee('No override yet')
+        ->assertSee('This status follows the company rule')
         ->assertSet('formMatrix.ORDINARY.overtime', '125')
         ->set('formMethod', PayRules::METHOD_DIVISOR)
         ->set('formDivisor', '22')
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Contractors')
         ->call('save')
         ->assertSet('formError', null)
         ->assertSee('Contract of Service (override)')
-        ->assertDontSee('No override yet');
+        ->assertDontSee('This status follows the company rule');
 
+    // The status's rules cover every date the company's do, so every draft period reads them.
     $saved = PayrollPayRule::query()->where('scope', $contract->id)->sole();
     expect($saved->params['daily_rate'])->toEqual(['method' => PayRules::METHOD_DIVISOR, 'value' => 22.0])
-        ->and($saved->reason)->toBe('Contractors')
+        ->and($saved->effective_from->format('Y-m-d'))->toBe('2025-01-01')
         ->and(PayrollPayRule::query()->where('scope', PayrollPayRule::COMPANY)->count())->toBe(1);
     $page->set('scope', PayrollPayRule::COMPANY)
         ->assertSet('formMethod', PayRules::METHOD_MONTH);
@@ -236,19 +269,16 @@ it('saves the hours, rounding and seaport figures as typed and blank as the refe
         ->set('formHourlyHours', '8')
         ->set('formRounding', '2')
         ->set('formSeaportRate', '150')
-        ->set('formEffectiveFrom', '2026-11-01')
-        ->set('formReason', 'Register figures')
         ->call('save')
         ->assertSet('formError', null);
 
-    $saved = PayrollPayRule::query()->where('effective_from', '2026-11-01')->sole();
+    $saved = PayrollPayRule::query()->sole();
     expect($saved->params['hourly_rate'])->toEqual(['hours' => 8.0])
         ->and($saved->params['rounding'])->toEqual(['decimals' => 2])
         ->and($saved->params['overtime']['seaport_rate'])->toEqual(1.5);
 
     // Shown again, the figures read as typed; a bad figure is refused before the save.
-    $page->call('loadVersion', $saved->id)
-        ->assertSet('formHourlyHours', '8')
+    $page->assertSet('formHourlyHours', '8')
         ->assertSet('formRounding', '2')
         ->assertSet('formSeaportRate', '150')
         ->set('formHourlyHours', '0.5')
@@ -256,11 +286,9 @@ it('saves the hours, rounding and seaport figures as typed and blank as the refe
         ->set('formHourlyHours', '')
         ->set('formRounding', '')
         ->set('formSeaportRate', '')
-        ->set('formEffectiveFrom', '2026-12-01')
-        ->set('formReason', 'Back to the shift hours')
         ->call('save')
         ->assertSet('formError', null);
-    $blank = PayrollPayRule::query()->where('effective_from', '2026-12-01')->sole();
+    $blank = PayrollPayRule::query()->sole();
     expect($blank->params['hourly_rate'])->toEqual(['hours' => null])
         ->and($blank->params['rounding'])->toEqual(['decimals' => null])
         ->and($blank->params['overtime']['seaport_rate'])->toBeNull();

@@ -47,13 +47,13 @@ final class LeaveLedgerExport implements TableExport
             }
             foreach ($records->entries($actor, $employeeId, $year, $type) as $entry) {
                 yield [...$identity, $entry->id, $entry->recorded_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
-                    $year, $entry->label, $entry->kind === 'BASELINE' ? 'Existing allocation' : (RecordLeaveCredit::KINDS[$entry->kind] ?? $entry->kind),
+                    $year, $entry->label, RecordLeaveCredit::LABELS[$entry->kind] ?? $entry->kind,
                     $entry->days, $entry->source_year ?? '', $entry->note];
             }
         };
         $headers = $summary
             ? ['Leave type', 'Year', 'Opening balance', 'Manual accrual', 'Carried forward', 'Adjustments',
-                'Paid leave taken', 'Unpaid leave taken', 'Closing balance', 'Booked paid leave', 'Booked unpaid leave', 'Available']
+                'Credits used', 'Unpaid leave days', 'Closing balance', 'Booked paid leave', 'Booked unpaid leave', 'Available balance']
             : ['Entry ID', 'Recorded (Manila)', 'Year', 'Leave type', 'Entry', 'Days', 'Source year', 'Note'];
 
         return new CsvExport('leave-ledger-'.($summary ? 'balances-' : 'history-').$year.'-'.ManilaClock::todayKey().'.csv', ['Employee ID', 'Employee', ...$headers], $rows);

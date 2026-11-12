@@ -2,9 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Livewire\Leaves\LeavePolicies;
 use App\Models\AuditLog;
-use App\Models\EmployeeLeavePolicy;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveAttendanceCharge;
 use App\Models\LeaveCashOut;
@@ -18,14 +16,12 @@ use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
 use App\Modules\Payroll\Application\Commands\SaveIncentiveType;
-use App\Modules\Timekeeping\Application\Commands\ApproveLeavePolicy;
 use App\Modules\Timekeeping\Application\Commands\CancelAbsence;
 use App\Modules\Timekeeping\Application\Commands\FileAbsence;
 use App\Modules\Timekeeping\Application\Commands\RecordLeaveCredit;
 use App\Modules\Timekeeping\Application\Commands\RequestLeaveCashOut;
 use App\Modules\Timekeeping\Application\Commands\ReviewAbsence;
 use App\Modules\Timekeeping\Application\Commands\ReviewLeaveCashOut;
-use App\Modules\Timekeeping\Application\Commands\SaveLeavePolicy;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\LeaveBalances;
 use App\Modules\Timekeeping\Application\PostLeaveEarnings;
@@ -34,7 +30,7 @@ use App\Modules\Timekeeping\Application\Queries\LeaveLedgerRecords;
 use App\Modules\Timekeeping\Contracts\LeaveCashOutPoster;
 use App\Support\Access;
 use Illuminate\Support\Str;
-use Livewire\Livewire;
+use Tests\Support\LeaveRuleFixture;
 
 /**
  * THE ONE BALANCE RULE (LeaveBalances). Every reader of a leave credit —
@@ -127,13 +123,13 @@ function lbrVacation(Access $manager, EmployeeProfile $employee, float $credits 
  */
 function lbrPolicy(EmployeeProfile $employee, string $from = '2026-01-01', array $earning = []): string
 {
-    $preparer = lbrManager();
-    $id = app(SaveLeavePolicy::class)->handle($preparer, $employee->id, $from, [
+    lbrManager();
+    $id = LeaveRuleFixture::approved($from, [
         'posting_day' => 'MONTH_END', 'unpaid_counts' => [], 'earning' => $earning,
         'charges' => ['enabled' => false, 'combine' => 'DAY', 'late' => [], 'absence' => []],
         'cash_out_max_per_year' => '',
-    ], 'Balance rule');
-    app(ApproveLeavePolicy::class)->handle(lbrManager(), $id);
+    ]);
+    lbrManager();
 
     return $id;
 }
@@ -171,16 +167,19 @@ it('costs a request its scheduled working days, judges filing by what is availab
     $self = lbrSelf($employee);
     expect(lbrRemaining($self, $employee, 2026))->toBe(['used' => 0.0, 'remaining' => 10.0, 'spoken_for' => 5.0, 'available' => 5.0]);
 
-    // Two Monday-to-Friday weeks are 10 working days of 12 calendar days: more than the 5 available.
-    expect(fn () => app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-21', '2026-10-02', 'trip'))
-        ->toThrow(RuntimeException::class, 'This request needs 10 days, but your available balance for this leave type in 2026 is 5 days.');
+    // Two Monday-to-Friday weeks are 10 working days of 12 calendar days:
+    // more than the 5 available, so the notice says 5 would be without pay
+    // (the request is filed; it is withdrawn here to keep the dates free).
+    expect(app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-21', '2026-10-02', 'trip'))
+        ->toBe('Your available Vacation Leave credits (5.000) cover 5 days of the 10 days; the other 5 days will be unpaid if approved.');
+    LeaveTravelRequest::query()->delete();
     // Monday to Sunday is 5 working days of 7: exactly what is available.
-    app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-21', '2026-09-27', 'trip');
+    expect(app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-21', '2026-09-27', 'trip'))->toBeNull();
     $request = LeaveTravelRequest::query()->sole();
     expect($request->credit_days)->toBeNull();
 
     $manager = lbrManager();
-    expect(app(ReviewAbsence::class)->handle($manager, $request->id, 'APPROVED', true))->toBe('approved with pay');
+    expect(app(ReviewAbsence::class)->handle($manager, $request->id, 'APPROVED', true))->toBe('approved as paid leave');
     $request->refresh();
     expect($request->credits_year)->toBe(2026)
         ->and($request->credit_days)->toBe(5.0)
@@ -192,10 +191,10 @@ it('costs a request its scheduled working days, judges filing by what is availab
     $ledger = app(LeaveLedgerRecords::class)->summary($manager, $employee->id, 2026)[0];
     expect([$ledger->paid_taken, $ledger->booked_paid, $ledger->available])->toBe([0.0, 5.0, 5.0]);
 
-    // Nothing is left to file.
+    // Nothing is left: one more day is filed, and would be without pay.
     $self = lbrSelf($employee);
-    expect(fn () => app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-10-05', '2026-10-05', 'one more'))
-        ->toThrow(RuntimeException::class, 'You have no available leave credits for the selected leave type in 2026.');
+    expect(app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-10-05', '2026-10-05', 'one more'))
+        ->toBe('You have no Vacation Leave credits available to cover this request: the whole request (1 day) will be unpaid if approved.');
 });
 
 it('refuses to pay a cash-out at finalization once the credits behind it were used', function () {
@@ -212,7 +211,7 @@ it('refuses to pay a cash-out at finalization once the credits behind it were us
     app(RecordLeaveCredit::class)->handle($reviewer, $employee->id, 2026, 'VACATION_LEAVE', 'ADJUSTMENT', '-8', 'Correction', (string) Str::ulid());
 
     expect(fn () => app(LeaveCashOutPoster::class)->post($reviewer, $employee->id, (string) Str::ulid(), 'PR-9', [['id' => $cashOut->id, 'days' => 5.0, 'amount' => 6818.18]]))
-        ->toThrow(RuntimeException::class, 'Only 2 days of Vacation Leave are left to cash out for this employee');
+        ->toThrow(RuntimeException::class, 'Only 2.000 days of Vacation Leave are left to convert to cash for this employee');
     expect($cashOut->refresh()->status)->toBe(LeaveCashOut::APPROVED)
         ->and(LeaveCreditEntry::query()->where('kind', 'CASH_OUT')->count())->toBe(0);
 });
@@ -234,7 +233,7 @@ it('does not charge a date a posted payroll already charged to credits as an abs
     $request = LeaveTravelRequest::query()->sole();
 
     $outcome = app(ReviewAbsence::class)->handle(lbrManager(), $request->id, 'APPROVED', true);
-    expect($outcome)->toBe('approved with pay. Sep 07, 2026 was already charged to leave credits by payroll and is not charged again')
+    expect($outcome)->toBe('approved as paid leave. Sep 07, 2026 was already deducted from leave credits by payroll and is not deducted again')
         ->and($request->refresh()->credit_days)->toBe(2.0)
         ->and($request->credit_dates)->toBe(['2026-09-08', '2026-09-09'])
         ->and(AuditLog::query()->where('action', 'REQUEST_APPROVED')->value('details'))->toContain('already charged to leave credits by payroll, not charged again: Sep 07, 2026');
@@ -270,11 +269,11 @@ it('draws a December request approved in January on the new year, so the carried
         ->and(lbrRemaining($manager, $employee, 2027))->toBe(['used' => 2.0, 'remaining' => 8.0, 'spoken_for' => 0.0, 'available' => 8.0]);
     // A manual carry on top of the automatic one is refused.
     expect(fn () => app(RecordLeaveCredit::class)->handle($manager, $employee->id, 2027, 'VACATION_LEAVE', 'CARRY_FORWARD', '10', 'again', (string) Str::ulid()))
-        ->toThrow(RuntimeException::class, "2026's balance was already carried into 2027 automatically. Record an adjustment instead.");
-    // Filing in January against a December start draws on 2027 too.
+        ->toThrow(RuntimeException::class, "2026's balance was already carried forward into 2027 automatically. Record an adjustment instead.");
+    // Filing in January against a December start draws on 2027 too: its 8.
     $self = lbrSelf($employee);
-    expect(fn () => app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-12-30', '2027-01-15', 'late filing'))
-        ->toThrow(RuntimeException::class, 'available balance for this leave type in 2027 is 8 days');
+    expect(app(FileAbsence::class)->handle($self, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-12-30', '2027-01-15', 'late filing'))
+        ->toStartWith('Your available Vacation Leave credits (8.000) cover 8 days of the');
 });
 
 it('returns the days of a cancellation to the live year as an adjustment once the request\'s year has closed', function () {
@@ -361,40 +360,4 @@ it('stops earning a type HR un-ticked, skips an inactive record with no resigned
     $viewer = lbrSelf($employee);
     expect(fn () => app(PostLeaveEarnings::class)->run('2026-10-02', $viewer))
         ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');
-});
-
-/*
-|--------------------------------------------------------------------------
-| Approving a policy
-|--------------------------------------------------------------------------
-*/
-
-it('confirms a policy approval in a dialog that says which months post, from a second account of the preparer\'s own', function () {
-    $this->travelTo(new DateTimeImmutable('2026-09-10T10:00:00+08:00'));
-    $employee = lbrEmployee();
-    $preparerEmployee = lbrEmployee();
-    $preparer = lbrManager($preparerEmployee->id);
-    lbrVacation($preparer, $employee, 0.0);
-    $id = app(SaveLeavePolicy::class)->handle($preparer, $employee->id, '2026-07-01', [
-        'posting_day' => 'MONTH_END', 'unpaid_counts' => [], 'earning' => ['VACATION_LEAVE' => ['amount' => '1.25', 'method' => 'FLAT', 'table' => [], 'partial' => 'FULL', 'cap' => null]],
-        'charges' => ['enabled' => false, 'combine' => 'DAY', 'late' => [], 'absence' => []], 'cash_out_max_per_year' => '',
-    ], 'Two accounts');
-
-    // The preparer's other account, linked to the same employee, approves: the
-    // row menu stages, the dialog names July and August, and only its button approves.
-    lbrManager($preparerEmployee->id);
-    $tab = Livewire::test(LeavePolicies::class)->call('askApprove', $id)
-        ->assertSet('versionConfirmOpen', true)
-        ->assertSet('confirmVersionId', $id)
-        ->assertSet('confirmAction', 'approve')
-        ->assertSet('confirmMonths', ['2026-07', '2026-08'])
-        ->assertSeeHtml('data-policy-confirm-months="2"')
-        ->assertSee('2026-07')->assertSee('2026-08');
-    expect(EmployeeLeavePolicy::query()->findOrFail($id)->status)->toBe('DRAFT');
-    $tab->call('confirmVersion')->assertSet('versionConfirmOpen', false)->assertSet('confirmVersionId', null);
-    expect(EmployeeLeavePolicy::query()->findOrFail($id)->status)->toBe('APPROVED');
-
-    // A second confirm with nothing staged does nothing.
-    $tab->call('confirmVersion');
-    expect(AuditLog::query()->where('action', 'LEAVE_POLICY_APPROVED')->count())->toBe(1);
 });

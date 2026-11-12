@@ -32,6 +32,7 @@ use App\Support\Money;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * The Payroll module: /payroll gates on the PAYROLL grant, payslip reads are
@@ -88,6 +89,7 @@ function payrollEmployee(string $code, string $first, string $last, array $overr
         'monthly_rate' => 30000,
         'is_active' => true,
     ], $overrides))->save();
+    ScheduleFixture::standard($employee);
 
     return $employee;
 }
@@ -146,7 +148,7 @@ it('renders the run list for an actor holding PAYROLL', function () {
 
     $this->get('/payroll')
         ->assertOk()
-        ->assertSee('Employee Payroll')
+        ->assertSee('Payroll list')
         ->assertSee('No payroll yet. Create one to get started.');
 });
 
@@ -294,11 +296,13 @@ it('creates a draft with a full member snapshot, then finalizes it into posted p
     expect(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->exists())->toBeTrue();
 });
 
-it('finalizes a period that has not ended yet once the officer accepts it, paying only the days that have', function () {
+it('finalizes a period that has not ended yet, counted through yesterday with the rest paid as scheduled', function () {
     // Frozen mid-period: 5 Aug Manila, with a run covering the whole month.
-    // The reference refuses this outright. Here it finalizes — the days after
-    // today carry no attendance, so they simply pay nothing — but only once
-    // the officer ticks "Finalize anyway" (OpenAttendanceItems).
+    // The reference refuses this outright. Here the workspace counts the
+    // draft through yesterday by itself (PayrollAdvance): the days after it
+    // are paid as scheduled and settled later, so the period is never "open".
+    // The draft was stored with no counted date, so it reads as unsaved
+    // until saved with today's.
     test()->travelTo(new DateTimeImmutable('2026-08-05T12:00:00+08:00'));
 
     $employee = payrollEmployee('EMP-011', 'Caloy', 'Dizon');
@@ -306,15 +310,20 @@ it('finalizes a period that has not ended yet once the officer accepts it, payin
 
     $run = payrollDraftRun('PR-009', 'August 2026 — run early', [$employee]);
 
-    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->assertSeeHtml('data-open-period')
-        ->call('finalize');
-    expect($run->refresh()->status)->toBe('DRAFT');
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSet('attendanceThrough', '2026-08-04')
+        ->assertSee('Unsaved changes')
+        ->call('save');
+    expect($run->refresh()->attendance_through?->format('Y-m-d'))->toBe('2026-08-04');
 
-    $page->call('toggleOpenItems')->call('finalize');
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertDontSee('Unsaved changes')
+        ->call('finalize');
 
     expect($run->refresh()->status)->toBe('FINALIZED')
-        ->and(Payslip::query()->where('run_id', $run->id)->count())->toBe(1);
+        ->and(Payslip::query()->where('run_id', $run->id)->count())->toBe(1)
+        ->and(Payslip::query()->where('run_id', $run->id)->value('attendance_through')?->format('Y-m-d'))->toBe('2026-08-04')
+        ->and((float) Payslip::query()->where('run_id', $run->id)->value('presumed_days'))->toBeGreaterThan(0.0);
 });
 
 /*
@@ -462,7 +471,7 @@ it('gives the run code its own sortable ID column instead of a line under the na
 
     // Seven headers, so the empty row must span seven or it stops short of the
     // Action column.
-    $page->set('search', 'zzz-matches-no-payroll')->assertSeeHtml('colspan="8"');
+    $page->set('search', 'zzz-matches-no-payroll')->assertSeeHtml('colspan="7"');
 });
 
 it('deletes a draft run from the list', function () {
@@ -793,7 +802,7 @@ it('exports the run as a CSV with exactly one leading BOM and a quoted header ro
 
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('exportCsv')
-        ->assertFileDownloaded('cyberonions-payroll-pr-001.csv');
+        ->assertFileDownloaded('payroll-pr-001.csv');
 
     $bytes = base64_decode((string) data_get($page->effects, 'download.content'), true);
     $bom = "\u{FEFF}";
@@ -863,13 +872,8 @@ it('finalizes holiday overtime on a rest day with pay only when approved', funct
         $approval->save();
     }
 
-    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id]);
-    // Undecided overtime is open attendance: it posts unpaid only once the
-    // officer accepts it (OpenAttendanceItems).
-    if (! $approved) {
-        $page->call('toggleOpenItems');
-    }
-    $page->call('finalize');
+    // Undecided overtime posts unpaid, with nothing to accept (OpenAttendanceItems records it).
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
 
     $posted = Payslip::query()->sole();
     expect($run->refresh()->status)->toBe('FINALIZED')
@@ -960,7 +964,7 @@ it('exports BOTH identifiers, unlike the screen, because a spreadsheet is reconc
     // would empty silently if EmployeePayData did not carry the number.
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('exportCsv')
-        ->assertFileDownloaded('cyberonions-payroll-pr-073.csv');
+        ->assertFileDownloaded('payroll-pr-073.csv');
 
     // The file opens with the UTF-8 BOM Excel needs; the sibling test above
     // pins that, so strip it here rather than assert around it.

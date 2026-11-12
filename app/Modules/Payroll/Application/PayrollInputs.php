@@ -15,11 +15,13 @@ use App\Domain\Payroll\Statutory;
 use App\Domain\Payroll\StatutorySchedule;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
+use App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
 use App\Modules\Payroll\Domain\Recurring\RecurringLine;
 use App\Modules\Timekeeping\Contracts\AttendanceInputs;
+use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
 use App\Modules\Workforce\Contracts\EmployeePayData;
 use Carbon\CarbonImmutable;
 use RuntimeException;
@@ -75,11 +77,14 @@ use RuntimeException;
  * as it stands). Older evidence restores with neither.
  * Schema 12 captures the leave-credit charges (DELIBERATE DIVERGENCE 15):
  * `leave_charges`, each member's entry from Timekeeping's LeaveChargeSource —
- * the policy's charge rules, the conversion table in force, each leave
+ * the policy's charge rules, the conversion table in use, each leave
  * type's balance and floor as of the capture, the credits year and the
  * dates an earlier payslip charged — so the plan is made from the evidence
  * and a changed balance stales the preview. Older evidence restores with
- * none, and charges nothing.
+ * none, and charges nothing. A balance of a leave type with a waiting period,
+ * or one not everyone may use, also carries `available_from`, the first day
+ * it is the employee's (acquired, or eligible); a balance without the key is
+ * charged on every day, as all evidence before it reads.
  * Schema 13 settles from frozen figures: each settlement carries
  * `presumed_lines`, the presumed days' lines as the ADVANCE payroll's own
  * evidence froze them when it posted (null for a payslip posted before
@@ -135,10 +140,17 @@ use RuntimeException;
  * period (`benefit_assignments`: id, type, span, own amount), so a new
  * ceiling or an approval stales the preview and a replay never reads the
  * live tables. Older evidence restores with the constant and none.
+ * Schema 24 captures what a converted day of leave credits pays: the
+ * paying type's `day_value` (FACTOR or DAILY) and `factor`
+ * (LeaveCashOutValue) on `cash_out_type`, and on each `leave_cash_outs`
+ * request its `purpose` (MONETIZATION or TERMINAL) and, for terminal
+ * leave, the `salary` it is priced from (the highest on record: from,
+ * monthly and daily rate; null otherwise). Older evidence restores as it
+ * was priced: every request a monetization at the daily rate.
  */
 final readonly class PayrollInputs
 {
-    public const int SCHEMA_VERSION = 23;
+    public const int SCHEMA_VERSION = 24;
 
     /**
      * @param  list<string>  $employeeIds
@@ -162,8 +174,8 @@ final readonly class PayrollInputs
      * @param  string|null  $attendanceThrough  the last day whose attendance this payroll reads; null for the whole period
      * @param  array<string, list<SettlementInputs>>  $settlements  each member's earlier presumed days settled on this payroll
      * @param  array<string, array<string, mixed>>  $leaveCharges  each member's leave-credit charge facts (LeaveChargeSource); absent for a member whose policy charges nothing
-     * @param  array<string, list<array{id: string, request_type: string, name: string, days: float}>>  $leaveCashOuts  each member's approved, unpaid leave credit cash-outs (LeaveCashOutSource)
-     * @param  array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool}|null  $cashOutType  the Incentives & Bonuses type cash-outs are paid as, as captured; null when none is marked
+     * @param  array<string, list<array{id: string, request_type: string, name: string, days: float, purpose: string, salary: array{from: ?string, monthly_rate: ?float, daily_rate: ?float}|null}>>  $leaveCashOuts  each member's approved, unpaid leave credit cash-outs (LeaveCashOutSource), a terminal one with the salary it is priced from
+     * @param  array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool, day_value: string, factor: ?float}|null  $cashOutType  the Incentives & Bonuses type cash-outs are paid as, with what a converted day pays on it, as captured; null when none is marked
      * @param  array<string, array{version_id: string, effective_from: string, figures: array<string, mixed>}>  $govPolicies  each member's Contributions & tax version in force, as captured (GovDeductionSettings figures); absent for a member on their baseline
      * @param  array<string, list<array{id: string, category_id: string, code: string, name: string, kind: string, tax: ?string, amount: float, reason: string}>>  $adjustments  the approved adjustment lines this payroll pays, by member, as captured (Adjustments::entry)
      * @param  string|null  $contributionMonth  the month ('YYYY-MM') the shares count toward; null = the period's start month
@@ -306,7 +318,10 @@ final readonly class PayrollInputs
             ...($this->schemaVersion >= 10 ? ['recurring_lines' => $this->recurringLines, 'skipped_recurring_lines' => $this->skippedRecurringLines] : []),
             ...($this->schemaVersion >= 11 ? ['attendance_through' => $this->attendanceThrough, 'settlements' => $settlements] : []),
             ...($this->schemaVersion >= 12 ? ['leave_charges' => $this->leaveCharges] : []),
-            ...($this->schemaVersion >= 14 ? ['leave_cash_outs' => $this->leaveCashOuts, 'cash_out_type' => $this->cashOutType] : []),
+            ...($this->schemaVersion >= 14 ? [
+                'leave_cash_outs' => $this->schemaVersion >= 24 ? $this->leaveCashOuts : array_map(static fn (array $list): array => array_map(static fn (array $entry): array => array_diff_key($entry, ['purpose' => true, 'salary' => true]), $list), $this->leaveCashOuts),
+                'cash_out_type' => $this->schemaVersion >= 24 || $this->cashOutType === null ? $this->cashOutType : array_diff_key($this->cashOutType, ['day_value' => true, 'factor' => true]),
+            ] : []),
             ...($this->schemaVersion >= 15 ? ['gov_policies' => $this->govPolicies] : []),
             ...($this->schemaVersion >= 16 ? ['adjustments' => $this->adjustments] : []),
             ...($this->schemaVersion >= 20 ? ['contribution_month' => $this->contributionMonth, 'contribution_posted' => $this->contributionPosted] : []),
@@ -406,7 +421,7 @@ final readonly class PayrollInputs
     {
         $data = self::map(json_decode($json, true, 512, JSON_THROW_ON_ERROR));
         $schemaVersion = $data['schema_version'] ?? null;
-        if (! in_array($schemaVersion, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, self::SCHEMA_VERSION], true)) {
+        if (! in_array($schemaVersion, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, self::SCHEMA_VERSION], true)) {
             throw new RuntimeException('Unsupported payroll evidence schema.');
         }
         $employees = array_map(self::employeeFromArray(...), self::rows($data['employees'] ?? null));
@@ -439,8 +454,8 @@ final readonly class PayrollInputs
             $schemaVersion >= 11 ? self::attendanceThrough($data['attendance_through'] ?? null) : null,
             $schemaVersion >= 11 ? self::settlementMap($data['settlements'] ?? null, $ids, $schemaVersion >= 13, $schemaVersion >= 17) : [],
             $schemaVersion >= 12 ? self::leaveChargeMap($data['leave_charges'] ?? null, $ids) : [],
-            $schemaVersion >= 14 ? self::leaveCashOutMap($data['leave_cash_outs'] ?? null, $ids) : [],
-            $schemaVersion >= 14 ? self::cashOutTypeMap($data['cash_out_type'] ?? null) : null,
+            $schemaVersion >= 14 ? self::leaveCashOutMap($data['leave_cash_outs'] ?? null, $ids, $schemaVersion >= 24) : [],
+            $schemaVersion >= 14 ? self::cashOutTypeMap($data['cash_out_type'] ?? null, $schemaVersion >= 24) : null,
             $schemaVersion >= 15 ? self::govPolicyMap($data['gov_policies'] ?? null, $ids) : [],
             $schemaVersion >= 16 ? self::adjustmentMap($data['adjustments'] ?? null, $ids) : [],
             $schemaVersion >= 20 ? self::contributionMonthOf($data['contribution_month'] ?? null) : null,
@@ -585,33 +600,43 @@ final readonly class PayrollInputs
 
     /**
      * The cash-outs exactly as captured: members' ids only, each a list of
-     * requests with their id, token, name and positive days.
+     * requests with their id, token, name and positive days — and from
+     * schema 24 their purpose and a terminal one's salary. Older evidence
+     * reads every request as a monetization, as it was priced.
      *
      * @param  list<string>  $ids
-     * @return array<string, list<array{id: string, request_type: string, name: string, days: float}>>
+     * @return array<string, list<array{id: string, request_type: string, name: string, days: float, purpose: string, salary: array{from: ?string, monthly_rate: ?float, daily_rate: ?float}|null}>>
      */
-    private static function leaveCashOutMap(mixed $value, array $ids): array
+    private static function leaveCashOutMap(mixed $value, array $ids, bool $priced): array
     {
         if (! is_array($value)) {
-            throw new RuntimeException('Invalid payroll cash-out evidence.');
+            throw new RuntimeException('Invalid payroll cash conversion evidence.');
         }
         $map = [];
         foreach ($value as $employeeId => $entries) {
             if (! is_string($employeeId) || ! in_array($employeeId, $ids, true) || ! is_array($entries) || ! array_is_list($entries)) {
-                throw new RuntimeException('Invalid payroll cash-out evidence.');
+                throw new RuntimeException('Invalid payroll cash conversion evidence.');
             }
             foreach ($entries as $entry) {
                 $row = self::map($entry);
                 $keys = array_keys($row);
                 sort($keys, SORT_STRING);
-                if ($keys !== ['days', 'id', 'name', 'request_type']) {
-                    throw new RuntimeException('Invalid payroll cash-out evidence.');
+                if ($keys !== ($priced ? ['days', 'id', 'name', 'purpose', 'request_type', 'salary'] : ['days', 'id', 'name', 'request_type'])) {
+                    throw new RuntimeException('Invalid payroll cash conversion evidence.');
                 }
                 $days = self::number($row['days']);
                 if ($days <= 0) {
-                    throw new RuntimeException('Invalid payroll cash-out evidence.');
+                    throw new RuntimeException('Invalid payroll cash conversion evidence.');
                 }
-                $map[$employeeId][] = ['id' => self::text($row['id']), 'request_type' => self::text($row['request_type']), 'name' => self::text($row['name']), 'days' => $days];
+                $purpose = $priced ? self::text($row['purpose']) : LeaveCashOutSource::MONETIZATION;
+                if (! in_array($purpose, [LeaveCashOutSource::MONETIZATION, LeaveCashOutSource::TERMINAL], true)) {
+                    throw new RuntimeException('Invalid payroll cash conversion evidence.');
+                }
+                $salary = $priced && $row['salary'] !== null ? self::cashOutSalary($row['salary']) : null;
+                if (($salary !== null) !== ($purpose === LeaveCashOutSource::TERMINAL)) {
+                    throw new RuntimeException('Invalid payroll cash conversion evidence.');
+                }
+                $map[$employeeId][] = ['id' => self::text($row['id']), 'request_type' => self::text($row['request_type']), 'name' => self::text($row['name']), 'days' => $days, 'purpose' => $purpose, 'salary' => $salary];
             }
         }
 
@@ -619,11 +644,38 @@ final readonly class PayrollInputs
     }
 
     /**
-     * The cash-out type exactly as captured, or null.
+     * A terminal request's salary exactly as captured: the version's date
+     * (null for the record's undated rates) and its two rates.
      *
-     * @return array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool}|null
+     * @return array{from: ?string, monthly_rate: ?float, daily_rate: ?float}
      */
-    private static function cashOutTypeMap(mixed $value): ?array
+    private static function cashOutSalary(mixed $value): array
+    {
+        $row = self::map($value);
+        $keys = array_keys($row);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['daily_rate', 'from', 'monthly_rate']) {
+            throw new RuntimeException('Invalid payroll cash conversion evidence.');
+        }
+        if ($row['from'] !== null && (! is_string($row['from']) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $row['from']) !== 1)) {
+            throw new RuntimeException('Invalid payroll cash conversion evidence.');
+        }
+
+        return [
+            'from' => $row['from'],
+            'monthly_rate' => $row['monthly_rate'] === null ? null : self::number($row['monthly_rate']),
+            'daily_rate' => $row['daily_rate'] === null ? null : self::number($row['daily_rate']),
+        ];
+    }
+
+    /**
+     * The cash-out type exactly as captured, or null — from schema 24 with
+     * what a converted day pays on it; older evidence pays the daily rate,
+     * as it was priced.
+     *
+     * @return array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool, day_value: string, factor: ?float}|null
+     */
+    private static function cashOutTypeMap(mixed $value, bool $priced): ?array
     {
         if ($value === null) {
             return null;
@@ -631,16 +683,25 @@ final readonly class PayrollInputs
         $row = self::map($value);
         $keys = array_keys($row);
         sort($keys, SORT_STRING);
-        if ($keys !== ['code', 'counts_toward_13th', 'is_taxable', 'name', 'tax', 'type_id']) {
-            throw new RuntimeException('Invalid payroll cash-out evidence.');
+        if ($keys !== ($priced ? ['code', 'counts_toward_13th', 'day_value', 'factor', 'is_taxable', 'name', 'tax', 'type_id'] : ['code', 'counts_toward_13th', 'is_taxable', 'name', 'tax', 'type_id'])) {
+            throw new RuntimeException('Invalid payroll cash conversion evidence.');
         }
         $taxable = self::boolean($row['is_taxable']);
         $tax = self::text($row['tax']);
         if (! in_array($tax, BenefitRule::TAXES, true) || ($tax === BenefitRule::TAX_TAXABLE) !== $taxable) {
-            throw new RuntimeException('Invalid payroll cash-out evidence.');
+            throw new RuntimeException('Invalid payroll cash conversion evidence.');
+        }
+        $dayValue = LeaveCashOutValue::daily();
+        if ($priced) {
+            $method = self::text($row['day_value']);
+            $factor = $row['factor'] === null ? null : self::number($row['factor']);
+            if (! in_array($method, LeaveCashOutValue::METHODS, true) || ($method === LeaveCashOutValue::FACTOR) !== ($factor !== null && $factor > 0.0 && $factor <= 1.0)) {
+                throw new RuntimeException('Invalid payroll cash conversion evidence.');
+            }
+            $dayValue = new LeaveCashOutValue($method, $factor);
         }
 
-        return ['type_id' => self::text($row['type_id']), 'code' => self::text($row['code']), 'name' => self::text($row['name']), 'is_taxable' => $taxable, 'tax' => $tax, 'counts_toward_13th' => self::boolean($row['counts_toward_13th'])];
+        return ['type_id' => self::text($row['type_id']), 'code' => self::text($row['code']), 'name' => self::text($row['name']), 'is_taxable' => $taxable, 'tax' => $tax, 'counts_toward_13th' => self::boolean($row['counts_toward_13th']), 'day_value' => $dayValue->method, 'factor' => $dayValue->factor];
     }
 
     /**
@@ -875,25 +936,25 @@ final readonly class PayrollInputs
     private static function leaveChargeMap(mixed $value, array $ids): array
     {
         if (! is_array($value)) {
-            throw new RuntimeException('Invalid payroll leave charge evidence.');
+            throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
         }
         $map = [];
         foreach ($value as $employeeId => $entry) {
             if (! is_string($employeeId) || ! in_array($employeeId, $ids, true)) {
-                throw new RuntimeException('Invalid payroll leave charge evidence.');
+                throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
             }
             $row = self::map($entry);
             $keys = array_keys($row);
             sort($keys, SORT_STRING);
             if ($keys !== ['balances', 'charged', 'charges', 'conversion', 'policy_id', 'year']) {
-                throw new RuntimeException('Invalid payroll leave charge evidence.');
+                throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
             }
             $charges = self::map($row['charges']);
             $chargeKeys = array_keys($charges);
             sort($chargeKeys, SORT_STRING);
             if ($chargeKeys !== ['absence', 'combine', 'enabled', 'late'] || ! is_bool($charges['enabled']) || ! is_string($charges['combine'])
                 || ! is_array($charges['late']) || ! array_is_list($charges['late']) || ! is_array($charges['absence']) || ! array_is_list($charges['absence'])) {
-                throw new RuntimeException('Invalid payroll leave charge evidence.');
+                throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
             }
             foreach ([...$charges['late'], ...$charges['absence']] as $token) {
                 self::text($token);
@@ -903,7 +964,7 @@ final readonly class PayrollInputs
                 $conversionKeys = array_keys($conversion);
                 sort($conversionKeys, SORT_STRING);
                 if ($conversionKeys !== ['decimals', 'hours_per_day', 'rows', 'version_id'] || ! is_int($conversion['decimals'])) {
-                    throw new RuntimeException('Invalid payroll leave charge evidence.');
+                    throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
                 }
                 self::text($conversion['version_id']);
                 self::number($conversion['hours_per_day']);
@@ -911,11 +972,11 @@ final readonly class PayrollInputs
                 $rowKeys = array_keys($rows);
                 sort($rowKeys, SORT_STRING);
                 if ($rowKeys !== ['hours', 'minutes']) {
-                    throw new RuntimeException('Invalid payroll leave charge evidence.');
+                    throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
                 }
                 foreach ([...array_values(self::map($rows['minutes'])), ...array_values(self::map($rows['hours']))] as $cell) {
                     if (! is_string($cell) && ! is_int($cell) && ! is_float($cell)) {
-                        throw new RuntimeException('Invalid payroll leave charge evidence.');
+                        throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
                     }
                 }
             }
@@ -923,26 +984,32 @@ final readonly class PayrollInputs
                 $balance = self::map($balance);
                 $balanceKeys = array_keys($balance);
                 sort($balanceKeys, SORT_STRING);
-                if ($balanceKeys !== ['available', 'below_zero_limit', 'name']) {
-                    throw new RuntimeException('Invalid payroll leave charge evidence.');
+                // `available_from` is on a balance only for a leave type with a
+                // waiting period or one not everyone may use: the first day
+                // it is the employee's.
+                if ($balanceKeys !== ['available', 'below_zero_limit', 'name'] && $balanceKeys !== ['available', 'available_from', 'below_zero_limit', 'name']) {
+                    throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
+                }
+                if (array_key_exists('available_from', $balance) && (! is_string($balance['available_from']) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $balance['available_from']) !== 1)) {
+                    throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
                 }
                 self::text($balance['name']);
                 self::number($balance['available']);
                 self::number($balance['below_zero_limit']);
             }
             if (! is_int($row['year'])) {
-                throw new RuntimeException('Invalid payroll leave charge evidence.');
+                throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
             }
             self::text($row['policy_id']);
             $charged = self::map($row['charged']);
             $chargedKeys = array_keys($charged);
             sort($chargedKeys, SORT_STRING);
             if ($chargedKeys !== ['absence', 'late']) {
-                throw new RuntimeException('Invalid payroll leave charge evidence.');
+                throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
             }
             foreach ([...array_values(self::map($charged['late'])), ...array_values(self::map($charged['absence']))] as $date) {
                 if (! is_string($date) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1) {
-                    throw new RuntimeException('Invalid payroll leave charge evidence.');
+                    throw new RuntimeException('Invalid payroll leave credit deduction evidence.');
                 }
             }
             $map[$employeeId] = $row;
@@ -1288,7 +1355,7 @@ final readonly class PayrollInputs
             foreach ($lines as $line) {
                 $row = self::map($line);
                 $amount = self::number($row['amount'] ?? null);
-                if ($amount <= 0) {
+                if ($amount < 0) {
                     throw new RuntimeException('Invalid payroll deduction evidence.');
                 }
                 $map[$employeeId][] = [

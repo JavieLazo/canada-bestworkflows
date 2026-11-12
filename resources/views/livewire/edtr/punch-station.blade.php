@@ -8,7 +8,10 @@
 --}}
 @use('App\Livewire\Edtr\Support\Hris')
 
-<section class="hris-card @container p-6">
+{{-- A column, so when a page stretches the card (My Portal fills the screen
+     with it and My Punches) the punch buttons sit at its foot and the space
+     opens above them; at its own height nothing moves. --}}
+<section class="hris-card @container flex flex-col p-6">
     <header class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-lg font-bold">Punch Station</h2>
@@ -136,25 +139,10 @@
         @endif
     </div>
 
-    @if ($selfService)
-        <div class="mt-5 flex items-center gap-3 rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
-            <flux:icon.map-pin class="size-4 shrink-0" />
-            <span>
-                @if ($wfhToday)
-                    {{-- No fence on a Work from home day; the fix is still
-                         captured and stored with the punch, so say both. --}}
-                    Work from home today — no geofence. Your location is still recorded with the punch.
-                @elseif ($site !== null && $site->geofence_exempt)
-                    {{-- Saying a check happens where none does is worse than
-                         saying nothing — this is field work, and the punch
-                         always passes. --}}
-                    {{ $site->name }} is field work — your punches here always pass, wherever you are.
-                @else
-                    Your location is checked against {{ $site->name ?? 'your work site' }} as you punch. Time In is blocked when outside.
-                @endif
-            </span>
-        </div>
-    @else
+    {{-- The kiosk's live geofence verdict. Self-service shows no location
+         card: the Work site field above already names today's place, and
+         the punch itself says when it is refused. --}}
+    @if (! $selfService)
         <div
             class="mt-5 flex items-center gap-3 rounded-md border px-4 py-3 text-sm {{ $verdict === null
                 ? 'border-border bg-muted text-muted-foreground'
@@ -179,7 +167,15 @@
         </div>
     @endif
 
-    <div class="mt-5 grid gap-3 @xs:grid-cols-2">
+    {{-- No shift on the date a Time In would land on: RecordPunch refuses the
+         Time In, so its button is off, and Time Out with it unless a Time In
+         is open for it to close (noShiftCanClose). No card says so; the
+         disabled buttons carry the reason as their tooltip. --}}
+    @php($noShiftReason = $noShift ? 'No shift on '.\App\Support\HrisFormat::date($todayLocation->date).'. A shift has to be assigned in Shift Roster first.' : null)
+
+    {{-- Time In over Time Out in self-service (My Portal); side by side at
+         the kiosk once the card is wide enough. --}}
+    <div @class(['mt-auto grid gap-3 pt-5', '@xs:grid-cols-2' => ! $selfService])>
         {{--
             Every punch first asks the browser for a fix (PunchStation.tsx:117-141
             does this in self-service only) and sends lat/lng/accuracy to punch();
@@ -255,8 +251,9 @@
                  boots on a slow connection; the x-bind takes over from there. --}}
             <flux:button
                 variant="primary"
-                :disabled="$punchDisabled"
-                x-bind:disabled="busy || {{ $punchDisabled ? 'true' : 'false' }}"
+                :disabled="$punchDisabled || $noShift"
+                :title="$noShiftReason"
+                x-bind:disabled="busy || {{ $punchDisabled || $noShift ? 'true' : 'false' }}"
                 x-on:click="go('TIME_IN')"
             >
                 <flux:icon.loading x-show="busy && pending === 'TIME_IN'" x-cloak class="mr-2 size-4" />
@@ -265,8 +262,9 @@
             </flux:button>
             <flux:button
                 variant="filled"
-                :disabled="$punchDisabled"
-                x-bind:disabled="busy || {{ $punchDisabled ? 'true' : 'false' }}"
+                :disabled="$punchDisabled || ($noShift && ! $noShiftCanClose)"
+                :title="$noShiftCanClose ? 'Closes the Time In still open.' : $noShiftReason"
+                x-bind:disabled="busy || {{ $punchDisabled || ($noShift && ! $noShiftCanClose) ? 'true' : 'false' }}"
                 x-on:click="go('TIME_OUT')"
             >
                 <flux:icon.loading x-show="busy && pending === 'TIME_OUT'" x-cloak class="mr-2 size-4" />

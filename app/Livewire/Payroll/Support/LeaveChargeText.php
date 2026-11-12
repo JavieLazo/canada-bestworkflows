@@ -32,28 +32,28 @@ final class LeaveChargeText
             }
             $what = $line['kind'] === 'LATE'
                 ? 'Lateness and undertime of '.$line['minutes'].' min, '.self::days($line['days']).' by the conversion table'
-                : 'Absent, '.self::days($line['days']);
+                : 'Absent: '.self::days($line['days']);
             $steps[] = [
                 'label' => HrisFormat::date($line['date']).' · '.($line['kind'] === 'LATE' ? 'lateness and undertime' : 'absence'),
-                'detail' => $what.'. '.($covered === [] ? 'No leave credits covered it' : 'Charged to '.implode(', ', $covered))
+                'detail' => $what.'. '.($covered === [] ? 'No leave credits covered it' : 'Deducted from '.implode(', ', $covered))
                     .($line['uncovered_days'] > 0 ? '; '.self::days($line['uncovered_days']).' left for pay.' : '.'),
                 'state' => $covered === [] ? 'unused' : 'used',
             ];
         }
         foreach ($plan['notes'] ?? [] as $note) {
-            $steps[] = ['label' => 'Not charged', 'detail' => $note, 'state' => 'unset'];
+            $steps[] = ['label' => 'Not deducted', 'detail' => $note, 'state' => 'unset'];
         }
         if ($steps === []) {
-            $steps[] = ['label' => 'Nothing to charge', 'detail' => 'No lateness, undertime or absence on this payroll, or the policy charges them to pay.', 'state' => 'unused'];
+            $steps[] = ['label' => 'Nothing to deduct', 'detail' => 'No lateness, undertime or absence on this payroll, or the leave settings deduct them from pay.', 'state' => 'unused'];
         }
 
-        return ['title' => 'Leave credits charged · '.$employeeName, 'amount' => $days, 'unit' => 'days', 'steps' => $steps];
+        return ['title' => 'Leave credits deducted · '.$employeeName, 'amount' => $days, 'unit' => 'credits', 'steps' => $steps];
     }
 
-    /** "1.25 days", "1 day": credits read at up to four decimals, never the grid's one-decimal day count. */
+    /** "1.25 credits", "1 credit": credits read at up to four decimals, never the grid's one-decimal day count. */
     public static function days(float $days): string
     {
-        return self::credits($days).' '.(abs($days - 1.0) < 0.00005 ? 'day' : 'days');
+        return self::credits($days).' '.(abs($days - 1.0) < 0.00005 ? 'credit' : 'credits');
     }
 
     /** A credit quantity at up to four decimals, trailing zeros trimmed: "2.125", "1", "0.0625". */

@@ -17,8 +17,8 @@ use App\Support\HrisFormat;
  *
  * The `LEAVE` token that PayrollLeavePayTest and PaidLeaveDaysTest file under
  * matches NO seeded credit key — pinned here so that gap stays deliberate:
- * a payroll fixture's bare token is not a credit type. Filing validates
- * available credits separately from payroll's reading of approved rows.
+ * a payroll fixture's bare token is not a credit type. What a request is
+ * paid when its credits run short is LeavePaySplitTest's.
  *
  * Pure PHP; no container and no clock, so this runs under tests/Unit.
  */
@@ -207,28 +207,23 @@ it('prints whole days bare and a half day with one decimal', function (float $da
     'negative remainder' => [-1.5, '-1.5'],
 ]);
 
-/* |---| Which types carry an entitlement |---| */
+/* |---| Which types are leave |---| */
 
-it('grants credits to the seeded leave types but never to official business or leave without pay', function () {
-    $creditable = array_values(array_filter(lcpolSeededNames(), static fn (string $name): bool => LeaveCreditPolicy::creditable($name)));
+it('treats every seeded leave type as leave but never official business, and leaves "without pay" to the setting', function () {
+    $leave = array_values(array_filter(lcpolSeededNames(), static fn (string $name): bool => LeaveCreditPolicy::creditable($name)));
 
-    expect($creditable)->toBe(['Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Maternity Leave', 'Paternity Leave'])
+    // Which leave holds credits is how HR set it to be filed
+    // (LeaveTypeCredits::FILING_CREDITS), never its name: "Leave Without
+    // Pay" is leave, filed without pay by its setting.
+    expect($leave)->toBe(['Vacation Leave', 'Sick Leave', 'Emergency Leave', 'Maternity Leave', 'Paternity Leave', 'Leave Without Pay'])
         ->and(LeaveCreditPolicy::creditable('Business Travel / OB'))->toBeFalse()
-        ->and(LeaveCreditPolicy::creditable('Leave Without Pay'))->toBeFalse()
         ->and(LeaveCreditPolicy::creditable('Official Business'))->toBeFalse()
         ->and(LeaveCreditPolicy::creditable('Travel'))->toBeFalse()
-        ->and(LeaveCreditPolicy::creditable('leave WITHOUT pay'))->toBeFalse()
         ->and(LeaveCreditPolicy::creditable('Bereavement Leave'))->toBeTrue();
 });
 
-it('requires enough remaining leave credits to file the requested calendar days', function (?float $remaining, float $needed, ?string $error) {
-    expect(LeaveCreditPolicy::filingError($remaining, $needed, 2026))->toBe($error);
-})->with([
-    'missing allocation' => [null, 1.0, 'You have no available leave credits for the selected leave type in 2026.'],
-    'zero allocation' => [0.0, 1.0, 'You have no available leave credits for the selected leave type in 2026.'],
-    'overdrawn allocation' => [-1.0, 0.5, 'You have no available leave credits for the selected leave type in 2026.'],
-    'insufficient allocation' => [0.5, 1.0, 'This request needs 1 day, but your available balance for this leave type in 2026 is 0.5 days.'],
-    'exact half-day balance' => [0.5, 0.5, null],
-    'exact whole-day balance' => [1.0, 1.0, null],
-    'larger balance' => [15.0, 2.0, null],
-]);
+it('costs one per counted date, half for a half-day request', function () {
+    expect(LeaveCreditPolicy::unit('WHOLE_DAY'))->toBe(1.0)
+        ->and(LeaveCreditPolicy::unit(null))->toBe(1.0)
+        ->and(LeaveCreditPolicy::unit('HALF_DAY'))->toBe(0.5);
+});

@@ -33,13 +33,13 @@ final class DeleteRecurringLine
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! RecurringLines::ready()) {
-            throw new RuntimeException('Recurring lines can be set up once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Loans and allowances can be set up once this installation\'s upgrade finishes.');
         }
 
         return DB::transaction(static function () use ($access, $lineId): string {
             $row = PayrollRecurringLine::query()->whereKey($lineId)->lockForUpdate()->first();
             if ($row === null) {
-                throw new RuntimeException('That recurring line no longer exists.');
+                throw new RuntimeException('That loan or allowance no longer exists.');
             }
             if (RecurringLines::posted($row->id)) {
                 throw new RuntimeException('This line was already paid on a payslip, so it stays on record. End it instead.');
@@ -49,7 +49,7 @@ final class DeleteRecurringLine
             RequiredAudit::record($access, AuditEvent::RECURRING_LINE_DELETED, 'payroll_recurring_lines', $row->id,
                 EmployeeName::display($employee).' — recurring line deleted');
 
-            return 'Recurring line deleted.';
+            return 'Loan or allowance deleted.';
         });
     }
 }

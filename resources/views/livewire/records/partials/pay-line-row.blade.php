@@ -1,9 +1,9 @@
 {{--
-    One of the employee's recurring lines in Allowances & benefits ($withTax:
-    Line, Per payroll, When, Tax) or Loans & other deductions (Line, Per
-    payroll, Left to pay, Runs), then where it comes from (their own) and
-    its menu. A line that has ended offers no End: ending only brings the
-    last date earlier.
+    One of the employee's recurring lines in Allowances & incentives ($withTax:
+    Line, Amount, Runs, Tax) or Loans & other deductions (Line, Per payroll,
+    Balance, Runs), then who set it (their own), its status in a column
+    of its own and its menu. A line that has ended offers no End: ending
+    only brings the last date earlier.
 --}}
 @php
     use App\Livewire\Records\Support\Hris;
@@ -22,7 +22,11 @@
     </td>
     @unless ($withTax)
         <td class="num whitespace-nowrap text-right">
-            {{ $line->left === null ? '—' : Hris::peso($line->left) }}
+            @if ($line->left === null)
+                <span class="text-muted-foreground">No balance</span>
+            @else
+                {{ Hris::peso($line->left) }}
+            @endif
             @if ($line->total !== null)
                 <span class="block text-xs text-muted-foreground">of {{ Hris::peso($line->total) }}</span>
             @endif
@@ -39,12 +43,12 @@
                 No end date
             @endif
         </span>
-        <span class="{{ RecurringLineText::STATUS_PILLS[$line->status] }} mt-1">{{ RecurringLineText::STATUSES[$line->status] }}</span>
     </td>
     @if ($withTax)
         <td>{{ $incentiveTaxes[$line->type_id] ?? '—' }}</td>
     @endif
     <td>@include('livewire.records.partials.pay-source', ['from' => 'own', 'status' => $status])</td>
+    <td><span class="{{ RecurringLineText::STATUS_PILLS[$line->status] }}">{{ RecurringLineText::STATUSES[$line->status] }}</span></td>
     <td class="text-right">
         <x-kit.row-actions :label="$line->type_name">
             <flux:menu.item icon="pencil" wire:click="editLine('{{ $line->id }}')">Edit</flux:menu.item>

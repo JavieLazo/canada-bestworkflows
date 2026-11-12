@@ -137,6 +137,8 @@
                                     'keep' => '',
                                     'error' => $shownErrors[$field['key']] ?? null,
                                     'required' => EmployeeFields::isRequired($field['key'], $form),
+                                    'departmentError' => $shownErrors['department'] ?? null,
+                                    'departmentRequired' => EmployeeFields::isRequired($field['key'], $form),
                                 ])
                                 @continue
                             @endif

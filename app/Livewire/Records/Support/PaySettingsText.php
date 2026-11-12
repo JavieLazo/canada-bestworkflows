@@ -42,7 +42,7 @@ final class PaySettingsText
         };
     }
 
-    /** "Off", "BIR table", "Annualized", "₱1,000.00 fixed" or "5% of taxable pay". */
+    /** "Off", "BIR semi-monthly table", "Annualized per cut-off (×24)", "₱1,000.00 fixed" or "5% of taxable compensation". */
     public static function withholding(GovDeductionSettings $settings): string
     {
         if (! (bool) $settings->get('allow_withholding_tax')) {
@@ -53,11 +53,51 @@ final class PaySettingsText
 
         return match (GovDeductionInput::methodOf($fixed, $percent, (bool) $settings->get('annualize_tax'), (bool) $settings->get('whole_year_tax'))) {
             GovDeductionInput::METHOD_FIXED => Hris::peso($fixed).' fixed',
-            GovDeductionInput::METHOD_PERCENT => Hris::moneyText($percent).'% of taxable pay',
-            GovDeductionInput::METHOD_ANNUALIZED => 'BIR table, annualized',
-            GovDeductionInput::METHOD_WHOLE_YEAR => 'Whole-year estimate, '.lcfirst((string) (GovDeductionInput::SPREADS[(string) $settings->get('tax_spread')] ?? 'spread equally')),
-            default => 'BIR table',
+            GovDeductionInput::METHOD_PERCENT => Hris::moneyText($percent).'% of taxable compensation',
+            GovDeductionInput::METHOD_ANNUALIZED => 'Annualized per cut-off (×24)',
+            GovDeductionInput::METHOD_WHOLE_YEAR => 'Projected annual tax with year-end adjustment, '.lcfirst((string) (GovDeductionInput::SPREADS[(string) $settings->get('tax_spread')] ?? 'spread equally')),
+            default => 'BIR semi-monthly table',
         };
+    }
+
+    /**
+     * The Employee Pay Settings list's one cell for contributions and tax:
+     * "Standard", or only what differs, named ("SSS: Off · Withholding tax:
+     * 5% of taxable compensation").
+     *
+     * @param  list<string>  $customized  the settings keys that differ from the standard ones
+     */
+    public static function summary(GovDeductionSettings $settings, array $customized): string
+    {
+        $parts = [];
+        foreach (GovDeductionSettings::CONTRIBUTIONS as $key => $name) {
+            if (array_intersect($customized, self::contributionKeys($key)) !== []) {
+                $parts[] = $name.': '.self::contribution($settings, $key);
+            }
+        }
+        if (array_intersect($customized, self::withholdingKeys()) !== []) {
+            $parts[] = 'Withholding tax: '.self::withholding($settings);
+        }
+        if (in_array('percent_rates', $customized, true)) {
+            $parts[] = 'Own rates on percentage deductions';
+        }
+
+        return $parts === [] ? 'Standard' : implode(' · ', $parts);
+    }
+
+    /**
+     * Every settings key the summary rests on, for marking a summary that differs.
+     *
+     * @return list<string>
+     */
+    public static function summaryKeys(): array
+    {
+        $keys = [...self::withholdingKeys(), 'percent_rates'];
+        foreach (array_keys(GovDeductionSettings::CONTRIBUTIONS) as $key) {
+            $keys = [...$keys, ...self::contributionKeys($key)];
+        }
+
+        return $keys;
     }
 
     /** "From the shift", or the override per hour. */

@@ -4,7 +4,7 @@
     <p class="font-semibold">That payroll no longer exists.</p>
     <div>
         <flux:button variant="outline" :href="route($backRoute ?? 'payroll.index')" wire:navigate>
-            {{ $backLabel ?? 'Back to Employee Payroll' }}
+            {{ $backLabel ?? 'Back to '.\App\Domain\Enums\PayrollRunKind::LABELS[\App\Domain\Enums\PayrollRunKind::REGULAR] }}
         </flux:button>
     </div>
 </div>

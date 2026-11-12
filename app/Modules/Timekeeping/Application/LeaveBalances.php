@@ -10,6 +10,7 @@ use App\Models\LeaveTravelRequest;
 use App\Modules\Organization\Contracts\HolidayCalendar;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
+use App\Modules\Timekeeping\Domain\Credits\LeaveTypeCredits;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -172,6 +173,65 @@ final class LeaveBalances
     }
 
     /**
+     * The credit key a request of `$token` draws on in a year: the token
+     * itself when the employee holds a credit under it, else its `_LEAVE`
+     * spelling when they hold that one (LeaveCreditPolicy::resolveKey),
+     * else the token.
+     */
+    public static function creditKey(string $employeeId, int $year, string $token): string
+    {
+        $held = array_values(LeaveCredit::query()->where('employee_id', $employeeId)->where('year', $year)
+            ->whereIn('request_type', [$token, $token.'_LEAVE'])->pluck('request_type')->map(static fn (mixed $key): string => (string) $key)->all());
+
+        return LeaveCreditPolicy::resolveKey($token, $held) ?? $token;
+    }
+
+    /**
+     * The days of a leave type with SET DAYS EACH YEAR an employee has
+     * already been approved with pay for in a calendar year: the days frozen
+     * on each approval drawing on that year (the paid part only).
+     */
+    public static function allowanceUsed(string $employeeId, int $year, string $token): float
+    {
+        $requests = self::drawingOn(LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date'), $year)
+            ->where('employee_id', $employeeId)->where('status', 'APPROVED')
+            ->get(self::columns());
+
+        return self::usage($requests, [$token], $year)[$token] ?? 0.0;
+    }
+
+    /**
+     * What a request of a leave type counts, as the type says it is counted
+     * (LeaveTypeCredits::$dayCount): its scheduled working days (`cost()`),
+     * or every calendar day of the range. The dates a posted payroll already
+     * charged to credits as an absence come out only for a type filed
+     * against credits: they were paid for out of those credits on the day.
+     *
+     * @param  list<string>  $cancelled
+     * @return array{days: float, dates: list<string>, excluded: list<string>}
+     */
+    public function costFor(LeaveTypeCredits $settings, string $employeeId, ?string $dayType, string $start, string $end, array $cancelled = []): array
+    {
+        if ($start > $end) {
+            return ['days' => 0.0, 'dates' => [], 'excluded' => []];
+        }
+        $calendar = $settings->dayCount === LeaveTypeCredits::DAYS_CALENDAR;
+        if ($settings->filedAgainstCredits() && ! $calendar) {
+            return $this->cost($employeeId, $dayType, $start, $end, $cancelled);
+        }
+        $charged = $settings->filedAgainstCredits() ? self::chargedAbsenceDates($employeeId, $start, $end) : [];
+        if ($calendar) {
+            $all = LeaveCreditPolicy::activeDays($start, $end, $cancelled);
+        } else {
+            $schedule = $this->roster->scheduleForEmployees([$employeeId], $start, $end)[$employeeId] ?? null;
+            $all = LeaveCreditPolicy::workingDates($schedule, $this->holidays->all(), $start, $end, $cancelled);
+        }
+        $dates = array_values(array_diff($all, $charged));
+
+        return ['days' => LeaveCreditPolicy::selectedDays($dayType, $dates), 'dates' => $dates, 'excluded' => array_values(array_intersect($all, $charged))];
+    }
+
+    /**
      * What a request over `$start`..`$end` costs: the dates it is charged
      * for and their credit units. Working days of the employee's schedule
      * (the dated roster over the range), holidays out, and out too the dates
@@ -232,7 +292,10 @@ final class LeaveBalances
     public static function columns(): array
     {
         $columns = ['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid'];
+        if (self::ready()) {
+            $columns = [...$columns, 'credits_year', 'credit_days', 'credit_dates'];
+        }
 
-        return self::ready() ? [...$columns, 'credits_year', 'credit_days', 'credit_dates'] : $columns;
+        return LeavePayDates::ready() ? [...$columns, 'unpaid_dates'] : $columns;
     }
 }

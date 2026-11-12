@@ -92,13 +92,17 @@
         >
             <flux:sidebar.header>
                 <div class="flex min-h-12 min-w-0 flex-1 items-center overflow-hidden rounded-md sidebar-rail:justify-center">
-                    {{-- The compact mark fits the collapsed rail; hovering the rail
-                         restores the horizontal logo with the rest of the header. --}}
-                    <img src="{{ asset('bestworkflows-icon-32.png') }}" alt="BestWorkflows logo" width="32" height="32"
-                         class="hidden size-8 shrink-0 rounded-md object-contain sidebar-rail:block" />
-                    <div class="grid min-w-0 flex-1 gap-1 {{ $hideCollapsed }}">
-                        <x-brand-logo class="w-full" />
-                        <span class="text-center text-xs text-sidebar-foreground/70">Management Information System</span>
+                    {{-- The B mark in both states, never the wordmark image or the
+                         tagline: alone in the collapsed rail; beside the product's
+                         name in type, over the system's name, while the sidebar is
+                         open. --}}
+                    <x-brand-logo variant="mark" display="hidden sidebar-rail:block" class="size-8 shrink-0" />
+                    <div class="flex min-w-0 flex-1 items-center gap-3 {{ $hideCollapsed }}">
+                        <x-brand-logo variant="mark" class="size-11 shrink-0" aria-hidden="true" />
+                        <div class="min-w-0">
+                            <p class="text-base font-bold leading-tight">BestWorkflows</p>
+                            <p class="text-xs leading-snug text-sidebar-foreground/70">Management Information System</p>
+                        </div>
                     </div>
                 </div>
             </flux:sidebar.header>

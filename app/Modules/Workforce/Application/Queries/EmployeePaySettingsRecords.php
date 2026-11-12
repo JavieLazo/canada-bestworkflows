@@ -25,7 +25,7 @@ use Illuminate\Support\Collection;
  */
 final class EmployeePaySettingsRecords
 {
-    private const array IDENTITY = ['id', 'employee_code', 'employee_id_no', 'first_name', 'middle_name', 'last_name', 'suffix', 'employment_status', 'date_hired', 'is_active'];
+    private const array IDENTITY = ['id', 'employee_code', 'employee_id_no', 'first_name', 'middle_name', 'last_name', 'suffix', 'position', 'photo_path', 'employment_status', 'date_hired', 'is_active'];
 
     /** @return Collection<int, EmployeePaySettingsView> by last name, then first */
     public function list(Access $actor): Collection

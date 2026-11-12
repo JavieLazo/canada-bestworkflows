@@ -126,3 +126,21 @@ it('names the part that decides a date: weekday hours, else the default shift, e
         // Weekday hours alone leave every other weekday unassigned.
         ->and((new ScheduleTimeline([], [['from' => null, 'order' => '01', 'weekday' => 2, 'shift' => tlWeekday(2, '13:00:00', '22:00:00')]]))->partAt('2026-10-07'))->toBe(ScheduleBasis::SOURCE_NONE);
 });
+
+it('reads a default-shift entry with no shift as a cleared shift: no schedule and nothing deciding the date from it on', function () {
+    $timeline = new ScheduleTimeline([
+        ['from' => null, 'order' => '01', 'shift' => tlShift('08:00:00', '17:00:00')],
+        ['from' => '2026-10-12', 'order' => '02', 'shift' => null],
+        ['from' => '2026-10-19', 'order' => '03', 'shift' => tlShift('22:00:00', '06:00:00')],
+    ]);
+
+    expect($timeline->scheduleAt('2026-10-11')?->startTime)->toBe('08:00:00')
+        ->and($timeline->partAt('2026-10-11'))->toBe(ScheduleBasis::SOURCE_DEFAULT)
+        ->and($timeline->scheduleAt('2026-10-12'))->toBeNull()
+        ->and($timeline->partAt('2026-10-12'))->toBe(ScheduleBasis::SOURCE_NONE)
+        ->and($timeline->partAt('2026-10-18'))->toBe(ScheduleBasis::SOURCE_NONE)
+        ->and($timeline->hourChangesWithin('2026-10-01', '2026-10-31'))->toBe(['2026-10-12', '2026-10-19'])
+        // A later assignment takes over again.
+        ->and($timeline->scheduleAt('2026-10-19')?->startTime)->toBe('22:00:00')
+        ->and($timeline->partAt('2026-10-19'))->toBe(ScheduleBasis::SOURCE_DEFAULT);
+});

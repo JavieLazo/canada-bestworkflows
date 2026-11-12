@@ -59,6 +59,7 @@ use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\PayrollReviewFixture;
+use Tests\Support\ScheduleFixture;
 
 /** Approved business writes and their audit must survive or roll back together. */
 
@@ -110,6 +111,8 @@ it('rolls back each approved command when its audit insert fails', function (str
     ['actor' => $actor, 'role' => $role, 'target' => $target, 'employee' => $employee, 'run' => $run] = requiredAuditFixture();
     if (str_starts_with($operation, 'decide-')) {
         requiredAuditOvertimeDay($employee);
+    } elseif ($operation === 'finalize') {
+        ScheduleFixture::standard($employee);
     }
     // A loan to add, end or delete, saved before the audit starts failing.
     $loan = str_ends_with($operation, '-recurring-line') ? PayrollDeduction::create(['code' => '7', 'name' => 'SSS Loan']) : null;
@@ -249,6 +252,7 @@ it('rolls back a successful strict audit with its enclosing business transaction
 
 it('records finalization and its notifications only once on a repeated request', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = requiredAuditFixture();
+    ScheduleFixture::standard($employee);
     User::factory()->create(['employee_id' => $employee->id, 'is_active' => true]);
     expect(app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id)))->toBe(1);
     expect(fn () => app(FinalizePayroll::class)->handle($actor, $run->id))->toThrow(RuntimeException::class, 'already finalized');

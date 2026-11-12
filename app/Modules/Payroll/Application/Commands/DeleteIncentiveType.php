@@ -39,7 +39,7 @@ final class DeleteIncentiveType
             throw new RuntimeException("{$row->name} is on a payroll, so it cannot be deleted. Rename it instead.");
         }
         if (RecurringLines::ready() && PayrollRecurringLine::query()->where('incentive_type_id', $id)->exists()) {
-            throw new RuntimeException("Employees have recurring lines on {$row->name}, so it cannot be deleted. End or delete those lines in Employee Pay Settings, or rename it instead.");
+            throw new RuntimeException("Employees have allowances set on {$row->name}, so it cannot be deleted. End or delete them in Employee Pay Settings, or rename it instead.");
         }
 
         $code = $row->code;

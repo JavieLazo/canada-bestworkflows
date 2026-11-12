@@ -15,6 +15,8 @@
                     "… (not on the Position list)" under EmployeePosition::KEEP; '' for none
         $error      ?string — Position's message
         $required   bool — asterisk on Position
+        $departmentError     optional ?string — Department's message (the hire wizard)
+        $departmentRequired  optional bool — asterisk on Department (the hire wizard)
 
     Read: Department | Unit, then Position. Department is "—" for a record
     with no linked position and "Not placed" for one linked to a position
@@ -23,7 +25,8 @@
 
     Edit: Department and Unit only narrow the Position list (form.department_id,
     form.unit_id — drafts the save never reads); Position binds
-    form.position_id, the one value stored.
+    form.position_id, the one value stored. Each select opens with a blank
+    option that can be picked, so a choice made by mistake is cleared again.
 --}}
 @php
     use App\Livewire\Employees\Support\PositionPicker;
@@ -33,6 +36,8 @@
     $department = $editing ? $choices['department'] : '';
     $chosenNothing = $department === '';
     $notPlaced = $department === PositionPicker::NOT_PLACED;
+    $departmentError = $departmentError ?? null;
+    $departmentRequired = $departmentRequired ?? false;
 @endphp
 @if (! $editing)
     <div wire:key="{{ $prefix }}-department" class="contents">
@@ -56,14 +61,23 @@
 @else
     <div wire:key="{{ $prefix }}-department" class="contents">
         <div class="space-y-2">
-            <flux:label>Department</flux:label>
-            <x-kit.select wire:model.live="form.department_id" aria-label="Department">
+            <flux:label>
+                Department
+                @if ($departmentRequired)
+                    <span aria-hidden="true" class="ml-0.5 text-danger">*</span>
+                    <span class="sr-only">(required)</span>
+                @endif
+            </flux:label>
+            <x-kit.select wire:model.live="form.department_id" aria-label="Department" :invalid="(bool) $departmentError">
                 <flux:select.option value="">Choose a department</flux:select.option>
                 <flux:select.option value="{{ PositionPicker::NOT_PLACED }}">Not placed</flux:select.option>
                 @foreach ($choices['departments'] as $option)
                     <flux:select.option value="{{ $option['id'] }}">{{ $option['name'] }}</flux:select.option>
                 @endforeach
             </x-kit.select>
+            @if ($departmentError)
+                <p class="text-xs text-danger">{{ $departmentError }}</p>
+            @endif
         </div>
     </div>
     <div wire:key="{{ $prefix }}-unit" class="contents">
@@ -102,7 +116,7 @@
                 aria-label="Position"
                 :invalid="(bool) $error"
             >
-                <flux:select.option value="" disabled hidden>Not set</flux:select.option>
+                <flux:select.option value="">Not set</flux:select.option>
                 @if ($keep !== '')
                     <flux:select.option value="{{ EmployeePosition::KEEP }}">{{ $keep }} (not on the Position list)</flux:select.option>
                 @endif

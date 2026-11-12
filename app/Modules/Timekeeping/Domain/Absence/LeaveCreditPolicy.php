@@ -19,11 +19,10 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
  *
  * Nothing here reads a clock, a database or a screen: the query hands in the
  * requests, the command hands in the wire values, and both get the same
- * answers. DELIBERATE DIVERGENCE — filing requires enough available credits
- * for the selected leave type and the year the request draws on, including
- * Leave Without Pay. Official business is exempt. Approval and the rules
- * for counting usage remain separate: pending requests do not reserve
- * credits.
+ * answers. A SHORT BALANCE NEVER REFUSES A FILING: the request is filed,
+ * the employee is told which days the credits do not cover, and approval
+ * pays the days the credits cover and leaves the rest without pay
+ * (LeavePaySplit). Pending requests do not reserve credits.
  *
  * A REQUEST COSTS ITS SCHEDULED WORKING DAYS (the owner's decision, PPMC's
  * leave-card practice): `workingDates` keeps only the dates of the range the
@@ -48,14 +47,20 @@ final class LeaveCreditPolicy
     public const string RANGE_ERROR = LeaveQuantity::RANGE_ERROR;
 
     /**
-     * Whether a Leave Settings type is one an employee can hold credits for.
-     * Business travel is official business, not leave (the portal's own
-     * exclusion), and a "without pay" type is by definition not an
-     * entitlement — a column of credits for it would describe nothing.
+     * Whether a Leave Settings name is LEAVE at all: business travel is
+     * official business, filed apart and never leave (the portal's own
+     * exclusion). Which leave types hold credits is how HR set each one to
+     * be filed (LeaveTypeCredits::FILING_CREDITS), never its name.
      */
     public static function creditable(string $leaveTypeName): bool
     {
-        return preg_match('/business|travel|without pay/i', $leaveTypeName) !== 1;
+        return preg_match('/business|travel/i', $leaveTypeName) !== 1;
+    }
+
+    /** What one counted date of a request costs: half for a half-day request, else one. */
+    public static function unit(?string $dayType): float
+    {
+        return $dayType === 'HALF_DAY' ? 0.5 : 1.0;
     }
 
     /**
@@ -83,7 +88,7 @@ final class LeaveCreditPolicy
      */
     public static function selectedDays(?string $dayType, array $dates): float
     {
-        return LeaveQuantity::normalize(count(array_unique($dates)) * ($dayType === 'HALF_DAY' ? 0.5 : 1.0));
+        return LeaveQuantity::normalize(count(array_unique($dates)) * self::unit($dayType));
     }
 
     /**
@@ -143,22 +148,6 @@ final class LeaveCreditPolicy
     public static function isLeave(string $requestType): bool
     {
         return $requestType !== AbsencePolicy::OFFICIAL_BUSINESS;
-    }
-
-    /** The filing guard shared by the form and the command's fresh balance check. */
-    public static function filingError(?float $remaining, float $needed, int $year): ?string
-    {
-        if ($remaining === null || $remaining <= 0) {
-            return "You have no available leave credits for the selected leave type in {$year}.";
-        }
-        if ($needed > $remaining) {
-            $neededDays = self::format($needed).' '.($needed === 1.0 ? 'day' : 'days');
-            $availableDays = self::format($remaining).' '.($remaining === 1.0 ? 'day' : 'days');
-
-            return "This request needs {$neededDays}, but your available balance for this leave type in {$year} is {$availableDays}.";
-        }
-
-        return null;
     }
 
     /**

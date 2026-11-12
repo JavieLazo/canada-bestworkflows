@@ -118,6 +118,7 @@ it('creates the account with the generated password and takes it off the form', 
     $password = $form->get('createPassword');
 
     $form->set('createEmail', 'generated@example.com')
+        ->set('createName', 'Generated Sign-in')
         ->call('createRoleChanged', (string) $role->getKey())
         ->call('createAccount')
         ->assertSet('adding', false)

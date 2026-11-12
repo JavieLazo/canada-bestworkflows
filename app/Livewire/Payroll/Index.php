@@ -87,7 +87,7 @@ class Index extends Component
      */
     protected function sortableKeys(): array
     {
-        return ['id', 'name', 'from', 'to', 'pay', 'employees', 'status'];
+        return ['id', 'name', 'from', 'to', 'employees', 'status'];
     }
 
     /** The status select resets to page 1 (payroll-page.tsx:124-127); search relies on the clamp. */

@@ -33,6 +33,10 @@ use App\Domain\Enums\ModuleCode;
  *   ['label' => …, 'path'  => …]        a page of its own   (Holiday Settings)
  *   ['label' => …, 'items' => [ … ]]    a folder of pages   (General Records)
  *
+ * A group may also name a `grant`: the one module a role must hold to be shown
+ * it, in place of the tree's own (Payroll Settings, in Records Management).
+ * Like the rest of this file it decides what is drawn, never what is reachable.
+ *
  * Ported labels, paths, descriptions and group structure follow hris.ts.
  * Community, Chat and Reports extend that registry with their own grants.
  *
@@ -42,7 +46,7 @@ use App\Domain\Enums\ModuleCode;
  *     path: string,
  *     description: string,
  *     icon: string,
- *     groups?: list<array{label: string, path?: string, items?: list<array{label: string, path: string}>}>
+ *     groups?: list<array{label: string, path?: string, grant?: string, items?: list<array{label: string, path: string}>}>
  * }>
  */
 return [
@@ -110,12 +114,6 @@ return [
         'groups' => [
             ['label' => 'Basic Payroll', 'path' => '/payroll'],
             ['label' => '13th Month Payroll', 'path' => '/payroll/thirteenth-month'],
-            // The adjustment ledger: differences paid or recovered on a later payroll.
-            ['label' => 'Adjustments', 'path' => '/payroll/adjustments'],
-            // Every page that shapes a payroll: the overview, then a switch to
-            // the rest (/payroll/settings/…). The sidebar lights the longest
-            // path a page is under, so all of them light this entry.
-            ['label' => 'Payroll Settings', 'path' => '/payroll/settings'],
         ],
     ],
     [
@@ -145,8 +143,14 @@ return [
                 ],
             ],
             ['label' => 'Holiday Settings', 'path' => '/records/holidays'],
-            ['label' => 'Leave Settings', 'path' => '/records/leave-types'],
-            ['label' => 'Leave Credits', 'path' => '/records/leave-credits'],
+            ['label' => 'Leave Settings', 'path' => '/records/leave-credits'],
+            // Every page that shapes a payroll, joined by a switch
+            // (/records/payroll-settings/…). The sidebar lights the longest
+            // path a page is under, so all of them light this entry.
+            // Its `grant` is PAYROLL, the same as its pages' route gate: a
+            // Records holder without Payroll is not shown it, and a Payroll
+            // holder without Records sees this tree with this entry alone.
+            ['label' => 'Payroll Settings', 'path' => '/records/payroll-settings', 'grant' => ModuleCode::PAYROLL],
             ['label' => 'Shifting Settings', 'path' => '/records/shifts'],
             ['label' => 'Site Settings', 'path' => '/records/sites'],
         ],

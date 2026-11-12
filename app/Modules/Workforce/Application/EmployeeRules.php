@@ -46,13 +46,16 @@ final class EmployeeRules
             return $duplicate;
         }
 
-        if ($payload['work_site_id'] === null
-            || ! app(OrganizationReferences::class)->siteExists((string) $payload['work_site_id'])) {
-            return 'Choose an existing work site for the employee.';
-        }
-        // A new record is a new assignment: an inactive site is withheld.
-        if (! app(OrganizationReferences::class)->siteAssignable((string) $payload['work_site_id'])) {
-            return 'That work site is inactive, so it cannot be chosen for a new assignment. Choose an active site, or make it active again in Site Settings.';
+        // The worksite may be left for later ("No assigned worksite"); one
+        // that is chosen must exist.
+        if ($payload['work_site_id'] !== null) {
+            if (! app(OrganizationReferences::class)->siteExists((string) $payload['work_site_id'])) {
+                return 'Choose an existing work site for the employee.';
+            }
+            // A new record is a new assignment: an inactive site is withheld.
+            if (! app(OrganizationReferences::class)->siteAssignable((string) $payload['work_site_id'])) {
+                return 'That work site is inactive, so it cannot be chosen for a new assignment. Choose an active site, or make it active again in Site Settings.';
+            }
         }
 
         // A hire is a new link: the position must be on the list.
@@ -62,8 +65,10 @@ final class EmployeeRules
             return $position;
         }
 
-        if ($payload['employment_status'] === null
-            || EmploymentStatusOption::query()->where('name', $payload['employment_status'])->doesntExist()) {
+        // Left blank, the status is the column's default; one that is chosen
+        // must be on the list.
+        if (($payload['employment_status'] ?? null) !== null
+            && EmploymentStatusOption::query()->where('name', $payload['employment_status'])->doesntExist()) {
             return 'Choose an employment status from Records Management.';
         }
 

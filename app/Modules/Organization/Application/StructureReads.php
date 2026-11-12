@@ -33,6 +33,36 @@ final class StructureReads
         return once(static fn (): bool => Schema::hasTable('org_nodes') && Schema::hasColumn('positions', 'org_node_id'));
     }
 
+    /** Whether departments and units carry a head of office yet (`2026_11_11_0002`). */
+    public static function headsReady(): bool
+    {
+        return once(static fn (): bool => self::ready() && Schema::hasColumns('org_nodes', ['head_name', 'head_designation']));
+    }
+
+    /**
+     * Who heads an office, for the Application for Leave: the unit's head
+     * where the unit has one, else its department's. Null when neither is
+     * set, and before the columns exist.
+     *
+     * @return array{name: string, designation: string}|null
+     */
+    public static function officeHead(?string $unitId, ?string $departmentId): ?array
+    {
+        $ids = array_values(array_filter([$unitId, $departmentId], static fn (?string $id): bool => $id !== null && $id !== ''));
+        if ($ids === [] || ! self::headsReady()) {
+            return null;
+        }
+        $nodes = OrgNode::query()->whereKey($ids)->get(['id', 'head_name', 'head_designation'])->keyBy('id');
+        foreach ($ids as $id) {
+            $node = $nodes->get($id);
+            if ($node !== null && trim((string) $node->head_name) !== '') {
+                return ['name' => trim((string) $node->head_name), 'designation' => trim((string) $node->head_designation)];
+            }
+        }
+
+        return null;
+    }
+
     /** The whole structure. `$lock` reads it FOR UPDATE, for a command that holds the mutex. */
     public static function structure(bool $lock = false): OrgStructure
     {

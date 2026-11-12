@@ -193,8 +193,9 @@ final class PdsLists
 
     /**
      * An empty dialog draft. An education draft starts on `$level` when it
-     * is a known level, else on the first one: the level select has no
-     * blank option, so the draft holds what the select shows.
+     * is a known level, else on the first one, so a new row opens on a
+     * level; its select also offers a blank, which a row with an answer
+     * is refused for (Level is required).
      *
      * @return array<string, string>
      */
@@ -415,8 +416,8 @@ final class PdsLists
 
     /**
      * The rows that carry an answer, keyed by their place in the list as
-     * given (0 for the first row drawn). A level alone is not an answer: the
-     * education select always holds one. Anything that is not a row is kept
+     * given (0 for the first row drawn). A level alone is not an answer: a
+     * new education row opens on one. Anything that is not a row is kept
      * as an empty one, so it fails as one.
      *
      * @param  array<array-key, mixed>  $rows

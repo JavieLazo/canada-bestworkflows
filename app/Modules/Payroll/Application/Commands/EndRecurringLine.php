@@ -37,7 +37,7 @@ final class EndRecurringLine
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! RecurringLines::ready()) {
-            throw new RuntimeException('Recurring lines can be set up once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Loans and allowances can be set up once this installation\'s upgrade finishes.');
         }
         $reason = trim($reason);
         if ($reason === '' || mb_strlen($reason) > SaveRecurringLine::NOTE_MAX) {
@@ -47,7 +47,7 @@ final class EndRecurringLine
         return DB::transaction(static function () use ($access, $lineId, $lastDay, $reason): string {
             $row = PayrollRecurringLine::query()->whereKey($lineId)->lockForUpdate()->first();
             if ($row === null) {
-                throw new RuntimeException('That recurring line no longer exists.');
+                throw new RuntimeException('That loan or allowance no longer exists.');
             }
             $error = RecurringLine::error([...RecurringLines::figures($row), 'ends_on' => $lastDay]);
             if ($error === 'The last date cannot be before the start.') {
@@ -62,7 +62,7 @@ final class EndRecurringLine
             }
             // The date it already has: nothing changes, so nothing is audited.
             if ($current === $lastDay) {
-                return 'The recurring line already ends after '.PayrollPeriodText::day($lastDay).'.';
+                return 'That loan or allowance already ends after '.PayrollPeriodText::day($lastDay).'.';
             }
             $row->fill(['ends_on' => $lastDay])->save();
 
@@ -71,7 +71,7 @@ final class EndRecurringLine
             RequiredAudit::record($access, AuditEvent::RECURRING_LINE_ENDED, 'payroll_recurring_lines', $row->id,
                 EmployeeName::display($employee)." — recurring line ends after {$day} ({$reason})");
 
-            return "The recurring line ends after {$day}.";
+            return "The loan or allowance ends after {$day}.";
         });
     }
 }

@@ -30,6 +30,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $password
  * @property string|null $role_id
  * @property string|null $employee_id
+ * @property string|null $account_name
  * @property bool $is_active
  * @property Carbon|null $last_login_at
  * @property string $full_name
@@ -87,8 +88,10 @@ class User extends Authenticatable implements PasskeyUser
     }
 
     /**
-     * Names belong to the linked employee. Ignore legacy account-name inputs so
-     * older integrations cannot create a second personal record.
+     * Names belong to the linked employee. An account with no employee record
+     * reads the name typed for it (`account_name`), else its number. Ignore
+     * legacy account-name inputs so older integrations cannot create a second
+     * personal record: only ManageAccounts writes `account_name`.
      *
      * @return Attribute<string, never>
      */
@@ -97,12 +100,46 @@ class User extends Authenticatable implements PasskeyUser
         return Attribute::make(
             get: function (): string {
                 $employeeId = $this->employee_id;
-                $names = $employeeId === null ? [] : app(EmployeeNames::class)->labels([$employeeId]);
 
-                return $names[$employeeId ?? ''] ?? AccountLabel::unlinked($this->getKey());
+                if ($employeeId === null) {
+                    return AccountLabel::unlinked($this->getKey(), $this->typedName());
+                }
+
+                return app(EmployeeNames::class)->labels([$employeeId])[$employeeId] ?? AccountLabel::unlinked($this->getKey());
             },
             set: static fn (mixed $value): array => [],
         );
+    }
+
+    /**
+     * Whether `users.account_name` exists yet. Files reach the host before the
+     * cron runs their migration, so every reader and writer of the column asks
+     * first. Asked once per request, never remembered longer.
+     */
+    public static function accountNameReady(): bool
+    {
+        return once(static fn (): bool => Schema::hasColumn('users', 'account_name'));
+    }
+
+    /**
+     * The typed name, read from the row when this instance was loaded without
+     * the column — most lists select a few columns only.
+     */
+    private function typedName(): ?string
+    {
+        if (array_key_exists('account_name', $this->attributes)) {
+            $typed = $this->attributes['account_name'];
+
+            return is_string($typed) ? $typed : null;
+        }
+
+        if (! $this->exists || ! self::accountNameReady()) {
+            return null;
+        }
+
+        $typed = static::query()->whereKey($this->getKey())->value('account_name');
+
+        return is_string($typed) ? $typed : null;
     }
 
     /** @return Attribute<string, never> */

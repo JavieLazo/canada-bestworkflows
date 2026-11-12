@@ -7,6 +7,7 @@ namespace App\Livewire\Audit;
 use App\Livewire\Audit\Support\AuditRows;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Platform\Audit\AuditLabels;
 use App\Platform\Audit\AuditRecords;
 use App\Platform\ReadModels\AuditLogView as AuditLog;
 use App\Support\Access;
@@ -49,10 +50,13 @@ class Index extends Component
      */
     public const int LIMIT = 500;
 
-    /** Action filter (audit-page.tsx:22). Plain filter state, deliberately unlocked. */
+    /**
+     * Action filter (audit-page.tsx:22): an action's label ({@see AuditLabels::action()})
+     * or ALL. Plain filter state, deliberately unlocked.
+     */
     public string $action = 'ALL';
 
-    /** Entity filter (audit-page.tsx:23). */
+    /** Entity filter (audit-page.tsx:23): an entity's label ({@see AuditLabels::entity()}) or ALL. */
     public string $entity = 'ALL';
 
     /** Actor filter — matched against `actor_name || "System"` (audit-page.tsx:24, 50). */
@@ -99,13 +103,14 @@ class Index extends Component
         $rows = app(AuditRecords::class)->latest($access, self::LIMIT);
 
         // The three filter option lists (audit-page.tsx:28-43): distinct
-        // values off the loaded rows, each sorted with localeCompare.
-        $actions = $rows->map(static fn (AuditLog $r): string => $r->action)
+        // values off the loaded rows, each sorted with localeCompare. Action
+        // and Entity list the labels the table shows, not the stored codes.
+        $actions = $rows->map(static fn (AuditLog $r): string => AuditLabels::action($r->action))
             ->unique()->values()->all();
         usort($actions, static fn (string $a, string $b): int => strcasecmp($a, $b));
 
-        $entities = $rows->map(static fn (AuditLog $r): ?string => $r->entity)
-            ->filter(static fn (?string $e): bool => $e !== null && $e !== '')
+        $entities = $rows->map(static fn (AuditLog $r): ?string => AuditLabels::entity($r->entity))
+            ->filter(static fn (?string $e): bool => $e !== null)
             ->unique()->values()->all();
         usort($entities, static fn (string $a, string $b): int => strcasecmp($a, $b));
 
@@ -136,8 +141,8 @@ class Index extends Component
     /**
      * Port of `compareText` (useSort.ts:33-40): blanks always sort last in an
      * ascending pass. `strcasecmp` stands in for `localeCompare` — for the
-     * uppercase event literals, table names and English actor names this
-     * screen sorts, the ordering is the same. Shared through
+     * English action and entity labels and actor names this screen sorts,
+     * the ordering is the same. Shared through
      * App\Support\TextSort; this wrapper keeps the call sites unchanged.
      */
     public static function compareText(?string $a, ?string $b): int

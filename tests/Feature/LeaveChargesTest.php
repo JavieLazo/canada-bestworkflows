@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-use App\Livewire\Leaves\LeavePolicies;
 use App\Livewire\Payroll\RunWorkspace;
 use App\Livewire\Payroll\Support\PayslipDocument;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveAttendanceCharge;
+use App\Models\LeaveConversionTable;
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
 use App\Models\LeaveEarningPosting;
@@ -26,10 +26,6 @@ use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
-use App\Modules\Timekeeping\Application\Commands\ApproveConversionTable;
-use App\Modules\Timekeeping\Application\Commands\ApproveLeavePolicy;
-use App\Modules\Timekeeping\Application\Commands\SaveConversionTable;
-use App\Modules\Timekeeping\Application\Commands\SaveLeavePolicy;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\PostLeaveEarnings;
 use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
@@ -38,13 +34,14 @@ use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\LeaveRuleFixture;
 use Tests\Support\PayrollReviewFixture;
 
 /**
  * Attendance charged to leave credits (DELIBERATE DIVERGENCE 15). A payroll
  * charges each absent day and each day's lateness and undertime to the
  * employee's leave credits first, by the approved policy in force and the
- * conversion table in force, and prices only what credits did not cover to
+ * conversion table in use, and prices only what credits did not cover to
  * pay. The facts are captured with the run, so a changed balance stales the
  * preview; finalizing posts one charge row per day, a CHARGE ledger entry
  * per leave type and the allocation moved, and a day is never charged
@@ -111,8 +108,8 @@ function lchgAttendance(EmployeeProfile $employee): void
 
 /**
  * Vacation Leave (charged for lateness and absences, first) and Sick Leave
- * (absences only, second); a conversion table in force; the employee's
- * approved policy charging both; credits for 2026.
+ * (absences only, second); the employee's approved policy charging both;
+ * credits for 2026. The conversion table is fixed: nothing sets it up.
  */
 function lchgSetup(Access $actor, EmployeeProfile $employee, float $vacation = 3.0, float $sick = 1.0, string $combine = 'DAY'): void
 {
@@ -121,19 +118,14 @@ function lchgSetup(Access $actor, EmployeeProfile $employee, float $vacation = 3
         $type->forceFill(['code' => $code, 'name' => $name])->save();
         app(SaveLeaveTypeCredits::class)->handle($actor, $type->id, ['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => $late, 'charge_absence' => true, 'charge_order' => $order, 'below_zero_limit' => '0']);
     }
-    $table = app(SaveConversionTable::class)->handle($actor, null, ['effective_from' => '2026-01-01', 'hours_per_day' => '8', 'decimals' => '3', 'rounding' => 'HALF_DOWN', 'reference' => 'Table II', 'rows' => MinuteConversion::rows(8, 3, 'HALF_DOWN')]);
-    $policy = app(SaveLeavePolicy::class)->handle($actor, $employee->id, '2026-01-01', [
+    LeaveRuleFixture::approved('2026-01-01', [
         'posting_day' => 'MONTH_END', 'unpaid_counts' => ['UNPAID_LEAVE', 'ABSENCE'],
         'earning' => [
             'VACATION_LEAVE' => ['amount' => '1.25', 'method' => 'FLAT', 'table' => [], 'partial' => 'PRO_RATA', 'cap' => null],
             'SICK_LEAVE' => ['amount' => '1.25', 'method' => 'TABLE', 'table' => [['up_to' => '0', 'credits' => '1.25'], ['up_to' => '2', 'credits' => '1']], 'partial' => 'PRO_RATA', 'cap' => null],
         ],
         'charges' => ['enabled' => true, 'combine' => $combine, 'late' => ['VACATION_LEAVE'], 'absence' => ['VACATION_LEAVE', 'SICK_LEAVE']],
-    ], 'Regular staff');
-    // A second person approves the table and the policy; the payroll officer is signed back in after.
-    $approver = lchgActor();
-    app(ApproveConversionTable::class)->handle($approver, $table);
-    app(ApproveLeavePolicy::class)->handle($approver, $policy);
+    ]);
     foreach (['VACATION_LEAVE' => $vacation, 'SICK_LEAVE' => $sick] as $token => $credits) {
         $row = new LeaveCredit;
         $row->forceFill(['employee_id' => $employee->id, 'year' => 2026, 'request_type' => $token, 'credits' => $credits])->save();
@@ -190,12 +182,12 @@ it('charges absences and lateness to credits on the draft, posts them at finaliz
     // The grid shows the figure and explains it.
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->assertSeeHtml('data-leave-charged="'.$employee->id.'"')
-        ->assertSee('Leave Charged')
+        ->assertSee('Credits Deducted')
         ->call('openWhy', $employee->id, 'leave')
-        ->assertSee('Leave credits charged · Nina Charged')
+        ->assertSee('Leave credits deducted · Nina Charged')
         ->assertSee('Sep 03, 2026 · absence')
-        ->assertSee('Charged to Vacation Leave 1 day')
-        ->assertSee('Lateness and undertime of 60 min, 0.125 days by the conversion table');
+        ->assertSee('Deducted from Vacation Leave 1 credit')
+        ->assertSee('Lateness and undertime of 60 min, 0.125 credits by the conversion table');
     $page->call('finalize');
     expect($run->refresh()->status)->toBe('FINALIZED');
 
@@ -224,7 +216,7 @@ it('charges absences and lateness to credits on the draft, posts them at finaliz
         ->and($evidence['leave_charges'][$employee->id]['lines'])->toHaveCount(3)
         ->and(PayrollInputs::restore(PayrollInputs::json($evidence['inputs']))->leaveCharges[$employee->id]['year'])->toBe(2026);
     $document = PayslipDocument::issued(app(PayslipRecords::class)->find($actor, $run->id, $employee->id), $employee, false, [], [], collect());
-    expect(array_column($document['basis'], 'label'))->toContain('Charged to leave credits · days');
+    expect(array_column($document['basis'], 'label'))->toContain('Leave credits deducted');
 
     // Never twice: the charged dates are in the next capture, and the plan skips them.
     $again = app(LeaveChargeSource::class)->forPayroll($actor, [$employee->id], '2026-09-01', '2026-09-15')[$employee->id];
@@ -234,12 +226,6 @@ it('charges absences and lateness to credits on the draft, posts them at finaliz
             ['date' => '2026-09-03', 'late_minutes' => 0.0, 'undertime_minutes' => 0.0, 'absence_days' => 1.0],
             ['date' => '2026-09-02', 'late_minutes' => 60.0, 'undertime_minutes' => 0.0, 'absence_days' => 0.0],
         ])['lines'])->toBe([]);
-
-    // Leave Management shows the charges under the employee's policy.
-    Livewire::test(LeavePolicies::class)->call('openVersions', $employee->id)
-        ->assertSeeHtml('data-policy-charges')
-        ->assertSee('Lateness and undertime · 60 min')
-        ->assertSee('Vacation Leave 0.125');
 
     // The earning job counts the two covered absences as days without pay like any other:
     // September's 13 absences are the 3rd and the 10th plus the 11 unpunched days after the 15th.
@@ -336,4 +322,34 @@ it('migrates the charges table and the payslip column twice without complaint', 
     $m->up();
     $m->up();
     expect(Schema::hasTable('leave_attendance_charges'))->toBeTrue()->and(Schema::hasColumn('payslips', 'leave_charged_days'))->toBeTrue();
+});
+
+it('converts with the fixed table, never with a stored one, and the run captures that table', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-16T10:00:00+08:00'));
+    $actor = lchgActor();
+    $employee = lchgEmployee();
+    lchgSetup($actor, $employee, vacation: 5.0, sick: 1.0);
+    lchgAttendance($employee);
+    // A table an earlier build saved, its 1-hour row changed by hand: history only.
+    LeaveConversionTable::query()->delete();
+    $stored = new LeaveConversionTable;
+    $stored->forceFill([
+        'effective_from' => '2026-01-01', 'hours_per_day' => 8, 'decimals' => 3, 'rounding' => 'HALF_DOWN',
+        'rows' => ['minutes' => MinuteConversion::rows(8, 3, 'HALF_DOWN')['minutes'], 'hours' => [...MinuteConversion::rows(8, 3, 'HALF_DOWN')['hours'], 1 => '0.200']],
+        'reference' => 'Our own', 'status' => 'APPROVED',
+    ])->save();
+    $run = lchgDraft($actor, $employee);
+
+    // The hour late on the 2nd converts by the fixed table's 1-hour row, 0.125, not the stored 0.200.
+    $calculation = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
+    $late = array_values(array_filter($calculation['leaveChargeLines'][$employee->id]['lines'], static fn (array $l): bool => $l['kind'] === 'LATE'));
+    expect($late[0])->toMatchArray(['date' => '2026-09-02', 'minutes' => 60, 'days' => 0.125])
+        ->and($calculation['inputs']?->toArray()['leave_charges'][$employee->id]['conversion'])->toMatchArray([
+            'version_id' => 'CSC_STANDARD', 'hours_per_day' => 8.0, 'decimals' => 3, 'rows' => MinuteConversion::rows(8, 3, 'HALF_DOWN'),
+        ]);
+
+    // Finalized, the payslip and the charge rows carry that conversion.
+    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
+    expect(Payslip::query()->sole()->leave_charged_days)->toBe(2.125)
+        ->and(LeaveAttendanceCharge::query()->where('kind', 'LATE')->sole()->days)->toBe(0.125);
 });

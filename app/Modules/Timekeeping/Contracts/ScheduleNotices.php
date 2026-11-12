@@ -14,7 +14,8 @@ use Carbon\CarbonImmutable;
  *
  *   - dates NOBODY ASSIGNED A SCHEDULE FOR: the engine judges them by its own
  *     default, and that fallback must not silently become absences, lateness
- *     or deductions;
+ *     or deductions — so a regular payroll is not finalized while a member
+ *     has one inside their employment (`noShiftDates`, the hold);
  *   - schedule changes SAVED AFTER the draft was: the draft's amounts already
  *     follow the schedule each date has now, but the person finalizing must
  *     be told the ground moved.
@@ -29,6 +30,16 @@ interface ScheduleNotices
      * @return array<string, int> employee id => dates in [$start, $end], up to today, with no assigned schedule; only employees with at least one
      */
     public function unscheduledDays(Access $actor, array $employeeIds, string $start, string $end): array;
+
+    /**
+     * Every date of [$start, $end] — days still ahead included, because a
+     * payroll counted through an earlier day pays the rest as scheduled —
+     * on which the employee has no shift.
+     *
+     * @param  list<string>  $employeeIds
+     * @return array<string, list<string>> employee id => 'Y-m-d' dates, oldest first; only employees with at least one
+     */
+    public function noShiftDates(Access $actor, array $employeeIds, string $start, string $end): array;
 
     /**
      * @param  list<string>  $employeeIds

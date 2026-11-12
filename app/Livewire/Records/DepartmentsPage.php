@@ -10,6 +10,7 @@ use App\Modules\Organization\Application\Commands\MoveOrgNode;
 use App\Modules\Organization\Application\Commands\SaveDepartment;
 use App\Modules\Organization\Application\Commands\SaveUnit;
 use App\Modules\Organization\Application\Queries\StructureRecords;
+use App\Modules\Organization\Application\StructureReads;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Organization\Contracts\OrgLevel;
 use App\Modules\Organization\Contracts\Views\StructureOptionView;
@@ -56,6 +57,11 @@ class DepartmentsPage extends Component
 
     public string $formDescription = '';
 
+    /** The head of office named on the Application for Leave. Plain form state; the commands re-check it. */
+    public string $formHeadName = '';
+
+    public string $formHeadDesignation = '';
+
     /**
      * The unit dialog's Department select — a wire:model draft, deliberately
      * not #[Locked]: SaveUnit re-resolves it under the structure mutex and
@@ -94,7 +100,7 @@ class DepartmentsPage extends Component
             return;
         }
 
-        $this->openDialog($node->kind === OrgLevel::UNIT ? OrgLevel::UNIT : OrgLevel::DEPARTMENT, $node->id, $node->name, (string) ($node->description ?? ''), (string) ($node->parent_id ?? ''));
+        $this->openDialog($node->kind === OrgLevel::UNIT ? OrgLevel::UNIT : OrgLevel::DEPARTMENT, $node->id, $node->name, (string) ($node->description ?? ''), (string) ($node->parent_id ?? ''), (string) ($node->head_name ?? ''), (string) ($node->head_designation ?? ''));
     }
 
     public function save(): void
@@ -108,8 +114,8 @@ class DepartmentsPage extends Component
         $access = app(Access::class);
         try {
             $message = $this->dialogKind === OrgLevel::UNIT
-                ? app(SaveUnit::class)->handle($access, $this->editingId, $this->formName, $this->formDepartmentId, $this->formDescription)
-                : app(SaveDepartment::class)->handle($access, $this->editingId, $this->formName, $this->formDescription);
+                ? app(SaveUnit::class)->handle($access, $this->editingId, $this->formName, $this->formDepartmentId, $this->formDescription, $this->formHeadName, $this->formHeadDesignation)
+                : app(SaveDepartment::class)->handle($access, $this->editingId, $this->formName, $this->formDescription, $this->formHeadName, $this->formHeadDesignation);
         } catch (UniqueConstraintViolationException) {
             Flux::toast(variant: 'danger', text: '"'.trim($this->formName).'" is already on the list.');
 
@@ -172,8 +178,10 @@ class DepartmentsPage extends Component
         Flux::toast(variant: 'success', text: $message);
     }
 
-    private function openDialog(string $kind, ?string $id, string $name, string $description, string $departmentId): void
+    private function openDialog(string $kind, ?string $id, string $name, string $description, string $departmentId, string $headName = '', string $headDesignation = ''): void
     {
+        $this->formHeadName = $headName;
+        $this->formHeadDesignation = $headDesignation;
         $this->dialogKind = $kind;
         $this->editingId = $id;
         $this->formName = $name;
@@ -191,6 +199,7 @@ class DepartmentsPage extends Component
 
         return view('livewire.records.departments-page', [
             'paginator' => $paginator,
+            'headsReady' => StructureReads::headsReady(),
             'editing' => $this->editingId !== null ? $records->find($access, $this->editingId) : null,
             'deleting' => $this->deletingId !== null ? $records->find($access, $this->deletingId) : null,
             'departments' => array_values(array_filter(

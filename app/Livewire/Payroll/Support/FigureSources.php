@@ -148,8 +148,8 @@ final class FigureSources
         }
         if ($recurring !== null) {
             $left = $recurring['total'] === null ? null : Money::round(max(0.0, $recurring['total'] - $recurring['paid_before']));
-            $steps[] = self::step('Their recurring line', Hris::peso($recurring['amount']).' a payroll'
-                .($left !== null ? ', '.Hris::peso($left).' left to pay before this one' : ', no total').'.', true);
+            $steps[] = self::step('Their recurring deduction or allowance', Hris::peso($recurring['amount']).' a payroll'
+                .($left !== null ? ', '.Hris::peso($left).' balance before this one' : ', no total').'.', true);
         } elseif ($column->isPercent() && is_array($column->percent)) {
             $steps[] = self::step('Company: the '.$column->name.' rule', DeductionText::percent($column->percent).'.', true);
         }
@@ -183,8 +183,8 @@ final class FigureSources
             return match (true) {
                 ! $employee->allow_withholding_tax => 'Withholding tax is switched off for them.',
                 $employee->fixed_tax > 0.0 => Hris::peso($employee->fixed_tax).' on every payslip.',
-                $employee->percent_tax > 0.0 => Hris::percentText($employee->percent_tax / 100).' of taxable pay.',
-                $employee->annualize_tax => 'The BIR table, annualized.',
+                $employee->percent_tax > 0.0 => Hris::percentText($employee->percent_tax / 100).' of taxable compensation.',
+                $employee->annualize_tax => 'Annualized per cut-off (×24).',
                 default => 'None: the company\'s way.',
             };
         }

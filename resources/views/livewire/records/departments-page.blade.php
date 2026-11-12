@@ -50,7 +50,12 @@
                                     @if ($isUnit)
                                         <span class="text-muted-foreground" aria-hidden="true">└</span>
                                     @endif
-                                    <span>{{ $r->name }}</span>
+                                    <span>
+                                        {{ $r->name }}
+                                        @if ($r->head !== '')
+                                            <span class="block text-xs font-normal text-muted-foreground" data-office-head>Head of office: {{ $r->head }}</span>
+                                        @endif
+                                    </span>
                                 </span>
                             </td>
                             <td class="text-muted-foreground">{{ $r->description }}</td>
@@ -143,6 +148,16 @@
                     <flux:label>Description</flux:label>
                     <flux:textarea rows="2" aria-label="Description" wire:model="formDescription" />
                 </div>
+
+                @if ($headsReady)
+                    <div class="space-y-2" data-office-head-fields>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <flux:input label="Head of office" wire:model="formHeadName" maxlength="200" placeholder="Leave blank for none" />
+                            <flux:input label="Designation" wire:model="formHeadDesignation" maxlength="200" />
+                        </div>
+                        <p class="text-xs text-muted-foreground">Named on the Application for Leave as the Authorized official/Head of office. {{ $unitDialog ? 'Left blank, the department\'s head is named instead.' : 'A unit may name its own.' }}</p>
+                    </div>
+                @endif
 
                 <flux:button type="submit" variant="primary" :icon="$editing !== null ? 'pencil' : 'plus'">
                     {{ $editing !== null ? 'Save changes' : ($unitDialog ? 'Add unit' : 'Add department') }}

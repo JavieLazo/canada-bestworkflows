@@ -21,7 +21,7 @@ use InvalidArgumentException;
 /**
  * What one employee's pay page shows beside their own settings, each with
  * where it comes from: the rates that price them (Rate Per Month and Rate
- * Per Day from Employee Details, the day and hour those make under the Pay
+ * Per Day from the employee's record, the day and hour those make under the Pay
  * Basis & Rates in force), the scheduled Incentives & Bonuses they qualify
  * for, and the percentage Payroll Deductions that reach everyone.
  *
@@ -58,7 +58,7 @@ final class EmployeePayProfile
         $divisor = (float) ($figures['daily_rate']['value'] ?? 0.0);
 
         if ((float) ($settings->daily_rate ?? 0.0) > 0.0) {
-            $daily = ['text' => Hris::peso((float) $settings->daily_rate), 'note' => 'Rate Per Day on Employee Details', 'from' => self::FROM_OWN];
+            $daily = ['text' => Hris::peso((float) $settings->daily_rate), 'note' => 'Rate Per Day, as entered', 'from' => self::FROM_OWN];
         } elseif ($monthly <= 0.0) {
             $daily = ['text' => '—', 'note' => 'No Rate Per Month or Rate Per Day: payroll pays nothing', 'from' => self::FROM_OWN];
         } elseif ($method === PayRules::METHOD_FACTOR && $divisor > 0.0) {
@@ -75,7 +75,7 @@ final class EmployeePayProfile
 
         $rules = [
             'text' => EmployeeRates::summary($rates['version']?->params),
-            'note' => $rates['version'] !== null ? 'Since '.PayrollPeriodText::day($rates['version']->effective_from->format('Y-m-d')) : 'The built-in rules',
+            'note' => $rates['version'] !== null ? '' : 'The built-in rules',
             'from' => $rulesFrom,
         ];
 
@@ -85,9 +85,10 @@ final class EmployeePayProfile
     /**
      * The scheduled benefits of the Incentives & Bonuses the employee's
      * status qualifies for, with when one still waiting on their service
-     * starts. Typed benefits are left out: payroll proposes nothing for them.
+     * starts (`waiting`). Typed benefits are left out: payroll proposes
+     * nothing for them.
      *
-     * @return list<array{name: string, amount: string, when: string, tax: string, note: string}>
+     * @return list<array{name: string, amount: string, when: string, tax: string, note: string, waiting: bool}>
      */
     public static function benefits(Access $access, EmployeePaySettingsView $settings, string $today): array
     {
@@ -112,14 +113,15 @@ final class EmployeePayProfile
                 continue;
             }
             $note = 'Everyone who qualifies';
-            if (! $rule->qualifies($settings->employment_status_id, $serviceMonths)) {
+            $waiting = ! $rule->qualifies($settings->employment_status_id, $serviceMonths);
+            if ($waiting) {
                 // Their status is not on it at all: it never reaches them.
                 if (! $rule->qualifies($settings->employment_status_id, PHP_INT_MAX) || $hired === null) {
                     continue;
                 }
                 $note = 'From '.PayrollPeriodText::day($hired->addMonthsNoOverflow((int) $type->min_service_months)->format('Y-m-d')).', after '.(int) $type->min_service_months.' months of service';
             }
-            $rows[] = ['name' => $type->name, 'amount' => BenefitText::amount($type), 'when' => BenefitText::frequency($type), 'tax' => BenefitText::tax($type), 'note' => $note];
+            $rows[] = ['name' => $type->name, 'amount' => BenefitText::amount($type), 'when' => BenefitText::frequency($type), 'tax' => BenefitText::TAXES[BenefitText::tax($type)], 'note' => $note, 'waiting' => $waiting];
         }
 
         return $rows;

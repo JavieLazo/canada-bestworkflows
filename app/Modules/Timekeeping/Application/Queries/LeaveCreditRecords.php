@@ -6,6 +6,7 @@ namespace App\Modules\Timekeeping\Application\Queries;
 
 use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveCredit;
+use App\Models\LeaveCreditEntry;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
 use App\Modules\Timekeeping\Application\LeaveBalances;
@@ -17,6 +18,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\HrisFormat;
+use App\Support\ManilaClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -40,18 +42,21 @@ use Illuminate\Support\Collection;
 final class LeaveCreditRecords
 {
     /**
-     * The Leave Settings types an employee can hold credits for, keyed by
-     * their normalised token; the first name wins when two names normalise
-     * alike ("Sick Leave" and "Sick-Leave" are one column, not two).
+     * The Leave Settings types an employee can hold credits for — leave,
+     * not official business, that HR set to be filed against earned credits
+     * — keyed by their normalised token; the first name wins when two names
+     * normalise alike ("Sick Leave" and "Sick-Leave" are one column, not two).
      *
      * @return array<string, string> token => Leave Settings name, in name order
      */
     public function creditableTypes(Access $actor): array
     {
+        $settings = LeaveTypeCreditRecords::rules();
         $types = [];
         foreach ($this->typeNames($actor) as $name) {
             $key = HrisFormat::normalizeRequestType($name);
-            if ($key === '' || ! LeaveCreditPolicy::creditable($name) || isset($types[$key])) {
+            if ($key === '' || ! LeaveCreditPolicy::creditable($name) || isset($types[$key])
+                || ! ($settings[$key]['rules'] ?? LeaveTypeCreditRecords::of($key))->filedAgainstCredits()) {
                 continue;
             }
             $types[$key] = $name;
@@ -114,6 +119,81 @@ final class LeaveCreditRecords
     }
 
     /**
+     * The balances of a page of employees AS THE BOOKS STOOD at the end of
+     * one Manila day, for that day's credits year — what a leave card shows
+     * "as of" a date:
+     *
+     *  - the allocation is today's, with every ledger entry recorded after
+     *    that day taken back out (an earning posted, a charge, an
+     *    adjustment, a carry). A BASELINE entry is never taken back: it
+     *    records an allocation that already existed before movements were
+     *    kept. A credit whose every entry came later was not on the books
+     *    yet, and reads as not entered;
+     *  - the leave used is the approved, with-pay leave the books knew of by
+     *    then: approved on or before that day (a row with no review time
+     *    counts as already approved).
+     *
+     * For today, or a day still to come, nothing is later than the day, so
+     * the rows are exactly `balancesForEmployees()`'s — one rule, two reads.
+     * Unpaid cash-outs are only known as they stand now, so a past day shows
+     * none spoken for.
+     *
+     * @param  list<string>  $employeeIds
+     * @return array<string, list<LeaveBalanceView>> employee id => rows in Leave Settings order, stale tokens last
+     */
+    public function balancesAsOf(Access $actor, string $asOf, array $employeeIds): array
+    {
+        if ($employeeIds === []) {
+            return [];
+        }
+        $year = LeaveCreditPolicy::yearOf($asOf);
+        $cutoff = ManilaClock::instant($asOf.'T23:59:59.999')->utc();
+        $past = $asOf < ManilaClock::todayKey();
+        $types = $this->creditableTypes($actor);
+        $names = $this->typeNames($actor);
+        $credits = $this->forYear($actor, $year, $employeeIds);
+
+        // Per employee and token: what was recorded after the day, and
+        // whether anything shows the credit already stood on it.
+        $later = [];
+        $stood = [];
+        $moved = [];
+        $entries = LeaveCreditEntry::query()->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
+            ->where('year', $year)->whereIn('employee_id', $employeeIds)
+            ->get(['employee_id', 'request_type', 'kind', 'days', 'created_at']);
+        foreach ($entries as $entry) {
+            $moved[$entry->employee_id][$entry->request_type] = true;
+            if ($entry->kind === 'BASELINE' || $entry->created_at->lte($cutoff)) {
+                $stood[$entry->employee_id][$entry->request_type] = true;
+            }
+            if ($entry->kind !== 'BASELINE' && $entry->created_at->gt($cutoff)) {
+                $later[$entry->employee_id][$entry->request_type] = LeaveQuantity::normalize(($later[$entry->employee_id][$entry->request_type] ?? 0.0) + $entry->days);
+            }
+        }
+
+        $requests = $this->requestQuery($actor, $year)->whereIn('employee_id', $employeeIds)
+            ->where(static fn (Builder $q) => $q->whereNull('reviewed_at')->orWhere('reviewed_at', '<=', $cutoff))
+            ->get()->groupBy('employee_id');
+        $spoken = $past ? [] : LeaveCashOuts::spokenForMany($employeeIds);
+
+        $out = [];
+        foreach ($employeeIds as $employeeId) {
+            $entered = [];
+            foreach ($credits[$employeeId] ?? [] as $key => $view) {
+                // Recorded movements, none of them on or before the day: not on the books yet.
+                if (isset($moved[$employeeId][$key]) && ! isset($stood[$employeeId][$key])) {
+                    continue;
+                }
+                $entered[$key] = LeaveQuantity::normalize((float) $view->credits - ($later[$employeeId][$key] ?? 0.0));
+            }
+            $keys = $this->keysFor(array_keys($types), array_keys($entered));
+            $out[$employeeId] = $this->rows($keys, $entered, $requests->get($employeeId, new Collection), $year, $types, $names, $spoken[$employeeId] ?? []);
+        }
+
+        return $out;
+    }
+
+    /**
      * One employee's balances for a year — the review dialog's line and the
      * credits dialog's rows. For an employee the actor may not see, both
      * scoped reads return nothing, so every row reads "nothing entered,
@@ -129,10 +209,13 @@ final class LeaveCreditRecords
     }
 
     /**
-     * MY balances for a year: only the types with a credit entered, pinned
-     * to the session's own employee on top of the scope (the self-service
-     * rule), and empty for an account with no employee link — never an
-     * unfiltered read.
+     * MY balances for a year: EVERY leave type filed against credits, in
+     * Leave Settings order, whether or not a credit was entered for it (a
+     * type with none reads `credited` null, so the employee still sees it),
+     * then any stale token a credit is still entered under. Pinned to the
+     * session's own employee on top of the scope (the self-service rule),
+     * and empty for an account with no employee link — never an unfiltered
+     * read.
      *
      * @return Collection<int, LeaveBalanceView>
      */
@@ -145,11 +228,11 @@ final class LeaveCreditRecords
         foreach ($this->creditQuery($actor, $year)->where('employee_id', '=', $actor->ownEmployeeId())->get() as $row) {
             $entered[$row->request_type] = (float) $row->credits;
         }
-        if ($entered === []) {
+        $types = $this->creditableTypes($actor);
+        $keys = $this->keysFor(array_keys($types), array_keys($entered));
+        if ($keys === []) {
             return collect();
         }
-        $types = $this->creditableTypes($actor);
-        $keys = array_values(array_filter($this->keysFor(array_keys($types), array_keys($entered)), static fn (string $key): bool => isset($entered[$key])));
         $requests = $this->requestQuery($actor, $year)->where('employee_id', '=', $actor->ownEmployeeId())->get();
 
         return collect($this->rows($keys, $entered, $requests, $year, $types, $this->typeNames($actor), LeaveCashOuts::spokenFor($actor->ownEmployeeId())));

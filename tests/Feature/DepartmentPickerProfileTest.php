@@ -93,7 +93,7 @@ function deptpWorld(): array
 }
 
 /**
- * @param  array<string, string>  $filters
+ * @param  array{place?: string}  $filters
  * @return list<string>
  */
 function deptpDirectory(array $filters): array

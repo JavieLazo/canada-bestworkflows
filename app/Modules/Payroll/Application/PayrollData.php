@@ -32,6 +32,7 @@ use App\Modules\Payroll\Contracts\Views\PayslipView;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Modules\Payroll\Domain\Benefits\ExemptBenefitCeiling;
+use App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
 use App\Modules\Payroll\Domain\PayrollAdvance;
@@ -640,6 +641,7 @@ final class PayrollData
      *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
      *     leaveChargeLines: array<string, array{lines: list<array{date: string, kind: string, minutes: ?int, days: float, covered: array<string, float>, uncovered_days: float, fraction: float}>, balances: array<string, float>, notes: list<string>}>,
      *     presumedLines: array<string, array<string, float>>,
+     *     countedThrough: array<string, ?string>,
      * }
      */
     public static function calculateDrafts(
@@ -660,7 +662,7 @@ final class PayrollData
         ?string $runId = null,
     ): array {
         if ($employeeIds === [] || $periodStart === '' || $periodEnd === '') {
-            return ['drafts' => [], 'employees' => new Collection, 'issues' => [], 'draftErrors' => [], 'combined' => [], 'inputs' => null, 'statutory' => [], 'incentiveLines' => [], 'customDeductionLines' => [], 'settlementLines' => [], 'leaveChargeLines' => [], 'presumedLines' => []];
+            return ['drafts' => [], 'employees' => new Collection, 'issues' => [], 'draftErrors' => [], 'combined' => [], 'inputs' => null, 'statutory' => [], 'incentiveLines' => [], 'customDeductionLines' => [], 'settlementLines' => [], 'leaveChargeLines' => [], 'presumedLines' => [], 'countedThrough' => []];
         }
 
         $actor ??= app(Access::class);
@@ -802,6 +804,23 @@ final class PayrollData
             // or a catalog change stales the preview.
             $leaveCashOuts = app(LeaveCashOutSource::class)->forPayroll($actor, $employeeIds);
             $cashOutType = self::cashOutType();
+            // Terminal leave is priced from the employee's highest salary on
+            // record, captured on each terminal request; the others carry none.
+            $terminalIds = [];
+            foreach ($leaveCashOuts as $employeeId => $list) {
+                foreach ($list as $cashOut) {
+                    if ($cashOut['purpose'] === LeaveCashOutSource::TERMINAL) {
+                        $terminalIds[(string) $employeeId] = true;
+                    }
+                }
+            }
+            $highest = $terminalIds === [] ? [] : SalaryTimeline::highest($actor, $employees, array_keys($terminalIds), $periodEnd);
+            $pricedCashOuts = [];
+            foreach ($leaveCashOuts as $employeeId => $list) {
+                foreach ($list as $cashOut) {
+                    $pricedCashOuts[$employeeId][] = [...$cashOut, 'salary' => $cashOut['purpose'] === LeaveCashOutSource::TERMINAL ? ($highest[$employeeId] ?? null) : null];
+                }
+            }
 
             // The approved adjustments this payroll pays — each member's
             // lines meant for this run or for the next one — captured with
@@ -817,7 +836,7 @@ final class PayrollData
                 app(HolidayCalendar::class)->all(),
                 $draftDeductions, $draftAllowances, $draftEarnings, CalculatorVersion::current(),
                 $incentives, $ytd, $customDeductions, $active, $tables->tables, $payRules, $benefitRules, $deductionRules,
-                $recurring, $skipped, $attendanceThrough, $settlements, $leaveCharges, $leaveCashOuts, $cashOutType, $govPolicies, $adjustments,
+                $recurring, $skipped, $attendanceThrough, $settlements, $leaveCharges, $pricedCashOuts, $cashOutType, $govPolicies, $adjustments,
                 $contributionMonth, $contributionPosted, $benefitCeiling, $benefitAssignments, $taxYear,
             );
         });
@@ -935,12 +954,25 @@ final class PayrollData
         return once(static fn (): bool => Schema::hasColumn('payroll_incentive_types', 'pays_leave_cash_out'));
     }
 
+    /** Whether the paying type carries what a converted day pays yet (the window before the cron migrates 2026_11_09_0003; its last column). */
+    public static function cashOutValueReady(): bool
+    {
+        return once(static fn (): bool => Schema::hasColumn('payroll_incentive_types', 'cash_out_factor'));
+    }
+
+    /** What a converted day pays on a type: its columns once they exist, else the daily rate. */
+    public static function cashOutValueOf(PayrollIncentiveType $type): LeaveCashOutValue
+    {
+        return self::cashOutValueReady() ? LeaveCashOutValue::fromColumns($type->cash_out_day_value, $type->cash_out_factor) : LeaveCashOutValue::daily();
+    }
+
     /**
      * The Incentives & Bonuses type leave credit cash-outs are paid as, as
-     * the evidence captures it (PayrollInputs::$cashOutType), or null when
-     * none is marked.
+     * the evidence captures it (PayrollInputs::$cashOutType) — with what a
+     * converted day pays on it (LeaveCashOutValue) — or null when none is
+     * marked.
      *
-     * @return array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool}|null
+     * @return array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool, day_value: string, factor: ?float}|null
      */
     private static function cashOutType(): ?array
     {
@@ -953,7 +985,9 @@ final class PayrollData
         }
         $rule = self::benefitRuleOf($type);
 
-        return ['type_id' => $type->id, 'code' => $type->code, 'name' => $type->name, 'is_taxable' => $type->is_taxable, 'tax' => $rule->tax, 'counts_toward_13th' => $rule->countsToward13th];
+        $value = self::cashOutValueOf($type);
+
+        return ['type_id' => $type->id, 'code' => $type->code, 'name' => $type->name, 'is_taxable' => $type->is_taxable, 'tax' => $rule->tax, 'counts_toward_13th' => $rule->countsToward13th, 'day_value' => $value->method, 'factor' => $value->factor];
     }
 
     /**
@@ -1480,9 +1514,11 @@ final class PayrollData
     }
 
     /**
-     * Capture the mutable catalog's names with each positive amount. A row
-     * with a calculation is the engine's own line and cannot be charged
-     * twice, so only rows without one are read.
+     * Capture the mutable catalog's names with each positive amount, and a
+     * typed zero on a percentage row: an employee share already paid for
+     * this cut-off, the employer's still reported. A row with a calculation
+     * is the engine's own line and cannot be charged twice, so only rows
+     * without one are read.
      *
      * @param  array<string, array<string, mixed>>  $draftCustomDeductions
      * @param  list<string>  $employeeIds
@@ -1510,7 +1546,7 @@ final class PayrollData
             $amounts = $draftCustomDeductions[$employeeId] ?? [];
             foreach ($types as $type) {
                 $amount = $amounts[$type->id] ?? null;
-                if (! is_numeric($amount) || ! is_finite((float) $amount) || Money::round($amount) <= 0) {
+                if (! is_numeric($amount) || ! is_finite((float) $amount) || Money::round($amount) < 0 || (Money::round($amount) === 0.0 && $type->percent === null)) {
                     continue;
                 }
                 $lines[$employeeId][] = [
@@ -1537,6 +1573,7 @@ final class PayrollData
      *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
      *     leaveChargeLines: array<string, array{lines: list<array{date: string, kind: string, minutes: ?int, days: float, covered: array<string, float>, uncovered_days: float, fraction: float}>, balances: array<string, float>, notes: list<string>}>,
      *     presumedLines: array<string, array<string, float>>,
+     *     countedThrough: array<string, ?string>,
      * }
      */
     public static function calculateInputs(PayrollInputs $inputs, bool $strict = false): array
@@ -1576,6 +1613,10 @@ final class PayrollData
         $presumedLines = [];
         // DIVERGENCE 15: what each member's payroll charges to leave credits.
         $leaveChargeLines = [];
+        // DIVERGENCE 14: each member's own counted date — the run's, pulled
+        // back before their first unfinished day (PayrollAdvance::countedThrough);
+        // the date their payslip carries. Null without an advance.
+        $countedThrough = [];
         // The last day priced from attendance (the counted date of an
         // advance payroll); what comes after it is presumed, never read.
         $attendanceEnd = $inputs->attendanceEnd();
@@ -1603,16 +1644,31 @@ final class PayrollData
             // The Pay Basis & Rates this member is priced under (DIVERGENCE 13).
             $rules = $inputs->rulesFor($employeeId);
 
+            // DIVERGENCE 14: on an advance payroll, this member's counted
+            // date is the run's pulled back before their first unfinished
+            // day (a Time In without a Time Out among the counted days):
+            // that day and the rest are presumed and settled on their next
+            // payroll instead of blocking. Read from the same DTR rows the
+            // engine prices, inside the employment window.
+            $memberThrough = $inputs->attendanceThrough === null ? null : PayrollAdvance::countedThrough(
+                $inputs->attendanceThrough,
+                PayslipCalculator::attendanceDays($employee, $employeeLogs, $shift, $employeeLeaves, $periodStart, $periodEnd, $settings['holidays'], $inputs->attendanceThrough)[0],
+            );
+            $countedThrough[$employeeId] = $memberThrough;
+            $memberEnd = $memberThrough !== null && $memberThrough < $attendanceEnd ? $memberThrough : $attendanceEnd;
+
             // Readiness reads the days the payslip reads: through the counted
             // date on an advance payroll, so an open Time In on a presumed
-            // day — someone at work right now — is no issue.
-            foreach (PayrollReadiness::issues(
+            // day — someone at work right now, or an unfinished day pulled
+            // after the member's counted date — is no issue. A member whose
+            // first counted day is unfinished has nothing counted to check.
+            foreach ($memberEnd < $periodStart ? [] : PayrollReadiness::issues(
                 $computeDtr,
                 $employeeLogs,
                 $shift,
                 $employeeLeaves,
                 $periodStart,
-                $attendanceEnd,
+                $memberEnd,
                 PayrollPeriod::dateKeyFromDate($employee->date_hired),
                 $employee->date_resigned !== null ? PayrollPeriod::dateKeyFromDate($employee->date_resigned) : null,
                 $settings['holidays'],
@@ -1662,7 +1718,7 @@ final class PayrollData
             $chargePlan = null;
             $engineCharges = null;
             if ($chargeEntry !== null) {
-                $chargeFacts = LeaveChargeLines::dayFacts(PayslipCalculator::attendanceDays($employee, $employeeLogs, $shift, $employeeLeaves, $periodStart, $periodEnd, $settings['holidays'], $inputs->attendanceThrough)[0], $shift);
+                $chargeFacts = LeaveChargeLines::dayFacts(PayslipCalculator::attendanceDays($employee, $employeeLogs, $shift, $employeeLeaves, $periodStart, $periodEnd, $settings['holidays'], $memberThrough)[0], $shift);
                 // The settled days as the settlement's actual side prices
                 // them: today's leaving date, this payroll's holidays.
                 foreach ($inputs->settlements[$employeeId] ?? [] as $settled) {
@@ -1682,9 +1738,9 @@ final class PayrollData
                 $settlementLines[$employeeId] = $memberSettlements;
             }
             $settlement = Money::round(array_sum(array_column($memberSettlements, 'amount')));
-            if ($inputs->attendanceThrough !== null && $inputs->attendanceThrough < $periodEnd) {
+            if ($memberThrough !== null && $memberThrough < $periodEnd) {
                 $presumedLines[$employeeId] = AdvanceSettlements::presumedLines(
-                    $employee, $shift, $employeeLeaves, CalendarDays::next($inputs->attendanceThrough), $periodEnd,
+                    $employee, $shift, $employeeLeaves, max(CalendarDays::next($memberThrough), $periodStart), $periodEnd,
                     $inputs->formulas, $settings['holidays'], $rules,
                 );
             }
@@ -1697,7 +1753,7 @@ final class PayrollData
                 'overtimeCategories' => $attendance[$employeeId]->overtimeCategories,
                 'statutory' => $schedule, 'rules' => $rules, 'timeline' => $inputs->timelineFor($employeeId),
                 'contributionPosted' => $inputs->contributionPosted[$employeeId] ?? null,
-                'attendanceThrough' => $inputs->attendanceThrough, 'settlement' => $settlement, 'leaveCharges' => $engineCharges,
+                'attendanceThrough' => $memberThrough, 'settlement' => $settlement, 'leaveCharges' => $engineCharges,
             ];
             $automatic = self::automaticBenefitLines($inputs->benefitRules, $employee, [...$typedLines, ...$recurringIncentives], $periodStart, $periodEnd, static function () use ($engineArguments, $shift, $periodStart, $periodEnd): array {
                 $days = PayslipCalculator::compute(...$engineArguments, bonus: 0.0);
@@ -1705,29 +1761,38 @@ final class PayrollData
                 return ['work_days' => $days->work_days, 'paid_days' => $days->work_days + $days->paid_leave_days, 'scheduled' => ShiftResolver::scheduledWorkDaysForShift($periodStart, $periodEnd, $shift)];
             }, $inputs->benefitAssignments[$employeeId] ?? []);
             // The leave credit cash-outs this member is owed, each a line of
-            // the catalog type marked for them, priced at the member's daily
-            // rate under the captured rules (PayslipCalculator::dailyRateOn)
-            // — taxed or exempt as that type says, like any benefit line.
-            // Nothing marked, or no rate to price with, refuses the draft.
+            // the catalog type marked for them, priced as that type values a
+            // converted day (LeaveCashOutValue, as captured): the monthly
+            // rate in force on the first day times the factor, or the daily
+            // rate under the captured rules (PayslipCalculator::dailyRateOn).
+            // Terminal leave is priced from the highest salary on record its
+            // request carries. Taxed or exempt as that type says, like any
+            // benefit line. Nothing marked, or no rate to price with, refuses
+            // the draft.
             $cashOutLines = [];
             foreach ($inputs->leaveCashOuts[$employeeId] ?? [] as $cashOut) {
                 $type = $inputs->cashOutType;
                 if ($type === null) {
-                    $row = ['employee_id' => $employeeId, 'message' => 'Leave credit cash-outs are waiting, but no Incentives & Bonuses type pays them. Mark one under Payroll Settings first.'];
+                    $row = ['employee_id' => $employeeId, 'message' => 'Leave credit cash conversions are waiting, but no Incentives & Bonuses type pays them. Mark one under Payroll Settings first.'];
                     $draftErrors[] = $row;
                     $combined[] = $row;
                     break;
                 }
-                $amount = Money::round($cashOut['days'] * PayslipCalculator::dailyRateOn($employee, $periodStart, $shift, $rules));
+                $value = new LeaveCashOutValue($type['day_value'], $type['factor']);
+                $salary = $cashOut['salary'];
+                $amount = $salary === null
+                    ? $value->amount($cashOut['days'], (float) ($employee->monthly_rate ?? 0.0), PayslipCalculator::dailyRateOn($employee, $periodStart, $shift, $rules))
+                    : $value->amount($cashOut['days'], (float) ($salary['monthly_rate'] ?? 0.0),
+                        PayslipCalculator::dailyRateOn((object) ['monthly_rate' => $salary['monthly_rate'], 'daily_rate' => $salary['daily_rate'], 'salary_rates' => []], $periodStart, $shift, $rules));
                 if ($amount <= 0.0) {
-                    $row = ['employee_id' => $employeeId, 'message' => 'A leave credit cash-out cannot be priced: the employee has no Rate Per Month or Rate Per Day.'];
+                    $row = ['employee_id' => $employeeId, 'message' => 'A leave credit cash conversion cannot be priced: the employee has no Rate Per Month or Rate Per Day.'];
                     $draftErrors[] = $row;
                     $combined[] = $row;
                     break;
                 }
                 $cashOutLines[] = [
                     'type_id' => $type['type_id'], 'code' => $type['code'],
-                    'name' => $type['name'].' · '.$cashOut['name'].' '.self::daysText($cashOut['days']),
+                    'name' => $type['name'].' · '.($cashOut['purpose'] === LeaveCashOutSource::TERMINAL ? 'Terminal leave · ' : '').$cashOut['name'].' '.self::daysText($cashOut['days']),
                     'is_taxable' => $type['is_taxable'], 'amount' => $amount, 'tax' => $type['tax'], 'counts_toward_13th' => $type['counts_toward_13th'],
                     'automatic' => true, 'recurring_line_id' => null,
                     'cash_out' => ['id' => $cashOut['id'], 'days' => $cashOut['days'], 'amount' => $amount],
@@ -1807,9 +1872,8 @@ final class PayrollData
                 settings: $settings,
                 // DIVERGENCE 7: overtime is paid as approved per day on the
                 // Daily Time Record, never by a run-level switch. No approval
-                // means zero pay and needs no explicit rejection; finalizing
-                // over an undecided day takes the officer's "Finalize anyway"
-                // (OpenAttendanceItems).
+                // means zero pay and needs no explicit rejection; an undecided
+                // day posts unpaid and is recorded (OpenAttendanceItems).
                 overtimeApprovals: $attendance[$employeeId]->overtimeApprovals,
                 // DIVERGENCE 16: the days approved as seaport overtime.
                 overtimeCategories: $attendance[$employeeId]->overtimeCategories,
@@ -1822,9 +1886,10 @@ final class PayrollData
                 // DIVERGENCE 19: what the contribution month's posted payslips
                 // already took, for the schedules that take the rest.
                 contributionPosted: $inputs->contributionPosted[$employeeId] ?? null,
-                // DIVERGENCE 14: the advance payroll's counted date and the
-                // settlement of earlier presumed days, both from the evidence.
-                attendanceThrough: $inputs->attendanceThrough,
+                // DIVERGENCE 14: this member's counted date (the run's from
+                // the evidence, pulled back before an unfinished day) and the
+                // settlement of earlier presumed days.
+                attendanceThrough: $memberThrough,
                 settlement: $settlement,
                 // DIVERGENCE 15: what leave credits cover of this period's
                 // lateness and absences, from the plan above.
@@ -1932,7 +1997,7 @@ final class PayrollData
             $drafts[] = $draft;
         }
 
-        return ['drafts' => $drafts, 'employees' => $employees, 'issues' => $issues, 'draftErrors' => $draftErrors, 'combined' => $combined, 'inputs' => $inputs, 'statutory' => $statutory, 'incentiveLines' => $incentiveLines, 'customDeductionLines' => $customDeductionLines, 'settlementLines' => $settlementLines, 'leaveChargeLines' => $leaveChargeLines, 'presumedLines' => $presumedLines];
+        return ['drafts' => $drafts, 'employees' => $employees, 'issues' => $issues, 'draftErrors' => $draftErrors, 'combined' => $combined, 'inputs' => $inputs, 'statutory' => $statutory, 'incentiveLines' => $incentiveLines, 'customDeductionLines' => $customDeductionLines, 'settlementLines' => $settlementLines, 'leaveChargeLines' => $leaveChargeLines, 'presumedLines' => $presumedLines, 'countedThrough' => $countedThrough];
     }
 
     /* ------------------------------------------------------------------ */

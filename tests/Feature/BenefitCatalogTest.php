@@ -102,7 +102,7 @@ it('saves a benefit\'s rule through the page and lists it in words', function ()
         ->assertSet('dialogOpen', false)
         ->assertSee('₱2,000.00')
         ->assertSee('Monthly · 1st cut-off')
-        ->assertSee('Not income')
+        ->assertSee('Not compensation')
         ->assertSee('Regular · 4 months of service');
 
     $type = PayrollIncentiveType::query()->sole();
@@ -128,7 +128,7 @@ it('saves a benefit\'s rule through the page and lists it in words', function ()
         ->set('formTax', BenefitRule::TAX_DE_MINIMIS)
         ->set('formCap', '')
         ->call('save')
-        ->assertSet('formError', 'Enter the cap up to which it is tax-free.')
+        ->assertSet('formError', 'Enter the cap up to which it is tax-exempt.')
         ->set('formCap', '1500')
         ->set("formStatuses.{$regular->id}", false)
         ->call('save')
@@ -142,6 +142,21 @@ it('saves a benefit\'s rule through the page and lists it in words', function ()
         ->and($type->tax)->toBe(BenefitRule::TAX_DE_MINIMIS)
         ->and($type->cap)->toBe(1500.0)
         ->and($type->statuses)->toBeNull();
+});
+
+it('words the dialog as the list does and explains only the tax chosen', function () {
+    bencatPayrollActor();
+
+    Livewire::test(IncentiveTypesPage::class)
+        ->call('openAdd')
+        ->assertSeeHtml('When typed</p>')
+        ->assertSee('Taxed with the pay.')
+        ->assertDontSee('Added after tax, up to the yearly ceiling.')
+        ->set('formTax', BenefitRule::TAX_EXEMPT)
+        ->assertSee('Added after tax, up to the yearly ceiling. Any excess is taxed.')
+        ->assertDontSee('Taxed with the pay.')
+        ->set('formAmountType', BenefitRule::AMOUNT_FIXED)
+        ->assertDontSeeHtml('When typed</p>');
 });
 
 it('keeps the flag and the category one fact on the model and refuses a rule the command cannot read', function () {
@@ -265,7 +280,7 @@ it('shows the proposal in the workspace dialog and saves a typed amount over it'
         ->call('openIncentives', $employee->id)
         ->assertSee('Proposed')
         ->assertSee('₱2,000.00')
-        ->assertSee('Not income')
+        ->assertSee('Not compensation')
         ->assertSee('leave empty to pay it as proposed; it cannot be set to 0 here')
         // 0 is not an amount: a scheduled benefit is stopped in the catalog, never from the dialog.
         ->set("incentiveForm.{$pera->id}", '0')

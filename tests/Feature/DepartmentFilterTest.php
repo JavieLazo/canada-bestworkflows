@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Employees\Index;
-use App\Livewire\Employees\Support\EmployeeRows;
 use App\Livewire\Kit\Support\DepartmentFilter;
 use App\Models\EmployeeProfile;
 use App\Models\OrgNode;
@@ -156,9 +155,11 @@ it('falls back to All departments for a value the select does not offer', functi
     expect($page->get('department'))->toBe(DepartmentFilter::ALL)
         ->and(deptfShown($page))->toHaveCount(6);
 
-    // The rule itself: an unknown id matches nobody.
-    $views = app(EmployeeRecords::class)->list(app(Access::class));
-    expect(EmployeeRows::arrange($views, '', 'ALL', 'ALL', '01ZZZZZZZZZZZZZZZZZZZZZZZZ', 'employee', 'asc'))->toBe([]);
+    // The rule itself, in the owner query: an unknown id matches nobody.
+    $page = app(EmployeeRecords::class)->page(app(Access::class), [
+        'search' => '', 'status' => 'ALL', 'position' => 'ALL', 'department' => '01ZZZZZZZZZZZZZZZZZZZZZZZZ',
+    ], 'employee', 'asc', 1, 20);
+    expect($page->total())->toBe(0);
 });
 
 it('never shows a scoped actor a row outside their scope, whatever department is chosen', function () {

@@ -161,6 +161,7 @@ function pdsrecAddressRows(EmployeeProfile $employee): Collection
 function pdsrecHireForm(WorkSite $site, array $changes = []): array
 {
     return $changes + [
+        'employee_id_no' => '2026-PDS',
         'first_name' => 'Juan', 'last_name' => 'Dela Cruz', 'phone' => '0917 123 4567',
         'email' => 'juan.pds@company.com', 'birth_date' => '1990-05-01', 'res_street' => '123 Mabini St.',
         'sex' => 'Male', 'civil_status' => 'Single', 'emergency_name' => 'Maria Dela Cruz',
@@ -467,8 +468,8 @@ it('hires with the residential address row and the Same as residential answer, a
     $blank = pdsrecHireForm($site, ['res_street' => '', 'email' => 'other.pds@company.com']);
     expect(EmployeeInput::stepErrors($blank, 1))->toBe(['residential_address' => 'Residential address is required — fill in at least one part.'])
         ->and(EmployeeInput::stepErrors(['res_city' => 'Tayabas City'] + $blank, 1))->toBe([])
-        ->and(EmployeeInput::stepErrors(['permanent_address_same' => false, 'res_city' => 'Tayabas City'] + $blank, 1))
-        ->toBe(['permanent_address' => 'Permanent address is required — fill in at least one part, or choose Same as residential.'])
+        // A permanent address that is not the same may be left blank.
+        ->and(EmployeeInput::stepErrors(['permanent_address_same' => false, 'res_city' => 'Tayabas City'] + $blank, 1))->toBe([])
         ->and(fn () => app(CreateEmployee::class)->handle(pdsrecHr(), $blank))->toThrow(RuntimeException::class, 'Residential address is required — fill in at least one part.');
 });
 

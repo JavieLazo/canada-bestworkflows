@@ -87,10 +87,10 @@ final class SaveLeaveCredits
                     if ($row !== null) {
                         LeaveCreditWriter::baseline($row);
                         if ($row->credits !== 0.0) {
-                            LeaveCreditWriter::append($actor, $employee->id, $year, $key, 'ADJUSTMENT', -$row->credits, 'Annual allocation cleared in Set credits.');
+                            LeaveCreditWriter::append($actor, $employee->id, $year, $key, 'ADJUSTMENT', -$row->credits, 'Annual credit grant cleared in Set credits.');
                         }
                         if (! $row->delete()) {
-                            throw new RuntimeException('The leave allocation could not be cleared.');
+                            throw new RuntimeException('The leave credits could not be cleared.');
                         }
                         $changed = true;
                     }
@@ -108,12 +108,12 @@ final class SaveLeaveCredits
                 $hasHistory = LeaveCreditWriter::hasHistory($employee->id, $year, $key);
                 $delta = $days - ($row->credits ?? 0.0);
                 if (! $hasHistory || $delta !== 0.0) {
-                    LeaveCreditWriter::append($actor, $employee->id, $year, $key, $hasHistory ? 'ADJUSTMENT' : 'OPENING', $delta, 'Annual allocation entered in Set credits.');
+                    LeaveCreditWriter::append($actor, $employee->id, $year, $key, $hasHistory ? 'ADJUSTMENT' : 'OPENING', $delta, 'Annual credit grant entered in Set credits.');
                 }
                 $row ??= new LeaveCredit(['employee_id' => $employee->id, 'year' => $year, 'request_type' => $key]);
                 $row->fill(['credits' => $days]);
                 if (! $row->save()) {
-                    throw new RuntimeException('The leave allocation could not be saved.');
+                    throw new RuntimeException('The leave credits could not be saved.');
                 }
                 $changed = true;
             }

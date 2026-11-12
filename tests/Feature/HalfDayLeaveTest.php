@@ -126,7 +126,7 @@ it('forgives only the half that is off in the attendance facts, captures it in t
         ->and($calc['drafts'][0]->undertime_minutes)->toBe($either->undertime_minutes)
         // A half day worked is a work day to the engine (the reference): the leave half is not paid twice.
         ->and($calc['drafts'][0]->paid_leave_days)->toBe($either->paid_leave_days)
-        ->and($calc['inputs']->toArray()['schema_version'])->toBe(23);
+        ->and($calc['inputs']->toArray()['schema_version'])->toBe(24);
 
     // The evidence restores with the halves; shaped as schema 22 it carries none and the DTR forgives both halves.
     $restored = PayrollInputs::restore(PayrollInputs::json($calc['inputs']->toArray()));

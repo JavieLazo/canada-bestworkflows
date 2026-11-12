@@ -63,20 +63,18 @@ final class Money
     }
 
     /**
-     * The same half-up rounding at a chosen number of decimals — the
-     * spreadsheet's ROUND(n, d) — for a RATE STEP a Pay Basis & Rates
-     * version asks to be rounded before it is multiplied on (the daily
-     * rate, the hourly rate, a premium hourly rate; PayRules
-     * `rounding.decimals`, DIVERGENCE 16). At two decimals it is round()
-     * above, operation for operation. Never a peso line: those stay on
-     * round() at the reference's call sites.
+     * The spreadsheet's ROUND(n, d): half-up at a chosen number of decimals,
+     * reading a value a few binary digits short of a half as the half it is
+     * in decimal. 181.82 × 1.25 is 227.275 on paper and 227.27499… as a
+     * float; ROUND gives 227.28, and so does this.
+     *
+     * Only for a Pay Basis & Rates version that rounds (PayRules
+     * `rounding.decimals`, DIVERGENCE 16): its daily rate, its hourly rate
+     * and each premium amount. ALL OTHER PESOS STAY ON round() above, which
+     * reproduces the reference and truncates that same value.
      */
     public static function roundTo(mixed $n, int $decimals): float
     {
-        if ($decimals === 2) {
-            return self::round($n);
-        }
-
         $f = is_numeric($n) ? (float) $n : 0.0;
         if (! is_finite($f)) {
             return 0.0;
@@ -84,6 +82,9 @@ final class Money
 
         $scale = 10 ** max(0, min(6, $decimals));
         $scaled = $f * $scale;
+        // Far above a float's error after a few multiplications, far below
+        // any real fraction of a centavo.
+        $scaled += abs($scaled) * 1e-12;
         $floor = floor($scaled);
         $rounded = ($scaled - $floor) >= 0.5 ? $floor + 1 : $floor;
         $out = $rounded / $scale;

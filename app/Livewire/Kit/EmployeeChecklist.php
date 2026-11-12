@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Livewire\Kit;
 
 use App\Domain\Enums\ModuleCode;
+use App\Livewire\Concerns\TableDefaults;
 use App\Modules\Workforce\Contracts\DirectoryEmployee as EmployeeProfile;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use InvalidArgumentException;
@@ -58,10 +60,15 @@ use Livewire\Component;
  *     directly, bypassing toggle().
  *
  * Selected employees stay selected when the search hides them: the list is a
- * window onto the directory, the selection is the parent's state.
+ * window onto the directory, the selection is the parent's state. The window
+ * draws the first {@see PAGE_SIZE} matches; the counts and the bulk actions
+ * still cover every match.
  */
 class EmployeeChecklist extends Component
 {
+    /** One table page of matches is drawn; the search reaches the rest. */
+    public const int PAGE_SIZE = TableDefaults::DEFAULT_PAGE_SIZE;
+
     /**
      * The selected employee ids, in the order they were ticked. Entangled with
      * the parent's property through wire:model. Typed loosely because the
@@ -223,23 +230,38 @@ class EmployeeChecklist extends Component
     public function render(): mixed
     {
         $selected = $this->selectedEmployees();
-        $visible = $this->visibleEmployees();
-        $directory = $this->withFilters ? $this->directoryEmployees() : collect();
-        $positions = $directory->pluck('position')->filter(static fn (?string $position): bool => trim((string) $position) !== '')
+        $selectedIds = $this->withFilters
+            ? array_values(array_map(static fn (EmployeeProfile $e): string => $e->id, $selected->all()))
+            : $this->selectedIds();
+        [$ids, $filters] = $this->visibleCriteria();
+        $page = $this->directoryPage(self::PAGE_SIZE, $ids, $this->search, $filters);
+        $visible = ! $this->withFilters && $this->search === ''
+            ? $this->withTicked(new Collection($page->items()), $selected)
+            : new Collection($page->items());
+        // How many of ALL the matches are ticked, not only those drawn: the
+        // bulk buttons act on every match. Only the report control has them.
+        $matchedSelectedCount = ! $this->withFilters || $selectedIds === [] ? 0
+            : $this->directoryPage(1, $ids === null ? $selectedIds : array_values(array_intersect($ids, $selectedIds)), $this->search, $filters)->total();
+        // The filter options: the values held on the source-scoped records,
+        // read without loading them.
+        $actor = app(Access::class);
+        $held = $this->withFilters
+            ? app(OperationalDirectory::class)->heldValues($actor, $this->withinSourceScope($actor, null))
+            : ['positions' => [], 'statuses' => []];
+        $positions = collect($held['positions'])->filter(static fn (string $position): bool => trim($position) !== '')
             ->unique()->sort(SORT_NATURAL | SORT_FLAG_CASE)->values();
-        $statuses = $directory->pluck('employment_status')->filter(static fn (string $status): bool => $status !== '')
-            ->unique()->sort(SORT_NATURAL | SORT_FLAG_CASE)->values();
-        $selectedIds = $this->withFilters ? $selected->pluck('id')->all() : $this->selectedIds();
+        $statuses = collect($held['statuses'])->unique()->sort(SORT_NATURAL | SORT_FLAG_CASE)->values();
 
         return view('livewire.kit.employee-checklist', [
             'visible' => $visible,
+            'total' => $page->total(),
             'selected' => $selected,
             'selectedIds' => $selectedIds,
             'summary' => $this->summary($selected),
             'positionOptions' => ['ALL' => 'All positions', 'NONE' => 'No position'] + $positions->mapWithKeys(static fn (string $position): array => [$position => $position])->all(),
             'employmentOptions' => ['ALL' => 'All employment types'] + $statuses->mapWithKeys(static fn (string $status): array => [$status => HrisFormat::employmentStatus($status)])->all(),
-            'matchingCount' => $visible->count(),
-            'matchedSelectedCount' => $visible->filter(static fn (EmployeeProfile $row): bool => in_array($row->id, $selectedIds, true))->count(),
+            'matchingCount' => $page->total(),
+            'matchedSelectedCount' => $matchedSelectedCount,
             'listId' => 'ecl-'.$this->getId().'-list',
             'searchId' => 'ecl-'.$this->getId().'-search',
         ]);
@@ -273,14 +295,59 @@ class EmployeeChecklist extends Component
      */
     protected function visibleEmployees(): Collection
     {
-        $selected = $this->selectedIds();
+        [$ids, $filters] = $this->visibleCriteria();
 
-        return $this->directoryEmployees(search: $this->search, filters: $this->withFilters ? [
+        return $this->directoryEmployees($ids, $this->search, $filters);
+    }
+
+    /**
+     * The task dialogs draw the people already ticked first when the list as
+     * it opens (no search) leaves them off its page, so a crew member who
+     * sorts past it — or has since left — can be unticked without a search.
+     * Every selected row matches an empty unfiltered search (active ∪
+     * selected), so nothing is drawn that the list would not offer. The
+     * report control never does this: it can hold hundreds of ticks and has
+     * its own Deselect buttons.
+     *
+     * @param  Collection<int, EmployeeProfile>  $visible
+     * @param  Collection<int, EmployeeProfile>  $selected
+     * @return Collection<int, EmployeeProfile>
+     */
+    private function withTicked(Collection $visible, Collection $selected): Collection
+    {
+        $drawn = $visible->pluck('id')->all();
+        $missing = $selected->reject(static fn (EmployeeProfile $e): bool => in_array($e->id, $drawn, true))->take(self::PAGE_SIZE);
+
+        return $missing->isEmpty() ? $visible : $missing->concat($visible)->values();
+    }
+
+    /**
+     * Who the list may show, as directory arguments, so the drawn page and
+     * the bulk actions share ONE rule: the report filters, and under
+     * activeOnly only active staff plus anyone already ticked — the
+     * filtered rows ∩ (active ∪ selected).
+     *
+     * @return array{0: list<string>|null, 1: array{position?: string, active?: string, employmentStatus?: string, sort?: string, keep?: list<string>}}
+     */
+    private function visibleCriteria(): array
+    {
+        $filters = $this->withFilters ? [
             'position' => $this->position, 'active' => $this->active,
             'employmentStatus' => $this->employmentStatus, 'sort' => $this->sort,
-        ] : [])
-            ->filter(fn (EmployeeProfile $row): bool => ! $this->activeOnly || $row->is_active || in_array($row->id, $selected, true))
-            ->values();
+        ] : [];
+
+        if (! $this->activeOnly) {
+            return [null, $filters];
+        }
+
+        $selected = $this->selectedIds();
+
+        return match ($filters['active'] ?? 'ALL') {
+            'ALL' => [null, ['active' => 'ACTIVE', 'keep' => $selected] + $filters],
+            // Inactive ∩ (active ∪ selected) is the selected inactive alone.
+            'INACTIVE' => [$selected, $filters],
+            default => [null, $filters],
+        };
     }
 
     /**
@@ -300,12 +367,39 @@ class EmployeeChecklist extends Component
      * The directory keeps its own scope too, so this option never widens it.
      *
      * @param  list<string>|null  $ids
-     * @param  array{position?: string, active?: string, employmentStatus?: string, sort?: string}  $filters
+     * @param  array{position?: string, active?: string, employmentStatus?: string, sort?: string, keep?: list<string>}  $filters
      * @return Collection<int, EmployeeProfile>
      */
     private function directoryEmployees(?array $ids = null, string $search = '', array $filters = [], ?Access $actor = null): Collection
     {
         $actor ??= app(Access::class);
+
+        return app(OperationalDirectory::class)->list($actor, $this->withinSourceScope($actor, $ids), $search, $filters);
+    }
+
+    /**
+     * The first page of the same source-scoped read, with every match counted.
+     *
+     * @param  list<string>|null  $ids
+     * @param  array{position?: string, active?: string, employmentStatus?: string, sort?: string, keep?: list<string>}  $filters
+     * @return LengthAwarePaginator<int, EmployeeProfile>
+     */
+    private function directoryPage(int $perPage, ?array $ids, string $search, array $filters): LengthAwarePaginator
+    {
+        $actor = app(Access::class);
+
+        return app(OperationalDirectory::class)->firstPage($actor, $perPage, $this->withinSourceScope($actor, $ids), $search, $filters);
+    }
+
+    /**
+     * Narrows the ids to the source modules' row scope; null still means
+     * "everyone the directory allows".
+     *
+     * @param  list<string>|null  $ids
+     * @return list<string>|null
+     */
+    private function withinSourceScope(Access $actor, ?array $ids): ?array
+    {
         $modules = $this->scopeModules;
 
         foreach ($modules as $module) {
@@ -314,19 +408,21 @@ class EmployeeChecklist extends Component
             }
         }
 
-        if ($modules !== []) {
-            $allowed = match ($actor->rowVisibility($modules[0], ...array_slice($modules, 1))) {
-                Access::ROWS_ALL => null,
-                Access::ROWS_OWN => [$actor->ownEmployeeId()],
-                Access::ROWS_NONE => [],
-            };
-
-            if ($allowed !== null) {
-                $ids = $ids === null ? $allowed : array_values(array_intersect($ids, $allowed));
-            }
+        if ($modules === []) {
+            return $ids;
         }
 
-        return app(OperationalDirectory::class)->list($actor, $ids, $search, $filters);
+        $allowed = match ($actor->rowVisibility($modules[0], ...array_slice($modules, 1))) {
+            Access::ROWS_ALL => null,
+            Access::ROWS_OWN => [$actor->ownEmployeeId()],
+            Access::ROWS_NONE => [],
+        };
+
+        if ($allowed === null) {
+            return $ids;
+        }
+
+        return $ids === null ? $allowed : array_values(array_intersect($ids, $allowed));
     }
 
     /** @param list<string> $ids */

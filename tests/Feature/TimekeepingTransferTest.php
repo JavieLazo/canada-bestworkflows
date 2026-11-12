@@ -76,19 +76,23 @@ beforeEach(function () {
     }
 });
 
-it('exports credited and remaining days per type for the year, blank where no credit was entered', function () {
+it('exports the credits on the books and the balance per type as of a day, as credit figures, blank where no credit was entered', function () {
     $ana = tkxferEmployee('101', 'Ana');
     tkxferEmployee('102', 'Ben');
     $credit = new LeaveCredit;
     $credit->forceFill(['employee_id' => (string) $ana->getKey(), 'year' => 2026, 'request_type' => 'SICK_LEAVE', 'credits' => 7.5])->save();
     tkxferActor([ModuleCode::LEAVES]);
 
-    $rows = tkxferRows('/leaves/credits/export?year=2026');
-    expect(array_keys($rows[0]))->toBe(['ID', 'Employee', 'Year', 'Sick Leave', 'Sick Leave remaining', 'Vacation Leave', 'Vacation Leave remaining'])
+    $rows = tkxferRows('/leaves/credits/export?asof=2026-09-15');
+    expect(array_keys($rows[0]))->toBe(['ID', 'Employee', 'As of', 'Sick Leave', 'Sick Leave available balance', 'Vacation Leave', 'Vacation Leave available balance'])
         ->and(array_column($rows, 'ID'))->toBe(['101', '102'])
-        ->and(array_column($rows, 'Year'))->toBe(['2026', '2026'])
-        ->and([$rows[0]['Sick Leave'], $rows[0]['Sick Leave remaining'], $rows[0]['Vacation Leave']])->toBe(['7.5', '7.5', ''])
-        ->and([$rows[1]['Sick Leave'], $rows[1]['Sick Leave remaining']])->toBe(['', '']);
+        ->and(array_column($rows, 'As of'))->toBe(['2026-09-15', '2026-09-15'])
+        ->and([$rows[0]['Sick Leave'], $rows[0]['Sick Leave available balance'], $rows[0]['Vacation Leave']])->toBe(['7.500', '7.500', ''])
+        ->and([$rows[1]['Sick Leave'], $rows[1]['Sick Leave available balance']])->toBe(['', '']);
+
+    // No date, or one that is not a date, reads today.
+    expect(array_column(tkxferRows('/leaves/credits/export'), 'As of'))->toBe(['2026-09-30', '2026-09-30'])
+        ->and(array_column(tkxferRows('/leaves/credits/export?asof=nonsense'), 'As of'))->toBe(['2026-09-30', '2026-09-30']);
 });
 
 it('offers no import on Leave Credits, only Export CSV', function () {

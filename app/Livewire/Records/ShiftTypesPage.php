@@ -263,14 +263,6 @@ class ShiftTypesPage extends Component
             return;
         }
 
-        // An empty week has no scheduled day to measure against and nothing to
-        // divide the monthly rate by.
-        if ($this->formWorkDays === []) {
-            $this->formError = 'Pick at least one working day.';
-
-            return;
-        }
-
         $this->formError = null;
         $access = app(Access::class);
         $from = trim($this->formEffectiveFrom) === '' ? null : trim($this->formEffectiveFrom);

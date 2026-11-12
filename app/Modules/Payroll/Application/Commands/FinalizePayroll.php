@@ -29,6 +29,7 @@ use App\Modules\Payroll\Application\PayrollPeriodText;
 use App\Modules\Payroll\Application\PayrollReadTransaction;
 use App\Modules\Payroll\Application\PayrollReview;
 use App\Modules\Payroll\Application\RecurringLines;
+use App\Modules\Payroll\Application\ScheduleHold;
 use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Application\TaxYearToDate;
 use App\Modules\Payroll\Application\ThirteenthMonthData;
@@ -54,17 +55,22 @@ use RuntimeException;
  * Reviewed inputs, evidence, payslips and mandatory audit must commit together.
  *
  * A regular payroll whose attendance is still open — the period not over,
- * overtime undecided, a request pending (OpenAttendanceItems) — posts only
- * when the officer accepted that it pays them as they stand
- * (`$acceptOpenItems`, the workspace's "Finalize anyway" tick). The items
- * are read from the verified inputs, so they are the ones the officer saw;
- * the audit sentence and the evidence record them.
+ * overtime undecided, a request pending (OpenAttendanceItems) — posts as it
+ * stands: undecided overtime pays nothing and a pending request is unpaid,
+ * and attendance is reviewed before payroll, so nothing asks again here.
+ * The items are read from the verified inputs, and the audit sentence and
+ * the evidence record them.
  *
- * An ADVANCE PAYROLL (PayrollAdvance, DELIBERATE DIVERGENCE 14) posts with
- * its counted date on every payslip, so Timekeeping freezes only the counted
- * days, and with one `payslip_settlements` row for each earlier payslip
+ * An ADVANCE PAYROLL (PayrollAdvance, DELIBERATE DIVERGENCE 14) posts each
+ * member's own counted date on their payslip — the run's, pulled back before
+ * an unfinished day (PayrollAdvance::countedThrough) — so Timekeeping
+ * freezes only the counted days, and with one `payslip_settlements` row for each earlier payslip
  * whose presumed days it settles (AdvanceSettlements). Both come from the
  * same verified inputs as the pay.
+ *
+ * A REGULAR payroll is HELD while a member has a date with no shift inside
+ * their employment (ScheduleHold): the engine would judge it by its own
+ * default week. The schedule is set in Shift Roster first.
  *
  * What the payroll CHARGES TO LEAVE CREDITS (DELIBERATE DIVERGENCE 15) is
  * posted here too, through Timekeeping's LeaveChargePoster inside the same
@@ -73,12 +79,12 @@ use RuntimeException;
  */
 final class FinalizePayroll
 {
-    public function handle(Access $actor, string $runId, ?string $reviewReceipt = null, bool $acceptOpenItems = false): int
+    public function handle(Access $actor, string $runId, ?string $reviewReceipt = null): int
     {
         if (! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
-        $result = PayrollReadTransaction::run(function () use ($runId, $actor, $reviewReceipt, $acceptOpenItems): array {
+        $result = PayrollReadTransaction::run(function () use ($runId, $actor, $reviewReceipt): array {
             PayrollData::lockMembership();
 
             $run = PayrollRun::query()->with('members.incentives', 'members.deductions')->whereKey($runId)->lockForUpdate()->first();
@@ -132,6 +138,16 @@ final class FinalizePayroll
                     sort($names, SORT_STRING);
                     throw new RuntimeException('An adjustment is awaiting approval for '.implode(', ', $names).'. Review or discard it on Adjustments before finalizing.');
                 }
+
+                // A date with no shift inside a member's employment holds
+                // the payroll (ScheduleHold): it is judged by the engine's
+                // default week, which is nobody's schedule. Read under the
+                // membership lock, the lock every schedule change takes first.
+                $members = app(EmployeePayContexts::class)->get($actor, $memberIds);
+                $noShift = ScheduleHold::noShiftDays($actor, $members, $periodStart, $periodEnd);
+                if ($noShift !== []) {
+                    throw new RuntimeException(ScheduleHold::message(ScheduleHold::names($members, $noShift)));
+                }
             }
 
             // The advance payroll's counted date (PayrollAdvance), checked
@@ -154,6 +170,7 @@ final class FinalizePayroll
             $settlementLines = [];
             $leaveChargeLines = [];
             $presumedLines = [];
+            $countedThrough = [];
             if ($yearly) {
                 $calculation = ThirteenthMonthData::calculateDrafts(
                     $memberIds,
@@ -186,6 +203,7 @@ final class FinalizePayroll
                 $settlementLines = $calculation['settlementLines'];
                 $leaveChargeLines = $calculation['leaveChargeLines'];
                 $presumedLines = $calculation['presumedLines'];
+                $countedThrough = $calculation['countedThrough'];
             }
 
             $inputs = $calculation['inputs'];
@@ -203,11 +221,9 @@ final class FinalizePayroll
             }
 
             // What attendance has not finished deciding, from the same
-            // verified inputs; a 13th month run pays no attendance.
+            // verified inputs, for the record; a 13th month run pays no
+            // attendance. It never holds the posting.
             $open = $inputs instanceof PayrollInputs ? OpenAttendanceItems::forInputs($inputs, ManilaClock::todayKey()) : OpenAttendanceItems::none();
-            if (! $open->isEmpty() && ! $acceptOpenItems) {
-                throw new RuntimeException('This payroll has open attendance: '.$open->summary().'. Tick "Finalize anyway" to pay them as they stand.');
-            }
 
             // Evidence, payslips, status and the required audit commit as one unit.
             $schema = $yearly ? ThirteenthMonthInputs::SCHEMA_VERSION : PayrollInputs::SCHEMA_VERSION;
@@ -286,9 +302,11 @@ final class FinalizePayroll
                     'late_undertime_deduction' => 0,
                     'absence_deduction' => 0,
                     'unpaid_leave_deduction' => 0,
-                    // The run's counted date, copied onto the payslip so the
-                    // paid-day freeze reads the payslip alone.
-                    'attendance_through' => $attendanceThrough,
+                    // The member's own counted date — the run's, pulled back
+                    // before an unfinished day (PayrollAdvance::countedThrough)
+                    // — on the payslip, so the paid-day freeze and the
+                    // settlement read the payslip alone.
+                    'attendance_through' => $countedThrough[$draft->employee_id] ?? $attendanceThrough,
                 ]);
                 if (! $advance) {
                     // The window before the cron migrates 2026_10_31_0001:
@@ -435,7 +453,7 @@ final class FinalizePayroll
                 .(! $yearly && CutoffAdvice::warning($periodStart, $periodEnd) !== null ? '; non-standard cut-off' : '')
                 .($cashedOut === 0 ? '' : "; {$cashedOut} leave credit cash-out".($cashedOut === 1 ? '' : 's').' paid')
                 .($adjusted === 0 ? '' : "; {$adjusted} adjustment".($adjusted === 1 ? '' : 's').' paid')
-                .($attendanceThrough === null ? '' : '; attendance counted through '.PayrollPeriodText::day($attendanceThrough).', '.$presumedDays.($presumedDays === 1 ? ' day' : ' days').' paid in advance')
+                .($attendanceThrough === null ? '' : '; attendance counted through '.PayrollPeriodText::day($attendanceThrough).', '.$presumedDays.($presumedDays === 1 ? ' day' : ' days').' paid as scheduled')
                 .($settledEmployees === 0 ? '' : '; settles earlier presumed days for '.$settledEmployees.($settledEmployees === 1 ? ' employee' : ' employees'))
                 .($chargedEmployees === 0 ? '' : '; '.number_format($chargedDays, 4, '.', '').' days of leave credits charged for '.$chargedEmployees.($chargedEmployees === 1 ? ' employee' : ' employees'))
                 .($open->isEmpty() ? '' : '; finalized with open attendance: '.$open->summary()));

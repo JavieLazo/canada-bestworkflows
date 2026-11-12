@@ -235,6 +235,17 @@ final class HrisFormat
     }
 
     /**
+     * A leave or official-business request's stored status as the screens,
+     * exports and reports print it. The stored codes stay as they are; a
+     * refused request reads DISAPPROVED, the word of the leave application
+     * ("Disapproved due to"), while its row keeps `REJECTED`.
+     */
+    public static function requestStatus(string $status): string
+    {
+        return $status === 'REJECTED' ? 'DISAPPROVED' : $status;
+    }
+
+    /**
      * Whether a leave type's normalised key names a stored request token —
      * the `_LEAVE` tolerance of `requestDescription` (hris.ts:340-350) as ONE
      * body: legacy rows hold `SICK` where a filing today stores `SICK_LEAVE`,

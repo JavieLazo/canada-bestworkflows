@@ -4,17 +4,17 @@
     footer. There is no dialog, no row action and no write path on this screen.
 
     Column order, classes and copy transcribed from the source:
-      Timestamp (num, nowrap) · Actor (font-medium, "System" fallback) ·
-      Action (pill pill-info) · Entity (muted, "—") · Details (muted, "—")
+      Timestamp (num, nowrap; the day, the time under it) · Actor (font-medium, "System" fallback) ·
+      Action (plain text, nowrap) · Entity (muted, "—") · Details (muted, "—")
+    Action and Entity read as words (AuditLabels), never the stored codes; the
+    action's title keeps its code for whoever needs the exact value.
     Empty row: "No entry matches those filters." (audit-page.tsx:168-173).
 --}}
 @php
     use App\Livewire\Audit\Index as AuditIndex;
+    use App\Platform\Audit\AuditLabels;
     use App\Support\ManilaClock;
 
-    // fmtDateTime (hris.ts:199-207) — en-PH "Aug 31, 2026, 2:05 PM";
-    // datetimes are stored UTC and display in Manila.
-    $fmtDateTime = static fn ($at): string => $at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
 @endphp
 
 <div class="space-y-6">
@@ -81,12 +81,17 @@
                     @endif
                     @foreach ($rows as $r)
                         <tr wire:key="log-{{ $r->id }}">
-                            <td class="num whitespace-nowrap">{{ $fmtDateTime($r->created_at) }}</td>
+                            {{-- fmtDateTime (hris.ts:199-207), stored UTC and shown in Manila: the day, the time under it. --}}
+                            @php($loggedAt = $r->created_at->setTimezone(ManilaClock::TZ))
+                            <td class="num whitespace-nowrap">
+                                <p>{{ $loggedAt->format('M d, Y') }}</p>
+                                <p class="text-xs text-muted-foreground">{{ $loggedAt->format('g:i A') }}</p>
+                            </td>
                             <td class="font-medium">{{ AuditIndex::actorLabel($r) }}</td>
                             <td class="whitespace-nowrap">
-                                <span class="pill pill-info">{{ $r->action }}</span>
+                                <span title="{{ $r->action }}">{{ AuditLabels::action($r->action) }}</span>
                             </td>
-                            <td class="text-muted-foreground">{{ $r->entity ?? '—' }}</td>
+                            <td class="text-muted-foreground">{{ AuditLabels::entity($r->entity) ?? '—' }}</td>
                             <td class="text-muted-foreground">{{ $r->details ?? '—' }}</td>
                         </tr>
                     @endforeach

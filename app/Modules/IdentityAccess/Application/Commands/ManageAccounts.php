@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Modules\IdentityAccess\Application\AccountRetention;
 use App\Modules\IdentityAccess\Application\PasswordPolicy;
 use App\Modules\IdentityAccess\Application\Queries\GetAccounts;
+use App\Modules\IdentityAccess\Contracts\AccountLabel;
 use App\Modules\IdentityAccess\Contracts\Views\UserView;
 use App\Modules\IdentityAccess\Infrastructure\CredentialStorage;
 use App\Modules\Workforce\Contracts\EmployeeDirectory;
@@ -29,11 +30,16 @@ final class ManageAccounts
 
     public function __construct(private readonly EmployeeDirectory $employees, private readonly AccountRetention $retention) {}
 
-    public function create(Access $actor, string $email, #[\SensitiveParameter] string $password, string $roleId, string $employeeId): void
+    /**
+     * `$accountName` names an account that has no employee record; it is
+     * dropped when `$employeeId` links one, whose record then supplies the
+     * name. Blank leaves such an account reading "Account #<id>".
+     */
+    public function create(Access $actor, string $email, #[\SensitiveParameter] string $password, string $roleId, string $employeeId, string $accountName = ''): void
     {
         $this->authorize($actor);
         PasswordPolicy::validate($password);
-        DB::transaction(function () use ($actor, $email, $password, $roleId, $employeeId): void {
+        DB::transaction(function () use ($actor, $email, $password, $roleId, $employeeId, $accountName): void {
             $email = trim($email);
             $this->validateEmail($email);
             if ($roleId === '') {
@@ -48,6 +54,9 @@ final class ManageAccounts
             $user->password = $password;
             $user->role_id = $roleId;
             $user->employee_id = $employeeId !== '' ? $employeeId : null;
+            if (User::accountNameReady()) {
+                $user->account_name = $this->accountName($accountName, $employeeId);
+            }
             $user->is_active = true;
             try {
                 $user->save();
@@ -58,11 +67,15 @@ final class ManageAccounts
         });
     }
 
-    public function update(Access $actor, string $id, string $email, string $roleId, string $employeeId, bool $active): UserView
+    /**
+     * `$accountName` null leaves the typed name as it is, except that linking
+     * an employee always clears it; a string replaces it (blank clears it).
+     */
+    public function update(Access $actor, string $id, string $email, string $roleId, string $employeeId, bool $active, ?string $accountName = null): UserView
     {
         $this->authorize($actor);
 
-        return DB::transaction(function () use ($actor, $id, $email, $roleId, $employeeId, $active): UserView {
+        return DB::transaction(function () use ($actor, $id, $email, $roleId, $employeeId, $active, $accountName): UserView {
             $email = trim($email);
             $this->validateEmail($email);
             if ($email === '' || mb_strlen($email) > 200) {
@@ -77,6 +90,9 @@ final class ManageAccounts
             $patch = ['email' => $email, 'employee_id' => $employeeId !== '' ? $employeeId : null];
             $account->email = $email;
             $account->employee_id = $patch['employee_id'];
+            if (User::accountNameReady() && ($accountName !== null || $employeeId !== '')) {
+                $account->account_name = $this->accountName($accountName ?? '', $employeeId);
+            }
             if (! $own) {
                 $patch['role_id'] = $roleId !== '' ? $roleId : null;
                 $patch['is_active'] = $active;
@@ -115,6 +131,22 @@ final class ManageAccounts
 
             return $name;
         });
+    }
+
+    /** The name to store: none for a linked account, else the typed one, trimmed and capped. */
+    private function accountName(string $typed, string $employeeId): ?string
+    {
+        $typed = trim($typed);
+
+        if ($employeeId !== '' || $typed === '') {
+            return null;
+        }
+
+        if (mb_strlen($typed) > AccountLabel::NAME_CAP) {
+            throw new RuntimeException('Name must be at most '.AccountLabel::NAME_CAP.' characters.');
+        }
+
+        return $typed;
     }
 
     private function authorize(Access $actor): void

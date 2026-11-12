@@ -30,8 +30,18 @@ final class PayrollData
     /** The employer shares — reported, never deducted — in payslip order. */
     public const array EMPLOYER_LABELS = \App\Modules\Payroll\Application\PayrollData::EMPLOYER_LABELS;
 
-    /** EARNING_FIELDS (run-workspace.tsx:61-65) — the hand-entered earnings, in grid order. */
-    public const array EARNING_FIELDS = \App\Modules\Payroll\Application\PayrollData::EARNING_FIELDS;
+    /**
+     * EARNING_FIELDS (run-workspace.tsx:61-65) — the hand-entered earnings, in
+     * grid order, under the names the grid heads them with. The keys are the
+     * module's; the labels are kept here because the module's copy sits in a
+     * file the calculation version fingerprints, which a wording change must
+     * not move.
+     */
+    public const array EARNING_FIELDS = [
+        'night_differential' => 'NSD',
+        'leave_pay' => 'Leave pay',
+        'other_earnings' => 'Other earnings',
+    ];
 
     /** payroll-run-schema.ts `money`: z.number().finite().min(0).max(999_999_999). */
     public const float MONEY_MAX = \App\Modules\Payroll\Application\PayrollData::MONEY_MAX;
@@ -198,6 +208,8 @@ final class PayrollData
      *     customDeductionLines: array<string, list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool, recurring_line_id: ?string, adjustment_id?: string}>>,
      *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
      *     leaveChargeLines: array<string, array{lines: list<array{date: string, kind: string, minutes: ?int, days: float, covered: array<string, float>, uncovered_days: float, fraction: float}>, balances: array<string, float>, notes: list<string>}>,
+     *     presumedLines: array<string, array<string, float>>,
+     *     countedThrough: array<string, ?string>,
      * }
      */
     public static function calculateDrafts(array $employeeIds, string $periodStart, string $periodEnd, array $draftDeductions = [], array $draftAllowances = [], array $draftEarnings = [], bool $strict = false, array $draftIncentives = [], array $draftCustomDeductions = [], array $draftSkippedRecurring = [], ?string $attendanceThrough = null, ?string $payDate = null, ?string $contributionMonth = null, ?string $runId = null): array

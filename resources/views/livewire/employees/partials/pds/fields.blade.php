@@ -25,6 +25,10 @@
         <flux:label>{{ $field['label'] }}</flux:label>
         @if ($field['type'] === 'select')
             <x-kit.select wire:model="{{ $bind }}" aria-label="{{ $aria }}" :invalid="(bool) $error">
+                {{-- A blank choice, unless the list brings its own: a pick made by mistake is cleared again. --}}
+                @if (! in_array('', array_column($field['options'], 'value'), true))
+                    <flux:select.option value="">Not set</flux:select.option>
+                @endif
                 @foreach ($field['options'] as $option)
                     <flux:select.option value="{{ $option['value'] }}">{{ $option['label'] }}</flux:select.option>
                 @endforeach

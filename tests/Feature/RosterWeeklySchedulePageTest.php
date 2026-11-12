@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Domain\Enums\ModuleCode;
-use App\Livewire\Roster\RosterPage;
+use App\Livewire\Roster\EmployeeSchedulePage;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\Role;
@@ -15,9 +15,22 @@ use App\Models\ShiftType;
 use App\Models\User;
 use App\Support\Access;
 use Illuminate\Support\Str;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
-/** The weekly editor saves hours and places together, with fresh authorization. */
+/**
+ * An employee's month on the Shift Roster changes their schedule, with
+ * fresh authorization: the Default schedule dialog saves weekday hours and
+ * places together, all or nothing, and the dates picked on the calendar
+ * change those dates alone, over a weekly schedule they never touch — back
+ * to it when the usual schedule is picked again, and worked when a shift is
+ * picked for a date the week rests. Each picked date loads its own choices.
+ */
+/**
+ * An employee with a shift assigned before, so a Default schedule may leave
+ * days to it ("Assigned shift"); the no-shift case is RosterNoShiftTest's.
+ */
 function rosterWeekPageEmployee(): EmployeeProfile
 {
     $employee = new EmployeeProfile;
@@ -26,6 +39,7 @@ function rosterWeekPageEmployee(): EmployeeProfile
         'last_name' => 'Worker', 'date_hired' => '2024-01-01',
         'employment_status' => 'Regular', 'is_active' => true,
     ])->save();
+    ScheduleFixture::standard($employee);
 
     return $employee;
 }
@@ -53,29 +67,56 @@ function rosterWeekPageNight(): ShiftType
     ]);
 }
 
-it('saves Monday night at home and Tuesday default onsite hours from one weekly editor', function () {
+/**
+ * The employee's month on the Shift Roster, as the signed-in actor.
+ *
+ * @return Testable<EmployeeSchedulePage>
+ */
+function rosterWeekPageMonth(EmployeeProfile $employee): Testable
+{
+    return Livewire::test(EmployeeSchedulePage::class, ['employee' => $employee->id]);
+}
+
+/** One date's box on the month's calendar. */
+function rosterWeekPageDay(string $html, string $date): string
+{
+    $needle = 'data-date="'.$date.'"';
+    expect($html)->toContain($needle);
+
+    return Str::before(Str::after($html, $needle), '</button>');
+}
+
+/* |---| The Default schedule dialog |---| */
+
+it('saves Monday night at home and Tuesday default onsite hours from one Default schedule', function () {
+    // Monday 2026-09-21, before tonight's 10:00 PM shift starts.
+    $this->travelTo(new DateTimeImmutable('2026-09-21T05:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee);
     $night = rosterWeekPageNight();
 
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', $employee->id)
+    $html = rosterWeekPageMonth($employee)
+        ->call('openDefaultSchedule')
         ->assertSet('shiftDays.1', 'DEFAULT')
         ->set('shiftDays.1', $night->id)
         ->set('locationDays.1', 'WFH')
         ->set('shiftDays.6', 'REST')
-        ->call('saveLocations')
-        ->assertSet('locationsEmployeeId', '')
+        ->call('saveDefaultSchedule')
         ->assertSet('shiftDays', [])
+        ->assertSet('locationDays', [])
+        ->assertDispatched('modal-close', name: 'default-schedule')
         ->assertSee('10:00 PM–6:00 AM')
-        ->assertSee('Rest day');
+        ->html();
+    // The month repaints from today: Monday nights at home, Saturdays off.
+    expect(rosterWeekPageDay($html, '2026-09-21'))->toContain('Night shift')->toContain('10:00 PM–6:00 AM')->toContain('Work from home')
+        ->and(rosterWeekPageDay($html, '2026-09-26'))->toContain('Off');
 
     expect(RosterShift::query()->where('employee_id', $employee->id)->where('weekday', 1)->first()?->shift_type_id)->toBe($night->id)
         ->and(RosterShift::query()->where('employee_id', $employee->id)->where('weekday', 2)->exists())->toBeFalse()
         ->and(RosterLocation::query()->where('employee_id', $employee->id)->where('weekday', 1)->first()?->kind)->toBe('WFH');
 
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', $employee->id)
+    rosterWeekPageMonth($employee)
+        ->call('openDefaultSchedule')
         ->assertSet('shiftDays.1', $night->id)
         ->assertSet('shiftDays.2', 'DEFAULT')
         ->assertSet('shiftDays.6', 'REST')
@@ -83,15 +124,17 @@ it('saves Monday night at home and Tuesday default onsite hours from one weekly 
 });
 
 it('keeps hours and locations unchanged when a weekday pattern is invalid', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-21T05:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee);
 
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', $employee->id)
+    rosterWeekPageMonth($employee)
+        ->call('openDefaultSchedule')
         ->set('shiftDays.1', 'missing-pattern')
         ->set('locationDays.1', 'WFH')
-        ->call('saveLocations')
-        ->assertSet('locationsEmployeeId', $employee->id)
+        ->call('saveDefaultSchedule')
+        ->assertSet('shiftDays.1', 'missing-pattern')
+        ->assertSet('locationDays.1', 'WFH')
         ->assertNotDispatched('modal-close');
 
     expect(RosterShift::query()->count())->toBe(0)
@@ -100,17 +143,18 @@ it('keeps hours and locations unchanged when a weekday pattern is invalid', func
 });
 
 it('preserves saved weekday hours after deleting the source pattern while changing a location', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-21T05:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee);
     $night = rosterWeekPageNight();
-    Livewire::test(RosterPage::class)->call('openLocations', $employee->id)
-        ->set('shiftDays.1', $night->id)->call('saveLocations');
+    rosterWeekPageMonth($employee)->call('openDefaultSchedule')
+        ->set('shiftDays.1', $night->id)->call('saveDefaultSchedule');
     $night->delete();
 
-    Livewire::test(RosterPage::class)->call('openLocations', $employee->id)
+    rosterWeekPageMonth($employee)->call('openDefaultSchedule')
         ->assertSet('shiftDays.1', 'KEEP')
         ->assertSee('Night shift')
-        ->set('locationDays.1', 'WFH')->call('saveLocations');
+        ->set('locationDays.1', 'WFH')->call('saveDefaultSchedule');
 
     $row = RosterShift::query()->where('employee_id', $employee->id)->where('weekday', 1)->firstOrFail();
     expect($row->shift_type_id)->toBeNull()
@@ -118,100 +162,98 @@ it('preserves saved weekday hours after deleting the source pattern while changi
 });
 
 it('refuses a restricted actor trying to save weekday hours and locations', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-21T05:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee, false);
     $night = rosterWeekPageNight();
 
-    Livewire::test(RosterPage::class)->call('openLocations', $employee->id)
-        ->set('shiftDays.1', $night->id)->set('locationDays.1', 'WFH')->call('saveLocations');
+    // The dialog does not open, and a draft written straight to the
+    // component is refused all the same.
+    rosterWeekPageMonth($employee)->call('openDefaultSchedule')
+        ->assertNotDispatched('modal-show')
+        ->set('shiftDays.1', $night->id)->set('locationDays.1', 'WFH')->call('saveDefaultSchedule');
 
     expect(RosterShift::query()->count())->toBe(0)
         ->and(RosterLocation::query()->count())->toBe(0)
         ->and(AuditLog::query()->count())->toBe(0);
 });
 
-it('includes weekday-only pattern assignments in the roster filter', function () {
-    $employee = rosterWeekPageEmployee();
-    rosterWeekPageActor($employee);
-    $night = rosterWeekPageNight();
-    Livewire::test(RosterPage::class)->call('openLocations', $employee->id)
-        ->set('shiftDays.1', $night->id)->call('saveLocations');
+/* |---| Picked dates |---| */
 
-    Livewire::test(RosterPage::class)->set('pattern', $night->id)
-        ->assertViewHas('rows', fn ($rows): bool => $rows->total() === 1);
-    Livewire::test(RosterPage::class)->set('pattern', 'UNASSIGNED')
-        ->assertViewHas('rows', fn ($rows): bool => $rows->total() === 0);
-});
-
-it('changes tomorrow without changing the recurring week and restores it when the date change is removed', function () {
+it('changes tomorrow without changing the recurring week and restores it when the usual schedule is picked again', function () {
     $this->travelTo(new DateTimeImmutable('2026-09-28T12:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee);
     $night = rosterWeekPageNight();
 
-    Livewire::test(RosterPage::class)->call('openLocations', $employee->id)
-        ->set('shiftDays.2', $night->id)->set('locationDays.2', 'WFH')->call('saveLocations');
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->assertSet('scheduleDate', '2026-09-29')
+    rosterWeekPageMonth($employee)->call('openDefaultSchedule')
+        ->set('shiftDays.2', $night->id)->set('locationDays.2', 'WFH')->call('saveDefaultSchedule');
+    rosterWeekPageMonth($employee)
         ->assertSee('10:00 PM–6:00 AM')
-        ->set('dateShiftChoice', 'REST')->call('saveDateSchedule')
-        ->assertSet('dateEmployeeId', '');
+        ->call('pick', '2026-09-29')
+        ->assertSet('picked', ['2026-09-29'])
+        ->assertSet('dayShift', 'DEFAULT')
+        ->set('dayShift', 'REST')->call('saveDays')
+        ->assertSet('picked', []);
 
     expect(RosterDayOverride::query()->where('employee_id', $employee->id)->first()?->is_rest_day)->toBeTrue()
         ->and(RosterShift::query()->where('employee_id', $employee->id)->where('weekday', 2)->first()?->shift_type_id)->toBe($night->id);
 
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->assertSet('dateShiftChoice', 'REST')
-        ->set('dateShiftChoice', 'DEFAULT')->set('dateLocationChoice', 'DEFAULT')
-        ->call('saveDateSchedule');
+    rosterWeekPageMonth($employee)->call('pick', '2026-09-29')
+        ->assertSet('dayShift', 'REST')
+        ->set('dayShift', 'DEFAULT')->set('dayLocation', 'DEFAULT')
+        ->call('saveDays')
+        ->assertSet('picked', []);
     // Removed, not deleted: the date change stays in the history, cancelled.
     expect(RosterDayOverride::query()->where('status', 'ACTIVE')->count())->toBe(0)
         ->and(RosterDayOverride::query()->count())->toBe(1);
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->assertSet('dateShiftChoice', 'DEFAULT')->assertSee('10:00 PM–6:00 AM');
+    $page = rosterWeekPageMonth($employee)->call('pick', '2026-09-29')
+        ->assertSet('dayShift', 'DEFAULT');
+    expect(rosterWeekPageDay($page->html(), '2026-09-29'))->toContain('10:00 PM–6:00 AM');
 });
 
-it('reloads the selected dates own choices instead of carrying another dates draft across', function () {
+it('reloads a picked date’s own choices instead of carrying another date’s draft across', function () {
     $this->travelTo(new DateTimeImmutable('2026-09-28T12:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee);
     $night = rosterWeekPageNight();
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->set('dateShiftChoice', $night->id)->set('dateLocationChoice', 'WFH')->call('saveDateSchedule');
+    rosterWeekPageMonth($employee)->call('pick', '2026-09-29')
+        ->set('dayShift', $night->id)->set('dayLocation', 'WFH')->call('saveDays');
 
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->assertSet('dateShiftChoice', $night->id)
-        ->set('scheduleDate', '2026-09-30')
-        ->assertSet('dateShiftChoice', 'DEFAULT')->assertSet('dateLocationChoice', 'DEFAULT')
-        ->set('scheduleDate', '2026-09-29')
-        ->assertSet('dateShiftChoice', $night->id)->assertSet('dateLocationChoice', 'WFH');
+    rosterWeekPageMonth($employee)->call('pick', '2026-09-29')
+        ->assertSet('dayShift', $night->id)->assertSet('dayLocation', 'WFH')
+        // A second date takes the card as it stands: one shift for both.
+        ->call('pick', '2026-09-30')
+        ->assertSet('picked', ['2026-09-29', '2026-09-30'])
+        ->assertSet('dayShift', $night->id)
+        // Left alone, the 30th shows its own choices again.
+        ->call('pick', '2026-09-29')
+        ->assertSet('picked', ['2026-09-30'])
+        ->assertSet('dayShift', 'DEFAULT')->assertSet('dayLocation', 'DEFAULT')
+        ->call('pick', '2026-09-30')
+        ->assertSet('picked', [])
+        ->call('pick', '2026-09-29')
+        ->assertSet('dayShift', $night->id)->assertSet('dayLocation', 'WFH');
 });
 
-it('offers the rest-day choice only on a date the weekly schedule rests, and refuses a shift there without it', function () {
+it('works a date the weekly schedule rests when a shift is picked for it, and shows it afterwards', function () {
     $this->travelTo(new DateTimeImmutable('2026-09-28T12:00:00+08:00'));
     $employee = rosterWeekPageEmployee();
     rosterWeekPageActor($employee);
     $night = rosterWeekPageNight();
 
-    // Tuesday works: no rest-day choice is shown.
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->assertSet('scheduleDate', '2026-09-29')
-        ->assertDontSee('Schedule work on this rest day');
+    // Saturday Oct 3 rests. Picking it is the explicit choice to work it:
+    // there is no separate rest-day box.
+    rosterWeekPageMonth($employee)->set('month', '2026-10')
+        ->call('pick', '2026-10-03')
+        ->assertSet('picked', ['2026-10-03'])
+        ->assertDontSee('Schedule work on this rest day')
+        ->set('dayShift', $night->id)->call('saveDays')
+        ->assertSet('picked', []);
+    expect(RosterDayOverride::query()->sole()->include_rest_days)->toBeTrue()
+        ->and(AuditLog::query()->where('action', 'ROSTER_DATE_SET')->count())->toBe(1);
 
-    // Saturday rests: the shift alone is refused and nothing is written.
-    $page = Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->set('scheduleDate', '2026-10-03')
-        ->assertSee('Schedule work on this rest day')
-        ->set('dateShiftChoice', $night->id)->call('saveDateSchedule')
-        ->assertSet('dateEmployeeId', $employee->id);
-    expect(RosterDayOverride::query()->count())->toBe(0)
-        ->and(AuditLog::query()->where('action', 'ROSTER_DATE_SET')->count())->toBe(0);
-
-    // The explicit choice saves it, and the dialog shows it ticked afterwards.
-    $page->set('dateWorkOnRestDay', true)->call('saveDateSchedule')->assertSet('dateEmployeeId', '');
-    expect(RosterDayOverride::query()->sole()->include_rest_days)->toBeTrue();
-    Livewire::test(RosterPage::class)->call('openDateSchedule', $employee->id)
-        ->set('scheduleDate', '2026-10-03')
-        ->assertSet('dateWorkOnRestDay', true)
-        ->assertSet('dateShiftChoice', $night->id);
+    rosterWeekPageMonth($employee)->set('month', '2026-10')
+        ->call('pick', '2026-10-03')
+        ->assertSet('dayShift', $night->id);
 });

@@ -38,6 +38,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
+use Tests\Support\ScheduleFixture;
 
 /** Credits, filing, reports, attendance and captured payroll facts all subtract exactly the same cancelled dates. */
 
@@ -50,6 +51,7 @@ function cancellationConsumerActor(): array
         'date_hired' => '2024-01-01', 'employment_status' => 'Regular', 'is_active' => true,
         'daily_rate' => 1000, 'monthly_rate' => 0,
     ])->save();
+    ScheduleFixture::standard($employee);
     $role = new Role;
     $role->forceFill(['name' => 'Consumer '.Str::random(8), 'all_data' => true, 'is_system' => false])->save();
     foreach ([ModuleCode::LEAVES, ModuleCode::PORTAL, ModuleCode::EDTR, ModuleCode::PAYROLL, ModuleCode::REPORTS] as $module) {

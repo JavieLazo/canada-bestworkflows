@@ -55,4 +55,9 @@ final class OrganizationReferenceQuery implements OrganizationReferences
 
         return $placements;
     }
+
+    public function officeHead(?string $unitId, ?string $departmentId): ?array
+    {
+        return StructureReads::officeHead($unitId, $departmentId);
+    }
 }

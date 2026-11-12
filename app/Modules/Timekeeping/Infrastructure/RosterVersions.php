@@ -26,8 +26,12 @@ use Illuminate\Database\Eloquent\Model;
  * `change_id`) or to a change that was not cancelled. "As of" a date means
  * the latest live row on or before it, NULL `effective_from` first, then by
  * date, then by row id (a time-ordered ULID), so the change saved last for a
- * date wins. Nothing here filters by actor: callers are trusted module code
- * whose public queries apply Access first, as `ShiftRoster` always was.
+ * date wins. A default-shift row that CLEARS the shift (`is_unassigned`)
+ * reads as no shift from its date: no hours in the timeline, no row from
+ * `standingAsOf`. `pendingStanding` still lists it, with no pattern, so a
+ * caller matching a pattern never meets it. Nothing here filters by actor:
+ * callers are trusted module code whose public queries apply Access first,
+ * as `ShiftRoster` always was.
  */
 final class RosterVersions
 {
@@ -43,7 +47,9 @@ final class RosterVersions
     {
         $standing = $weekdays = $placeEntries = [];
         foreach ($hours ? $this->standingRows($employeeIds, $through, $lock) : [] as $row) {
-            $standing[$row->employee_id][] = ['from' => $row->effective_from?->format('Y-m-d'), 'order' => (string) $row->id, 'shift' => DomainShift::fromArray($row->toArray())];
+            // A cleared shift is an entry with no shift: from its date nothing is
+            // assigned, and its filler hours are never read.
+            $standing[$row->employee_id][] = ['from' => $row->effective_from?->format('Y-m-d'), 'order' => (string) $row->id, 'shift' => $row->clearsShift() ? null : DomainShift::fromArray($row->toArray())];
         }
         foreach ($hours ? $this->weekdayRows($employeeIds, $through, $lock) : [] as $row) {
             $weekdays[$row->employee_id][] = ['from' => $row->effective_from?->format('Y-m-d'), 'order' => (string) $row->id, 'weekday' => $row->weekday, 'shift' => self::weekdayShift($row)];
@@ -63,6 +69,8 @@ final class RosterVersions
 
     /**
      * The default-shift row in effect on `$date`, per employee that has one.
+     * An employee whose shift was cleared by then has none, so the clearing
+     * row itself is never returned.
      *
      * @param  list<string>  $employeeIds
      * @return array<string, Shift>
@@ -74,7 +82,7 @@ final class RosterVersions
             $out[$row->employee_id] = $row;
         }
 
-        return $out;
+        return array_filter($out, static fn (Shift $row): bool => ! $row->clearsShift());
     }
 
     /**

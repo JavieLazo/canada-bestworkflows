@@ -93,8 +93,11 @@
                                 </div>
                             </td>
                         @endunless
+                        {{-- When the punch landed, in Manila: the day, the time under it. --}}
+                        @php($punchedAt = $l->logged_at->setTimezone(\App\Support\ManilaClock::TZ))
                         <td class="{{ $compact ? 'num align-top break-words' : 'num whitespace-nowrap' }}">
-                            {{ Hris::fmtDateTime(\App\Domain\Attendance\AttendanceLog::isoFromUtc($l->logged_at)) }}
+                            <p>{{ $punchedAt->format('M d, Y') }}</p>
+                            <p class="text-xs text-muted-foreground">{{ $punchedAt->format('g:i A') }}</p>
                         </td>
                         <td class="{{ $compact ? 'hidden break-words sm:table-cell' : 'max-w-[16rem] break-words' }}">
                             {{-- Recorded sites use LocationKind::label: "Work from home",

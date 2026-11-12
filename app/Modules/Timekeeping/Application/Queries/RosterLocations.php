@@ -11,6 +11,7 @@ use App\Models\AttendanceLog;
 use App\Models\RosterLocation;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Organization\Contracts\Views\WorkSiteView;
+use App\Modules\Timekeeping\Application\PunchPairing;
 use App\Modules\Timekeeping\Contracts\Views\LocationOnDateView;
 use App\Modules\Timekeeping\Contracts\Views\RosterLocationView;
 use App\Modules\Timekeeping\Domain\Attendance\PunchWorkDate;
@@ -88,8 +89,12 @@ final class RosterLocations
      * Keyed like a Time In, including a completed previous night handing
      * the clock to today's different early window. The punch window is read
      * without locks here; RecordPunch rechecks it under lock, and a Time Out
-     * may still close an earlier Time In. Null when the actor may not punch
-     * for this employee, or the employee is gone.
+     * may still close an earlier Time In. `has_shift` says whether that date
+     * has a shift at all, without which RecordPunch refuses a Time In, and
+     * `open_time_in` whether a Time In is open for a Time Out to close —
+     * read the way RecordPunch pairs (`PunchPairing`), so the station turns
+     * Time Out off exactly when RecordPunch would refuse it. Null when the
+     * actor may not punch for this employee, or the employee is gone.
      */
     public function forStation(Access $actor, string $employeeId): ?LocationOnDateView
     {
@@ -107,11 +112,16 @@ final class RosterLocations
             ->map(static fn (AttendanceLog $row): DomainLog => DomainLog::fromArray([
                 'id' => $row->id, 'log_type' => $row->log_type, 'logged_at' => $row->logged_at,
             ]))->all();
-        $workDate = PunchWorkDate::forScheduledPunch(array_values($logs), DomainLog::TIME_IN, CarbonImmutable::now(ManilaClock::TZ), $schedule);
+        $now = CarbonImmutable::now(ManilaClock::TZ);
+        $workDate = PunchWorkDate::forScheduledPunch(array_values($logs), DomainLog::TIME_IN, $now, $schedule);
         $resolved = $this->roster->locationForDate($employee->id, $workDate)
             ?? ResolvedLocation::assigned($employee->work_site_id);
+        $view = self::onDate($workDate, $resolved, app(OrganizationDirectory::class)->sites($actor)->keyBy('id'));
 
-        return self::onDate($workDate, $resolved, app(OrganizationDirectory::class)->sites($actor)->keyBy('id'));
+        // RecordPunch's own tests: "no shift, no Time In", and the pairing.
+        return new LocationOnDateView($view->date, $view->kind, $view->site_id, $view->site_name, $view->from_roster,
+            has_shift: $this->roster->rosteredShift($employee->id, $workDate, $schedule) !== null,
+            open_time_in: PunchPairing::anomaly(array_values($logs), DomainLog::TIME_OUT, $now, $schedule, $today) === null);
     }
 
     /**

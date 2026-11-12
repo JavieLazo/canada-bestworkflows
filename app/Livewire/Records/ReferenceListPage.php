@@ -55,9 +55,9 @@ class ReferenceListPage extends Component
      * seeder set; this screen only names them, and cannot delete one.
      *
      * `csv` says whether the list has an Export CSV and an Import CSV. THE
-     * TWO GENERAL RECORDS LISTS HERE — Document and Employment — HAVE
-     * NEITHER: no button, no export route, no entry in the transfer
-     * registry. Leave Settings and Payroll Deductions carry both.
+     * TWO GENERAL RECORDS LISTS HERE — Document and Employment — AND THE
+     * LEAVE TYPES HAVE NEITHER: no button, no export route, no entry in the
+     * transfer registry. Payroll Deductions carries both.
      *
      * @var array<string, array{table: string, prefix: string,
      *     title: string, description: string, noun: string, plural: string,
@@ -98,7 +98,7 @@ class ReferenceListPage extends Component
             'plural' => 'leave types',
             'nameLabel' => 'Leave',
             'showDescription' => false,
-            'csv' => true,
+            'csv' => false,
         ],
         'payroll-deductions' => [
 
@@ -128,7 +128,7 @@ class ReferenceListPage extends Component
         return array_filter(self::LISTS, static fn (array $list): bool => $list['csv']);
     }
 
-    /** The list this screen shows under Payroll → Payroll Settings, at /payroll/settings/payroll-deductions. */
+    /** The list this screen shows under Records → Payroll Settings, at /records/payroll-settings/payroll-deductions. */
     public const string PAYROLL_LIST = 'payroll-deductions';
 
     /**

@@ -12,6 +12,91 @@ use Pdo\Sqlite;
 /** Preserves TextSort's ASCII byte folding and blank ordering during SQL pagination. */
 final class SqlText
 {
+    /**
+     * The SQL twin of a PHP join of trimmed words — `EmployeeName::display`'s
+     * `trim(implode(' ', array_filter(trimmed parts)))`: each column trimmed as
+     * PHP trims, the blank ones left out, the rest joined by single spaces, ''
+     * when every one is blank. A search over a composed name then finds
+     * exactly the phrases the PHP spelling holds, one across the name's
+     * boundary included.
+     *
+     * @template T of Model
+     *
+     * @param  Builder<T>  $query
+     * @param  list<literal-string>  $columns
+     * @return literal-string
+     */
+    public static function joinedWords(Builder $query, array $columns): string
+    {
+        if ($query->getModel()->getConnection()->getDriverName() === 'sqlite') {
+            self::sqliteFunctions($query);
+            $parts = array_map(static fn (string $column): string => "CASE WHEN ems_trim({$column}) = '' THEN '' ELSE ' ' || ems_trim({$column}) END", $columns);
+
+            // Every word carries its leading space; the first one's goes.
+            return 'SUBSTR('.implode(' || ', $parts).', 2)';
+        }
+
+        $space = '\\\\x00\\\\x09\\\\x0A\\\\x0B\\\\x0D\\\\x20';
+        $parts = array_map(static fn (string $column): string => "NULLIF(REGEXP_REPLACE(COALESCE({$column}, ''), '^[{$space}]+|[{$space}]+$', ''), '')", $columns);
+
+        // CONCAT_WS skips a NULL argument, so a blank word adds no space.
+        return "CONCAT_WS(' ', ".implode(', ', $parts).')';
+    }
+
+    /**
+     * `column IN (values)` compared byte for byte, as PHP's `===` compares:
+     * MariaDB's case-insensitive, pad-space collations would also match
+     * "driver" or "Driver " for "Driver". SQLite's `=` is already binary.
+     * An empty list matches nobody.
+     *
+     * @template T of Model
+     *
+     * @param  Builder<T>  $query
+     * @param  literal-string  $column
+     * @param  list<string>  $values
+     */
+    public static function whereExactIn(Builder $query, string $column, array $values): void
+    {
+        if ($values === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        if ($query->getModel()->getConnection()->getDriverName() === 'sqlite') {
+            $query->whereIn($column, $values);
+
+            return;
+        }
+
+        $query->whereRaw('CAST('.$column.' AS BINARY) IN ('.implode(', ', array_fill(0, count($values), 'CAST(? AS BINARY)')).')', $values);
+    }
+
+    /**
+     * A column's distinct non-null values as PHP tells strings apart, byte
+     * for byte — MariaDB's DISTINCT would fold "Driver" and "driver" into one,
+     * and a filter matched with {@see whereExactIn()} must offer both. The
+     * caller's query carries the row scope.
+     *
+     * @template T of Model
+     *
+     * @param  Builder<T>  $query
+     * @param  literal-string  $column
+     * @return list<string>
+     */
+    public static function distinctValues(Builder $query, string $column): array
+    {
+        $value = $query->getModel()->getConnection()->getDriverName() === 'sqlite' ? $column : 'CAST('.$column.' AS BINARY)';
+        $values = [];
+
+        // A copy: the caller's builder keeps its own columns and conditions.
+        foreach ((clone $query)->toBase()->whereNotNull($column)->selectRaw('DISTINCT '.$value.' AS ems_value')->pluck('ems_value') as $row) {
+            $values[] = (string) $row;
+        }
+
+        return $values;
+    }
+
     /** @template T of Model
      * @param  Builder<T>  $query
      * @param  literal-string  $expression

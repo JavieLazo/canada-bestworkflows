@@ -14,7 +14,7 @@ use Illuminate\Support\Collection;
 /**
  * The Deductions group of the Basic Payroll grid, built from the Payroll
  * Deductions list: ONE COLUMN PER ROW, in the list's code order, with the
- * fixed Other Deductions, Undertimes, Late and Total after them. The one
+ * fixed Other Deductions, Undertime, Late and Total after them. The one
  * row that heads no column is the LATE_UNDERTIME one: its money is the two
  * attendance columns, which show while the row exists. Nothing here is a
  * peso: the columns only say what each cell shows.

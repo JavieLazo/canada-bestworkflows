@@ -252,7 +252,7 @@ it('lays the approved version in force over the employee, records it in the evid
     $json = PayrollInputs::json($custom['inputs']->toArray());
     $restored = PayrollInputs::restore($json);
     expect($restored->fingerprint())->toBe($custom['inputs']->fingerprint())
-        ->and(json_decode($json, true)['schema_version'])->toBe(23);
+        ->and(json_decode($json, true)['schema_version'])->toBe(24);
     PayrollGovDeductionPolicy::query()->whereKey($id)->delete();
     $fund->forceFill(['percent' => [...$fund->percent, 'employee' => 4.0]])->save();
     $replay = PayrollData::calculateInputs($restored, strict: true);
@@ -287,18 +287,20 @@ it('keeps the record\'s baseline columns for an employee with no approved versio
 
 /* |---| The page |---| */
 
-it('prepares, approves and discards versions from the employee\'s pay page, and lists who waits for approval', function () {
+it('edits an employee\'s contributions and tax on the pay page, in effect at once, with no date, reason or approval', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
     $employee = gdpEmployee('Paged', ['allow_philhealth' => false]);
     $fund = gdpFund();
     gdpActor();
 
-    $page = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('No approved version yet: the settings on the record apply.')
-        ->assertSee('Prepare a version')
+    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
+        // The card counts what differs from the standard, by the same test as each row's pill:
+        // the record's own PhilHealth switch is one of the five rows.
+        ->assertSee('1 of 5 set for this employee.')
+        ->assertDontSee('Prepare a version')
         ->call('startEdit')
         ->assertSet('editing', true)
-        ->assertSet('effectiveFrom', '2026-10-16')
+        ->assertDontSee('Takes effect on')
         // The form starts from the baseline the record holds.
         ->assertSet('form.philhealth_deduct', false)
         ->assertSet('form.percent.'.$fund->id, '')
@@ -306,59 +308,47 @@ it('prepares, approves and discards versions from the employee\'s pay page, and 
         ->set('form.tax_method', 'PERCENT')
         ->set('form.tax_amount', '5')
         ->set('form.percent.'.$fund->id, '10')
-        ->set('effectiveFrom', '2026-11-01')
-        ->call('save')
-        ->assertSet('editing', true)
-        ->assertSet('formError', 'Enter the reason for this version.')
-        ->set('reason', 'Senior citizen retiree, per HR memo 12')
         ->call('save')
         ->assertSet('editing', false)
-        ->assertSee('Awaiting approval')
-        ->assertSee('Senior citizen retiree, per HR memo 12');
-    $draft = PayrollGovDeductionPolicy::query()->sole();
-    expect($draft->status)->toBe('DRAFT')
-        ->and($draft->params['allow_sss'])->toBeFalse()
-        ->and($draft->params['allow_philhealth'])->toBeFalse()
-        ->and($draft->params['percent_tax'])->toEqual(5.0)
-        ->and($draft->params['percent_rates'])->toEqual([$fund->id => 10.0]);
-
-    // The list marks the wait; the preparer approves from the page themselves.
-    Livewire::test(EmployeePaySettingsPage::class)->assertSee('Paged')->assertSee('Awaiting approval');
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->call('approveVersion', $draft->id)
+        ->assertSet('formError', null)
+        // In use at once: the card reads the settings, with the fund at the employee's rate.
         ->assertDontSee('Awaiting approval')
-        ->assertSee('Upcoming');
-    expect($draft->refresh()->status)->toBe('APPROVED');
+        ->assertSee('4 of 5 set for this employee.')
+        ->assertSee('5% of taxable compensation')
+        ->assertSee('Own rate 10%');
+    $row = PayrollGovDeductionPolicy::query()->sole();
+    expect($row->status)->toBe('APPROVED')
+        ->and($row->effective_from->format('Y-m-d'))->toBe('2025-01-01')
+        ->and($row->params['allow_sss'])->toBeFalse()
+        ->and($row->params['allow_philhealth'])->toBeFalse()
+        ->and($row->params['percent_tax'])->toEqual(5.0)
+        ->and($row->params['percent_rates'])->toEqual([$fund->id => 10.0])
+        ->and(AuditLog::query()->where('action', 'GOV_POLICY_SAVED')->where('entity_id', $row->id)->count())->toBe(1);
+    Livewire::test(EmployeePaySettingsPage::class)->assertSee('Paged')->assertDontSee('Awaiting approval');
 
-    // Once in force the card reads the version, with the fund at the employee's rate.
-    $this->travelTo(CarbonImmutable::parse('2026-11-02 02:00:00', 'UTC'));
+    // "Reset to standard" fills the standard computation; saving replaces the same row.
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('In force since')
-        ->assertSee('01 Nov 2026')
-        ->assertSee('5% of taxable pay')
-        ->assertSee('Own rate 10%')
-        // "Use standard settings" fills the standard computation into a new draft.
         ->call('startEdit')
-        ->assertSet('effectiveFrom', '2026-11-16')
+        ->assertSee('Reset to standard')
         ->call('useStandard')
         ->assertSet('form.sss_deduct', true)
         ->assertSet('form.percent.'.$fund->id, '')
-        ->set('reason', 'Back to standard')
         ->call('save')
-        ->assertSet('editing', false);
-    $second = PayrollGovDeductionPolicy::query()->where('status', 'DRAFT')->sole();
-    expect($second->params['allow_sss'])->toBeTrue()->and($second->params['percent_rates'])->toBe([]);
+        ->assertSet('editing', false)
+        ->assertSee('The standard settings apply.');
+    $again = PayrollGovDeductionPolicy::query()->sole();
+    expect($again->id)->toBe($row->id)
+        ->and($again->params['allow_sss'])->toBeTrue()
+        ->and($again->params['percent_rates'])->toBe([]);
 
-    // A holder without all data reads nothing and writes nothing; a manager discards the draft.
+    // A holder without all data reads nothing and writes nothing.
     gdpActor(['PAYROLL'], allData: false);
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertDontSee('Prepare a version')
-        ->call('discardVersion', $second->id)
+        ->assertDontSeeHtml('wire:click="startEdit"')
         ->call('startEdit')
-        ->assertSet('editing', false);
-    expect(PayrollGovDeductionPolicy::query()->whereKey($second->id)->exists())->toBeTrue();
-    gdpActor();
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->call('discardVersion', $second->id);
-    expect(PayrollGovDeductionPolicy::query()->whereKey($second->id)->exists())->toBeFalse()
+        ->assertSet('editing', false)
+        ->set('form.sss_deduct', false)
+        ->call('save');
+    expect(PayrollGovDeductionPolicy::query()->sole()->params['allow_sss'])->toBeTrue()
         ->and(PayrollGovDeductionPolicy::query()->count())->toBe(1);
 });

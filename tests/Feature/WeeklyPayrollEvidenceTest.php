@@ -15,6 +15,7 @@ use App\Modules\Payroll\Application\PayrollReviewRequired;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
+use Tests\Support\ScheduleFixture;
 
 /** A weekday roster is captured in payroll evidence and any edit invalidates an outstanding review. */
 function weeklyPayrollRoster(string $employeeId): RosterShift
@@ -64,6 +65,7 @@ it('captures weekday shift facts and replays them after the live roster changes'
 
 it('requires another payroll review after a weekday shift changes', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     weeklyPayrollRoster($employee->id);
     $review = PayrollReviewFixture::token($actor, $run->id);
     RosterShift::query()->sole()->update(['shift_data' => (new DomainShift(workDays: [1]))->toArray()]);
@@ -76,6 +78,7 @@ it('requires another payroll review after a weekday shift changes', function () 
 
 it('invalidates a cutoff review when a dated rest exception changes its months divisor', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     $review = PayrollReviewFixture::token($actor, $run->id);
     RosterDayOverride::create([
         'employee_id' => $employee->id, 'date' => '2026-09-30', 'shift_name' => 'Rest day',

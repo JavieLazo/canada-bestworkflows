@@ -19,7 +19,7 @@ final class ModuleAccountQuery implements ModuleAccounts
     {
         abort_unless($actor->hasModule($module), 403);
 
-        $accounts = $this->holding($module)->get(['users.id', 'users.employee_id', 'users.is_active']);
+        $accounts = $this->holding($module)->get(User::accountNameReady() ? ['users.id', 'users.employee_id', 'users.is_active', 'users.account_name'] : ['users.id', 'users.employee_id', 'users.is_active']);
         $names = app(AccountLabels::class)->names($accounts);
 
         return $accounts

@@ -78,6 +78,37 @@ final class PayrollAdvance
     }
 
     /**
+     * ONE MEMBER's counted date: the run's counted date, pulled back to the
+     * day before the member's first UNFINISHED day — a Time In without a
+     * Time Out, which the Daily Time Record reads as INCOMPLETE — on or
+     * before it. An unfinished day is assumed to finish: that day, and every
+     * counted day after it, is presumed and settled on the member's next
+     * payroll like the days after the counted date, instead of blocking the
+     * finalization as an unpaired punch. The member's own date is what their
+     * payslip carries, so the freeze and the settlement follow it.
+     *
+     * Null stays null: without an advance nothing is presumed, so an
+     * unfinished day blocks as before. A first day unfinished gives the day
+     * before the period, which presumes every day.
+     *
+     * @param  iterable<object{date: string, status: string}>  $days  the member's DTR rows (DayRecord), in any order
+     */
+    public static function countedThrough(?string $through, iterable $days): ?string
+    {
+        if ($through === null) {
+            return null;
+        }
+        $counted = $through;
+        foreach ($days as $day) {
+            if ($day->status === 'INCOMPLETE' && strcmp($day->date, $counted) <= 0) {
+                $counted = CalendarDays::previous($day->date);
+            }
+        }
+
+        return $counted;
+    }
+
+    /**
      * The presumed days of a run: the day after the counted date through the
      * period's end, or null when nothing is presumed.
      *

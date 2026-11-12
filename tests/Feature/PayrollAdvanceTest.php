@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Payroll\PayrollValidation;
 use App\Livewire\Payroll\RunWorkspace;
-use App\Livewire\Payroll\SettingsOverview;
 use App\Livewire\Payroll\Support\PayslipDocument;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
@@ -163,14 +162,23 @@ function padvEvidence(PayrollRun $run): array
 |--------------------------------------------------------------------------
 */
 
-it('starts a draft opened while the period runs counted through yesterday, and an ended one through nothing', function () {
-    padvActor();
+it('counts a draft through yesterday while the period runs, and through nothing once it has ended, with no field for it', function () {
+    $actor = padvActor();
 
     $this->travelTo(new DateTimeImmutable('2026-09-12T10:00:00+08:00'));
-    Livewire::test(RunWorkspace::class)->assertSet('attendanceThrough', '2026-09-11')->assertSeeHtml('data-attendance-through');
+    Livewire::test(RunWorkspace::class)->assertSet('attendanceThrough', '2026-09-11')
+        ->assertSee('Attendance is counted through')->assertDontSeeHtml('data-attendance-through');
 
     $this->travelTo(new DateTimeImmutable('2026-09-20T10:00:00+08:00'));
     Livewire::test(RunWorkspace::class)->assertSet('attendanceThrough', '');
+
+    // A draft saved on one day and opened on a later one follows the later day, and needs saving again.
+    $this->travelTo(new DateTimeImmutable('2026-09-10T10:00:00+08:00'));
+    $run = padvDraft($actor, '2026-09-01', '2026-09-15', '2026-09-09', [padvEmployee()]);
+    $this->travelTo(new DateTimeImmutable('2026-09-14T10:00:00+08:00'));
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertSet('attendanceThrough', '2026-09-13')->assertSee('Unsaved changes');
+    $this->travelTo(new DateTimeImmutable('2026-09-20T10:00:00+08:00'));
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertSet('attendanceThrough', '');
 });
 
 it('refuses a counted date that is today, outside the period, or on a 13th month run', function () {
@@ -201,7 +209,6 @@ it('saves the counted date, pays the days after it as scheduled and finalizes wi
         ->set('name', 'September 2026 — first cut-off')
         ->set('start', '2026-09-01')
         ->set('end', '2026-09-15')
-        ->set('attendanceThrough', '2026-09-14')
         ->call('openPicker')
         ->call('togglePick', $employee->id)
         ->call('applyPicked')
@@ -215,8 +222,8 @@ it('saves the counted date, pays the days after it as scheduled and finalizes wi
     // The preview: paid in advance, the period not "open", the open Time In no issue.
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->assertSeeHtml('data-advance')
-        ->assertSee('attendance is counted through')
-        ->assertDontSeeHtml('data-open-period')
+        ->assertSee('Attendance is counted through')
+        ->assertSeeText('1 day for 1 employee.')
         ->assertDontSeeHtml('data-advance-error')
         ->assertSeeHtml('data-presumed-days="'.$employee->id.'"');
     $page->call('finalize');
@@ -230,7 +237,7 @@ it('saves the counted date, pays the days after it as scheduled and finalizes wi
         ->and($payslip->work_days_pay)->toBe(15000.0)
         ->and($payslip->settlement)->toBe(0.0)
         ->and($payslip->attendance_through?->format('Y-m-d'))->toBe('2026-09-14')
-        ->and(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->value('details'))->toContain('attendance counted through 14 Sep 2026, 1 day paid in advance');
+        ->and(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->value('details'))->toContain('attendance counted through 14 Sep 2026, 1 day paid as scheduled');
 
     $evidence = padvEvidence($run);
     expect($evidence['inputs']['schema_version'])->toBe(PayrollInputs::SCHEMA_VERSION)
@@ -277,6 +284,87 @@ it('lists open attendance only among the counted days', function () {
     expect($open->periodOpen)->toBeFalse()
         ->and($open->overtime)->toBe([$employee->id => ['2026-09-10']])
         ->and($open->requests)->toBe([$employee->id => [['type' => 'SICK', 'start' => '2026-09-11', 'end' => '2026-09-11']]]);
+});
+
+it('pays an unfinished counted day in advance instead of refusing it, and settles it once it is over', function () {
+    $this->travelTo(new DateTimeImmutable('2026-09-15T10:00:00+08:00'));
+    $actor = padvActor();
+    // Finished: a full day on the 14th. Open: in on the 14th, never out as the payroll is run, out later.
+    // Never: in on the 14th and never out at all, and away on the 15th.
+    $finished = padvEmployee('Finished');
+    $open = padvEmployee('Open');
+    $never = padvEmployee('Never');
+    padvWorkedThroughFourteenth($finished);
+    foreach ([$open, $never] as $employee) {
+        foreach (['01', '02', '03', '04', '07', '08', '09', '10', '11'] as $day) {
+            padvWorked($employee, "2026-09-{$day}");
+        }
+        padvPunch($employee, 'TIME_IN', '2026-09-14T08:00:00');
+    }
+
+    // Without a counted date the open punch blocks, as the reference does.
+    $whole = PayrollData::calculateDrafts([$open->id], '2026-09-01', '2026-09-15', actor: $actor);
+    expect(array_filter(array_column($whole['issues'], 'message'), static fn (string $m): bool => str_starts_with($m, 'Resolve every unmatched or duplicate attendance punch')))->not->toBe([]);
+
+    // Counted through the 14th: the open 14th pulls Open and Never back to the 13th; Finished keeps the run's date.
+    $calculation = PayrollData::calculateDrafts([$finished->id, $open->id, $never->id], '2026-09-01', '2026-09-15', actor: $actor, attendanceThrough: '2026-09-14');
+    $drafts = collect($calculation['drafts'])->keyBy('employee_id');
+    expect($calculation['issues'])->toBe([])
+        ->and($calculation['countedThrough'])->toBe([$finished->id => '2026-09-14', $open->id => '2026-09-13', $never->id => '2026-09-13'])
+        ->and($drafts[$finished->id]->presumed_days)->toBe(1.0)
+        ->and($drafts[$open->id]->presumed_days)->toBe(2.0)
+        ->and($drafts[$open->id]->work_days)->toBe(11.0)
+        ->and($drafts[$open->id]->absence_days)->toBe(0.0)
+        ->and($drafts[$open->id]->work_days_pay)->toBe(15000.0)
+        ->and($drafts[$never->id]->presumed_days)->toBe(2.0)
+        ->and(OpenAttendanceItems::forInputs($calculation['inputs'], '2026-09-15')->isEmpty())->toBeTrue();
+
+    $run = padvDraft($actor, '2026-09-01', '2026-09-15', '2026-09-14', [$finished, $open, $never]);
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertSeeHtml('data-advance-earlier')
+        ->assertSee('2 employees have a Time In without a Time Out among the counted days')
+        // The count adds every employee's days together, and says so.
+        ->assertSeeText('5 days in total across 3 employees.')
+        ->assertDontSeeHtml('data-advance-error')
+        ->call('finalize');
+    expect($run->refresh()->status)->toBe('FINALIZED');
+    $slips = Payslip::query()->where('run_id', $run->id)->get()->keyBy('employee_id');
+    // Each payslip carries the member's own counted date; the run keeps its own.
+    expect($slips[$finished->id]->attendance_through?->format('Y-m-d'))->toBe('2026-09-14')
+        ->and($slips[$open->id]->attendance_through?->format('Y-m-d'))->toBe('2026-09-13')
+        ->and($slips[$open->id]->presumed_days)->toBe(2.0)
+        ->and($slips[$never->id]->attendance_through?->format('Y-m-d'))->toBe('2026-09-13')
+        ->and($run->attendance_through?->format('Y-m-d'))->toBe('2026-09-14')
+        ->and((float) padvEvidence($run)['presumed'][$open->id]['work_days'])->toBe(2.0);
+
+    // The unfinished 14th stays open on the Daily Time Record for Open, while Finished's 14th is paid and frozen.
+    $this->travelTo(new DateTimeImmutable('2026-09-16T10:00:00+08:00'));
+    expect(fn () => CorrectPunches::apply($actor, $finished->id, '2026-09-14', ['time_in' => '08:00', 'break_out' => null, 'break_in' => null, 'time_out' => '18:00'], PunchSlots::SAME_DAY, 'Stayed'))
+        ->toThrow(RuntimeException::class, CorrectionWindow::PAID_DAY);
+    CorrectPunches::apply($actor, $open->id, '2026-09-14', ['time_in' => '08:00', 'break_out' => null, 'break_in' => null, 'time_out' => '17:00'], PunchSlots::SAME_DAY, 'Forgot to punch out');
+    padvWorked($open, '2026-09-15');
+    padvWorked($finished, '2026-09-15');
+
+    // The next payroll settles the days from each member's own counted date.
+    $this->travelTo(new DateTimeImmutable('2026-10-01T10:00:00+08:00'));
+    foreach ([$finished, $open, $never] as $employee) {
+        padvWorkedSecondHalf($employee);
+    }
+    $next = padvDraft($actor, '2026-09-16', '2026-09-30', null, [$finished, $open, $never], 'Second');
+    padvFinalize($actor, $next);
+    $rows = PayslipSettlement::query()->get()->keyBy('employee_id');
+    // Open: the 14th finished and the 15th worked are worth what was presumed.
+    expect($rows[$open->id]->from_date->format('Y-m-d'))->toBe('2026-09-14')
+        ->and($rows[$open->id]->to_date->format('Y-m-d'))->toBe('2026-09-15')
+        ->and($rows[$open->id]->presumed_amount)->toBe(2727.27)
+        ->and($rows[$open->id]->amount)->toBe(0.0)
+        // Never: the 14th still unfinished is an absence day, the 15th an absence: both charged back.
+        ->and($rows[$never->id]->from_date->format('Y-m-d'))->toBe('2026-09-14')
+        ->and($rows[$never->id]->amount)->toBe(-2727.27)
+        ->and((float) $rows[$never->id]->details['actual']['absence_days'])->toBe(2.0)
+        // Finished: only the 15th was presumed.
+        ->and($rows[$finished->id]->from_date->format('Y-m-d'))->toBe('2026-09-15')
+        ->and($rows[$finished->id]->amount)->toBe(0.0);
 });
 
 /*
@@ -326,7 +414,7 @@ it('settles the presumed days on the next payroll from their finished attendance
         ->assertSeeHtml('data-advance-settled')
         ->assertSeeHtml('data-settlement="'.$absent->id.'"')
         ->call('openWhy', $absent->id, 'settlement')
-        ->assertSee('Settlement for 15 Sep 2026 · payroll '.$advance->code)
+        ->assertSee('Prior cut-off adjustment for 15 Sep 2026 · payroll '.$advance->code)
         ->assertSee('1 absence');
     $page->call('finalize');
     expect($next->refresh()->status)->toBe('FINALIZED');
@@ -367,9 +455,9 @@ it('settles the presumed days on the next payroll from their finished attendance
         ->toThrow(RuntimeException::class, CorrectionWindow::PAID_DAY);
     $settlements = app(PayslipRecords::class)->settlements($actor, [$slips[$absent->id]->id])[$slips[$absent->id]->id];
     $document = PayslipDocument::issued(app(PayslipRecords::class)->find($actor, $next->id, $absent->id), $absent, false, [], [], collect(), settlements: $settlements);
-    expect(array_column($document['earnings'], 'label'))->toContain('Settlement for 15 Sep 2026 · '.$advance->code);
+    expect(array_column($document['earnings'], 'label'))->toContain('Prior cut-off adjustment for 15 Sep 2026 · '.$advance->code);
     $advanceDocument = PayslipDocument::issued(app(PayslipRecords::class)->find($actor, $advance->id, $absent->id), $absent, false, [], [], collect());
-    expect(array_column($advanceDocument['basis'], 'label'))->toContain('Paid in advance · days');
+    expect(array_column($advanceDocument['basis'], 'label'))->toContain('Paid as scheduled · days');
 });
 
 it('freezes the presumed days\' figures in the advance payroll\'s evidence and settles from them, not from a new computation', function () {
@@ -481,22 +569,6 @@ it('charges back the presumed days after a resignation recorded later, while no 
     // A regular payroll starting after the leaving date refuses the leaver, so nothing settles this on its own.
     expect(fn () => padvDraft($actor, '2026-09-16', '2026-09-30', null, [$employee]))->toThrow(RuntimeException::class, PayrollValidation::MESSAGE_OUTSIDE_EMPLOYMENT);
     expect(app(PayslipRecords::class)->unsettledAdvances($actor))->toHaveCount(1);
-});
-
-it('lists the days paid in advance that no payroll has settled on the Payroll Settings overview', function () {
-    $actor = padvActor();
-    $employee = padvEmployee('Pending');
-    $advance = padvPostedAdvance($actor, $employee);
-    $this->travelTo(new DateTimeImmutable('2026-10-05T10:00:00+08:00'));
-
-    Livewire::test(SettingsOverview::class)
-        ->assertSee('Ramon Pending\'s days paid in advance on payroll '.$advance->code.' (15 Sep 2026 to 15 Sep 2026) are not settled yet.')
-        ->assertSee('Their next regular payroll settles them');
-
-    $employee->forceFill(['is_active' => false])->save();
-    Livewire::test(SettingsOverview::class)
-        ->assertSee('no payroll will settle them on its own')
-        ->assertSee('Unsettled days');
 });
 
 /*

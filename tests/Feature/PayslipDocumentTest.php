@@ -122,8 +122,9 @@ it('renders branded issued pay and historical lines without using current salary
     preg_match('/<article[^>]*class="[^"]*hris-payslip[^"]*"[^>]*>(.*?)<\/article>/s', $html, $document);
     $printed = payslipDocumentText($document[1] ?? '');
 
-    expect($html)->toContain('bestworkflows-horizontal-view.png')
-        ->and($text)->toContain('Fixture Company', 'COP-DOCUMENT-001', 'Alexandria Statement', 'Payroll ID PR-DOCUMENT-001')
+    expect($html)->toContain('bestworkflows-wordmark.png')
+        ->and($printed)->toContain((string) config('copems.company_name'), 'Operations Coordinator', 'For the month of SEPTEMBER 2026', 'SEPTEMBER 1–15, 2026', '1st half')
+        ->and($text)->toContain('COP-DOCUMENT-001', 'Alexandria Statement', 'Payroll ID PR-DOCUMENT-001')
         ->toContain('812.34', '1,332.75', '660.66', '672.09')
         ->toContain('Issued equipment installment', '60.06', 'Issued service award', '100.77')
         ->toContain('Legacy late / undertime deduction', '90.09', 'Legacy absence deduction', '100.10', 'Legacy unpaid leave deduction', '110.11')
@@ -142,8 +143,12 @@ it('renders branded issued pay and historical lines without using current salary
             ->not->toContain('111.12')->not->toContain('222.23')->not->toContain('333.34')
             ->and($html)->not->toContain('hris-payslip-details')->not->toContain('data-employer-shares');
     } else {
-        expect($text)->toContain('777.77', 'Additional payroll details', 'Employer contributions (not deducted)', '111.12', '222.23', '333.34')
-            ->and(mb_strtolower($text))->toContain('not approved');
+        expect($text)->toContain('Additional payroll details', 'Employer contributions (not deducted)', '111.12', '222.23', '333.34');
+        // Unapproved overtime shows no amount on the payslip itself, the officer's copy
+        // included. The Reports register beside the statement still lists the stored
+        // figure as "Stored overtime" with "Overtime included in gross: No".
+        expect($printed)->not->toContain('777.77')
+            ->and(mb_strtolower($printed))->not->toContain('not approved');
     }
     expect($payslip->refresh()->getRawOriginal())->toEqual($issued);
 })->with(['Payroll' => ['Payroll'], 'Portal' => ['Portal'], 'Reports' => ['Reports']]);
@@ -165,9 +170,12 @@ it('shows yearly pay and tax treatment without an attendance basis on every pays
     $html = payslipDocumentHtml($surface, $run, $payslip);
     $text = payslipDocumentText($html);
 
-    expect($html)->toContain('bestworkflows-horizontal-view.png')
-        ->and($text)->toContain('Fixture Company', '13th month pay', '12,345.67', '345.67', '12,000.00')
+    expect($html)->toContain('bestworkflows-wordmark.png')
+        ->and($text)->toContain((string) config('copems.company_name'), 'For the year 2026', '13th month pay', '12,345.67', '345.67', '12,000.00')
         ->not->toContain('Work days', 'Absences', 'Daily rate', 'Time and rate details');
+    // A 13th month slip stands alone: it is not a cut-off of any month.
+    expect($html)->not->toContain('data-month-summary')
+        ->and(substr_count($html, 'data-payslip-slip'))->toBe(1);
     // Every surface keeps the posted exemption split, never a split of the
     // current rate; grouping separators only change how the amount is read.
     expect(str_replace(',', '', $text))->toContain('9000.00', '3345.67');

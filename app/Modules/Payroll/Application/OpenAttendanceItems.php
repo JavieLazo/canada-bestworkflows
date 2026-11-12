@@ -7,12 +7,14 @@ namespace App\Modules\Payroll\Application;
 use App\Domain\Attendance\DtrCalculator;
 use App\Domain\Attendance\Minutes;
 use App\Domain\Payroll\PayrollPeriod;
+use App\Modules\Payroll\Domain\PayrollAdvance;
 use App\Modules\Workforce\Contracts\EmployeePayData;
 
 /**
- * What a regular payroll would pay as it stands although attendance has not
- * finished deciding it — the "Before you finalize" panel, and what
- * FinalizePayroll refuses unless the officer ticks "Finalize anyway":
+ * What a regular payroll pays as it stands although attendance has not
+ * finished deciding it — the record FinalizePayroll keeps in the audit
+ * sentence and the evidence. Nothing shows it on the workspace and nothing
+ * holds the posting for it: attendance is reviewed before payroll.
  *
  *  - the period is not over yet: the days still to come pay as absences
  *    (not on an advance payroll, PayrollAdvance, which pays the days after
@@ -79,8 +81,20 @@ final readonly class OpenAttendanceItems
                 continue;
             }
 
-            foreach (DtrCalculator::compute($facts->logs, $facts->shift, $facts->leaves, $from, $to, $inputs->holidays) as $day) {
-                if (self::decidable($day->overtimeMinutes) && ! array_key_exists($day->date, $facts->overtimeApprovals)) {
+            // The member's own counted date: an unfinished day among the
+            // counted ones pulls it back, and the days from there on are
+            // presumed too (PayrollAdvance::countedThrough).
+            $days = DtrCalculator::compute($facts->logs, $facts->shift, $facts->leaves, $from, $to, $inputs->holidays);
+            $counted = PayrollAdvance::countedThrough($inputs->attendanceThrough, $days);
+            if ($counted !== null && $counted < $to) {
+                $to = $counted;
+            }
+            if ($from > $to) {
+                continue;
+            }
+
+            foreach ($days as $day) {
+                if ($day->date <= $to && self::decidable($day->overtimeMinutes) && ! array_key_exists($day->date, $facts->overtimeApprovals)) {
                     $overtime[$employeeId][] = $day->date;
                 }
             }

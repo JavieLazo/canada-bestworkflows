@@ -16,6 +16,7 @@ use App\Models\RosterShift;
 use App\Models\Shift;
 use App\Models\ShiftType;
 use App\Modules\Timekeeping\Application\DatedChange;
+use App\Modules\Timekeeping\Application\RestDayConversion;
 use App\Modules\Timekeeping\Application\RosterChanges;
 use App\Modules\Timekeeping\Application\ScheduleImpact;
 use App\Modules\Timekeeping\Application\ShiftPolicy;
@@ -103,25 +104,16 @@ final class SaveShiftType
         if (trim($input->formName) === '') {
             throw new \RuntimeException('Name is required.');
         }
-        // An empty week has no scheduled day to measure against and nothing to
-        // divide the monthly rate by.
-        if ($input->formWorkDays === []) {
-            throw new \RuntimeException('Pick at least one working day.');
-        }
-
         if (mb_strlen(trim($input->formName)) > 160) {
             throw new \RuntimeException('name: must be at most 160 characters.');
         }
         $flexible = $input->formMode === 'FLEXIBLE';
-        // The client's payload mapping, verbatim (shift-types-page.tsx:170-186).
-        // Bounds-checked because the property is client-writable: 0–6 only
-        // (ShiftTypeInput, schemas.ts:124).
-        $days = array_values(array_unique(array_filter(array_map(intval(...), $input->formWorkDays), static fn (int $d): bool => $d >= 0 && $d <= 6)));
-        sort($days);
-        if ($days === []) {
-            throw new \RuntimeException('Pick at least one working day.');
-        }
-        $payload = ['name' => trim($input->formName), 'mode' => $flexible ? 'FLEXIBLE' : 'FIXED', 'work_days' => $days, 'start_time' => $flexible ? null : $input->formStartTime.':00', 'end_time' => $flexible ? null : $input->formEndTime.':00', 'grace_minutes' => $flexible ? 0 : (is_numeric($input->formGrace) ? (int) $input->formGrace : 0), 'required_hours' => $flexible ? is_numeric($input->formRequiredHours) ? (float) $input->formRequiredHours : 0.0 : null, 'break_start' => $input->formHasBreak && ! $flexible ? $input->formBreakStart.':00' : null, 'break_end' => $input->formHasBreak && ! $flexible ? $input->formBreakEnd.':00' : null, 'break_minutes' => $input->formHasBreak ? is_numeric($input->formBreakMinutes) ? (int) $input->formBreakMinutes : 0 : 0, 'requires_break_punch' => $input->formHasBreak && ! $flexible ? $input->formRequiresBreakPunch : false];
+        // The client's payload mapping (shift-types-page.tsx:170-186), less
+        // the work week: EVERY DAY IS A WORKING DAY and a rest day is set on
+        // the employee (`RestDayConversion`), so a new pattern works all seven
+        // days and an edit leaves the stored week alone — before the move has
+        // run on an installation, that week still rests its employees' days.
+        $payload = ['name' => trim($input->formName), 'mode' => $flexible ? 'FLEXIBLE' : 'FIXED', 'start_time' => $flexible ? null : $input->formStartTime.':00', 'end_time' => $flexible ? null : $input->formEndTime.':00', 'grace_minutes' => $flexible ? 0 : (is_numeric($input->formGrace) ? (int) $input->formGrace : 0), 'required_hours' => $flexible ? is_numeric($input->formRequiredHours) ? (float) $input->formRequiredHours : 0.0 : null, 'break_start' => $input->formHasBreak && ! $flexible ? $input->formBreakStart.':00' : null, 'break_end' => $input->formHasBreak && ! $flexible ? $input->formBreakEnd.':00' : null, 'break_minutes' => $input->formHasBreak ? is_numeric($input->formBreakMinutes) ? (int) $input->formBreakMinutes : 0 : 0, 'requires_break_punch' => $input->formHasBreak && ! $flexible ? $input->formRequiresBreakPunch : false];
         // ShiftTypeInput's numeric caps (schemas.ts:118-134).
         if ($payload['grace_minutes'] < 0 || $payload['grace_minutes'] > 600) {
             throw new \RuntimeException('grace_minutes: must be between 0 and 600.');
@@ -147,7 +139,7 @@ final class SaveShiftType
                 return [new ScheduleImpact, ''];
             }
             $code = CodeSequence::next('SFT', ShiftType::query()->pluck('code'));
-            $row = ShiftType::query()->create($payload + ['code' => $code]);
+            $row = ShiftType::query()->create($payload + ['code' => $code, 'work_days' => RestDayConversion::ALL_DAYS]);
             AuditService::record($access, AuditEvent::SHIFT_TYPE_CREATED, 'shift_types', (string) $row->getKey(), "{$name} added as shift pattern {$code}");
 
             return [new ScheduleImpact, "{$name} added."];

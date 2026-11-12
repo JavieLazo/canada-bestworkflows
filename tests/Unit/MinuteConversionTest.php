@@ -99,6 +99,28 @@ it('validates a leave type\'s credit rules and describes them for the audit trai
         ->and(LeaveTypeCredits::none()->describe())->toBe('does not earn credits · days · never charged · below zero to 0')
         ->and(LeaveTypeCredits::error([...$input, 'unit' => 'WEEKS']))->toContain('days or hours')
         ->and(LeaveTypeCredits::error([...$input, 'charge_order' => '1000']))->toContain('0 to 999')
-        ->and(LeaveTypeCredits::error([...$input, 'below_zero_limit' => '-1']))->toContain('Below zero limit')
+        ->and(LeaveTypeCredits::error([...$input, 'below_zero_limit' => '-1']))->toContain('Maximum negative balance')
         ->and(LeaveTypeCredits::error([...$input, 'earns_credits' => 'yes']))->toContain('yes or no');
+});
+
+it('finds the charged leave types that share a charge order, and ignores the types charged for nothing', function () {
+    $type = static fn (bool $late, bool $absence, int $order): LeaveTypeCredits => new LeaveTypeCredits(true, 'DAYS', $late, $absence, $order, 0.0);
+    $types = [
+        'VACATION_LEAVE' => ['name' => 'Vacation Leave', 'rules' => $type(true, true, 1)],
+        'SICK_LEAVE' => ['name' => 'Sick Leave', 'rules' => $type(false, true, 1)],
+        'SOLO_PARENT_LEAVE' => ['name' => 'Solo Parent Leave', 'rules' => $type(true, false, 1)],
+        'FORCED_LEAVE' => ['name' => 'Forced Leave', 'rules' => $type(false, true, 2)],
+        // Charged for nothing: in no order, so its 1 and 2 clash with nobody.
+        'BIRTHDAY_LEAVE' => ['name' => 'Birthday Leave', 'rules' => $type(false, false, 1)],
+        'SPECIAL_LEAVE' => ['name' => 'Special Leave', 'rules' => $type(false, false, 2)],
+    ];
+
+    expect(LeaveTypeCredits::orderClashes($types))->toBe([
+        'VACATION_LEAVE' => ['Sick Leave', 'Solo Parent Leave'],
+        'SICK_LEAVE' => ['Vacation Leave', 'Solo Parent Leave'],
+        'SOLO_PARENT_LEAVE' => ['Vacation Leave', 'Sick Leave'],
+    ])
+        ->and(LeaveTypeCredits::orderClashes(['FORCED_LEAVE' => $types['FORCED_LEAVE'], 'SPECIAL_LEAVE' => $types['SPECIAL_LEAVE']]))->toBe([])
+        ->and(LeaveTypeCredits::orderClashText(1, ['Sick Leave']))->toBe('Deduction priority 1 is already used by Sick Leave. Each leave type with credit deductions needs its own priority.')
+        ->and(LeaveTypeCredits::orderClashText(3, ['Sick Leave', 'Forced Leave', 'Solo Parent Leave']))->toBe('Deduction priority 3 is already used by Sick Leave, Forced Leave and Solo Parent Leave. Each leave type with credit deductions needs its own priority.');
 });

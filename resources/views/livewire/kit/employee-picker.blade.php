@@ -5,7 +5,8 @@
     styled level with the selects beside it, a panel the width of the trigger
     with the search box pinned on top, and a scrolling listbox under it.
     Open/close and the keyboard highlight are Alpine (no round trip per arrow
-    key); the LIST is server-rendered from the scoped, searched query.
+    key); the LIST is server-rendered from the scoped, searched query, one
+    page of matches at a time, with a footer saying how many there are.
 
     Accessibility carried over: the search box is the combobox a screen reader
     tracks, `aria-activedescendant` follows the highlight, rows stay out of the
@@ -15,9 +16,9 @@
     THE PANEL IS A NATIVE POPOVER (`popover="manual"` — the date-field
     calendar's mechanics, see resources/js/date-field.js): shown with
     showPopover() it sits in the browser's top layer, where a Flux <dialog>
-    (a transformed scroll container) cannot clip it — inside the roster's
-    Assign shift dialog an absolute panel would be cut off at the dialog's
-    edge. It stays a DOM descendant of the field (teleported to
+    (a transformed scroll container) cannot clip it — inside a dialog such
+    as Inventory's issue dialogs an absolute panel would be cut off at the
+    dialog's edge. It stays a DOM descendant of the field (teleported to
     <body> it would be inert under the modal, and Flux would read a click on
     it as outside the dialog), is positioned by hand from the trigger's
     getBoundingClientRect(), and carries `wire:ignore.self` so the morph
@@ -219,10 +220,17 @@
             class="max-h-72 overflow-y-auto p-1"
         >
             {{-- Announced as it changes, so someone who cannot see the list
-                 still hears that a search found nothing. --}}
-            <p aria-live="polite" class="sr-only">
-                {{ count($visible) === 1 ? '1 employee found' : count($visible).' employees found' }}
-            </p>
+                 still hears that a search found nothing. It counts every
+                 match and, when only a page of them is drawn, says so: the
+                 arrow keys stop at the last row drawn, and the footer below
+                 is not read. --}}
+            @php
+                $found = $total === 1 ? '1 employee found' : number_format($total).' employees found';
+                if ($total > count($visible)) {
+                    $found .= ', showing the first '.number_format(count($visible)).'. Keep typing to narrow.';
+                }
+            @endphp
+            <p aria-live="polite" class="sr-only">{{ $found }}</p>
 
             @if (count($visible) === 0)
                 <p class="px-3 py-6 text-center text-sm text-muted-foreground">
@@ -272,5 +280,15 @@
                 </button>
             @endforeach
         </div>
+
+        {{-- The list is one page of matches (EmployeePicker::PAGE_SIZE); the
+             search is how the rest are reached. Outside the listbox so it is
+             not read as an option, and aria-hidden because the live region
+             above already says it. --}}
+        @if ($total > count($visible))
+            <p aria-hidden="true" class="border-t border-border px-3 py-2 text-xs text-muted-foreground" data-epk-more>
+                Showing <span class="num">{{ number_format(count($visible)) }}</span> of <span class="num">{{ number_format($total) }}</span> — keep typing to narrow.
+            </p>
+        @endif
     </div>
 </div>

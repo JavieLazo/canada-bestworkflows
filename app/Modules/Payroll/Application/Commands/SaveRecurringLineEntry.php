@@ -46,7 +46,7 @@ final class SaveRecurringLineEntry
         }
         $rule = RecurringLines::rule($line);
         if ($rule->kind !== RecurringLine::KIND_DEDUCTION || $rule->total === null) {
-            throw new RuntimeException('Entries are recorded only on a deduction with a total to pay off.');
+            throw new RuntimeException('Entries are recorded only on a deduction with a total loan payable.');
         }
         if (! array_key_exists($kind, PayrollRecurringLineEntry::KINDS)) {
             throw new RuntimeException('Choose whether this is a payment made outside payroll or a balance adjustment.');

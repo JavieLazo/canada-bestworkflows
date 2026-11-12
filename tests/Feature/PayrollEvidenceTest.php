@@ -30,6 +30,7 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Livewire;
 use Tests\Support\PayrollEvidenceFixture;
 use Tests\Support\PayrollReviewFixture;
+use Tests\Support\ScheduleFixture;
 
 /** A reviewed calculation is immutable evidence only after the entire finalization commits. */
 
@@ -189,7 +190,8 @@ it('bases the contributions of an employee with only a Rate Per Day on it times 
 });
 
 it('refuses to restore evidence written under the previous schema', function () {
-    ['actor' => $actor, 'run' => $run] = PayrollEvidenceFixture::make();
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
     $inputs = json_decode(PayrollFinalizationSnapshot::query()->sole()->payload, true, 512, JSON_THROW_ON_ERROR)['inputs'];
 
@@ -213,6 +215,7 @@ it('refuses to restore evidence written under the previous schema', function () 
 
 it('requires a separate review action after a stale Livewire preview', function () {
     ['employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     $screen = Livewire::test(RunWorkspace::class, ['id' => $run->id]);
     $employee->update(['monthly_rate' => 45000]);
     $run->update(['name' => 'Another manager saved this name']);
@@ -227,7 +230,8 @@ it('requires a separate review action after a stale Livewire preview', function 
 });
 
 it('rejects missing forged and other-actor receipts and rechecks revoked access', function (string $kind) {
-    ['actor' => $actor, 'run' => $run, 'role' => $role, 'user' => $user] = PayrollEvidenceFixture::make();
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run, 'role' => $role, 'user' => $user] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     $token = PayrollReviewFixture::token($actor, $run->id);
     if ($kind === 'other-actor') {
         $other = User::factory()->create(['role_id' => $role->id]);
@@ -245,7 +249,8 @@ it('rejects missing forged and other-actor receipts and rechecks revoked access'
 })->with(['missing', 'forged', 'other-actor', 'revoked']);
 
 it('rolls back evidence and posting when an insert is vetoed', function (string $model) {
-    ['actor' => $actor, 'run' => $run] = PayrollEvidenceFixture::make();
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     $model::creating(static fn (): bool => false);
     expect(fn () => app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id)))
         ->toThrow(RuntimeException::class);
@@ -257,7 +262,8 @@ it('rolls back evidence and posting when an insert is vetoed', function (string 
 })->with([PayrollFinalizationSnapshot::class, Payslip::class]);
 
 it('refuses model edits deletion and destructive rollback of posted evidence', function () {
-    ['actor' => $actor, 'run' => $run] = PayrollEvidenceFixture::make();
+    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
+    ScheduleFixture::standard($employee);
     app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
     $snapshot = PayrollFinalizationSnapshot::query()->sole();
     expect(fn () => $snapshot->forceFill(['payload' => '{}'])->save())->toThrow(RuntimeException::class)

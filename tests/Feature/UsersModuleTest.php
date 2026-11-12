@@ -14,8 +14,11 @@ use App\Models\ProjectTaskSubmission;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
+use App\Modules\IdentityAccess\Application\Commands\ManageAccounts;
+use App\Modules\IdentityAccess\Contracts\AccountNames;
 use App\Support\Access;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
@@ -260,6 +263,7 @@ it('does not link an abandoned attempt’s employee to the next account created'
         ->call('createEmployeeChanged', (string) $stale->getKey())
         // Dismissed with the ×: no `adding` round-trip, so no reset here.
         ->call('openCreate')
+        ->set('createName', 'Second Sign-in')
         ->set('createEmail', 'second@example.com')
         ->set('createPassword', 'Temporary-Password#2026')
         ->call('createRoleChanged', (string) $role->getKey())
@@ -1001,4 +1005,150 @@ it('refuses to remove organization-wide scope from your own role', function () {
         ->call('saveRole');
 
     expect((bool) Role::query()->find($ownRoleId)->all_data)->toBeTrue();
+});
+
+/*
+|--------------------------------------------------------------------------
+| The name of an account with no employee record
+|--------------------------------------------------------------------------
+*/
+
+it('names an account that has no employee record, and requires that name on the New account form', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole(['PORTAL'], false);
+
+    $form = Livewire::test(Index::class)
+        ->call('openCreate')
+        ->set('createEmail', 'auditor@example.com')
+        ->set('createPassword', 'Temporary-Password#2026')
+        ->call('createRoleChanged', (string) $role->getKey())
+        ->call('createAccount')
+        ->assertSet('adding', true)
+        ->assertSet('createNameError', 'Enter a name for the account, or link an employee record.');
+
+    expect(User::query()->where('email', 'auditor@example.com')->exists())->toBeFalse();
+
+    // A refused attempt drops a password typed by hand, so it is typed again.
+    $form->set('createName', '  Outside Auditor  ')
+        ->set('createPassword', 'Temporary-Password#2026')
+        ->call('createAccount')
+        ->assertSet('adding', false);
+
+    $created = User::query()->where('email', 'auditor@example.com')->firstOrFail();
+
+    expect($created->employee_id)->toBeNull()
+        ->and($created->account_name)->toBe('Outside Auditor')
+        ->and($created->name)->toBe('Outside Auditor')
+        ->and(Access::forActor($created)->fullName)->toBe('Outside Auditor')
+        ->and(AuditLog::query()->where('entity_id', (string) $created->id)->where('details', 'Outside Auditor (auditor@example.com) provisioned')->exists())->toBeTrue();
+
+    // The accounts table and the edit dialog read the same name.
+    Livewire::test(Index::class)
+        ->assertSee('Outside Auditor')
+        ->call('openAccount', (string) $created->id)
+        ->assertSet('accountName', 'Outside Auditor');
+});
+
+it('fills the name from the employee record when one is linked, and stores no typed name for it', function () {
+    usersActor(['USERS'], true);
+    $role = usersRole(['PORTAL'], false);
+    $employee = usersEmployee('COP-00041', 'Liza', 'Domingo');
+
+    Livewire::test(Index::class)
+        ->call('openCreate')
+        ->set('createName', 'Typed By Mistake')
+        ->call('createEmployeeChanged', (string) $employee->getKey())
+        ->assertSeeHtml('value="Liza Domingo"')
+        ->set('createEmail', 'liza.linked@example.com')
+        ->set('createPassword', 'Temporary-Password#2026')
+        ->call('createRoleChanged', (string) $role->getKey())
+        ->call('createAccount')
+        ->assertSet('adding', false);
+
+    $created = User::query()->where('email', 'liza.linked@example.com')->firstOrFail();
+
+    expect($created->employee_id)->toBe($employee->getKey())
+        ->and($created->account_name)->toBeNull()
+        ->and($created->name)->toBe('Liza Domingo');
+});
+
+it('renames an unlinked account, clears the typed name when an employee is linked, and falls back to the number', function () {
+    usersActor(['USERS'], true);
+    $employee = usersEmployee('COP-00042', 'Grace', 'Mendoza');
+    $target = User::factory()->create(['email' => 'service@example.com', 'role_id' => usersRole(['PORTAL'], false)->getKey()]);
+
+    expect($target->name)->toBe('Account #'.$target->id);
+
+    Livewire::test(Index::class)
+        ->call('openAccount', (string) $target->id)
+        ->assertSet('accountName', '')
+        ->set('accountName', 'Service Desk')
+        ->call('saveAccount')
+        ->assertSet('accountOriginal.name', 'Service Desk');
+
+    expect($target->fresh()->account_name)->toBe('Service Desk')
+        ->and($target->fresh()->name)->toBe('Service Desk');
+
+    // Linking an employee hands the name to the record and drops the typed one.
+    Livewire::test(Index::class)
+        ->call('openAccount', (string) $target->id)
+        ->call('accountEmployeeChanged', (string) $employee->getKey())
+        ->assertSeeHtml('value="Grace Mendoza"')
+        ->call('saveAccount');
+
+    expect($target->fresh()->account_name)->toBeNull()
+        ->and($target->fresh()->name)->toBe('Grace Mendoza');
+
+    // Unlinked again with no name typed, the account reads by its number.
+    Livewire::test(Index::class)
+        ->call('openAccount', (string) $target->id)
+        ->call('accountEmployeeChanged', '')
+        ->call('saveAccount');
+
+    expect($target->fresh()->account_name)->toBeNull()
+        ->and($target->fresh()->name)->toBe('Account #'.$target->id);
+});
+
+it('keeps the account name rules in the command, without the page', function () {
+    $actor = Access::forActor(usersActor(['USERS'], true));
+    $role = usersRole(['PORTAL'], false);
+    $employee = usersEmployee('COP-00043', 'Jose', 'Rivera');
+    $accounts = app(ManageAccounts::class);
+
+    expect(fn () => $accounts->create($actor, 'long@example.com', 'Temporary-Password#2026', (string) $role->getKey(), '', str_repeat('x', 151)))
+        ->toThrow(RuntimeException::class, 'Name must be at most 150 characters.');
+    expect(User::query()->where('email', 'long@example.com')->exists())->toBeFalse();
+
+    // A name sent with a link is dropped; a caller that sends none still works.
+    $accounts->create($actor, 'linked@example.com', 'Temporary-Password#2026', (string) $role->getKey(), (string) $employee->getKey(), 'Ignored');
+    $accounts->create($actor, 'unnamed@example.com', 'Temporary-Password#2026', (string) $role->getKey(), '');
+
+    $linked = User::query()->where('email', 'linked@example.com')->firstOrFail();
+    $unnamed = User::query()->where('email', 'unnamed@example.com')->firstOrFail();
+
+    expect($linked->account_name)->toBeNull()
+        ->and($linked->name)->toBe('Jose Rivera')
+        ->and($unnamed->name)->toBe('Account #'.$unnamed->id);
+
+    // An update that does not mention the name leaves it as it is.
+    $accounts->update($actor, (string) $unnamed->id, 'unnamed@example.com', (string) $role->getKey(), '', true, 'Front Desk');
+    $accounts->update($actor, (string) $unnamed->id, 'renamed@example.com', (string) $role->getKey(), '', true);
+
+    expect($unnamed->fresh()->account_name)->toBe('Front Desk')
+        ->and(app(AccountNames::class)->list($actor, [$unnamed->id])->first()->name)->toBe('Front Desk');
+});
+
+it('adds the account name column only once, so a killed run resumes', function () {
+    $migration = require base_path('database/migrations/2026_11_05_0002_add_account_name_to_users_table.php');
+
+    $migration->up();
+    $migration->up();
+    expect(Schema::hasColumn('users', 'account_name'))->toBeTrue();
+
+    $migration->down();
+    $migration->down();
+    expect(Schema::hasColumn('users', 'account_name'))->toBeFalse();
+
+    $migration->up();
+    expect(Schema::hasColumn('users', 'account_name'))->toBeTrue();
 });

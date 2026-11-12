@@ -302,7 +302,7 @@ it('ends a line only earlier, never later, and offers End only on a line still r
     expect($line->refresh()->ends_on?->format('Y-m-d'))->toBe('2026-10-16');
     // The date it already has changes nothing and audits nothing.
     $audits = AuditLog::query()->count();
-    expect($end->handle($actor, $line->id, '2026-10-16', 'Again'))->toBe('The recurring line already ends after 16 Oct 2026.')
+    expect($end->handle($actor, $line->id, '2026-10-16', 'Again'))->toBe('That loan or allowance already ends after 16 Oct 2026.')
         ->and(AuditLog::query()->count())->toBe($audits);
 
     // An ended line offers no End, and the page refuses one called directly.
@@ -359,7 +359,7 @@ it('keeps a skip on the draft through save and reload, and drops it from the pro
     $line = rlLine($actor, $employee->id, $loan->id);
 
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->assertSee('Recurring lines for Synthetic Evidence')
+        ->assertSee('Recurring deductions and allowances for Synthetic Evidence')
         ->call('openRecurring', $employee->id)
         ->assertSee('₱500.00')
         ->assertSee('₱750.00')
@@ -390,7 +390,7 @@ it('refuses a skip of another employee\'s line, and forgets one whose line was d
         'date_hired' => '2024-01-01', 'employment_status' => 'Regular', 'monthly_rate' => 30000, 'is_active' => true]);
     $theirs = rlLine($actor, $colleague->id, $loan->id);
     expect(fn () => app(SavePayroll::class)->handle($actor, $draft([$employee->id => [$theirs->id]])))
-        ->toThrow(RuntimeException::class, 'A skipped recurring line is not one this payroll knows.');
+        ->toThrow(RuntimeException::class, 'A skipped deduction or allowance is not one this payroll knows.');
 
     app(SavePayroll::class)->handle($actor, $draft([$employee->id => [$line->id]]));
     expect(PayrollRunMember::query()->where('run_id', $run->id)->sole()->skipped_recurring_lines)->toBe([$line->id]);
@@ -410,10 +410,10 @@ it('keeps a catalog row a recurring line charges from being deleted or re-priced
     rlLine($actor, $employee->id, $loan->id);
     rlLine($actor, $employee->id, $allowance->id, ['kind' => 'INCENTIVE', 'total' => null]);
 
-    expect(fn () => app(Deductions::class)->delete($actor, $loan->id))->toThrow(RuntimeException::class, 'Employees have recurring lines on SSS Loan, so it cannot be deleted.')
+    expect(fn () => app(Deductions::class)->delete($actor, $loan->id))->toThrow(RuntimeException::class, 'Employees have loans or deductions set on SSS Loan, so it cannot be deleted.')
         ->and(fn () => app(Deductions::class)->save($actor, $loan->id, 'SSS Loan', '', ['percent' => ['base' => 'MONTHLY', 'employee' => 2.0, 'employer' => 0.0, 'frequency' => 'EVERY', 'cap' => null, 'before_tax' => false]]))
         ->toThrow(RuntimeException::class, 'cannot become a percentage deduction')
-        ->and(fn () => app(DeleteIncentiveType::class)->handle($actor, $allowance->id))->toThrow(RuntimeException::class, 'Employees have recurring lines on Transport Allowance, so it cannot be deleted.')
+        ->and(fn () => app(DeleteIncentiveType::class)->handle($actor, $allowance->id))->toThrow(RuntimeException::class, 'Employees have allowances set on Transport Allowance, so it cannot be deleted.')
         ->and(fn () => app(SaveIncentiveType::class)->handle($actor, $allowance->id, 'Transport Allowance', null, true, [
             'amount_type' => 'FIXED', 'amount' => 500.0, 'frequency' => 'EVERY', 'month' => null, 'statuses' => null, 'min_service_months' => 0,
             'proration' => 'NONE', 'tax' => 'TAXABLE', 'cap' => null, 'approval_reference' => null, 'counts_toward_13th' => false,
@@ -429,7 +429,7 @@ it('adds, edits, ends and deletes a recurring line on the employee\'s page, and 
     $loan = PayrollDeduction::create(['code' => '7', 'name' => 'SSS Loan']);
 
     $page = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('No recurring line yet.')
+        ->assertSee('No loan or deduction yet.')
         ->call('addLine')
         ->assertSet('lineStartsOn', '2026-10-16')
         ->assertSee('SSS Loan')

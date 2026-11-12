@@ -23,8 +23,9 @@ use Livewire\Livewire;
  * 14, D10, the owner's answer: "as long as the user wants", no window): a
  * leave manager with all-data LEAVES files a request in any active
  * employee's name but their own, past dates included, through the same
- * checks, credits and overlap rule as a self-service filing; the audit
- * and the notice name who filed for whom.
+ * checks and overlap rule as a self-service filing (a short balance is
+ * filed, and HR is told which days would be without pay); the audit and
+ * the notice name who filed for whom.
  */
 
 /** @param list<string> $modules */
@@ -67,8 +68,7 @@ it('files for an active employee, past dates included, against their credits, na
 
     expect(fn () => $command->forEmployee($manager, (string) Str::ulid(), 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-01', '2026-09-01', 'Gone'))->toThrow(RuntimeException::class, 'active employee')
         ->and(fn () => $command->forEmployee($manager, hrlfEmployee(active: false)->id, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-01', '2026-09-01', 'Inactive'))->toThrow(RuntimeException::class, 'active employee')
-        ->and(fn () => $command->forEmployee($manager, $employee->id, 'BONUS_LEAVE', 'WHOLE_DAY', '2026-09-01', '2026-09-01', 'Bad type'))->toThrow(RuntimeException::class, 'Leave Settings')
-        ->and(fn () => $command->forEmployee($manager, $employee->id, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-01', '2026-09-30', 'Too many'))->toThrow(RuntimeException::class);
+        ->and(fn () => $command->forEmployee($manager, $employee->id, 'BONUS_LEAVE', 'WHOLE_DAY', '2026-09-01', '2026-09-01', 'Bad type'))->toThrow(RuntimeException::class, 'Leave Settings');
     expect(LeaveTravelRequest::query()->count())->toBe(0);
 
     // Another LEAVES holder hears of the filing; the actor never notifies themself.
@@ -86,6 +86,10 @@ it('files for an active employee, past dates included, against their credits, na
         ->and(Notification::query()->where('kind', 'LEAVE_FILED')->value('title'))->toContain('filed for Fil Behalf')->toContain('by');
     // The overlap rule holds for the same employee.
     expect(fn () => $command->forEmployee($manager, $employee->id, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-09-02', '2026-09-03', 'Overlap'))->toThrow(RuntimeException::class, 'overlap');
+    // More days than the employee's credits: filed, and HR is told which days would be without pay.
+    expect($command->forEmployee($manager, $employee->id, 'VACATION_LEAVE', 'WHOLE_DAY', '2026-10-05', '2026-10-30', 'Too many'))
+        ->toBe("The employee's available Vacation Leave credits (5.000) cover 5 days of the 20 days; the other 15 days will be unpaid if approved.")
+        ->and(LeaveTravelRequest::query()->count())->toBe(2);
 });
 
 it('refuses a manager without all data, the manager\'s own employee, and a PORTAL-only holder', function () {
@@ -106,7 +110,8 @@ it('files from the Leave Management dialog and a viewer without all data sees no
         ->call('openFile')->assertSet('fileOpen', true)->assertSee('File for an employee')
         ->set('fileForm.type', 'VACATION_LEAVE')->set('fileForm.start', '2026-09-07')->set('fileForm.end', '2026-09-07')->set('fileForm.reason', 'Dialog')
         ->call('fileForEmployee')->assertSet('fileError', 'Choose the employee the request is for.');
-    $page->call('employeePicked', 'file-employee', $employee->id)->assertSet('fileEmployeeId', $employee->id)
+    // The picker announces a pick as an event; the page must listen for it.
+    $page->dispatch('kit-employee-picked', name: 'file-employee', id: $employee->id)->assertSet('fileEmployeeId', $employee->id)
         ->call('fileForEmployee')->assertSet('fileOpen', false)->assertSet('fileError', null);
     expect(LeaveTravelRequest::query()->where('employee_id', $employee->id)->where('start_date', '2026-09-07')->exists())->toBeTrue();
     // A forged pick of an unknown id is dropped.
@@ -119,4 +124,24 @@ it('files from the Leave Management dialog and a viewer without all data sees no
         ->set('fileForm', ['type' => 'VACATION_LEAVE', 'day_type' => 'WHOLE_DAY', 'half' => '', 'start' => '2026-09-08', 'end' => '2026-09-08', 'reason' => 'No'])
         ->call('fileForEmployee');
     expect(LeaveTravelRequest::query()->count())->toBe(1);
+});
+
+it('keeps a reason as typed, line breaks and spacing included, from the filing box to the review dialog', function () {
+    $employee = hrlfEmployee();
+    hrlfActor();
+    $reason = "Family matters:\n  - wedding in Cebu\n  - travel back on Sunday\n\nWill answer calls.";
+
+    $page = Livewire::test(Index::class)->call('openFile');
+    expect(preg_match('/<textarea[^>]*\sid="file-reason"/', $page->html()))->toBe(1);
+    $page->set('fileForm.type', 'VACATION_LEAVE')->set('fileForm.start', '2026-09-07')->set('fileForm.end', '2026-09-07')
+        ->set('fileForm.reason', $reason)
+        ->call('employeePicked', 'file-employee', $employee->id)
+        ->call('fileForEmployee')->assertSet('fileOpen', false);
+
+    $request = LeaveTravelRequest::query()->sole();
+    expect($request->reason)->toBe($reason);
+
+    $html = Livewire::test(Index::class)->call('show', $request->id)->html();
+    expect($html)->toContain('data-leave-reason>'.e($reason).'</p>')
+        ->and(preg_match('/<p class="[^"]*\bwhitespace-pre-wrap\b[^"]*"[^>]*data-leave-reason>/', $html))->toBe(1);
 });

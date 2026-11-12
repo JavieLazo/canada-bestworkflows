@@ -12,6 +12,7 @@ use App\Models\RosterDayOverride;
 use App\Models\ShiftType;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Organization\Contracts\OrganizationReferences;
+use App\Modules\Timekeeping\Domain\Roster\CustomHours;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Timekeeping\Domain\Roster\RosterSchedulePolicy;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
@@ -24,17 +25,19 @@ use RuntimeException;
 /**
  * Writes temporary schedules — one date or a From–To period — for the
  * commands that create, change and cancel them (SaveRosterDate,
- * SaveAssignment, EditAssignment, CancelAssignment). One body, so the rules
- * cannot drift between them:
+ * SaveRosterDays, SaveAssignment, EditAssignment, CancelAssignment). One
+ * body, so the rules cannot drift between them:
  *
  *   - nothing is overwritten or deleted: an assignment that stops applying
  *     is cut at the last date it applied and cancelled with who and when,
  *     and what replaces it names it in `revision_of`;
  *   - a shift keeps rest days: its hours apply only on dates the weekly
- *     schedule works, unless work on rest days was chosen explicitly;
+ *     schedule works, unless work on rest days was chosen explicitly —
+ *     as picking a date by name on the roster's month is;
  *   - an overlap with a saved assignment is a conflict to resolve, never a
  *     silent replacement (D1): only the assignments named in `$replace` give
- *     up the shared dates, and each keeps its own dates before and after;
+ *     up the shared dates — or, for SaveRosterDays, the dates picked by
+ *     name — and each keeps its own dates before and after;
  *   - an inactive site is refused for a place the dates do not already have.
  *
  * Every method assumes it runs inside `DatedChange`, which has locked the
@@ -61,10 +64,38 @@ final class AssignmentWriter
         };
     }
 
-    /** The pattern a shift choice names, read FOR UPDATE; null for DEFAULT, REST and KEEP. */
-    public static function lockPattern(string $shiftChoice): ?ShiftType
+    /**
+     * A shift choice trimmed, or custom hours validated; refuses a blank one.
+     *
+     * @param  string|array<array-key, mixed>  $shiftChoice
+     * @return string|array<array-key, mixed>
+     */
+    public static function choice(string|array $shiftChoice): string|array
     {
-        if (in_array($shiftChoice, ['DEFAULT', 'REST', 'KEEP'], true)) {
+        if (is_array($shiftChoice)) {
+            $error = CustomHours::error($shiftChoice);
+            if ($error !== null) {
+                throw new RuntimeException($error);
+            }
+
+            return $shiftChoice;
+        }
+        if (trim($shiftChoice) === '') {
+            throw new RuntimeException('Pick a shift for these dates.');
+        }
+
+        return trim($shiftChoice);
+    }
+
+    /**
+     * The pattern a shift choice names, read FOR UPDATE; null for DEFAULT,
+     * REST, KEEP and custom hours.
+     *
+     * @param  string|array<array-key, mixed>  $shiftChoice
+     */
+    public static function lockPattern(string|array $shiftChoice): ?ShiftType
+    {
+        if (is_array($shiftChoice) || in_array($shiftChoice, ['DEFAULT', 'REST', 'KEEP'], true)) {
             return null;
         }
         $pattern = ShiftType::query()->whereKey($shiftChoice)->lockForUpdate()->first();
@@ -78,11 +109,21 @@ final class AssignmentWriter
     /**
      * The hours a choice gives the dates from `$from` through `$to`.
      *
+     * @param  string|array<array-key, mixed>  $shiftChoice  custom hours arrive as `CustomHours`' draft
      * @param  RosterDayOverride|null  $kept  the assignment whose saved copy KEEP retains, or whose rest copy REST repeats
      * @return array{shift_type_id: string|null, shift_name: string|null, is_rest_day: bool, shift_data: array<string, mixed>|null}
      */
-    public static function hours(string $employeeId, string $from, string $shiftChoice, ?ShiftType $pattern, ?RosterDayOverride $kept): array
+    public static function hours(string $employeeId, string $from, string|array $shiftChoice, ?ShiftType $pattern, ?RosterDayOverride $kept): array
     {
+        if (is_array($shiftChoice)) {
+            $error = CustomHours::error($shiftChoice);
+            if ($error !== null) {
+                throw new RuntimeException($error);
+            }
+
+            return ['shift_type_id' => null, 'shift_name' => CustomHours::NAME, 'is_rest_day' => false,
+                'shift_data' => DomainShift::fromArray(array_replace(CustomHours::attributes($shiftChoice), ['work_days' => [CalendarDays::dayOfWeek($from)]]))->toArray()];
+        }
         if ($shiftChoice === 'KEEP') {
             if ($kept === null || $kept->shift_data === null || $kept->is_rest_day || $kept->shift_type_id !== null) {
                 throw new RuntimeException('That saved shift is no longer available. Pick a shift again.');

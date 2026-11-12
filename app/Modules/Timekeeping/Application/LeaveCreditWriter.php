@@ -44,11 +44,11 @@ final class LeaveCreditWriter
             'request_type' => $credit->request_type,
             'kind' => 'BASELINE',
             'days' => $credit->credits,
-            'note' => 'Existing annual allocation; earlier movements were not recorded.',
+            'note' => 'Existing annual credit grant; earlier movements were not recorded.',
         ]);
         $entry->id = $credit->id;
         if (! $entry->save()) {
-            throw new RuntimeException('The existing allocation could not be recorded in the ledger.');
+            throw new RuntimeException('The existing credit grant could not be recorded in the ledger.');
         }
     }
 
@@ -66,7 +66,7 @@ final class LeaveCreditWriter
         $credit ??= new LeaveCredit(['employee_id' => $employeeId, 'year' => $year, 'request_type' => $requestType]);
         $credit->credits = LeaveQuantity::normalize(($credit->credits ?? 0.0) + $days);
         if (! $credit->save()) {
-            throw new RuntimeException('The leave allocation could not be saved.');
+            throw new RuntimeException('The leave credits could not be saved.');
         }
         $entryId = (string) Str::ulid();
         self::append($actor, $employeeId, $year, $requestType, $kind, $days, $note, $entryId);

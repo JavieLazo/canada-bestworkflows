@@ -29,7 +29,7 @@ final class DiscardBenefitAssignment
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! BenefitAssignments::ready()) {
-            throw new RuntimeException('Benefits can be discarded once this installation\'s upgrade finishes.');
+            throw new RuntimeException('Incentive assignments can be discarded once this installation\'s upgrade finishes.');
         }
 
         return DB::transaction(static function () use ($access, $id): string {

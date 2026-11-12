@@ -26,13 +26,14 @@ use RuntimeException;
  */
 final class SaveUnit
 {
-    public function handle(Access $access, ?string $id, string $name, string $departmentId, string $description): string
+    public function handle(Access $access, ?string $id, string $name, string $departmentId, string $description, ?string $headName = null, ?string $headDesignation = null): string
     {
         StructureInput::authorize($access);
         $name = StructureInput::name($name, StructureInput::NODE_NAME_MAX);
         $text = StructureInput::description($description);
+        $head = StructureInput::head($headName, $headDesignation);
 
-        [$node, $created, $moved, $departmentName] = DB::transaction(static function () use ($id, $name, $departmentId, $text): array {
+        [$node, $created, $moved, $departmentName] = DB::transaction(static function () use ($id, $name, $departmentId, $text, $head): array {
             TransactionMutex::acquire(OrganizationReferences::STRUCTURE_LOCK);
             $codes = OrgNode::query()->lockForUpdate()->pluck('code');
             $structure = StructureReads::structure();
@@ -56,7 +57,7 @@ final class SaveUnit
             $next = $last === null ? 0 : (int) $last + 1;
             if ($node !== null) {
                 $moved = $node->parent_id !== $departmentId;
-                $node->fill(['name' => $name, 'description' => $text] + ($moved ? ['parent_id' => $departmentId, 'sort_order' => $next] : []))->save();
+                $node->fill(['name' => $name, 'description' => $text] + $head + ($moved ? ['parent_id' => $departmentId, 'sort_order' => $next] : []))->save();
 
                 return [$node, false, $moved, $departmentName];
             }
@@ -68,17 +69,17 @@ final class SaveUnit
                 'description' => $text,
                 'parent_id' => $departmentId,
                 'sort_order' => $next,
-            ]), true, false, $departmentName];
+            ] + $head), true, false, $departmentName];
         });
 
         if ($created) {
-            AuditService::record($access, AuditEvent::STRUCTURE_CREATED, 'org_nodes', $node->id, "Unit {$node->code} \"{$name}\" added to {$departmentName}");
+            AuditService::record($access, AuditEvent::STRUCTURE_CREATED, 'org_nodes', $node->id, "Unit {$node->code} \"{$name}\" added to {$departmentName}".StructureInput::headSentence($node));
 
             return "{$name} added.";
         }
         AuditService::record($access, AuditEvent::STRUCTURE_UPDATED, 'org_nodes', $node->id, $moved
             ? "Unit {$node->code} \"{$name}\" moved to {$departmentName}"
-            : "Unit {$node->code} updated to \"{$name}\"");
+            : "Unit {$node->code} updated to \"{$name}\"".StructureInput::headSentence($node));
 
         return "{$name} updated.";
     }

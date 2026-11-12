@@ -269,7 +269,7 @@ it('divides the day by the version\'s fixed hours instead of the shift\'s paid h
         ->and(PayRules::fromFormulas()->hourlyHours)->toBeNull();
 });
 
-it('rounds the day, the hour and each premium hour to the version\'s decimals before multiplying', function () {
+it('rounds the day and the hour to the version\'s decimals and each premium amount once to centavos', function () {
     $logs = payRulesPunches('2026-09-01', '00:00', '11:00');
     $approvals = ['2026-09-01' => 120];
     $divisor = ['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => 26.1669];
@@ -281,17 +281,53 @@ it('rounds the day, the hour and each premium hour to the version\'s decimals be
 
     expect($unrounded['daily_rate'])->toBe(840.76)
         ->and($unrounded['overtime_pay'])->toBe(262.74)
-        // ROUND(22,000 ÷ 26.1669, 2) = 840.76; ROUND(840.76 ÷ 8, 2) = 105.10; ROUND(105.10 × 1.25, 2) = 131.38; × 2 hours.
+        // ROUND(22,000 ÷ 26.1669, 2) = 840.76; ROUND(840.76 ÷ 8, 2) = 105.10; ROUND(2 × 105.10 × 1.25, 2) = 262.75.
         ->and($centavos['daily_rate'])->toBe(840.76)
         ->and($centavos['work_days_pay'])->toBe(840.76)
-        ->and($centavos['overtime_pay'])->toBe(262.76)
-        // Whole pesos: 841 a day, 105 an hour (105.125 rounds down), 131 an overtime hour.
+        ->and($centavos['overtime_pay'])->toBe(262.75)
+        // Whole-peso rates: 841 a day, 105 an hour (105.125 rounds down); the amount is still centavos, 2 × 105 × 1.25.
         ->and($pesos['daily_rate'])->toBe(841.0)
         ->and($pesos['work_days_pay'])->toBe(841.0)
-        ->and($pesos['overtime_pay'])->toBe(262.0)
+        ->and($pesos['overtime_pay'])->toBe(262.5)
         // The cash-out's daily rate rounds the same way.
         ->and(PayslipCalculator::dailyRateOn((object) ['monthly_rate' => 22000, 'daily_rate' => 0], '2026-09-01', payRulesShift(), payRulesWith($divisor + ['rounding.decimals' => 2])))->toBe(840.76)
         ->and(PayslipCalculator::dailyRateOn((object) ['monthly_rate' => 22000, 'daily_rate' => 0], '2026-09-01', payRulesShift(), payRulesWith($divisor)))->toBe(22000 / 26.1669);
+});
+
+it('prices each premium as a payroll register does: the hours at one rate added up, then one rounding', function () {
+    // 32,000 ÷ 22 ÷ 8 is the register's 181.82 an hour; 42,000 ÷ 26.1669 ÷ 8 its 200.64.
+    $register = fn (float $divisor, array $more = []): PayRules => payRulesWith(['daily_rate.method' => PayRules::METHOD_DIVISOR, 'daily_rate.value' => $divisor, 'hourly_rate.hours' => 8.0, 'rounding.decimals' => 2, 'overtime.max_hours' => 12.0] + $more);
+    $slip = function (PayRules $rules, float $monthly, array $outs, array $approvals, ?array $categories = null): array {
+        $logs = [];
+        foreach ($outs as $date => $out) {
+            array_push($logs, ...payRulesPunches($date, '00:00', $out));
+        }
+
+        return PayslipCalculator::compute(
+            employee: (object) ['id' => 'E1', 'monthly_rate' => $monthly, 'daily_rate' => 0, 'hourly_rate' => 0, 'allow_sss' => false, 'allow_philhealth' => false, 'allow_pagibig' => false, 'allow_withholding_tax' => false],
+            logs: DomainLog::listFromArrays($logs), shift: payRulesShift(), leaves: [], periodStart: '2026-09-01', periodEnd: '2026-09-15', bonus: 0.0,
+            settings: ['formulas' => [], 'holidays' => []], overtimeApprovals: $approvals, rules: $rules, overtimeCategories: $categories,
+        )->toArray();
+    };
+
+    // 2 × 181.82 × 1.25 = 454.55. Rounding 227.275 first would give 454.54 or 454.56.
+    expect($slip($register(22.0), 32000, ['2026-09-01' => '11:00'], ['2026-09-01' => 120])['overtime_pay'])->toBe(454.55)
+        // An exact half-centavo rounds up, as ROUND does: 3 × 181.82 × 1.25 = 681.825.
+        ->and($slip($register(22.0), 32000, ['2026-09-01' => '12:00'], ['2026-09-01' => 180])['overtime_pay'])->toBe(681.83)
+        // Rounded once over the cut-off, not day by day: 1 + 1 + 1 hours make the same 681.83, not 3 × 227.28.
+        ->and($slip($register(22.0), 32000, ['2026-09-01' => '10:00', '2026-09-02' => '10:00', '2026-09-03' => '10:00'], ['2026-09-01' => 60, '2026-09-02' => 60, '2026-09-03' => 60])['overtime_pay'])->toBe(681.83);
+
+    // Each rate is its own bucket: 3 × 200.64 × 1.25 = 752.40 and 2 × 200.64 × 1.5 = 601.92.
+    $seaport = $slip($register(26.1669, ['overtime.seaport_rate' => 1.5]), 42000, ['2026-09-01' => '12:00', '2026-09-02' => '11:00'], ['2026-09-01' => 180, '2026-09-02' => 120], ['2026-09-02' => PayRules::OVERTIME_SEAPORT]);
+    expect($seaport['overtime_pay'])->toBe(1354.32);
+
+    // Night hours on overtime are one bucket at 20%: 8 × 200.64 × 0.2 = 321.02 and 4 × 181.82 × 0.2 = 145.46.
+    $night = ['night.rate' => 0.2, 'night.start' => 17 * 60, 'night.end' => 30 * 60, 'night.on_overtime' => true];
+    $four = ['2026-09-01' => '11:00', '2026-09-02' => '11:00', '2026-09-03' => '11:00', '2026-09-04' => '11:00'];
+    $eight = $slip($register(26.1669, $night), 42000, $four, array_fill_keys(array_keys($four), 120));
+    $two = array_slice($four, 0, 2, true);
+    expect($eight['night_differential'])->toBe(321.02)
+        ->and($slip($register(22.0, $night), 32000, $two, array_fill_keys(array_keys($two), 120))['night_differential'])->toBe(145.46);
 });
 
 it('never caps a seaport overtime day and prices it at the seaport rate when the version has one', function () {

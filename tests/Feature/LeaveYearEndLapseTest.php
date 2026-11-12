@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Livewire\Records\LeaveCreditSettingsPage;
 use App\Models\AuditLog;
-use App\Models\EmployeeLeavePolicy;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
@@ -13,8 +12,6 @@ use App\Models\LeaveType;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
-use App\Modules\Timekeeping\Application\Commands\ApproveLeavePolicy;
-use App\Modules\Timekeeping\Application\Commands\SaveLeavePolicy;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\PostLeaveEarnings;
 use App\Modules\Timekeeping\Domain\Credits\LeaveEarningRule;
@@ -23,6 +20,7 @@ use App\Support\Access;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\LeaveRuleFixture;
 
 /**
  * The year-end rule PER LEAVE TYPE (the PPMC plan's Phase 18, D6): a type
@@ -60,16 +58,17 @@ function lyelEmployee(): EmployeeProfile
 /** Vacation Leave carries; Special Privilege Leave lapses. */
 function lyelTypes(Access $access): void
 {
-    foreach ([['VL', 'Vacation Leave', LeaveTypeCredits::YEAR_END_CARRY], ['SPL', 'Special Privilege Leave', LeaveTypeCredits::YEAR_END_LAPSE]] as [$code, $name, $yearEnd]) {
+    // Each charged type holds its own charge order.
+    foreach ([['VL', 'Vacation Leave', LeaveTypeCredits::YEAR_END_CARRY, '1'], ['SPL', 'Special Privilege Leave', LeaveTypeCredits::YEAR_END_LAPSE, '2']] as [$code, $name, $yearEnd, $order]) {
         $type = new LeaveType;
         $type->forceFill(['code' => $code, 'name' => $name])->save();
-        app(SaveLeaveTypeCredits::class)->handle($access, $type->id, ['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => true, 'charge_order' => '1', 'below_zero_limit' => '0', 'year_end' => $yearEnd]);
+        app(SaveLeaveTypeCredits::class)->handle($access, $type->id, ['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => true, 'charge_order' => $order, 'below_zero_limit' => '0', 'year_end' => $yearEnd]);
     }
 }
 
 it('reads the year-end rule leniently, refuses an unknown one, and words a lapsing type', function () {
     expect(LeaveTypeCredits::fromInput(['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => false, 'charge_order' => '0', 'below_zero_limit' => '0'])->yearEnd)->toBe('CARRY')
-        ->and(LeaveTypeCredits::error(['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => false, 'charge_order' => '0', 'below_zero_limit' => '0', 'year_end' => 'FORFEIT']))->toContain('carries over or lapses')
+        ->and(LeaveTypeCredits::error(['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => false, 'charge_order' => '0', 'below_zero_limit' => '0', 'year_end' => 'FORFEIT']))->toContain('carry forward or expire')
         ->and(LeaveTypeCredits::fromInput(['earns_credits' => true, 'unit' => 'DAYS', 'charge_late' => false, 'charge_absence' => false, 'charge_order' => '0', 'below_zero_limit' => '0', 'year_end' => 'LAPSE'])->describe())->toContain('lapses at year end')
         ->and(LeaveEarningRule::yearEnd(3.5))->toBe(3.5)
         ->and(LeaveEarningRule::yearEnd(3.5, lapses: true))->toBe(0.0)
@@ -87,7 +86,7 @@ it('sets the rule from the Leave Credits settings and shows it in the list', fun
         ->call('openType', $type->id)->assertSet('typeForm.year_end', 'CARRY')
         ->set('typeForm.earns_credits', true)->set('typeForm.year_end', 'LAPSE')
         ->call('saveType')
-        ->assertSee('Lapses');
+        ->assertSee('Expires');
     expect($type->refresh()->year_end)->toBe('LAPSE')
         ->and(AuditLog::query()->where('action', 'LEAVE_TYPE_CREDITS_SET')->value('details'))->toContain('lapses at year end');
 });
@@ -100,10 +99,8 @@ it('drops a lapsing type\'s balance above zero at the year end as a LAPSE entry,
     // A charge-only policy: nothing earns, the year still closes.
     $params = ['posting_day' => 'MONTH_END', 'unpaid_counts' => ['UNPAID_LEAVE', 'ABSENCE'], 'earning' => [],
         'charges' => ['enabled' => true, 'combine' => 'DAY', 'late' => [], 'absence' => ['VACATION_LEAVE', 'SPECIAL_PRIVILEGE_LEAVE']]];
-    $id = app(SaveLeavePolicy::class)->handle(app(Access::class), $employee->id, '2025-11-01', $params, 'Test policy');
+    LeaveRuleFixture::approved('2025-11-01', $params);
     lyelActor();
-    app(ApproveLeavePolicy::class)->handle(app(Access::class), $id);
-    expect(EmployeeLeavePolicy::query()->whereKey($id)->value('status'))->toBe('APPROVED');
     foreach ([['VACATION_LEAVE', 3.0], ['SPECIAL_PRIVILEGE_LEAVE', 2.5]] as [$token, $credits]) {
         $credit = new LeaveCredit;
         $credit->forceFill(['employee_id' => $employee->id, 'year' => 2025, 'request_type' => $token, 'credits' => $credits])->save();

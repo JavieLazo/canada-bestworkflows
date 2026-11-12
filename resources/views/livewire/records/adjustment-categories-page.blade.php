@@ -7,15 +7,11 @@
     use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 @endphp
 <div class="space-y-6">
-    <div>
-        <h1 class="text-2xl font-bold tracking-tight">Adjustment Categories</h1>
-        <p class="text-sm text-muted-foreground">
-            What an adjustment on a payroll can be: an earning added to the pay, taxed or not, or a deduction taken after the tax.
-            A category with lines under it keeps its kind and tax.
-        </p>
-    </div>
-
-    @include('livewire.payroll.partials.settings-switch', ['activeView' => 'adjustment-categories'])
+    @include('livewire.payroll.partials.settings-header', [
+        'activeView' => 'adjustment-categories',
+        'title' => 'Adjustment Categories',
+        'description' => 'The kinds of adjustment a payroll can carry.',
+    ])
 
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
@@ -37,7 +33,7 @@
                         <th>Name</th>
                         <th>Kind</th>
                         <th>Tax</th>
-                        <th>Lines</th>
+                        <th>Adjustments</th>
                         <th class="text-right">Action</th>
                     </tr>
                 </thead>
@@ -51,7 +47,7 @@
                         <tr wire:key="category-{{ $row->id }}">
                             <td class="font-medium">{{ $row->name }}</td>
                             <td>{{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : 'Earning' }}</td>
-                            <td>{{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'After tax' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Taxable' : 'Not taxed') }}</td>
+                            <td>{{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'After tax' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Taxable' : 'Not compensation') }}</td>
                             <td class="num">{{ $row->adjustments_count }}</td>
                             <td class="text-right">
                                 @if ($canEdit && $ready)
@@ -88,7 +84,7 @@
             @if ($formKind === AdjustmentRule::KIND_EARNING)
                 <x-kit.select label="Tax" wire:model="formTax">
                     <flux:select.option value="{{ AdjustmentRule::TAX_TAXABLE }}">Taxable, like pay</flux:select.option>
-                    <flux:select.option value="{{ AdjustmentRule::TAX_NOT_TAXED }}">Not taxed, added after the tax</flux:select.option>
+                    <flux:select.option value="{{ AdjustmentRule::TAX_NOT_TAXED }}">Not compensation, added after the tax</flux:select.option>
                 </x-kit.select>
             @endif
             @if ($formError !== null)

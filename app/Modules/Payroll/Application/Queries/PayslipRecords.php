@@ -22,6 +22,7 @@ use App\Modules\Payroll\Contracts\Views\PayslipSettlementView;
 use App\Modules\Payroll\Contracts\Views\PayslipView;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /** Posted amounts are read as stored; self-service remains pinned even for payroll administrators. */
@@ -59,6 +60,27 @@ final class PayslipRecords
             ->where('run_id', $runId)->where('employee_id', $employeeId)->first();
 
         return $row === null ? null : self::view($row);
+    }
+
+    /**
+     * The employee's regular payslips whose period starts in the same calendar
+     * month as the given one, oldest first: the cut-offs one payslip sheet
+     * prints together. The employee comes from a payslip the caller already
+     * read through its own scope, so a self-service caller stays pinned; the
+     * scope is applied again here. A 13th month payslip is never a cut-off.
+     *
+     * @return Collection<int, PayslipView>
+     */
+    public function month(Access $actor, PayslipView $payslip): Collection
+    {
+        return Payslip::query()->with('run:id,code')->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
+            ->where('employee_id', '=', $payslip->employee_id)
+            ->whereBetween('period_start', [$payslip->period_start->format('Y-m-01'), $payslip->period_start->format('Y-m-t')])
+            ->where(static fn (Builder $query) => $query
+                ->whereNull('run_id')
+                ->orWhereHas('run', static fn (Builder $run) => $run->where('kind', PayrollRunKind::REGULAR)))
+            ->orderBy('period_start')->orderBy('id')->get()
+            ->map(self::view(...));
     }
 
     /** The document's payroll reference comes only from its already-scoped parent run. */
@@ -152,10 +174,9 @@ final class PayslipRecords
     }
 
     /**
-     * Posted payslips whose presumed days no later payslip has settled yet,
-     * for the Payroll Settings Overview's "needs attention": each with the
-     * employee, the payroll's code and the days. An employee's pay, so
-     * all-data PAYROLL only; nothing before the ledger exists.
+     * Posted payslips whose presumed days no later payslip has settled yet:
+     * each with the employee, the payroll's code and the days. An employee's
+     * pay, so all-data PAYROLL only; nothing before the ledger exists.
      *
      * @return list<array{employee_id: string, code: string, from: string, to: string, period_end: string}>
      */

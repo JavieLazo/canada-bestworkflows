@@ -18,6 +18,8 @@ use Carbon\CarbonImmutable;
  * @property-read string|null $description
  * @property-read string|null $parent_id  the department, for a unit; null for a department
  * @property-read int $sort_order
+ * @property-read string|null $head_name  absent before 2026_11_11_0002
+ * @property-read string|null $head_designation
  * @property-read CarbonImmutable $created_at
  * @property-read CarbonImmutable|null $updated_at
  */

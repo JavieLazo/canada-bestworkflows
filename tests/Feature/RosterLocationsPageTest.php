@@ -7,6 +7,7 @@ use App\Livewire\Edtr\EdtrPage;
 use App\Livewire\Edtr\LiveFeed;
 use App\Livewire\Edtr\PunchStation;
 use App\Livewire\Portal\MyPunches;
+use App\Livewire\Roster\EmployeeSchedulePage;
 use App\Livewire\Roster\RosterPage;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
@@ -24,18 +25,21 @@ use App\Support\ManilaClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
+use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * The SCREENS of the weekly work locations (roster_locations,
- * 2026_09_26_0001): the Shift Roster's Location column and "Weekly
- * locations" dialog, the punch station's preview of today's place, the two
- * punch feeds and the eDTR correction dialog. The module operations they
- * call are pinned in RosterLocationsTest; here the invariant is that every
- * screen shows exactly what the operations resolve and never writes around
- * them — the dialog's one write goes through SaveRosterLocations behind a
- * fresh Access, its employee id is #[Locked], and its draft is shaped
- * before the command judges it.
+ * 2026_09_26_0001): the place each working date of an employee's month
+ * shows on the Shift Roster and that month's "Default schedule" dialog,
+ * the punch station's preview of today's place, the two punch feeds and
+ * the eDTR correction dialog. The module operations they call are pinned
+ * in RosterLocationsTest; here the invariant is that every screen shows
+ * exactly what the operations resolve and never writes around them — the
+ * dialog's one write goes through SaveRosterWeek behind a fresh Access, the
+ * month's employee id is #[Locked], and the draft is shaped before the
+ * command judges it.
  *
  * 2026-09-02 is a Wednesday (weekday 3).
  */
@@ -177,22 +181,32 @@ function rlocpagePunch(EmployeeProfile $employee, ?WorkSite $site, string $type,
     return $punch;
 }
 
-/** The roster table's one <tr> for this employee, so a dialog further down cannot mask a wrong cell. */
-function rlocpageRowHtml(string $html, EmployeeProfile $employee): string
+/**
+ * The employee's month on the Shift Roster, as the signed-in actor.
+ *
+ * @return Testable<EmployeeSchedulePage>
+ */
+function rlocpageMonth(EmployeeProfile $employee): Testable
 {
-    $needle = 'wire:key="row-'.$employee->getKey().'"';
-    expect($html)->toContain($needle);
-
-    return Str::before(Str::after($html, $needle), '</tr>');
+    return Livewire::test(EmployeeSchedulePage::class, ['employee' => (string) $employee->getKey()]);
 }
 
-/** The Weekly schedule dialog's seven rows, from their wire:key to the Save button. */
-function rlocpageDialogHtml(string $html, EmployeeProfile $employee): string
+/** One date's box on the month's calendar, so a neighbouring date or a dialog cannot mask a wrong place. */
+function rlocpageDayHtml(string $html, string $date): string
 {
-    $needle = 'wire:key="weekly-locations-'.$employee->getKey().'"';
+    $needle = 'data-date="'.$date.'"';
     expect($html)->toContain($needle);
 
-    return Str::before(Str::after($html, $needle), 'Save schedule');
+    return Str::before(Str::after($html, $needle), '</button>');
+}
+
+/** The Default schedule dialog's seven rows, from their wire:key to the Save button. */
+function rlocpageDialogHtml(string $html, EmployeeProfile $employee): string
+{
+    $needle = 'wire:key="default-schedule-'.$employee->getKey().'"';
+    expect($html)->toContain($needle);
+
+    return Str::before(Str::after($html, $needle), 'Save default schedule');
 }
 
 /** The correction dialog from its heading to the recorded-punches fold — the header (status, Shift, Break, Location), the tab strip, the notices, the slots and the remark — without the punch rows that follow. */
@@ -211,15 +225,18 @@ afterEach(function (): void {
     CarbonImmutable::setTestNow();
 });
 
-/* ── the Location column ─────────────────────────────────────────────────── */
+/* ── each date's place on the month ──────────────────────────────────────── */
 
-it('shows the Location column as the place worked most days, then each other place with its days, and the Assigned Worksite by name when there are none', function () {
+it('shows each working date of the month at that weekday’s place, Work from home, or the Assigned Worksite by name, and No worksite when none is set', function () {
+    rlocpageFreeze('2026-09-02 05:00:00');
     $a = rlocpageSite('Makati Head Office');
     $b = rlocpageSite('Quezon Annex');
-    // Reyes sorts before Torres before Uy, so the mixed row is painted first.
     $mixed = rlocpageEmployee($a, 'Ana', 'Reyes');
     $bare = rlocpageEmployee($a, 'Ben', 'Torres');
     $unplaced = rlocpageEmployee(null, 'Cara', 'Uy');
+    foreach ([$mixed, $bare, $unplaced] as $employee) {
+        rlocpageShift($employee);
+    }
     rlocpageRow($mixed, 1, $a);
     rlocpageRow($mixed, 2, $a);
     rlocpageRow($mixed, 3, $a);
@@ -227,48 +244,29 @@ it('shows the Location column as the place worked most days, then each other pla
     rlocpageRow($mixed, 5, $b);
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
-    // The main place stands alone on the first line; the other places follow
-    // as small muted rows, the days in a column of their own so the places
-    // line up. No "Default:" caption and no day-by-day list.
-    $page = Livewire::test(RosterPage::class)
-        ->assertSeeHtmlInOrder([
-            'wire:key="row-'.$mixed->getKey().'"',
-            '<p>Makati Head Office</p>',
-            'Thu</dt>',
-            '<dd>WFH</dd>',
-            'Fri</dt>',
-            '<dd>Quezon Annex</dd>',
-            'wire:key="row-'.$bare->getKey().'"',
-            '<p>Makati Head Office</p>',
-            'wire:key="row-'.$unplaced->getKey().'"',
-            'No worksite set',
-        ]);
-
-    $html = $page->html();
-    expect(rlocpageRowHtml($html, $mixed))
-        ->toContain('<p>Makati Head Office</p>')
-        ->toMatch('~Thu</dt>\s*<dd>WFH</dd>~u')
-        ->toMatch('~Fri</dt>\s*<dd>Quezon Annex</dd>~u')
-        ->not->toContain('Mon–Wed')
-        ->not->toContain('Default:')
-        ->not->toContain('Assigned worksite');
-    // The dialog below the table also prints "Assigned worksite (…)", so the
-    // bare rows are judged on their own slices: the site by name, nothing
-    // else, and no list at all.
-    expect(rlocpageRowHtml($html, $bare))
-        ->toContain('<p>Makati Head Office</p>')
-        ->not->toContain('WFH')
-        ->not->toContain('Assigned worksite')
-        ->not->toContain('<dd>');
-    expect(rlocpageRowHtml($html, $unplaced))
-        ->toContain('No worksite set')
+    // Thursday Sep 3 at home, Friday Sep 4 at the annex, Monday Sep 7 at the
+    // site the weekday names; Saturday Sep 5 rests and names no place.
+    $html = rlocpageMonth($mixed)->html();
+    expect(rlocpageDayHtml($html, '2026-09-03'))->toContain('Work from home')->not->toContain('Makati Head Office');
+    expect(rlocpageDayHtml($html, '2026-09-04'))->toContain('Quezon Annex')->not->toContain('Makati Head Office');
+    expect(rlocpageDayHtml($html, '2026-09-07'))->toContain('Makati Head Office')->not->toContain('Work from home');
+    expect(rlocpageDayHtml($html, '2026-09-05'))->toContain('Off')
         ->not->toContain('Makati Head Office')
-        ->not->toContain('<dd>');
+        ->not->toContain('Quezon Annex')
+        ->not->toContain('Work from home');
+
+    // No weekday rows: every working date is the Assigned Worksite, by name.
+    $html = rlocpageMonth($bare)->html();
+    expect(rlocpageDayHtml($html, '2026-09-03'))->toContain('Makati Head Office')->not->toContain('Work from home');
+    expect(rlocpageDayHtml($html, '2026-09-04'))->toContain('Makati Head Office')->not->toContain('Quezon Annex');
+
+    $html = rlocpageMonth($unplaced)->html();
+    expect(rlocpageDayHtml($html, '2026-09-03'))->toContain('No worksite')->not->toContain('Makati Head Office');
 });
 
-/* ── the Weekly schedule dialog ─────────────────────────────────────────── */
+/* ── the Default schedule dialog ────────────────────────────────────────── */
 
-it('opens the Weekly schedule dialog seeded from the stored rows for a visible employee only', function () {
+it('opens the Default schedule dialog seeded from the stored rows, for an all_data ROSTER holder only', function () {
     $a = rlocpageSite('Makati Head Office');
     $employee = rlocpageEmployee($a, 'Ana', 'Reyes');
     $colleague = rlocpageEmployee($a, 'Ben', 'Torres');
@@ -276,58 +274,58 @@ it('opens the Weekly schedule dialog seeded from the stored rows for a visible e
     rlocpageRow($employee, 2, $a);
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', (string) $employee->getKey())
-        ->assertSet('locationsEmployeeId', (string) $employee->getKey())
+    rlocpageMonth($employee)
+        ->call('openDefaultSchedule')
+        ->assertSet('employeeId', (string) $employee->getKey())
         ->assertSet('locationDays.1', LocationKind::WFH)
         ->assertSet('locationDays.2', (string) $a->getKey())
         ->assertSet('locationDays.4', LocationKind::DEFAULT)
-        ->assertDispatched('modal-show', name: 'weekly-locations')
-        ->assertSee('Weekly schedule · Ana Reyes');
+        ->assertDispatched('modal-show', name: 'default-schedule')
+        ->assertSeeHtml('id="default-schedule-heading"');
 
     // Opening writes nothing.
     expect(RosterLocation::query()->count())->toBe(2);
     $this->assertDatabaseMissing('audit_logs', ['action' => 'ROSTER_LOCATIONS_SET']);
 
     // A ROSTER holder without all_data sees only their own row: a colleague's
-    // id is dropped on the floor, not staged, and no dialog opens.
+    // month is not found, and their own opens no dialog.
     rlocpageActor([ModuleCode::ROSTER], allData: false, employeeId: (string) $colleague->getKey());
 
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', (string) $employee->getKey())
-        ->assertSet('locationsEmployeeId', '')
+    rlocpageMonth($employee)->assertNotFound();
+    rlocpageMonth($colleague)
+        ->call('openDefaultSchedule')
         ->assertSet('locationDays', [])
+        ->assertSet('shiftDays', [])
         ->assertNotDispatched('modal-show');
 });
 
-it('saves the dialog through the command, closes it, repaints the row and writes one audit row', function () {
+it('saves the dialog through the command, closes it, repaints the month and writes one audit row', function () {
+    rlocpageFreeze('2026-09-02 05:00:00');
     $a = rlocpageSite('Makati Head Office');
     $b = rlocpageSite('Quezon Annex');
     $employee = rlocpageEmployee($a, 'Ana', 'Reyes');
+    rlocpageShift($employee);
     // A Friday that stands before the save and is cleared by it.
     rlocpageRow($employee, 5, $a);
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
-    $page = Livewire::test(RosterPage::class)
-        ->call('openLocations', (string) $employee->getKey())
+    $page = rlocpageMonth($employee)
+        ->call('openDefaultSchedule')
         ->assertSet('locationDays.5', (string) $a->getKey())
         ->set('locationDays.1', LocationKind::WFH)
         ->set('locationDays.3', (string) $b->getKey())
         ->set('locationDays.5', LocationKind::DEFAULT)
-        ->call('saveLocations')
-        ->assertSet('locationsEmployeeId', '')
+        ->call('saveDefaultSchedule')
         ->assertSet('locationDays', [])
-        ->assertDispatched('modal-close', name: 'weekly-locations');
+        ->assertSet('shiftDays', [])
+        ->assertDispatched('modal-close', name: 'default-schedule');
 
-    // The row repaints from the stored week in the same response: the
-    // Assigned Worksite still covers most days, so it leads.
-    expect(rlocpageRowHtml($page->html(), $employee))
-        ->toContain('<p>Makati Head Office</p>')
-        ->toMatch('~Mon</dt>\s*<dd>WFH</dd>~u')
-        ->toMatch('~Wed</dt>\s*<dd>Quezon Annex</dd>~u')
-        ->not->toContain('Fri')
-        ->not->toContain('Default:')
-        ->not->toContain('Assigned worksite');
+    // The month repaints from the stored week in the same response, from
+    // today (before today's 10:00 shift starts).
+    $html = $page->html();
+    expect(rlocpageDayHtml($html, '2026-09-07'))->toContain('Work from home');
+    expect(rlocpageDayHtml($html, '2026-09-02'))->toContain('Quezon Annex')->not->toContain('Makati Head Office');
+    expect(rlocpageDayHtml($html, '2026-09-04'))->toContain('Makati Head Office')->not->toContain('Quezon Annex');
 
     $week = rlocpageWeek($employee);
     expect($week)->toBe([
@@ -342,21 +340,21 @@ it('saves the dialog through the command, closes it, repaints the row and writes
         ->and($audits->first()->details)->toBe('Ana Reyes · Mon WFH · Wed Quezon Annex');
 });
 
-it('refuses the dialog save without all_data, writes nothing and leaves the dialog open', function () {
+it('refuses the dialog save without all_data, writes nothing and keeps the draft', function () {
+    rlocpageFreeze('2026-09-02 05:00:00');
     $a = rlocpageSite('Makati Head Office');
     $own = rlocpageEmployee($a, 'Ana', 'Reyes');
     rlocpageActor([ModuleCode::ROSTER], allData: false, employeeId: (string) $own->getKey());
 
-    // The own row is visible, so the dialog opens; the write is refused at
-    // the page's fresh Access check and again inside the command.
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', (string) $own->getKey())
-        ->assertSet('locationsEmployeeId', (string) $own->getKey())
-        ->assertDispatched('modal-show', name: 'weekly-locations')
+    // The own month is visible but opens no dialog; a draft written straight
+    // to the component is refused at the page's fresh Access check and
+    // again inside the command.
+    rlocpageMonth($own)
+        ->call('openDefaultSchedule')
+        ->assertNotDispatched('modal-show')
         ->set('locationDays.1', LocationKind::WFH)
         ->set('locationDays.2', (string) $a->getKey())
-        ->call('saveLocations')
-        ->assertSet('locationsEmployeeId', (string) $own->getKey())
+        ->call('saveDefaultSchedule')
         ->assertSet('locationDays.1', LocationKind::WFH)
         ->assertSet('locationDays.2', (string) $a->getKey())
         ->assertNotDispatched('modal-close');
@@ -365,15 +363,18 @@ it('refuses the dialog save without all_data, writes nothing and leaves the dial
     $this->assertDatabaseMissing('audit_logs', ['action' => 'ROSTER_LOCATIONS_SET']);
 });
 
-it('does nothing on a cold saveLocations and treats junk draft values as DEFAULT', function () {
+it('does nothing on a cold saveDefaultSchedule and treats junk draft values as DEFAULT', function () {
+    rlocpageFreeze('2026-09-02 05:00:00');
     $a = rlocpageSite('Makati Head Office');
     $employee = rlocpageEmployee($a, 'Ana', 'Reyes');
+    // A shift assigned before, so the week's days may stay on it.
+    ScheduleFixture::standard($employee);
     rlocpageRow($employee, 1, null);
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
     // Cold: nothing staged, nothing written, no dialog to close.
-    Livewire::test(RosterPage::class)
-        ->call('saveLocations')
+    rlocpageMonth($employee)
+        ->call('saveDefaultSchedule')
         ->assertNotDispatched('modal-close');
 
     expect(rlocpageWeek($employee))->toBe([1 => [LocationKind::WFH, null]]);
@@ -382,12 +383,12 @@ it('does nothing on a cold saveLocations and treats junk draft values as DEFAULT
     // Junk in the draft: a weekday outside the week is never read, and a
     // non-string entry reads DEFAULT — so Monday goes back to the Assigned
     // Worksite, not WFH, and Tuesday lands at the site.
-    Livewire::test(RosterPage::class)
-        ->call('openLocations', (string) $employee->getKey())
+    rlocpageMonth($employee)
+        ->call('openDefaultSchedule')
         ->set('locationDays', [9 => LocationKind::WFH, 1 => ['x'], 2 => (string) $a->getKey()])
-        ->call('saveLocations')
-        ->assertSet('locationsEmployeeId', '')
-        ->assertDispatched('modal-close', name: 'weekly-locations');
+        ->call('saveDefaultSchedule')
+        ->assertSet('shiftDays', [])
+        ->assertDispatched('modal-close', name: 'default-schedule');
 
     $week = rlocpageWeek($employee);
     expect($week)->toBe([2 => [LocationKind::ONSITE, (string) $a->getKey()]]);
@@ -400,48 +401,63 @@ it('marks rest days from the employee shift in the dialog', function () {
     rlocpageShift($employee, ['work_days' => [1, 2, 3]]);
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
-    $page = Livewire::test(RosterPage::class)
-        ->call('openLocations', (string) $employee->getKey())
-        ->assertSeeHtmlInOrder(['Thursday', 'Rest day', 'Friday', 'Rest day', 'Saturday', 'Rest day', 'Sunday', 'Rest day']);
+    $page = rlocpageMonth($employee)->call('openDefaultSchedule');
 
     $dialog = rlocpageDialogHtml($page->html(), $employee);
-    // Thu, Fri, Sat and Sun rest; Mon–Wed work.
-    expect(substr_count($dialog, 'data-rest-day-hint'))->toBe(4);
-    expect(Str::before(Str::after($dialog, 'Thursday'), 'Friday'))->toContain('data-rest-day-hint');
-    expect(Str::before(Str::after($dialog, 'Wednesday'), 'Thursday'))->not->toContain('data-rest-day-hint');
+    // Thu, Fri, Sat and Sun rest; Mon–Wed work. Every day carries the hint so
+    // the browser can show it as days change; only the resting days are
+    // drawn shown, the working days' are hidden.
+    preg_match_all('~data-rest-day-hint x-show="restsOn\((\d)\)"(\s+style="display: none;?")?~', $dialog, $hints, PREG_SET_ORDER);
+    $shown = array_values(array_map(static fn (array $hint): string => $hint[1], array_filter($hints, static fn (array $hint): bool => ($hint[2] ?? '') === '')));
+    expect(count($hints))->toBe(7)
+        ->and($shown)->toBe(['4', '5', '6', '0']);
 });
 
-it('hides the schedule writes from a viewer without all_data, who still reads the history, and shows them to an all_data ROSTER holder', function () {
+it('gives a viewer without all_data a month that changes nothing, and an all_data ROSTER holder the Default schedule and the date picks', function () {
+    rlocpageFreeze('2026-09-02 05:00:00');
     $a = rlocpageSite('Makati Head Office');
     $own = rlocpageEmployee($a, 'Ana', 'Reyes');
-    $open = "openLocations('{$own->getKey()}')";
+    rlocpageShift($own);
+    $open = 'wire:click="openDefaultSchedule"';
 
     rlocpageActor([ModuleCode::ROSTER], allData: false, employeeId: (string) $own->getKey());
 
-    // The row menu is there for the history, and only that.
+    // The week table never writes, for anyone.
     Livewire::test(RosterPage::class)
         ->assertSee('Ana Reyes')
+        ->assertDontSeeHtml('openDefaultSchedule')
+        ->assertDontSeeHtml('pick(');
+
+    // The month reads, with every date locked and no picks admitted.
+    rlocpageMonth($own)
+        ->assertSee('Ana Reyes')
         ->assertDontSeeHtml($open)
-        ->assertDontSeeHtml("openDateSchedule('{$own->getKey()}')")
-        ->assertDontSee('Weekly schedule…')
-        ->assertDontSee('Temporary schedule…')
-        ->assertSeeHtml("openHistory('{$own->getKey()}')")
-        ->assertSeeHtml('aria-label="Actions for Ana Reyes"');
+        ->assertDontSee('Default schedule')
+        ->call('pick', '2026-09-03')
+        ->assertSet('picked', [])
+        ->assertDontSeeHtml('data-picked-card');
+    // A locked date's button is disabled and has no pick handler.
+    $disabled = '~<button\s+type="button"\s+disabled\s[^>]*data-date="2026-09-03"~s';
+    expect(rlocpageMonth($own)->html())->toMatch($disabled);
 
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
-    Livewire::test(RosterPage::class)
+    expect(rlocpageMonth($own)->html())->not->toMatch($disabled);
+    rlocpageMonth($own)
         ->assertSeeHtml($open)
-        ->assertSeeHtml('aria-label="Actions for Ana Reyes"')
-        ->assertSee('Weekly schedule…');
+        ->assertSee('Default schedule')
+        ->call('pick', '2026-09-03')
+        ->assertSet('picked', ['2026-09-03'])
+        ->assertSeeHtml('data-picked-card');
 });
 
-it('keeps locationsEmployeeId locked against a client write', function () {
+it('keeps the month’s employeeId locked against a client write', function () {
     $a = rlocpageSite('Makati Head Office');
     $employee = rlocpageEmployee($a, 'Ana', 'Reyes');
+    $colleague = rlocpageEmployee($a, 'Ben', 'Torres');
     rlocpageActor([ModuleCode::ROSTER], allData: true);
 
-    expect(fn () => Livewire::test(RosterPage::class)->set('locationsEmployeeId', (string) $employee->getKey()))
+    expect(fn () => rlocpageMonth($employee)->set('employeeId', (string) $colleague->getKey()))
         ->toThrow(CannotUpdateLockedPropertyException::class);
 });
 
@@ -506,7 +522,6 @@ it('keeps the portal station pinned to the actor own week even for an all_data h
         ->assertSet('employeeId', (string) $mine->getKey())
         ->assertSet('siteId', '')
         ->assertSeeHtml('value="Work from home"')
-        ->assertSee('Work from home today — no geofence. Your location is still recorded with the punch.')
         ->assertDontSee('Quezon Annex')
         ->assertDontSee('Makati Head Office');
     expect($station->viewData('punchDisabled'))->toBeFalse();

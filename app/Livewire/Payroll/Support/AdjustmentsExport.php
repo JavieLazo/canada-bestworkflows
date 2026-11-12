@@ -28,7 +28,7 @@ final class AdjustmentsExport implements TableExport
             foreach (app(AdjustmentRecords::class)->list($actor, $status, $search) as $row) {
                 yield [
                     $row->employee_code, $row->employee_name, $row->category_name,
-                    $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Earning, taxable' : 'Earning, not taxed'),
+                    $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Earning, taxable' : 'Earning, not compensation'),
                     number_format($row->amount, 2, '.', ''), $row->reason, $row->reference ?? '', $row->status,
                     $row->payslip_run_code ?? $row->target_run_code ?? '', $row->prepared_by_name ?? '', $row->approved_by_name ?? '', $row->review_note ?? '',
                     $row->created_at->setTimezone(ManilaClock::TZ)->format('Y-m-d'),

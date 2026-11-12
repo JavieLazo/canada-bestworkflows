@@ -13,19 +13,18 @@ use App\Models\ShiftType;
  */
 final class ShiftTypeSeeder extends PortSeeder
 {
-    private const MON_FRI = [1, 2, 3, 4, 5];
-
-    private const MON_SAT = [1, 2, 3, 4, 5, 6];
+    /** Every pattern works all seven days: a rest day is set on the employee, never on a pattern. */
+    private const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6];
 
     /** id, name, mode, start, end, grace, required hours, break start, break end, break minutes, punch break, week */
     private const TYPES = [
-        ['sft-1', 'Morning', 'FIXED', '07:00:00', '16:00:00', 10, null, '11:30:00', '12:30:00', 60, true, self::MON_FRI],
-        ['sft-2', 'Regular Day', 'FIXED', '08:00:00', '17:00:00', 15, null, '12:00:00', '13:00:00', 60, true, self::MON_FRI],
-        ['sft-3', 'Mid Shift', 'FIXED', '12:00:00', '21:00:00', 15, null, '16:00:00', '17:00:00', 60, true, self::MON_FRI],
-        ['sft-4', 'Night Shift', 'FIXED', '22:00:00', '06:00:00', 15, null, '02:00:00', '03:00:00', 60, true, self::MON_FRI],
-        ['sft-5', 'Flexi 8', 'FLEXIBLE', null, null, 0, 8, null, null, 60, false, self::MON_FRI],
-        ['sft-6', 'Half Day', 'FIXED', '08:00:00', '12:00:00', 10, null, null, null, 0, false, self::MON_FRI],
-        ['sft-7', 'Six-Day Day Shift', 'FIXED', '08:00:00', '17:00:00', 15, null, '12:00:00', '13:00:00', 60, true, self::MON_SAT],
+        ['sft-1', 'Morning', 'FIXED', '07:00:00', '16:00:00', 10, null, '11:30:00', '12:30:00', 60, true, self::EVERY_DAY],
+        ['sft-2', 'Regular Day', 'FIXED', '08:00:00', '17:00:00', 15, null, '12:00:00', '13:00:00', 60, true, self::EVERY_DAY],
+        ['sft-3', 'Mid Shift', 'FIXED', '12:00:00', '21:00:00', 15, null, '16:00:00', '17:00:00', 60, true, self::EVERY_DAY],
+        ['sft-4', 'Night Shift', 'FIXED', '22:00:00', '06:00:00', 15, null, '02:00:00', '03:00:00', 60, true, self::EVERY_DAY],
+        ['sft-5', 'Flexi 8', 'FLEXIBLE', null, null, 0, 8, null, null, 60, false, self::EVERY_DAY],
+        ['sft-6', 'Half Day', 'FIXED', '08:00:00', '12:00:00', 10, null, null, null, 0, false, self::EVERY_DAY],
+        ['sft-7', 'Six-Day Day Shift', 'FIXED', '08:00:00', '17:00:00', 15, null, '12:00:00', '13:00:00', 60, true, self::EVERY_DAY],
     ];
 
     public function run(): void

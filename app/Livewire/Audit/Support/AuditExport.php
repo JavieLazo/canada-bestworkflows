@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Audit\Support;
 
 use App\Livewire\Audit\Index;
+use App\Platform\Audit\AuditLabels;
 use App\Platform\Audit\AuditRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
@@ -16,8 +17,9 @@ use Generator;
  * The Audit Trail as CSV: the entries the table shows — the latest
  * {@see Index::LIMIT}, all_data + AUDIT only (anyone else exports an empty
  * file, as they see an empty table), filtered and sorted as on screen
- * ({@see AuditRows}). Timestamps are Manila wall-clock, as displayed.
- * Export only: the trail is append-only and is never imported.
+ * ({@see AuditRows}). Timestamps are Manila wall-clock, and Action and Entity
+ * are the labels ({@see AuditLabels}), as displayed. Export only: the trail is
+ * append-only and is never imported.
  */
 final class AuditExport implements TableExport
 {
@@ -38,7 +40,7 @@ final class AuditExport implements TableExport
             foreach (AuditRows::arrange($entries, $filters['q'], $filters['action'], $filters['entity'], $filters['actor'], $filters['sort'], $filters['dir']) as $entry) {
                 yield [
                     $entry->created_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
-                    Index::actorLabel($entry), $entry->action, $entry->entity ?? '', $entry->details ?? '',
+                    Index::actorLabel($entry), AuditLabels::action($entry->action), AuditLabels::entity($entry->entity) ?? '', $entry->details ?? '',
                 ];
             }
         };

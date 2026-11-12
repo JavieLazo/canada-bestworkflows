@@ -132,6 +132,27 @@ it('defaults a running period to yesterday and an ended one to nothing', functio
         ->and(PayrollAdvance::presumedRange('2026-09-15', '2026-09-15'))->toBeNull();
 });
 
+it('pulls a member\'s counted date back before their first unfinished day, and leaves it alone otherwise', function () {
+    $row = static fn (string $date, string $status): object => (object) ['date' => $date, 'status' => $status];
+    $finished = [$row('2026-09-10', 'PRESENT'), $row('2026-09-11', 'LATE'), $row('2026-09-14', 'PRESENT'), $row('2026-09-15', 'INCOMPLETE')];
+    $openOnTheCountedDay = [$row('2026-09-10', 'PRESENT'), $row('2026-09-11', 'PRESENT'), $row('2026-09-14', 'INCOMPLETE')];
+    $openEarlier = [$row('2026-09-14', 'PRESENT'), $row('2026-09-11', 'INCOMPLETE'), $row('2026-09-10', 'PRESENT'), $row('2026-09-15', 'INCOMPLETE')];
+    $openOnTheFirstDay = [$row('2026-09-01', 'INCOMPLETE'), $row('2026-09-02', 'PRESENT')];
+
+    // An unfinished day after the counted date is already presumed: it moves nothing.
+    expect(PayrollAdvance::countedThrough('2026-09-14', $finished))->toBe('2026-09-14')
+        // The counted day itself unfinished: counted through the day before.
+        ->and(PayrollAdvance::countedThrough('2026-09-14', $openOnTheCountedDay))->toBe('2026-09-13')
+        // The earliest unfinished counted day decides, whatever order the rows come in.
+        ->and(PayrollAdvance::countedThrough('2026-09-14', $openEarlier))->toBe('2026-09-10')
+        // The first day unfinished: the day before the period, so every day is presumed.
+        ->and(PayrollAdvance::countedThrough('2026-09-14', $openOnTheFirstDay))->toBe('2026-08-31')
+        // Absent, excused or official business are finished days.
+        ->and(PayrollAdvance::countedThrough('2026-09-14', [$row('2026-09-14', 'ABSENT'), $row('2026-09-11', 'EXCUSED'), $row('2026-09-10', 'OFFICIAL_BUSINESS')]))->toBe('2026-09-14')
+        // No advance: nothing is presumed, so nothing moves.
+        ->and(PayrollAdvance::countedThrough(null, $openOnTheCountedDay))->toBeNull();
+});
+
 /*
 |--------------------------------------------------------------------------
 | Presumed days

@@ -27,6 +27,7 @@ use App\Support\Access;
 use App\Support\Money;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * Incentives and bonuses on a payroll (DELIBERATE DIVERGENCE: the reference
@@ -64,6 +65,7 @@ function incentEmployee(string $code): EmployeeProfile
         'employee_code' => $code, 'first_name' => 'Inc', 'last_name' => $code, 'employment_status' => 'Regular',
         'date_hired' => '2024-01-01', 'monthly_rate' => 30000, 'is_active' => true,
     ])->save();
+    ScheduleFixture::standard($employee);
 
     foreach (['03', '04', '05', '06', '07', '10', '11', '12', '13', '14', '17', '18', '19', '20', '21', '24', '25', '26', '27', '28', '31'] as $day) {
         foreach ([['TIME_IN', '00:00:00'], ['TIME_OUT', '09:00:00']] as [$type, $at]) {
@@ -400,7 +402,7 @@ it('shows the incentives in the grid, the CSV, the payslip and My Portal', funct
 
     $export = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('exportCsv')
-        ->assertFileDownloaded('cyberonions-payroll-pr-inc-33.csv');
+        ->assertFileDownloaded('payroll-pr-inc-33.csv');
     $bytes = (string) base64_decode((string) data_get($export->effects, 'download.content'), true);
     $lines = explode("\r\n", (string) preg_replace('/^\x{FEFF}/u', '', $bytes));
     expect($lines[0])->toContain('"Incentives taxed","Incentives tax-exempt","Excess over PHP 90,000"')

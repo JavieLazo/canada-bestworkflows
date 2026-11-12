@@ -9,7 +9,6 @@ use App\Domain\Attendance\HolidaySetting;
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Domain\Payroll\PayrollPeriod;
-use App\Models\EmployeeLeavePolicy;
 use App\Models\LeaveCredit;
 use App\Models\LeaveEarningPosting;
 use App\Modules\Organization\Contracts\HolidayCalendar;
@@ -22,22 +21,40 @@ use App\Modules\Timekeeping\Infrastructure\AttendanceInputQuery;
 use App\Modules\Workforce\Contracts\EmployeeLeaveFacts;
 use App\Support\Access;
 use App\Support\AuditService;
+use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
- * THE MONTH-END EARNING. For every employee with an approved leave policy,
- * every month from the first approved version's effective month to the last
- * month whose posting day has passed is posted once: each leave type that
- * earns under the policy in force on that month's posting date gets an
- * ACCRUAL ledger entry for what LeaveEarningRule gives it from the month's
- * facts (LeaveMonthFacts), and a `leave_earning_postings` row records the
- * facts, the policy and the entry — the row exists even when the month earns
- * nothing, so the month is never looked at twice. Once a year is over and
+ * THE MONTH-END EARNING. WHO IT WALKS: EVERY employee, once any leave rule
+ * is in force (LeaveRules) — the rules are set on the leave type and are
+ * the same for all of them; with none in force it posts nothing. The terms
+ * of a month are those in force on its last day (LeaveTerms).
+ *
+ * A leave type with a WAITING PERIOD is acquired first
+ * (LeaveAcquisitions): the day is recorded once, with the credits the rule
+ * grants on it, and the type earns from the month that day falls in — that
+ * month counted from the day, so it takes the part-month rule.
+ *
+ * A leave type NOT EVERYONE MAY USE (LeaveEligibilities) earns only from
+ * the day the employee became eligible, judged on their record today: a
+ * month that ends before that day, or while they are not eligible, is
+ * closed with a posting of nothing, so a later change of status never earns
+ * those months back. The month they became eligible in is counted from the
+ * day.
+ *
+ * Every month from the start to the last month whose posting day has passed
+ * is posted once: each leave type that earns under the month's terms gets
+ * an ACCRUAL ledger entry for what LeaveEarningRule gives it from the
+ * month's facts (LeaveMonthFacts), and a `leave_earning_postings` row
+ * records the facts, the rule version and the entry — the row exists even
+ * when the month earns nothing, so the month is never looked at twice. Once
+ * a year is over and
  * its December is posted (or earns nothing), the year is CLOSED: every leave
  * type's whole closing balance — a debt below zero included — becomes a
  * CARRY_FORWARD entry in the new year, recorded under the period `YYYY-YE`.
- * CREDITS NEVER LAPSE. Years before the policy that still hold hand-entered
+ * A carrying type's credits never lapse. Years before the rules that still hold hand-entered
  * rows are closed first, oldest first, so a balance chains into the present
  * and a payroll always charges the live year (LeaveCharges::liveYear).
  *
@@ -45,8 +62,8 @@ use RuntimeException;
  * runs it every half hour and a run that finds everything posted writes
  * nothing. Each employee-month is one transaction under the leave-credits
  * lock, the lock every credit writer takes first. The schedule's runs post
- * as "System (scheduled)"; "Post now" on Leave Management posts as the
- * leave manager who pressed it. Hired and left dates come from Workforce's
+ * as "System (scheduled)", and the schedule is its only caller: no screen
+ * runs it. Hired and left dates come from Workforce's
  * EmployeeLeaveFacts; an employee who left earns through the month they
  * left, and an inactive record with no Date Resigned is skipped and named
  * in the run's `skipped` list. A type earns only while its current credit
@@ -56,11 +73,32 @@ final class PostLeaveEarnings
 {
     public const string SYSTEM_ACTOR = 'System (scheduled)';
 
+    /** The cache key holding when the schedule last ran the job (a UTC timestamp). */
+    private const string LAST_RUN = 'leave-earning:last-run';
+
+    /**
+     * Records that the schedule ran the job just now — also when it posted
+     * nothing, which is the usual run. A screen has no way to run the job,
+     * so this is how a leave manager sees that it is running at all.
+     */
+    public static function markRun(): void
+    {
+        Cache::forever(self::LAST_RUN, CarbonImmutable::now('UTC')->format('Y-m-d H:i:s'));
+    }
+
+    /** When the schedule last ran the job, in UTC; null when it has not run since the cache was last cleared. */
+    public static function lastRun(): ?CarbonImmutable
+    {
+        $at = Cache::get(self::LAST_RUN);
+
+        return is_string($at) && $at !== '' ? CarbonImmutable::parse($at, 'UTC') : null;
+    }
+
     /**
      * Posts every month that is due as of `$today` (Manila, 'Y-m-d').
      *
-     * @param  list<string>|null  $employeeIds  null for everyone with a policy
-     * @return array{posted: int, employees: int, skipped: list<string>}
+     * @param  list<string>|null  $employeeIds  null for everyone the job walks
+     * @return array{posted: int, employees: int, skipped: list<string>, acquired: int}
      */
     public function run(string $today, ?Access $actor = null, ?array $employeeIds = null): array
     {
@@ -69,17 +107,22 @@ final class PostLeaveEarnings
         if ($actor !== null && ! $actor->mayReadAllData(ModuleCode::LEAVES)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
-        if (! LeavePolicyStore::ready() || ! LeaveTypeCreditRecords::ready()) {
-            return ['posted' => 0, 'employees' => 0, 'skipped' => []];
+        if (! LeaveRules::postingsReady() || ! LeaveTypeCreditRecords::ready()) {
+            return ['posted' => 0, 'employees' => 0, 'skipped' => [], 'acquired' => 0];
         }
-        $ids = $employeeIds ?? LeavePolicyStore::employeesWithPolicies();
-        if ($employeeIds !== null) {
-            $ids = array_values(array_intersect($ids, LeavePolicyStore::employeesWithPolicies()));
+        // With no rule in force there is nothing to post: nobody has terms.
+        // Once one is, the job walks EVERY employee — the rules are the
+        // same for all of them.
+        $book = LeaveRules::book();
+        $rulesFrom = $book->startsOn();
+        if ($rulesFrom === null || $rulesFrom > $today) {
+            return ['posted' => 0, 'employees' => 0, 'skipped' => [], 'acquired' => 0];
         }
+        $facts = app(EmployeeLeaveFacts::class)->forPosting($employeeIds);
+        $ids = $employeeIds ?? array_keys($facts);
         if ($ids === []) {
-            return ['posted' => 0, 'employees' => 0, 'skipped' => []];
+            return ['posted' => 0, 'employees' => 0, 'skipped' => [], 'acquired' => 0];
         }
-        $facts = app(EmployeeLeaveFacts::class)->forPosting($ids);
         $holidays = app(HolidayCalendar::class)->all();
         $earning = [];
         foreach (LeaveTypeCreditRecords::rules() as $token => $entry) {
@@ -87,10 +130,15 @@ final class PostLeaveEarnings
                 $earning[] = $token;
             }
         }
+        // The day each employee became eligible for each leave type not
+        // everyone may use, judged on their record today.
+        $eligible = LeaveRules::eligibleFrom(array_map(strval(...), $ids), $facts);
         $posted = 0;
         $employees = 0;
+        $acquisitions = 0;
         $skipped = [];
         foreach ($ids as $employeeId) {
+            $employeeId = (string) $employeeId;
             $employee = $facts[$employeeId] ?? null;
             if ($employee === null) {
                 $skipped[] = "{$employeeId}: no employee record";
@@ -105,115 +153,57 @@ final class PostLeaveEarnings
 
                 continue;
             }
-            $first = LeavePolicyStore::firstEffective($employeeId);
-            if ($first === null) {
-                continue;
+            // The leave types that wait are acquired first, so a month's
+            // earning already sees the day.
+            $acquired = 0;
+            foreach (app(LeaveAcquisitions::class)->settle($employee, $today, $holidays, $book, $actor, $eligible[$employeeId] ?? []) as $sentence) {
+                $acquired++;
+                $this->audit($actor, $employeeId, $sentence);
             }
-            $start = max(substr($first, 0, 7), substr($employee['date_hired'], 0, 7));
-            $count = $this->postEmployee($employeeId, $employee, $start, $today, $holidays, $actor, $earning);
-            if ($count > 0) {
+            // The months begin where the rules did, or in the month hired.
+            $start = max(substr($rulesFrom, 0, 7), substr($employee['date_hired'], 0, 7));
+            $count = $this->postEmployee($employeeId, $employee, $start, $today, $holidays, $actor, $earning, $book, $eligible[$employeeId] ?? []);
+            if ($count > 0 || $acquired > 0) {
                 $employees++;
                 $posted += $count;
+                $acquisitions += $acquired;
             }
         }
 
-        return ['posted' => $posted, 'employees' => $employees, 'skipped' => $skipped];
-    }
-
-    /**
-     * The months approving a DRAFT version would post on the next run, as of
-     * `$today`: each month from the version's effective month (or the hire
-     * month) whose posting day has passed, that no later approved version
-     * takes over, that this version earns in, and that holds no posting yet
-     * — what the approve dialog shows before anyone commits to it. Empty for
-     * an employee the job skips.
-     *
-     * @return list<string> 'YYYY-MM', ascending
-     */
-    public function previewFor(Access $actor, string $versionId, string $today): array
-    {
-        if (! $actor->mayReadAllData(ModuleCode::LEAVES) || ! LeavePolicyStore::ready()) {
-            return [];
-        }
-        $version = EmployeeLeavePolicy::query()->whereKey($versionId)->first();
-
-        return $version === null ? [] : $this->preview($version, $today);
-    }
-
-    /**
-     * @see previewFor
-     *
-     * @return list<string>
-     */
-    public function preview(EmployeeLeavePolicy $version, string $today): array
-    {
-        if (! LeavePolicyStore::ready() || ! LeaveTypeCreditRecords::ready()) {
-            return [];
-        }
-        $employee = app(EmployeeLeaveFacts::class)->forPosting([$version->employee_id])[$version->employee_id] ?? null;
-        if ($employee === null || (! $employee['is_active'] && $employee['date_resigned'] === null)) {
-            return [];
-        }
-        $policy = LeavePolicyStore::policy($version);
-        $earning = [];
-        foreach (LeaveTypeCreditRecords::rules() as $token => $entry) {
-            if ($entry['rules']->earnsCredits) {
-                $earning[] = $token;
-            }
-        }
-        $tokens = array_values(array_intersect(array_keys($policy->earning()), $earning));
-        if ($tokens === []) {
-            return [];
-        }
-        $from = $version->effective_from->format('Y-m-d');
-        $later = EmployeeLeavePolicy::query()->where('employee_id', $version->employee_id)
-            ->where('status', EmployeeLeavePolicy::APPROVED)->where('effective_from', '>', $from)
-            ->min('effective_from');
-        $later = $later === null ? null : substr((string) $later, 0, 10);
-        $start = max(substr($from, 0, 7), substr($employee['date_hired'], 0, 7));
-        $lastMonth = $employee['date_resigned'] !== null ? min(substr($employee['date_resigned'], 0, 7), substr($today, 0, 7)) : substr($today, 0, 7);
-        $months = [];
-        for ($month = $start; $month <= $lastMonth; $month = self::nextMonth($month)) {
-            $range = PayrollPeriod::calendarMonthRange($month.'-01');
-            if ($later !== null && $later <= $range['to']) {
-                break;
-            }
-            $postingDate = $policy->postingDay() === LeavePolicy::MONTH_END
-                ? $range['to']
-                : self::nextMonth($month).'-'.str_pad((string) $policy->postingDay(), 2, '0', STR_PAD_LEFT);
-            if ($postingDate >= $today) {
-                break;
-            }
-            $posted = LeaveEarningPosting::query()->where('employee_id', $version->employee_id)->where('period', $month)->whereIn('request_type', $tokens)->count();
-            if ($posted < count($tokens)) {
-                $months[] = $month;
-            }
-        }
-
-        return $months;
+        return ['posted' => $posted, 'employees' => $employees, 'skipped' => $skipped, 'acquired' => $acquisitions];
     }
 
     /**
      * @param  array{id: string, date_hired: string, date_resigned: ?string, is_active: bool}  $employee
      * @param  list<HolidaySetting>  $holidays
      * @param  list<string>  $earning  the types whose CURRENT credit rules earn
+     * @param  array<string, ?string>  $eligibleFrom  token => the day the employee became eligible, null while not — the types not everyone may use
      * @return int months posted
      */
-    private function postEmployee(string $employeeId, array $employee, string $startMonth, string $today, array $holidays, ?Access $actor, array $earning): int
+    private function postEmployee(string $employeeId, array $employee, string $startMonth, string $today, array $holidays, ?Access $actor, array $earning, LeaveRuleBook $book, array $eligibleFrom): int
     {
         $posted = 0;
-        // Years before the policy that still hold rows (hand-entered
+        // Read once for the whole walk: the days this employee acquired the
+        // types that wait, and the months already posted, by type.
+        $acquired = LeaveRules::acquired([$employeeId])[$employeeId] ?? [];
+        $postedTypes = [];
+        foreach (LeaveEarningPosting::query()->where('employee_id', $employeeId)->get(['period', 'request_type']) as $row) {
+            $postedTypes[$row->period][] = $row->request_type;
+        }
+        // Years before the rules that still hold rows (hand-entered
         // credits) close first, oldest first, so their balances chain
-        // forward into the years the policy posts.
+        // forward into the years the job posts.
         $this->closeEarlierYears($employeeId, (int) substr($startMonth, 0, 4), $today, $actor);
         $lastMonth = $employee['date_resigned'] !== null ? min(substr($employee['date_resigned'], 0, 7), substr($today, 0, 7)) : substr($today, 0, 7);
         for ($month = $startMonth; $month <= $lastMonth; $month = self::nextMonth($month)) {
             $range = PayrollPeriod::calendarMonthRange($month.'-01');
-            $policyRow = LeavePolicyStore::inForce($employeeId, $range['to']);
-            if ($policyRow === null) {
+            // The terms on the month's last day; a month that ended before
+            // the rules began has none.
+            if (! $book->activeOn($range['to'])) {
                 continue;
             }
-            $policy = LeavePolicyStore::policy($policyRow);
+            $terms = LeaveRules::under($book, $range['to'], $acquired, $eligibleFrom);
+            $policy = $terms->policy;
             $year = (int) substr($month, 0, 4);
             if ($policy->earning() !== []) {
                 // The posting date: the month's last day, or day N of the month after; due once it has passed.
@@ -227,30 +217,54 @@ final class PostLeaveEarnings
                 // credit rules still earn: a type HR un-ticked since the
                 // policy was approved posts nothing from here on.
                 $tokens = array_values(array_intersect(array_keys($policy->earning()), $earning));
+                // A type the employee may not use earns nothing in a month
+                // that ends before they became eligible — or while they are
+                // not — and that month is CLOSED with a posting of nothing,
+                // so becoming eligible later never goes back over it.
+                $closed = array_values(array_filter($tokens, static fn (string $token): bool => $terms->closedFor($token, $range['to'])));
+                $dueClosed = array_values(array_diff($closed, $postedTypes[$month] ?? []));
+                if ($dueClosed !== []) {
+                    $this->closeIneligible($employeeId, $month, $dueClosed, $book, $range['to']);
+                }
+                // A type that waits earns from the month it is acquired in:
+                // one not acquired by the month's last day posts nothing, and
+                // the month stays open for the day it is.
+                $tokens = array_values(array_filter($tokens, static fn (string $token): bool => $terms->open($token, $range['to'])));
                 if ($tokens === []) {
                     continue;
                 }
-                $already = LeaveEarningPosting::query()->where('employee_id', $employeeId)->where('period', $month)->whereIn('request_type', $tokens)->pluck('request_type')->all();
-                $due = array_values(array_diff($tokens, $already));
+                $due = array_values(array_diff($tokens, $postedTypes[$month] ?? []));
                 if ($due !== []) {
                     $attendance = app(AttendanceInputQuery::class)->forPosting([$employeeId], $range['from'], $range['to'])[$employeeId];
-                    $counts = LeaveMonthFacts::count($attendance, $range, $employee['date_hired'], $employee['date_resigned'], $holidays, $policy->unpaidCounts());
+                    // The month is counted from the day the employee held
+                    // the type: the date hired, the day they became
+                    // eligible, or the day it was acquired, so that month
+                    // takes the part-month rule.
+                    $countsFor = [];
+                    $versionFor = [];
+                    $countsSince = [];
+                    foreach ($due as $token) {
+                        $since = max($employee['date_hired'], (string) $terms->openFrom($token));
+                        $countsFor[$token] = $countsSince[$since] ??= LeaveMonthFacts::count($attendance, $range, $since, $employee['date_resigned'], $holidays, $policy->unpaidCounts());
+                        $versionFor[$token] = $book->version($token, $range['to'])['id'] ?? null;
+                    }
                     $lines = [];
-                    DB::transaction(function () use ($employeeId, $month, $year, $policy, $policyRow, $due, $counts, $actor, &$lines): void {
+                    DB::transaction(function () use ($employeeId, $month, $year, $policy, $versionFor, $due, $countsFor, $actor, &$lines): void {
                         LeaveCreditWriter::lock();
                         foreach ($due as $token) {
                             if (LeaveEarningPosting::query()->where('employee_id', $employeeId)->where('period', $month)->where('request_type', $token)->exists()) {
                                 continue;
                             }
                             $rule = $policy->earning()[$token];
+                            $counts = $countsFor[$token];
                             $before = LeaveMonthFacts::balance($employeeId, $year, $token);
                             $earned = LeaveEarningRule::month($rule, LeaveMonthFacts::forType($counts, $before));
                             $entryId = null;
                             if ($earned['days'] > 0) {
-                                $entryId = $this->credit($actor ?? Access::forGuest(), $employeeId, $year, $token, 'ACCRUAL', $earned['days'], "Earned for {$month}: {$earned['basis']}");
+                                $entryId = $this->credit($actor ?? Access::forGuest(), $employeeId, $year, $token, 'ACCRUAL', $earned['days'], "Credits earned for {$month}: {$earned['basis']}");
                             }
                             LeaveEarningPosting::create([
-                                'employee_id' => $employeeId, 'period' => $month, 'request_type' => $token, 'policy_id' => $policyRow->id,
+                                'employee_id' => $employeeId, 'period' => $month, 'request_type' => $token, 'policy_id' => $versionFor[$token],
                                 'days' => $earned['days'], 'inputs' => [...$counts, 'balance_before' => $before, 'basis' => $earned['basis'], 'rule' => $rule], 'entry_id' => $entryId,
                             ]);
                             $lines[] = $token.' '.LeaveQuantity::format($earned['days']);
@@ -271,6 +285,30 @@ final class PostLeaveEarnings
         }
 
         return $posted;
+    }
+
+    /**
+     * Closes a month for the earning types the employee may not use in it:
+     * a posting of nothing each, recording why, under the leave-credits
+     * lock and re-checked there like every posting. No ledger entry and no
+     * audit line: nothing was earned.
+     *
+     * @param  list<string>  $tokens
+     */
+    private function closeIneligible(string $employeeId, string $month, array $tokens, LeaveRuleBook $book, string $monthEnd): void
+    {
+        DB::transaction(static function () use ($employeeId, $month, $tokens, $book, $monthEnd): void {
+            LeaveCreditWriter::lock();
+            foreach ($tokens as $token) {
+                if (LeaveEarningPosting::query()->where('employee_id', $employeeId)->where('period', $month)->where('request_type', $token)->exists()) {
+                    continue;
+                }
+                LeaveEarningPosting::create([
+                    'employee_id' => $employeeId, 'period' => $month, 'request_type' => $token, 'policy_id' => $book->version($token, $monthEnd)['id'] ?? null,
+                    'days' => 0.0, 'inputs' => ['basis' => 'Not eligible for this leave type'], 'entry_id' => null,
+                ]);
+            }
+        });
     }
 
     /**
@@ -317,9 +355,9 @@ final class PostLeaveEarnings
                 $lapsed = LeaveEarningRule::lapsed($closing, $lapses);
                 $entryId = null;
                 if ($lapsed > 0.0) {
-                    $entryId = $this->credit($actor ?? Access::forGuest(), $employeeId, $year, $token, 'LAPSE', -$lapsed, "Lapsed at the end of {$year}");
+                    $entryId = $this->credit($actor ?? Access::forGuest(), $employeeId, $year, $token, 'LAPSE', -$lapsed, "Expired at the end of {$year}");
                 } elseif ($carry != 0.0) {
-                    $entryId = $this->credit($actor ?? Access::forGuest(), $employeeId, $year + 1, $token, 'CARRY_FORWARD', $carry, "Carried from {$year}");
+                    $entryId = $this->credit($actor ?? Access::forGuest(), $employeeId, $year + 1, $token, 'CARRY_FORWARD', $carry, "Carried forward from {$year}");
                 }
                 LeaveEarningPosting::create([
                     'employee_id' => $employeeId, 'period' => $period, 'request_type' => $token, 'policy_id' => null,

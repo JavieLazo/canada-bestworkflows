@@ -24,7 +24,7 @@ use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
- * Employee Pay Settings, under Payroll → Payroll Settings → Employees: who
+ * Employee Pay Settings, under Records → Payroll Settings → Employees: who
  * is paid differently from the standard computation, listed from the
  * Contributions & tax settings in force (the approved version, else the
  * record's baseline columns), the hourly rate override, rates of their own
@@ -86,14 +86,14 @@ function epsWorkedFirstHalf(EmployeeProfile $employee): void
 
 it('opens for PAYROLL holders under Payroll Settings and shows the settings only to all-data PAYROLL', function () {
     $employee = epsEmployee('Gated', ['allow_sss' => false]);
-    $show = '/payroll/settings/employees/'.$employee->id;
+    $show = '/records/payroll-settings/employees/'.$employee->id;
 
-    $this->get('/payroll/settings/employees')->assertRedirect(route('login'));
+    $this->get('/records/payroll-settings/employees')->assertRedirect(route('login'));
 
     // Records Management alone no longer opens it: it is a Payroll Setting.
     foreach ([['PORTAL'], ['RECORDS'], ['EMPLOYEES', 'RECORDS']] as $modules) {
         epsActor($modules);
-        $this->get('/payroll/settings/employees')->assertRedirect();
+        $this->get('/records/payroll-settings/employees')->assertRedirect();
         $this->get($show)->assertRedirect();
     }
     // The former Records address is gated like the page: a Records holder is
@@ -102,13 +102,13 @@ it('opens for PAYROLL holders under Payroll Settings and shows the settings only
 
     epsActor(['PAYROLL'], false);
     $this->get('/records/employee-pay-settings/'.$employee->id)->assertRedirect($show);
-    $this->get('/payroll/settings/employees')->assertOk()->assertSee('shown to payroll officers')->assertDontSee('Gated');
+    $this->get('/records/payroll-settings/employees')->assertOk()->assertSee('shown to payroll officers')->assertDontSee('Gated');
     $this->get($show)->assertOk()->assertSee('shown to payroll officers')->assertDontSee('Gated');
 
     epsActor(['PAYROLL']);
-    $this->get('/payroll/settings/employees')->assertOk()->assertSee('Gated');
+    $this->get('/records/payroll-settings/employees')->assertOk()->assertSee('Gated');
     $this->get($show)->assertOk()->assertSee('Gated')->assertSee('Contributions &amp; tax', false);
-    $this->get('/payroll/settings/employees/'.Str::ulid())->assertNotFound();
+    $this->get('/records/payroll-settings/employees/'.Str::ulid())->assertNotFound();
 });
 
 it('reads and writes nothing for an actor without all-data PAYROLL', function () {
@@ -123,8 +123,8 @@ it('reads and writes nothing for an actor without all-data PAYROLL', function ()
 
 /* |---| The list |---| */
 
-it('lists the active employees whose settings differ, and everyone on request', function () {
-    epsEmployee('Standard');
+it('opens on every active employee and narrows to those whose settings differ', function () {
+    epsEmployee('Plainpay');
     epsEmployee('Legacymode', ['sss_mode' => null, 'philhealth_mode' => null, 'pagibig_mode' => null]);
     epsEmployee('Nosss', ['allow_sss' => false]);
     epsEmployee('Quarterly', ['pagibig_mode' => 'QUARTERLY']);
@@ -133,18 +133,133 @@ it('lists the active employees whose settings differ, and everyone on request', 
     epsEmployee('Gone', ['allow_philhealth' => false, 'is_active' => false]);
     epsActor(['PAYROLL']);
 
+    // The list opens on everyone; Only customized narrows it.
     Livewire::test(EmployeePaySettingsPage::class)
+        ->assertSee('Plainpay')
+        ->set('onlyCustomized', true)
         ->assertSee('Nosss')->assertSee('Off')
         ->assertSee('Quarterly')->assertSee('Table, whole month on the second cut-off')
-        ->assertSee('Percent')->assertSee('5% of taxable pay')
+        ->assertSee('Percent')->assertSee('5% of taxable compensation')
         ->assertSee('Hourly')->assertSee('₱150.00 an hour')
-        ->assertDontSee('Standard')->assertDontSee('Legacymode')->assertDontSee('Gone')
+        ->assertDontSee('Plainpay')->assertDontSee('Legacymode')->assertDontSee('Gone')
         ->set('onlyCustomized', false)
-        ->assertSee('Standard')->assertSee('Legacymode')->assertDontSee('Gone')
+        ->assertSee('Plainpay')->assertSee('Legacymode')->assertDontSee('Gone')
         ->set('activeOnly', false)
         ->assertSee('Gone')
         ->set('search', 'nosss')
-        ->assertSee('Nosss')->assertDontSee('Standard');
+        ->assertSee('Nosss')->assertDontSee('Plainpay');
+});
+
+it('opens an employee from anywhere on their row, not from a link on the name', function () {
+    $employee = epsEmployee('Rowclick');
+    epsActor(['PAYROLL']);
+    $url = route('records.employee-pay-settings.show', ['employee' => $employee->id]);
+
+    $html = Livewire::test(EmployeePaySettingsPage::class)->html();
+    preg_match('/<tr[^>]*wire:key="row-'.$employee->id.'"[^>]*>/s', $html, $row);
+    $tag = $row[0] ?? '';
+
+    // The row is the one control: it carries the address, takes focus, and answers a click, Enter and Space.
+    expect($tag)->toContain('data-href="'.$url.'"')
+        ->and($tag)->toContain('tabindex="0"')
+        ->and($tag)->toContain('aria-label="Open Pat Rowclick')
+        ->and($tag)->toContain('x-on:click=')
+        ->and($tag)->toContain('x-on:keydown.enter.self.prevent=')
+        ->and($tag)->toContain('x-on:keydown.space.self.prevent=')
+        ->and($tag)->toContain('Livewire.navigate($el.dataset.href)')
+        // The address is the row's alone: no link to it anywhere on the page.
+        ->and(preg_match('/<a\s[^>]*'.preg_quote($url, '/').'/', $html))->toBe(0);
+});
+
+it('shows an employee as the Employee Records list does: portrait or initials, name over position, status as pills', function () {
+    $employee = epsEmployee('Shown', ['employee_id_no' => '2026-0042', 'position' => 'Accountant II', 'employment_status' => 'Regular']);
+    $pictured = epsEmployee('Pictured', ['photo_path' => 'portraits/pictured.jpg', 'employment_status' => 'Job Order', 'is_active' => false, 'allow_philhealth' => false]);
+    epsActor(['PAYROLL']);
+
+    $html = Livewire::test(EmployeePaySettingsPage::class)->set('activeOnly', false)->html();
+    $cells = static function (string $id) use ($html): string {
+        preg_match('/<tr[^>]*wire:key="row-'.$id.'"[^>]*>(.*?)<\/tr>/s', $html, $row);
+
+        return preg_replace('/\s+/', ' ', $row[1] ?? '') ?? '';
+    };
+
+    // The avatar with the name over the position: neither the row id nor the Employee ID is shown, and no
+    // Custom pill marks a row whose own settings already read in bold.
+    $shown = $cells($employee->id);
+    expect($shown)->toContain('<span class="num text-xs font-semibold">PS</span>')
+        ->and($shown)->toContain('<p class="truncate font-medium">Pat Shown</p>')
+        ->and($shown)->toContain('<p class="truncate text-xs text-muted-foreground">Accountant II</p>')
+        ->and($shown)->not->toContain($employee->employee_code)
+        ->and($shown)->not->toContain('2026-0042')
+        ->and($shown)->toContain('pill pill-success')
+        ->and($shown)->not->toContain('Inactive');
+
+    // A portrait in place of the initials; no position reads as a dash; not Regular and inactive as their own
+    // pills; a setting of their own (PhilHealth off) reads in bold, with no Custom pill.
+    $other = $cells($pictured->id);
+    expect($other)->toContain('alt="Pat Pictured"')
+        ->and($other)->toContain('portraits/pictured.jpg')
+        ->and($other)->not->toContain('>PP</span>')
+        ->and($other)->toContain('<p class="truncate text-xs text-muted-foreground">—</p>')
+        ->and($other)->toContain('font-semibold')
+        ->and($other)->not->toContain('Custom')
+        ->and($other)->toContain('pill pill-info')
+        ->and($other)->toContain('<span class="pill pill-muted">Inactive</span>');
+});
+
+it('counts the listed employees above the table by what is their own, whatever Only customized shows', function () {
+    epsEmployee('Plainpay');
+    epsEmployee('Nosss', ['allow_sss' => false]);
+    epsEmployee('Percent', ['percent_tax' => 5]);
+    epsEmployee('Hourly', ['hourly_rate' => 150]);
+    epsEmployee('Gone', ['allow_philhealth' => false, 'is_active' => false]);
+    epsActor(['PAYROLL']);
+
+    $figure = static function (string $html, string $stat): ?string {
+        return preg_match('/data-stat="'.$stat.'".*?<dd[^>]*>\s*<span[^>]*>([^<]*)<\/span>/s', $html, $m) === 1 ? trim($m[1]) : null;
+    };
+
+    $page = Livewire::test(EmployeePaySettingsPage::class);
+    $html = $page->html();
+    expect($figure($html, 'listed'))->toBe('4')
+        ->and($figure($html, 'customized'))->toBe('3')
+        ->and($figure($html, 'gov'))->toBe('2')
+        ->and($figure($html, 'rates'))->toBe('1')
+        ->and($figure($html, 'recurring'))->toBe('0');
+
+    // Only customized narrows the table, never the figures above it.
+    $html = $page->set('onlyCustomized', true)->assertDontSee('Plainpay')->html();
+    expect($figure($html, 'listed'))->toBe('4')
+        ->and($figure($html, 'customized'))->toBe('3');
+
+    // Active only and the search change who is counted.
+    $html = $page->set('onlyCustomized', false)->set('activeOnly', false)->html();
+    expect($figure($html, 'listed'))->toBe('5')
+        ->and($figure($html, 'gov'))->toBe('3');
+    expect($figure($page->set('search', 'hourly')->html(), 'listed'))->toBe('1');
+
+    // The figures are pay data too: a holder without all data gets none.
+    epsActor(['PAYROLL'], false);
+    app()->forgetInstance(Access::class);
+    Livewire::test(EmployeePaySettingsPage::class)
+        ->assertSee('shown to payroll officers')
+        ->assertDontSeeHtml('data-pay-settings-summary');
+});
+
+it('reads contributions and tax in one cell: Standard, or only what differs, named', function () {
+    epsEmployee('Plainpay');
+    epsEmployee('Nosss', ['allow_sss' => false, 'percent_tax' => 5]);
+    epsActor(['PAYROLL']);
+
+    $page = Livewire::test(EmployeePaySettingsPage::class)
+        ->assertSee('Contributions &amp; tax', false)
+        ->assertSee('Standard')
+        ->assertSee('SSS: Off · Withholding tax: 5% of taxable compensation');
+    $html = $page->html();
+
+    expect($html)->not->toContain('<th>SSS</th>')
+        ->and($html)->not->toContain('<th>Withholding tax</th>')
+        ->and($html)->not->toContain('PhilHealth: Table');
 });
 
 /* |---| The hourly rate |---| */

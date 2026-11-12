@@ -18,7 +18,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /**
- * Signatories — who signs the payroll documents, under Payroll → Payroll
+ * Signatories — who signs the payroll documents, under Records → Payroll
  * Settings: the name and designation printed under "Prepared by", "Checked
  * by" and "Certified correct by" on every payslip and on the payroll
  * register. Any PAYROLL holder reads them; whoever manages the Payroll

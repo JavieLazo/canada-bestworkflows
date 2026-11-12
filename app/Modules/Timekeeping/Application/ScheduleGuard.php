@@ -38,6 +38,10 @@ use LogicException;
  *               night keeps its morning punches), and no shift newly left
  *               running into the next one (D5).
  *
+ * `beforeFill()` / `verifyFill()` are the pair for the one change that
+ * reaches back — past dates that had no shift — holding the dates around
+ * them instead of the dates before.
+ *
  * A refusal throws and the caller's transaction rolls back, so a change that
  * fails any rule writes nothing. Trusted internal reads: the commands that
  * call this have already authorized the actor.
@@ -88,15 +92,15 @@ final class ScheduleGuard
             ->map(static fn (AttendanceLog $row): DomainLog => DomainLog::fromArray(['id' => $row->id, 'employee_id' => $employeeId, 'log_type' => $row->log_type, 'logged_at' => $row->logged_at]))
             ->all();
         $logs = array_values($logs);
-        $leaves = LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')->where('employee_id', $employeeId)
-            ->get(LeaveHalves::columns(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid']))
-            ->map(static fn (LeaveTravelRequest $leave): DomainLeave => DomainLeave::fromArray([
-                'id' => $leave->id, 'employee_id' => $leave->employee_id, 'request_type' => $leave->request_type, 'day_type' => $leave->day_type,
-                'start_date' => $leave->start_date, 'end_date' => $leave->end_date, 'status' => $leave->status, 'is_paid' => $leave->is_paid,
-                'cancelled_dates' => $leave->cancelledDates(),
-                'half' => LeaveHalves::of($leave->half ?? null),
-            ]))->all();
-        $leaves = array_values($leaves);
+        // A leave approved partly with pay is read as its paid part and its
+        // part without pay, as the DTR reads it (LeavePayDates).
+        $leaves = [];
+        foreach (LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')->where('employee_id', $employeeId)
+            ->get(LeaveHalves::columns(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid', ...(LeavePayDates::ready() ? ['unpaid_dates'] : [])])) as $leave) {
+            foreach (LeavePayDates::domain($leave, LeaveHalves::of($leave->half ?? null)) as $part) {
+                $leaves[] = $part;
+            }
+        }
         $holidays = app(HolidayCalendar::class)->all();
 
         $protected = [];
@@ -147,6 +151,114 @@ final class ScheduleGuard
             [$date, $ends, $next, $starts] = explode('|', $new[0]);
             throw new ScheduleChangeRefused('The shift that starts on '.HrisFormat::date($date)." ends at {$ends} the next day, after the shift on ".HrisFormat::date($next)." starts at {$starts}. Adjust one of them so they do not overlap.");
         }
+    }
+
+    /**
+     * Holds a FILL of past dates that had no shift (`FillUnscheduledDates`)
+     * to the dates around it — the one change that reaches back, and only
+     * onto the dates it names. Refuses a date already paid on a posted
+     * payslip, locks the punches from five dates before the first through
+     * four after the last (today at the latest), and records every date
+     * from three before the first through three after the last that has
+     * happened and is NOT being filled: the three before, the ones between,
+     * the three after. `verifyFill()` holds those exactly as they were, so a
+     * night shift given to a filled date never takes a punch from the next.
+     *
+     * @param  non-empty-list<string>  $dates  sorted, unique, each before today
+     *
+     * @throws ScheduleChangeRefused
+     */
+    public function beforeFill(string $employeeId, array $dates): ScheduleSnapshot
+    {
+        if (DB::transactionLevel() === 0) {
+            throw new LogicException('Schedule changes are guarded inside their own transaction.');
+        }
+        $today = ManilaClock::todayKey();
+        $first = $dates[0];
+        $last = $dates[count($dates) - 1];
+        $paid = array_values(array_intersect(app(PostedPayrollDates::class)->lockAndPaidDates($employeeId, $first, $last), $dates));
+        if ($paid !== []) {
+            throw new ScheduleChangeRefused(implode(', ', array_map(HrisFormat::date(...), $paid)).(count($paid) === 1 ? ' is' : ' are').' already paid on a posted payslip, so '.(count($paid) === 1 ? 'its' : 'their').' schedule can no longer change.');
+        }
+
+        $contextFrom = PayrollPeriod::addCalendarDays($first, -(self::PROTECTED_DAYS + 2));
+        $horizon = PayrollPeriod::addCalendarDays($last, self::PROTECTED_DAYS + 1);
+        $window = PayrollPeriod::attendanceInstants($contextFrom, min($horizon, $today));
+        $logs = array_values(AttendanceLog::query()->where('employee_id', $employeeId)
+            ->whereBetween('logged_at', [$window['gte'], $window['lte']])
+            ->orderBy('logged_at')->orderBy('id')->lockForUpdate()->get(['id', 'log_type', 'logged_at'])
+            ->map(static fn (AttendanceLog $row): DomainLog => DomainLog::fromArray(['id' => $row->id, 'employee_id' => $employeeId, 'log_type' => $row->log_type, 'logged_at' => $row->logged_at]))
+            ->all());
+        $leaves = [];
+        foreach (LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')->where('employee_id', $employeeId)
+            ->get(LeaveHalves::columns(['id', 'employee_id', 'request_type', 'day_type', 'start_date', 'end_date', 'status', 'is_paid', ...(LeavePayDates::ready() ? ['unpaid_dates'] : [])])) as $leave) {
+            foreach (LeavePayDates::domain($leave, LeaveHalves::of($leave->half ?? null)) as $part) {
+                $leaves[] = $part;
+            }
+        }
+        $holidays = app(HolidayCalendar::class)->all();
+
+        $filled = array_flip($dates);
+        $protected = [];
+        foreach (PayrollPeriod::eachDate(PayrollPeriod::addCalendarDays($first, -self::PROTECTED_DAYS), PayrollPeriod::addCalendarDays($last, self::PROTECTED_DAYS)) as $date) {
+            if (! isset($filled[$date]) && $date <= $today) {
+                $protected[] = $date;
+            }
+        }
+        $schedule = $this->roster->scheduleForEmployee($employeeId, $contextFrom, $horizon);
+
+        return new ScheduleSnapshot(
+            $employeeId, $first, $last, $today, $contextFrom, $horizon, $logs, $leaves, $holidays, $schedule, $protected,
+            self::recordsOn($logs, $schedule, $leaves, $holidays, $protected),
+            self::overlapKeys($schedule, PayrollPeriod::addCalendarDays($first, -1), $horizon),
+            '',
+        );
+    }
+
+    /**
+     * After a fill is written: the dates around it read exactly as before,
+     * and no shift newly runs into the next one.
+     *
+     * @throws ScheduleChangeRefused
+     */
+    public function verifyFill(ScheduleSnapshot $before): void
+    {
+        $after = $this->roster->scheduleForEmployee($before->employeeId, $before->contextFrom, $before->horizon);
+        if (self::recordsOn($before->logs, $after, $before->leaves, $before->holidays, $before->protected) !== $before->records) {
+            throw new ScheduleChangeRefused('This schedule would also change the attendance of a date next to the ones picked — for example by moving a morning punch into a night shift that starts the day before. Pick a shift that ends before the next date begins, or fill that date too.');
+        }
+        $new = array_values(array_diff(self::overlapKeys($after, PayrollPeriod::addCalendarDays($before->from, -1), $before->horizon), $before->overlaps));
+        if ($new !== []) {
+            [$date, $ends, $next, $starts] = explode('|', $new[0]);
+            throw new ScheduleChangeRefused('The shift that starts on '.HrisFormat::date($date)." ends at {$ends} the next day, after the shift on ".HrisFormat::date($next)." starts at {$starts}. Adjust one of them so they do not overlap.");
+        }
+    }
+
+    /**
+     * `records()` for dates that need not follow one another: the DTR over
+     * their whole span, keeping only their rows and the punches each owns.
+     *
+     * @param  list<DomainLog>  $logs
+     * @param  list<DomainLeave>  $leaves
+     * @param  list<HolidaySetting>  $holidays
+     * @param  list<string>  $dates  sorted
+     */
+    private static function recordsOn(array $logs, ?DomainShift $schedule, array $leaves, array $holidays, array $dates): string
+    {
+        if ($dates === []) {
+            return '';
+        }
+        $keep = array_flip($dates);
+        $rows = array_values(array_filter(
+            DtrCalculator::compute($logs, $schedule, $leaves, $dates[0], $dates[count($dates) - 1], $holidays),
+            static fn ($row): bool => isset($keep[$row->date]),
+        ));
+        $owned = [];
+        foreach ($dates as $date) {
+            $owned[$date] = array_map(static fn (DomainLog $log): string => (string) $log->id, DtrCalculator::rowPunches($logs, $schedule, $date));
+        }
+
+        return (string) json_encode(['rows' => $rows, 'owned' => $owned]);
     }
 
     private function changesToday(ScheduleSnapshot $before, ?DomainShift $after): bool

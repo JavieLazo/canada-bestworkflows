@@ -5,15 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Application\Commands;
 
 use App\Domain\Attendance\Shift as DomainShift;
-use App\Domain\Attendance\ShiftShapePolicy;
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Models\RosterShift;
-use App\Models\ShiftType;
 use App\Modules\Timekeeping\Application\DatedChange;
 use App\Modules\Timekeeping\Application\RosterChanges;
+use App\Modules\Timekeeping\Application\RosterDayChoice;
 use App\Modules\Timekeeping\Application\ScheduleImpact;
-use App\Modules\Timekeeping\Application\ShiftPolicy;
+use App\Modules\Timekeeping\Domain\Roster\CustomHours;
 use App\Modules\Timekeeping\Domain\Roster\RosterSchedulePolicy;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
@@ -29,9 +28,10 @@ use RuntimeException;
 /**
  * Owns weekday hours independently of weekly places. DEFAULT sends the
  * weekday back to the default shift, REST explicitly rests, and a pattern
- * copies its hours while making the chosen weekday a working day. KEEP
- * retains a deleted pattern's snapshot only. Omitted weekdays remain
- * unchanged.
+ * copies its hours while making the chosen weekday a working day — as do
+ * custom hours typed in instead of a pattern (`CustomHours`, no pattern
+ * behind them). KEEP retains a deleted pattern's snapshot only. Omitted
+ * weekdays remain unchanged.
  *
  * DATED AND GUARDED: each change is a new row from its effective date under
  * one `roster_schedule_changes` row per save, DEFAULT included (a row with
@@ -39,7 +39,9 @@ use RuntimeException;
  * through `DatedChange`: today or later, today only until today's cutoff,
  * and never disturbing an earlier date's record.
  *
- * Locks follow pattern, employee, standing, weekday, date order, matching SaveShiftType.
+ * Locks: pattern, then the employee (`DatedChange`), then standing, weekday
+ * and date rows. Every roster write holds the employee lock before any
+ * schedule row, so two writes for one employee serialize there.
  * Changes commit together; best-effort roster auditing waits for the outer
  * transaction so a combined location save cannot report an aborted change.
  */
@@ -92,12 +94,7 @@ final class SaveRosterShifts
         $patterns = null;
 
         $prepare = static function () use ($wanted, &$patterns): void {
-            $patternIds = array_values(array_unique(array_filter($wanted, static fn (string $value): bool => ! in_array($value, ['DEFAULT', 'REST', 'KEEP'], true))));
-            sort($patternIds);
-            $patterns = ShiftType::query()->whereKey($patternIds)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
-            if ($patterns->count() !== count($patternIds)) {
-                throw new RuntimeException('That shift pattern no longer exists.');
-            }
+            $patterns = RosterDayChoice::lockPatterns(array_values($wanted));
         };
 
         $write = static function (string $employeeId, string $from) use ($actor, $wanted, $name, &$patterns): bool {
@@ -133,23 +130,11 @@ final class SaveRosterShifts
 
                     continue;
                 }
-                $pattern = $patterns?->get($value);
-                if ($value === 'REST') {
+                if ($value === 'REST' && $row?->is_rest_day) {
                     // Keep an existing rest snapshot stable on repeated saves.
-                    if ($row?->is_rest_day) {
-                        continue;
-                    }
-                    $entry = ['is_rest_day' => true, 'shift_type_id' => null, 'shift_name' => 'Rest day', 'shift_data' => array_replace(DomainShift::restDay($standing)->toArray(), ['shift_type_id' => null])];
-                } else {
-                    assert($pattern instanceof ShiftType);
-                    $copy = ShiftPolicy::attributesFromPattern($pattern);
-                    $copy['work_days'] = [$weekday];
-                    $error = ShiftShapePolicy::shapeError($copy);
-                    if ($error !== null) {
-                        throw new RuntimeException($error);
-                    }
-                    $entry = ['is_rest_day' => false, 'shift_type_id' => $pattern->id, 'shift_name' => $pattern->name, 'shift_data' => DomainShift::fromArray($copy)->toArray()];
+                    continue;
                 }
+                $entry = RosterDayChoice::entry($value, $weekday, $standing, $patterns);
                 if ($row !== null && ! (clone $row)->fill($entry)->isDirty()) {
                     continue;
                 }
@@ -176,8 +161,11 @@ final class SaveRosterShifts
     }
 
     /**
+     * Each weekday's choice: DEFAULT, REST, KEEP, a pattern id, or custom
+     * hours as the dialog's draft array (`CustomHours`).
+     *
      * @param  array<int|string, mixed>  $days
-     * @return array<int, string>
+     * @return array<int, string|array<array-key, mixed>>
      */
     private function validated(array $days): array
     {
@@ -186,10 +174,7 @@ final class SaveRosterShifts
             if (! is_int($weekday) || $weekday < 0 || $weekday > 6) {
                 throw new RuntimeException('Weekday must be 0 (Sunday) to 6 (Saturday).');
             }
-            if (! is_string($value) || trim($value) === '') {
-                throw new RuntimeException('Pick a shift for '.HrisFormat::weekday($weekday, short: false).'.');
-            }
-            $wanted[$weekday] = trim($value);
+            $wanted[$weekday] = RosterDayChoice::read($value, HrisFormat::weekday($weekday, short: false));
         }
         ksort($wanted);
 

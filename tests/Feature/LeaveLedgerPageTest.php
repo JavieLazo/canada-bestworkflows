@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Livewire\Leaves\Index;
 use App\Livewire\Leaves\LeaveLedger;
+use App\Livewire\Portal\PortalPage;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveCredit;
 use App\Models\LeaveCreditEntry;
@@ -70,19 +71,20 @@ it('opens the ledger tab and records manual accrual and optional carry forward t
         ->and(LeaveCreditEntry::query()->count())->toBe(4);
 });
 
-it('pins the portal ledger to its employee even for an all-data manager and refuses posts there', function (): void {
+it('shows no leave ledger on My Portal and refuses the ledger to a PORTAL-only employee', function (): void {
     $own = ledgerPageEmployee('Own');
-    $other = ledgerPageEmployee('Other');
-    ledgerPageActor(['LEAVES', 'PORTAL'], true, $own);
-    app(RecordLeaveCredit::class)->handle(app(Access::class), $other->id, 2026, 'SICK_LEAVE', 'OPENING', '9', 'Other private entry', (string) Str::ulid());
-    Livewire::test(LeaveLedger::class, ['own' => true])
-        ->assertSet('employeeId', $own->id)->assertDontSee('Other private entry')
-        ->assertDontSee('Export CSV')
-        ->assertDontSee('Record credits')->call('employeePicked', 'ledger-employee', $other->id)
-        ->assertSet('employeeId', $own->id)->call('openEntry')->assertSet('entryOpen', false)
-        ->set('days', '100')->call('saveEntry')->assertDontSee('Export CSV');
-    expect(LeaveCreditEntry::query()->count())->toBe(1);
-    $this->get('/portal/ledger/export?employee='.$other->id.'&year=2026')->assertNotFound();
+    ledgerPageActor(['PORTAL'], false, $own);
+    Livewire::test(PortalPage::class)->set('tab', 'requests')
+        ->assertSeeHtml('data-leave-credits')
+        ->assertDontSeeHtml('data-leave-ledger')
+        ->assertDontSee('My leave ledger')
+        // The tab's Blade compiled, not printed as text.
+        ->assertSeeHtml('data-apply-card')
+        ->assertDontSeeHtml('@class(')
+        ->assertDontSeeHtml('$hasEmployee');
+    Livewire::test(LeaveLedger::class)->assertForbidden();
+    expect(LeaveCreditEntry::query()->count())->toBe(0);
+    $this->get('/portal/ledger/export?employee='.$own->id.'&year=2026')->assertNotFound();
 });
 
 it('refuses restricted writes and forged employee changes', function (): void {
@@ -112,8 +114,9 @@ it('exports the same credit history and balance breakdown while preserving type 
 });
 
 it('hides ledger data from unlinked viewers and refuses direct components without their module', function (): void {
+    ledgerPageActor(['LEAVES'], false);
+    Livewire::test(LeaveLedger::class)->assertSee('No employee record linked.')->assertDontSee('Record credits')->assertDontSee('Export CSV');
     ledgerPageActor(['PORTAL'], false);
-    Livewire::test(LeaveLedger::class, ['own' => true])->assertSee('No employee record linked.')->assertDontSee('Record credits');
     Livewire::test(LeaveLedger::class)->assertForbidden();
     $this->get('/leaves/ledger/export')->assertRedirect();
 });

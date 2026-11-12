@@ -7,13 +7,22 @@ namespace App\Modules\Timekeeping\Application\Commands;
 use App\Modules\Timekeeping\Application\DatedChange;
 use App\Modules\Timekeeping\Application\RosterChanges;
 use App\Modules\Timekeeping\Application\ScheduleImpact;
+use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Support\Access;
+use App\Support\HrisFormat;
 use Closure;
+use RuntimeException;
 
 /**
  * The weekly dialog saves hours and places as one indivisible user action:
  * one `DatedChange`, so both take effect on the same date, under the same
  * safeguards, or neither is saved.
+ *
+ * EVERY DAY HAS A SHIFT OR A REST DAY: for an employee with no shift
+ * assigned before, a weekday left on no shift would refuse every Time In on
+ * it and read absent in the DTR and payroll, week after week, so the save is
+ * refused until each day has one. An employee with an assigned shift keeps
+ * it on the days left to it.
  */
 final class SaveRosterWeek
 {
@@ -60,8 +69,33 @@ final class SaveRosterWeek
             // Both run: a save of hours alone must not skip the places.
             $changedHours = $hours($employeeId, $from);
             $changedPlaces = $places($employeeId, $from);
+            self::assertEveryDayScheduled($employeeId, $from);
 
             return $changedHours || $changedPlaces;
         }];
+    }
+
+    /**
+     * Refuses a week that leaves a day with no shift from `$from` on: no
+     * hours or Rest day of its own, and no shift assigned to fall back on.
+     */
+    private static function assertEveryDayScheduled(string $employeeId, string $from): void
+    {
+        $versions = app(RosterVersions::class);
+        if (($versions->standingAsOf([$employeeId], $from)[$employeeId] ?? null) !== null) {
+            return;
+        }
+        $rows = $versions->weekdaysAsOf([$employeeId], $from)[$employeeId] ?? [];
+        $missing = [];
+        foreach ([1, 2, 3, 4, 5, 6, 0] as $weekday) {
+            if (! isset($rows[$weekday])) {
+                $missing[] = HrisFormat::weekday($weekday, short: false);
+            }
+        }
+        if ($missing !== []) {
+            $last = array_pop($missing);
+            $days = $missing === [] ? $last : implode(', ', $missing).' and '.$last;
+            throw new RuntimeException("Choose a shift or Rest day for {$days}. A day with no shift records no Time In and reads absent.");
+        }
     }
 }

@@ -9,6 +9,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Models\LeaveRequestCancellation;
 use App\Models\LeaveTravelRequest;
 use App\Modules\IdentityAccess\Contracts\AccountNames;
+use App\Modules\Timekeeping\Application\LeaveScheduleHold;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Contracts\Views\LeaveCancellationView;
 use App\Modules\Timekeeping\Contracts\Views\LeaveTravelRequestView;
@@ -16,6 +17,7 @@ use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
+use App\Support\EmployeeName;
 use App\Support\ManilaClock;
 use Illuminate\Support\Collection;
 
@@ -54,6 +56,23 @@ final class AbsenceRecords
         return array_keys($dates);
     }
 
+    /**
+     * Why a pending request cannot be approved yet: the sentence naming its
+     * dates with no shift (LeaveScheduleHold), or null when every date has
+     * one. Read for the reviewer before they click; `ReviewAbsence` asks
+     * again under its lock. Null for anything not pending or not the
+     * actor's to review.
+     */
+    public function noShiftHold(Access $actor, LeaveTravelRequestView $request): ?string
+    {
+        if ($request->status !== 'PENDING' || ! $actor->mayReadAllData(ModuleCode::LEAVES)) {
+            return null;
+        }
+        $dates = LeaveScheduleHold::dates($request->employee_id, $request->start_date->format('Y-m-d'), $request->end_date->format('Y-m-d'));
+
+        return $dates === [] ? null : LeaveScheduleHold::sentence(EmployeeName::display($request->employee, 'The employee'), $dates);
+    }
+
     /** @return Collection<int, LeaveTravelRequestView> */
     public function list(Access $actor, bool $own = false): Collection
     {
@@ -71,6 +90,9 @@ final class AbsenceRecords
             $employeeIds[] = $row->employee_id;
             if ($row->reviewed_by !== null) {
                 $reviewerIds[] = $row->reviewed_by;
+            }
+            if ($row->recommended_by !== null) {
+                $reviewerIds[] = $row->recommended_by;
             }
             foreach ($row->cancellations as $cancellation) {
                 $reviewerIds[] = $cancellation->cancelled_by;
@@ -93,6 +115,7 @@ final class AbsenceRecords
 
             return Snapshot::of($row, LeaveTravelRequestView::class, [
                 'employee' => $employees->get($row->employee_id), 'reviewer' => $reviewers->get($row->reviewed_by),
+                'recommender' => $row->recommended_by === null ? null : $reviewers->get($row->recommended_by),
                 'cancelled_dates' => $cancelled, 'cancellable_dates' => $eligible,
                 'cancellations' => $row->cancellations->map(static fn (LeaveRequestCancellation $item): LeaveCancellationView => Snapshot::of($item, LeaveCancellationView::class, [
                     'canceller' => $reviewers->get($item->cancelled_by),

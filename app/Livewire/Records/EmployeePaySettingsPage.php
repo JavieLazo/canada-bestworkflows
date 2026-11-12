@@ -17,11 +17,11 @@ use Livewire\Component;
 
 /**
  * Employee Pay Settings — who is paid differently from the standard
- * computation, under Payroll → Payroll Settings. One row per employee, its
- * contribution, withholding and hourly-rate settings in a phrase each, the
- * ones that differ marked; a row opens the employee's own page, where the
+ * computation, under Records → Payroll Settings. One row per employee, its
+ * contributions and tax in one phrase naming only what differs and its
+ * hourly rate in another; a row opens the employee's own page, where the
  * settings are edited (EmployeePaySettingsShow). By default the list shows
- * only active employees whose settings differ.
+ * every active employee.
  *
  * Like Incentives & Bonuses the page opens for RECORDS or PAYROLL, but what
  * it lists is pay data (SEC-01): only an all-data PAYROLL holder sees the
@@ -35,7 +35,7 @@ class EmployeePaySettingsPage extends Component
     use WithTableFilters;
 
     /** Only the employees whose settings differ from the standard computation. A filter. */
-    public bool $onlyCustomized = true;
+    public bool $onlyCustomized = false;
 
     /** Only the active employees. A filter. */
     public bool $activeOnly = true;
@@ -63,13 +63,19 @@ class EmployeePaySettingsPage extends Component
     {
         $access = app(Access::class);
         $canRead = $access->mayReadAllData(ModuleCode::PAYROLL);
-        $rows = $canRead
-            ? $this->paginateClamped(EmployeePaySettingsRows::list($access, $this->search, $this->onlyCustomized, $this->activeOnly, $this->sortKey, $this->sortDir))
-            : new LengthAwarePaginator([], 0, max(1, $this->perPage));
+        // Everyone the search and Active only leave in view: the figures above the table count them all, and
+        // Only customized then narrows the table alone.
+        $listed = $canRead
+            ? EmployeePaySettingsRows::list($access, $this->search, false, $this->activeOnly, $this->sortKey, $this->sortDir)
+            : [];
+        $shown = $this->onlyCustomized
+            ? array_values(array_filter($listed, EmployeePaySettingsRows::differs(...)))
+            : $listed;
 
         return view('livewire.records.employee-pay-settings-page', [
             'canRead' => $canRead,
-            'rows' => $rows,
+            'summary' => EmployeePaySettingsRows::summary($listed),
+            'rows' => $canRead ? $this->paginateClamped($shown) : new LengthAwarePaginator([], 0, max(1, $this->perPage)),
         ]);
     }
 }

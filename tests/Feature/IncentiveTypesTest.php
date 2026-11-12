@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * The incentive and bonus catalog under Payroll → Payroll Settings. The page
+ * The incentive and bonus catalog under Records → Payroll Settings. The page
  * opens for PAYROLL holders and every write needs all-data PAYROLL
  * (PayrollSettingsAccess: whoever manages payroll manages its settings),
  * checked inside the Payroll module's commands; a Records holder without
@@ -61,22 +61,22 @@ function inctypeUsed(PayrollIncentiveType $type): void
 /* |---| The page |---| */
 
 it('opens the page under Payroll Settings for PAYROLL holders and nobody else', function () {
-    $this->get('/payroll/settings/incentive-types')->assertRedirect(route('login'));
+    $this->get('/records/payroll-settings/incentive-types')->assertRedirect(route('login'));
 
     inctypeActor(['PORTAL']);
-    $this->get('/payroll/settings/incentive-types')->assertRedirect();
+    $this->get('/records/payroll-settings/incentive-types')->assertRedirect();
 
     inctypeActor(['PAYROLL'], allData: false);
-    $this->get('/payroll/settings/incentive-types')->assertOk()->assertSee('Incentives &amp; Bonuses', false);
+    $this->get('/records/payroll-settings/incentive-types')->assertOk()->assertSee('Incentives &amp; Bonuses', false);
 
     // Records Management alone opens neither the page nor its former address.
     inctypeActor(['RECORDS'], allData: false);
-    $this->get('/payroll/settings/incentive-types')->assertRedirect();
+    $this->get('/records/payroll-settings/incentive-types')->assertRedirect();
     $this->get('/records/incentive-types')->assertRedirect('/records/positions');
 
     // A PAYROLL holder's old bookmark forwards.
     inctypeActor(['PAYROLL'], allData: false);
-    $this->get('/records/incentive-types')->assertRedirect('/payroll/settings/incentive-types');
+    $this->get('/records/incentive-types')->assertRedirect('/records/payroll-settings/incentive-types');
 });
 
 it('lists the catalog and offers edits only to an all-data holder', function () {

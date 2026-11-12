@@ -54,6 +54,31 @@ final class ShiftRoster
     }
 
     /**
+     * `$schedule`'s shift for `$date` — the ranged schedule the caller has
+     * already composed — or null when nothing is rostered ON that date.
+     * THERE IS NO DEFAULT SHIFT: a date has one only when its weekday has
+     * hours of its own, a default shift assigned to the employee covers it,
+     * or a temporary schedule sets it. The schedule the engine composes
+     * stands its default (8:00 AM–5:00 PM, Monday–Friday) in for every other
+     * date — a date whose shift was cleared, a weekday with no hours of its
+     * own beside weekdays that have some — so the DTR measures it as it
+     * measures anyone unrostered and counts it unscheduled; a caller asking
+     * whether the date HAS a shift (the punch windows, the station, the
+     * correction dialog's wording) must not read that stand-in as one.
+     * Null exactly where the roster's calendar reads "No shift"
+     * (`calendarFor`).
+     */
+    public function rosteredShift(string $employeeId, string $date, ?DomainShift $schedule): ?DomainShift
+    {
+        if ($schedule === null || ! PayrollPeriod::isPayrollDate($date)
+            || ($this->calendarFor([$employeeId], $date, $date)[$employeeId][$date]['shift'] ?? null) === null) {
+            return null;
+        }
+
+        return $schedule->forDate($date);
+    }
+
+    /**
      * Without a range, the schedule in effect on `$asOf` (today when null)
      * with every temporary assignment laid over it — the whole-roster view
      * the write commands validate. With one, each date in it resolves as it
@@ -134,6 +159,79 @@ final class ShiftRoster
     }
 
     /**
+     * Each date of the range as the Shift Roster's calendar draws it, from
+     * the SAME composition the engine's inputs come from: the shift that
+     * applies (null when nothing is rostered: no hours of its weekday's own,
+     * no assigned default shift and no temporary schedule — exactly where
+     * `rosteredShift()` finds none and a Time In is refused), whether it works, what
+     * decided it, and — for changing the date — the schedule it has without
+     * its temporary ones (`usual`) and the temporary schedules that decided
+     * its hours and its place. `place` is the place it has: a temporary
+     * one, else the weekday's, else null for the Assigned Worksite, which the
+     * caller holding the employee's record fills in.
+     *
+     * Three batched reads whatever the batch size.
+     *
+     * @param  list<string>  $employeeIds
+     * @return array<string, array<string, array{shift: ?DomainShift, works: bool, source: string, usual: ?DomainShift, usual_works: bool, hours_from: ?RosterDayOverride, place_from: ?RosterDayOverride, place: array{kind: string, site: ?string}|null}>>
+     */
+    public function calendarFor(array $employeeIds, string $start, string $end): array
+    {
+        if ($employeeIds === [] || ! PayrollPeriod::isPayrollDate($start) || ! PayrollPeriod::isPayrollDate($end) || $start > $end) {
+            return [];
+        }
+        $versions = app(RosterVersions::class);
+        $timelines = $versions->timelines($employeeIds, $end, places: true);
+        $assignments = [];
+        foreach ($versions->assignments($employeeIds, $start, $end) as $row) {
+            $assignments[$row->employee_id][] = $row;
+        }
+
+        $out = [];
+        foreach ($employeeIds as $employeeId) {
+            $timeline = $timelines[$employeeId];
+            $rows = $assignments[$employeeId] ?? [];
+            $temporary = [];
+            $schedule = $this->composed($timeline, $rows, $start, $end, $temporary);
+            $days = [];
+            foreach (CalendarDays::each($start, $end) as $date) {
+                $source = isset($temporary[$date]) ? ScheduleBasis::SOURCE_TEMPORARY : $timeline->partAt($date);
+                // There is no default shift: rostered only where the
+                // weekday has hours of its own, an assigned default shift
+                // covers it, or a temporary schedule sets it — never on the
+                // engine default that stands in for the other weekdays.
+                // Only then may a Time In be recorded (rosteredShift()).
+                $usual = $timeline->partAt($date) === ScheduleBasis::SOURCE_NONE ? null : $timeline->scheduleAt($date);
+                $rostered = $schedule !== null && ($usual !== null || isset($temporary[$date]));
+                // The latest save naming a place wins the date, as
+                // locationForDate() reads it.
+                $placeFrom = null;
+                foreach ($rows as $row) {
+                    if ($row->location_kind !== null && $row->date->format('Y-m-d') <= $date && RosterVersions::appliesThrough($row) >= $date) {
+                        $placeFrom = $row;
+                    }
+                }
+                $weekdayPlace = $timeline->placeAt($date);
+                $days[$date] = [
+                    'shift' => $rostered ? $schedule->forDate($date) : null,
+                    'works' => $rostered && ShiftResolver::worksOnDate($date, $schedule),
+                    'source' => $source,
+                    'usual' => $usual?->forDate($date),
+                    'usual_works' => $usual !== null && ShiftResolver::worksOnDate($date, $usual),
+                    'hours_from' => $temporary[$date] ?? null,
+                    'place_from' => $placeFrom,
+                    'place' => $placeFrom !== null && $placeFrom->location_kind !== null
+                        ? ['kind' => $placeFrom->location_kind, 'site' => $placeFrom->site_id]
+                        : $weekdayPlace,
+                ];
+            }
+            $out[$employeeId] = $days;
+        }
+
+        return $out;
+    }
+
+    /**
      * The date's temporary place wins, then the weekday place in effect that
      * date, then null — the caller falls back to the Assigned Worksite.
      *
@@ -162,7 +260,7 @@ final class ShiftRoster
      * schedule without following later changes.
      *
      * @param  list<RosterDayOverride>  $assignments  oldest save first
-     * @param  array<string, true>  $temporary  filled with the dates whose hours an assignment decided
+     * @param  array<string, RosterDayOverride>  $temporary  filled with the dates whose hours an assignment decided, and which one
      */
     private function composed(ScheduleTimeline $timeline, array $assignments, string $start, ?string $end, array &$temporary = []): ?DomainShift
     {
@@ -205,7 +303,7 @@ final class ShiftRoster
                     'shift_type_id' => $row->shift_type_id,
                     'work_days' => $row->is_rest_day ? [-1] : [CalendarDays::dayOfWeek($date)],
                 ]));
-                $temporary[$date] = true;
+                $temporary[$date] = $row;
             }
         }
 

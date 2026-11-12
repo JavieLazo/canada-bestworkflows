@@ -168,14 +168,26 @@ final class EmployeeInput
 
             $text = is_bool($value) ? ($value ? 'true' : 'false') : self::text($value);
 
+            // The position is picked from one department's list, so the
+            // department is required with it. The wizard carries the pick
+            // as a draft beside the form: "Not placed" names no department,
+            // and neither does a blank draft with no position chosen. A
+            // caller with no such draft (the command called without the
+            // screen) is judged by the position alone.
+            if (isset($field['choice']) && array_key_exists('department_id', $form)) {
+                $department = self::text($form['department_id']);
+
+                if ($department === EmployeePosition::NOT_PLACED) {
+                    $errors['department'] = 'Department is required — a position that is not placed has none. Place it in a department on the Position page first.';
+                } elseif ($department === '' && $text === '') {
+                    $errors['department'] = 'Department is required.';
+                }
+            }
+
             if ($text === '' && EmployeeFields::isRequired($key, $form)) {
-                // Rate Per Month is the one conditional answer: the message
-                // says what else would do.
-                $errors[$key] = match (true) {
-                    $key === 'monthly_rate' => "{$label} is required unless a Rate Per Day is entered.",
-                    isset($field['requiredWhenShown']) => (string) $field['requiredWhenShown'],
-                    default => "{$label} is required.",
-                };
+                $errors[$key] = isset($field['requiredWhenShown'])
+                    ? (string) $field['requiredWhenShown']
+                    : "{$label} is required.";
 
                 continue;
             }
@@ -188,14 +200,10 @@ final class EmployeeInput
         }
 
         if ($section['id'] === 'addresses') {
-            // The hire requires an address: at least one residential part, and a
-            // permanent address unless it is the same.
+            // The hire requires an address: at least one residential part.
+            // A permanent address that is not the same may be left blank.
             if (self::addressBlank($form, 'RESIDENTIAL')) {
                 $errors['residential_address'] = 'Residential address is required — fill in at least one part.';
-            }
-
-            if (! EmployeeFields::asBool($form['permanent_address_same'] ?? true) && self::addressBlank($form, 'PERMANENT')) {
-                $errors['permanent_address'] = 'Permanent address is required — fill in at least one part, or choose Same as residential.';
             }
         }
 

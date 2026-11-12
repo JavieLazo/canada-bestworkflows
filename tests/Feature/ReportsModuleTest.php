@@ -62,7 +62,7 @@ it('generates printable employee records and exports those same scoped cells', f
     Livewire::test(Index::class)
         ->assertSet('type', 'employee-list')
         ->call('generate')->assertSee('EMP-2026-007')->assertSee('Print / Save as PDF')
-        ->assertSee('Fixture Company')->assertSee('bestworkflows-horizontal-view.png', false)
+        ->assertSee('Fixture Company')->assertSee('bestworkflows-wordmark.png', false)
         ->assertSee('record-print', false)->assertSee('reports/export', false)
         ->set('employeeIds', [$employee->id])->assertSet('generated', [])
         ->call('generate')->assertSee('EMP-2026-007')

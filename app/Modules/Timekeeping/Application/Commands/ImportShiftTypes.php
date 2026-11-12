@@ -51,7 +51,7 @@ final class ImportShiftTypes implements TableImport
     {
         return new ImportLayout('shift types', 'ID', self::COLUMNS, [
             'Mode is Fixed (Start, End and Grace apply) or Flexible (only Required hours per day applies).',
-            'Work days lists days like "Mon, Tue, Wed" or a run like "Mon–Fri". Times are 24-hour, like 08:00.',
+            'Work days is not used: every day is a working day, and rest days are set on each employee in Shift Roster. Times are 24-hour, like 08:00.',
             'Changing a pattern employees are rostered on re-copies it onto their roster, which also needs Shift Roster access.',
             'Effective from is the date the employees on a changed pattern follow it: today or later, never the past. Blank means today; a row whose change can no longer start today for someone is refused, so name the date instead.',
         ]);

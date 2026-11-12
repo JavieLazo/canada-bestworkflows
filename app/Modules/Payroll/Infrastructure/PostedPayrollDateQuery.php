@@ -60,10 +60,14 @@ final class PostedPayrollDateQuery implements PostedPayrollDates
         /** @var array<string, list<array{start: string, end: string}>> $periods */
         $periods = [];
         foreach ($rows as $row) {
-            $periods[$row->employee_id][] = [
-                'start' => max($start, $row->period_start->format('Y-m-d')),
-                'end' => min($end, self::paidThrough($row)),
-            ];
+            $from = max($start, $row->period_start->format('Y-m-d'));
+            $to = min($end, self::paidThrough($row));
+            // A payslip counted through the day before its period (every day
+            // presumed, PayrollAdvance::countedThrough) froze nothing of it.
+            if ($from > $to) {
+                continue;
+            }
+            $periods[$row->employee_id][] = ['start' => $from, 'end' => $to];
         }
         if ($advance) {
             // The presumed days a later payslip settled are paid days too.

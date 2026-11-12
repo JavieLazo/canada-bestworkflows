@@ -26,7 +26,7 @@ final class GetAccounts
             return ['accounts' => new Collection, 'roles' => new Collection, 'grants' => new Collection];
         }
 
-        $accounts = User::query()->get(['id', 'email', 'role_id', 'employee_id', 'is_active']);
+        $accounts = User::query()->get(self::columns());
         $names = app(AccountLabels::class)->names($accounts);
 
         return [
@@ -43,15 +43,28 @@ final class GetAccounts
         if (! $actor->hasModule(ModuleCode::USERS)) {
             return null;
         }
-        $row = User::query()->select(['id', 'email', 'role_id', 'employee_id', 'is_active'])->find($id);
+        $row = User::query()->select(self::columns())->find($id);
 
         return $row === null ? null : $this->view($row, $row->name);
+    }
+
+    /** @return list<string> */
+    private static function columns(): array
+    {
+        $columns = ['id', 'email', 'role_id', 'employee_id', 'is_active'];
+
+        if (User::accountNameReady()) {
+            $columns[] = 'account_name';
+        }
+
+        return $columns;
     }
 
     private function view(User $account, string $name): UserView
     {
         return new UserView([
-            'id' => $account->id, 'name' => $name, 'email' => $account->email,
+            'id' => $account->id, 'name' => $name, 'account_name' => $account->getAttributes()['account_name'] ?? null,
+            'email' => $account->email,
             'role_id' => $account->role_id, 'employee_id' => $account->employee_id,
             'is_active' => $account->is_active,
         ]);

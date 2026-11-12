@@ -24,13 +24,14 @@ use RuntimeException;
  */
 final class SaveDepartment
 {
-    public function handle(Access $access, ?string $id, string $name, string $description): string
+    public function handle(Access $access, ?string $id, string $name, string $description, ?string $headName = null, ?string $headDesignation = null): string
     {
         StructureInput::authorize($access);
         $name = StructureInput::name($name, StructureInput::NODE_NAME_MAX);
         $text = StructureInput::description($description);
+        $head = StructureInput::head($headName, $headDesignation);
 
-        [$node, $created] = DB::transaction(static function () use ($id, $name, $text): array {
+        [$node, $created] = DB::transaction(static function () use ($id, $name, $text, $head): array {
             TransactionMutex::acquire(OrganizationReferences::STRUCTURE_LOCK);
             $codes = OrgNode::query()->lockForUpdate()->pluck('code');
             $node = null;
@@ -46,7 +47,7 @@ final class SaveDepartment
                 throw new RuntimeException("\"{$name}\" is already a department.");
             }
             if ($node !== null) {
-                $node->fill(['name' => $name, 'description' => $text])->save();
+                $node->fill(['name' => $name, 'description' => $text] + $head)->save();
 
                 return [$node, false];
             }
@@ -59,15 +60,15 @@ final class SaveDepartment
                 'description' => $text,
                 'parent_id' => null,
                 'sort_order' => $last === null ? 0 : (int) $last + 1,
-            ]), true];
+            ] + $head), true];
         });
 
         if ($created) {
-            AuditService::record($access, AuditEvent::STRUCTURE_CREATED, 'org_nodes', $node->id, "Department {$node->code} \"{$name}\" added");
+            AuditService::record($access, AuditEvent::STRUCTURE_CREATED, 'org_nodes', $node->id, "Department {$node->code} \"{$name}\" added".StructureInput::headSentence($node));
 
             return "{$name} added.";
         }
-        AuditService::record($access, AuditEvent::STRUCTURE_UPDATED, 'org_nodes', $node->id, "Department {$node->code} updated to \"{$name}\"");
+        AuditService::record($access, AuditEvent::STRUCTURE_UPDATED, 'org_nodes', $node->id, "Department {$node->code} updated to \"{$name}\"".StructureInput::headSentence($node));
 
         return "{$name} updated.";
     }

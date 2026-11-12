@@ -14,6 +14,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
+use Tests\Support\ScheduleFixture;
 
 /**
  * DIVERGENCE 6 reaches the POSTED payslip, and its column survives a retry.
@@ -74,6 +75,7 @@ it('stores the paid leave day count and its pay on a finalized payslip', functio
         'employment_status' => 'Regular', 'date_hired' => '2024-01-01',
         'monthly_rate' => 30000, 'is_active' => true,
     ])->save();
+    ScheduleFixture::standard($employee);
 
     LeaveTravelRequest::create([
         'code' => 'PLD-LV-1',

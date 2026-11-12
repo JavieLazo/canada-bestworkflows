@@ -20,12 +20,15 @@ final class PostLeaveEarningsCommand extends Command
 {
     protected $signature = 'leave:post-earnings';
 
-    protected $description = 'Post the leave credits each employee earned for the months that have ended, by their approved policy';
+    protected $description = 'Post the leave credits each employee earned for the months that have ended, by the approved leave rules';
 
     public function handle(): int
     {
         $result = app(PostLeaveEarnings::class)->run(ManilaClock::todayKey());
-        $this->info(sprintf('Leave earning posted for %d month-employees (%d employees).', $result['posted'], $result['employees']));
+        // The schedule is the only thing that posts, so the leave screens
+        // say when it last ran.
+        PostLeaveEarnings::markRun();
+        $this->info(sprintf('Leave credit accrual posted for %d month-employees (%d employees).', $result['posted'], $result['employees']));
         foreach ($result['skipped'] as $line) {
             $this->line('Skipped '.$line);
         }

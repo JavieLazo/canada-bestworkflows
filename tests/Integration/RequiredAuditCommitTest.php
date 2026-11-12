@@ -17,6 +17,7 @@ use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\PayrollReviewFixture;
+use Tests\Support\ScheduleFixture;
 
 /** Real commits and database-rejected inserts must preserve the strict audit boundary. */
 
@@ -30,6 +31,7 @@ function commitAuditFixture(): array
     }
     $employee = EmployeeProfile::create(['employee_code' => 'COMMIT-001', 'first_name' => 'Synthetic', 'last_name' => 'Commit',
         'date_hired' => '2024-01-01', 'employment_status' => 'Regular', 'is_active' => true, 'monthly_rate' => 30000]);
+    ScheduleFixture::standard($employee);
     $user = User::factory()->create(['role_id' => $role->id, 'employee_id' => $employee->id, 'is_active' => true]);
     test()->actingAs($user);
     app()->forgetInstance(Access::class);

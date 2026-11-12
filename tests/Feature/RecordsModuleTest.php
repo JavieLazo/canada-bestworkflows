@@ -118,11 +118,12 @@ it('renders every screen for a RECORDS holder', function () {
 
     $this->get('/records/positions')->assertOk()->assertSee('Position');
     $this->get('/records/departments')->assertOk()->assertSee('Departments &amp; Units', false);
-    $this->get('/records/leave-types')->assertOk()->assertSee('Leave Settings');
+    // The leave types' own list page leads to the one Leave Settings page.
+    $this->get('/records/leave-types')->assertRedirect('/records/leave-credits');
+    $this->get('/records/leave-credits')->assertOk()->assertSee('Leave Settings')->assertSee('Add leave type');
     $this->get('/records/holidays')->assertOk()->assertSee('Holiday Settings');
     $this->get('/records/shifts')->assertOk()->assertSee('Shifting Settings');
     $this->get('/records/sites')->assertOk()->assertSee('Site Settings');
-    // The Payroll Settings moved under Payroll; their old addresses forward there.
     // The Payroll Settings addresses forward only for a PAYROLL holder; a
     // Records holder without Payroll is sent to their landing page.
     $this->get('/records/pay-rates')->assertRedirect('/records/positions');
@@ -428,7 +429,6 @@ it('re-copies an edited pattern onto every rostered employee still linked to it'
         ->set('formBreakStart', '12:30')
         ->set('formBreakEnd', '13:30')
         ->set('formBreakMinutes', '60')
-        ->call('toggleDay', 6)
         ->call('save')
         ->assertSet('dialogOpen', false);
 
@@ -444,7 +444,8 @@ it('re-copies an edited pattern onto every rostered employee still linked to it'
             ->and($fresh->break_start)->toBe('12:30:00')
             ->and($fresh->break_end)->toBe('13:30:00')
             ->and($fresh->break_minutes)->toBe(60)
-            ->and($fresh->work_days)->toBe([1, 2, 3, 4, 5, 6]);
+            // A pattern edit leaves the stored week alone: rest days are the employee's.
+            ->and($fresh->work_days)->toBe([1, 2, 3, 4, 5]);
     }
 
     expect($c->fresh()->start_time)->toBe('07:00:00')

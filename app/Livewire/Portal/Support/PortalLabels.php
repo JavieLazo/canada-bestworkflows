@@ -6,7 +6,7 @@ namespace App\Livewire\Portal\Support;
 
 use App\Modules\Timekeeping\Application\LeaveHalves;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
-use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
+use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Support\CodeSequence;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
@@ -162,9 +162,9 @@ final class PortalLabels
         return floor($value) === $value ? (string) (int) $value : number_format($value, 1, '.', '');
     }
 
-    /** Leave credits as the ledger keeps them: up to four decimals, no trailing zeros (LeaveCreditPolicy::format). */
+    /** Leave credits as a leave card states them: three decimals, a fourth only when it is not zero (LeaveQuantity::credits). */
     public static function credits(float $value): string
     {
-        return LeaveCreditPolicy::format($value);
+        return LeaveQuantity::credits($value);
     }
 }

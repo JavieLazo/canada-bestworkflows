@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Models\Concerns\ScopesToActor;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * An employee's default shift from `effective_from` on (2026_09_30_0004).
@@ -38,6 +39,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * this copy. Cast as a plain string until `app/Enums/ShiftMode.php` exists;
  * the stored values are already the enum's backing strings.
  *
+ * `is_unassigned` (2026_11_09_0004) marks a CLEARED shift: from `effective_from`
+ * the employee has NO default shift (`ClearShift`). Such a row has no
+ * pattern and holds the default filler hours only because the hour columns
+ * are NOT NULL — `RosterVersions` reads it as no shift, never as those hours.
+ * It is left out of `$attributes` on purpose: a default there would make
+ * every other insert name the column, which fails until the migration runs.
+ *
  * This is one of only two tables with NEITHER created_at NOR updated_at.
  *
  * @property string $id
@@ -55,6 +63,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property bool $requires_break_punch
  * @property CarbonImmutable|null $effective_from
  * @property string|null $change_id
+ * @property bool|null $is_unassigned null on a row read before the migration
  * @property-read EmployeeProfile|null $employee
  * @property-read ShiftType|null $shiftType
  */
@@ -84,6 +93,7 @@ class Shift extends BaseModel
         'requires_break_punch',
         'effective_from',
         'change_id',
+        'is_unassigned',
     ];
 
     /**
@@ -106,7 +116,23 @@ class Shift extends BaseModel
             'break_minutes' => 'integer',
             'requires_break_punch' => 'boolean',
             'effective_from' => 'immutable_date:Y-m-d',
+            'is_unassigned' => 'boolean',
         ];
+    }
+
+    /** Whether this row clears the shift: false on a row read before the migration. */
+    public function clearsShift(): bool
+    {
+        return $this->is_unassigned === true;
+    }
+
+    /**
+     * Whether `shifts.is_unassigned` exists yet: files reach the host before
+     * the migration runs, and only clearing a shift writes the column.
+     */
+    public static function clearingReady(): bool
+    {
+        return once(static fn (): bool => Schema::hasColumn('shifts', 'is_unassigned'));
     }
 
     /** @return BelongsTo<EmployeeProfile, $this> */

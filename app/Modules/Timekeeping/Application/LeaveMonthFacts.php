@@ -85,6 +85,36 @@ final class LeaveMonthFacts
     }
 
     /**
+     * The days without pay of a range, by date, as a waiting period's
+     * extension counts them (LeaveAcquisitionRule): a scheduled working day
+     * absent counts whole, approved leave without pay by its days, a
+     * holiday and a rest day never — the same reading count() gives a
+     * month. Lateness and undertime are not days and are not here.
+     *
+     * @param  list<HolidaySetting>  $holidays
+     * @return array<string, float> 'Y-m-d' => the part of the day without pay
+     */
+    public static function unpaidByDate(AttendanceInputs $facts, string $from, string $to, array $holidays): array
+    {
+        $out = [];
+        if ($from > $to) {
+            return $out;
+        }
+        $schedule = $facts->shift ?? Shift::default();
+        foreach (DtrCalculator::compute($facts->logs, $facts->shift, $facts->leaves, $from, $to, $holidays) as $day) {
+            if (! ShiftResolver::worksOnDate($day->date, $schedule) || HolidaySetting::on($day->date, $holidays) !== null) {
+                continue;
+            }
+            $days = ($day->excusePaid === false ? $day->excuseDays : 0.0) + ($day->isAbsenceDay($schedule) ? 1.0 : 0.0);
+            if ($days > 0.0) {
+                $out[$day->date] = min(1.0, $days);
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * The facts for one leave type: the month's counts plus that type's
      * balance before the posting.
      *

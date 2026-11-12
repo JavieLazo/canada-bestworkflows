@@ -19,7 +19,7 @@
             <flux:button variant="outline" icon="printer" onclick="window.print()">Print</flux:button>
         </div>
         <div class="payslip-print">
-            <x-payroll.document :document="\App\Livewire\Payroll\Support\PayslipDocument::issued($payslip, $employee, $yearly, $incentives, $customDeductions, $deductionColumns, $run->name, settlements: $settlements)" />
+            <x-payroll.document :sheet="$sheet" />
         </div>
     @endif
 </div>

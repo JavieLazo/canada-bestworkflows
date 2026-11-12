@@ -27,14 +27,13 @@ use Livewire\Livewire;
 use Tests\Support\PayrollReviewFixture;
 
 /**
- * Before you finalize: a regular payroll pays attendance as it stands, so
- * what attendance has not finished deciding is shown, and posts only when the
- * officer ticks "Finalize anyway" — the period not over yet (the days to come
- * pay as absences), overtime awaiting a decision (it pays nothing, and can
- * never be decided once posted), and leave or official business awaiting
- * review (unpaid, and approving it later changes no payslip). The tick holds
- * for exactly the figures it was given on; the audit trail and the evidence
- * record what was accepted.
+ * Open attendance: a regular payroll pays attendance as it stands — the
+ * period not over yet (the days to come pay as absences), overtime awaiting
+ * a decision (it pays nothing, and can never be decided once posted), and
+ * leave or official business awaiting review (unpaid, and approving it later
+ * changes no payslip). Attendance is reviewed before payroll, so the
+ * workspace shows no panel and asks for no tick; OpenAttendanceItems is the
+ * record the audit trail and the evidence keep of what was open.
  *
  * The run covers 1 to 15 September 2026; the officer works on the 20th.
  */
@@ -155,21 +154,14 @@ it('agrees with the Daily Time Record on what overtime awaits a decision', funct
     expect(OpenAttendanceItems::decidable($minutes))->toBe(OvertimeApprovalPolicy::decidable($minutes));
 })->with([0.0, 0.4, 0.49, 0.5, 1.0, 1.5, 59.6, -3.0, INF, NAN]);
 
-it('refuses to finalize open attendance without the tick, and posts and records it with the tick', function () {
+it('posts open attendance as it stands, unpaid, and records it in the audit and the evidence', function () {
     $employee = openItemsEmployee();
     $id = (string) $employee->getKey();
     openItemsWorked($employee, '2026-09-08');
     $actor = openItemsActor();
     $run = openItemsRun($employee);
-    $receipt = PayrollReviewFixture::token($actor, $run->id);
 
-    expect(fn () => app(FinalizePayroll::class)->handle($actor, $run->id, $receipt))
-        ->toThrow(RuntimeException::class, 'This payroll has open attendance: 1 overtime day undecided. Tick "Finalize anyway" to pay them as they stand.');
-    expect($run->refresh()->status)->toBe('DRAFT')
-        ->and(Payslip::query()->count())->toBe(0)
-        ->and(PayrollFinalizationSnapshot::query()->count())->toBe(0);
-
-    app(FinalizePayroll::class)->handle($actor, $run->id, $receipt, acceptOpenItems: true);
+    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
 
     $payload = json_decode(PayrollFinalizationSnapshot::query()->sole()->payload, true, 512, JSON_THROW_ON_ERROR);
     expect($run->refresh()->status)->toBe('FINALIZED')
@@ -195,40 +187,26 @@ it('finalizes with nothing open as before, recording that nothing was', function
         ->and($payload['open_items'])->toBe(['overtime' => [], 'period_open' => false, 'requests' => []]);
 });
 
-it('asks before you finalize on the workspace, for exactly the figures shown', function () {
+it('shows no panel and asks for no tick on the workspace, and posts open attendance as it stands', function () {
     $employee = openItemsEmployee();
     openItemsWorked($employee, '2026-09-08');
     openItemsRequest($employee, 'LR-PENDING', '2026-09-10', '2026-09-10');
     openItemsActor();
     $run = openItemsRun($employee);
 
-    $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->assertSeeHtml('data-open-items')
-        ->assertSee('Before you finalize')
-        ->assertSee('Overtime awaiting a decision for Ramon Aquino:')
-        ->assertSee('Sep 08, 2026')
-        ->assertSee('Awaiting review for Ramon Aquino:')
-        ->assertSee('Sick Leave, Sep 10, 2026')
-        ->assertSet('openItemsAcceptedFor', null);
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])
+        ->assertDontSeeHtml('data-open-items')
+        ->assertDontSee('Before you finalize')
+        ->assertDontSee('Finalize anyway')
+        ->call('finalize');
 
-    // Without the tick nothing posts.
-    $page->call('finalize');
-    expect($run->refresh()->status)->toBe('DRAFT');
-
-    // The tick belongs to the figures it was given on: another worked day
-    // changes them, and it clears.
-    $page->call('toggleOpenItems');
-    expect($page->get('openItemsAcceptedFor'))->toBe($page->get('previewReceipt'))->not->toBeNull();
-    openItemsWorked($employee, '2026-09-09');
-    $page->call('$refresh')->assertSet('openItemsAcceptedFor', null);
-
-    $page->call('toggleOpenItems')->call('finalize');
     expect($run->refresh()->status)->toBe('FINALIZED')
+        ->and(Payslip::query()->sole()->overtime_pay)->toBe(0.0)
         ->and(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->sole()->details)
-        ->toEndWith('; finalized with open attendance: 2 overtime days undecided, 1 request pending');
+        ->toEndWith('; finalized with open attendance: 1 overtime day undecided, 1 request pending');
 });
 
-it('shows no panel and needs no tick when nothing is open', function () {
+it('finalizes from the workspace with nothing open, as before', function () {
     $employee = openItemsEmployee();
     openItemsWorked($employee, '2026-09-08', '17:00');
     openItemsActor();
