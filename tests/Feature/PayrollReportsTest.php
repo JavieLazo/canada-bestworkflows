@@ -349,3 +349,23 @@ it('refuses an oversized source before a payroll summary can present a partial t
     expect(fn () => app(PayrollReports::class)->generate(payrollReportActor(), payrollReportCriteria('payroll-summary')))
         ->toThrow(ValidationException::class, 'exceeds 5,000');
 });
+
+it('opens payroll reports on the newest posted period the actor may read', function () {
+    $own = payrollReportEmployee('OWN');
+    $other = payrollReportEmployee('OTHER');
+    expect(app(PayrollReports::class)->latestPeriod(payrollReportActor()))->toBeNull();
+
+    payrollReportPayslip($own, payrollReportRun('SEP-A'));
+    payrollReportPayslip($other, payrollReportRun('OCT-A'), ['period_start' => '2026-10-01', 'period_end' => '2026-10-15']);
+    payrollReportPayslip($own, payrollReportRun('NOV-DRAFT', PayrollRunStatus::DRAFT), ['period_start' => '2026-11-01', 'period_end' => '2026-11-15']);
+
+    // A draft is not a posted payroll, and a scoped actor's newest period is their own.
+    expect(app(PayrollReports::class)->latestPeriod(payrollReportActor()))->toBe(['from' => '2026-10-01', 'to' => '2026-10-15'])
+        ->and(app(PayrollReports::class)->latestPeriod(payrollReportActor(all: false, employee: $own)))->toBe(['from' => '2026-09-01', 'to' => '2026-09-15']);
+    expect(fn () => app(PayrollReports::class)->latestPeriod(payrollReportActor([ModuleCode::REPORTS])))->toThrow(HttpException::class);
+
+    // A payroll spanning the year is named by its last day: its whole span would take in every payroll above.
+    $this->travel(1)->minutes();
+    payrollReportPayslip($own, payrollReportRun('THIRTEENTH', PayrollRunStatus::FINALIZED, PayrollRunKind::THIRTEENTH_MONTH), ['period_start' => '2026-01-01', 'period_end' => '2026-12-31']);
+    expect(app(PayrollReports::class)->latestPeriod(payrollReportActor()))->toBe(['from' => '2026-12-31', 'to' => '2026-12-31']);
+});

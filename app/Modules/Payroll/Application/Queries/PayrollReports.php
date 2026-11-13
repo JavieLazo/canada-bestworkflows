@@ -113,6 +113,26 @@ final class PayrollReports
         return array_map(static fn (array $names): string => implode(' / ', $names), $labels);
     }
 
+    /**
+     * The period of the payroll posted most recently, among those the actor may read — where a
+     * payroll report opens, so it never starts on an empty month. Reports pick payslips by period
+     * END, so a payroll spanning more than a month (the 13th month's year) is named by its last
+     * day alone: its whole span would take in every other payroll that ended inside it.
+     *
+     * @return array{from: string, to: string}|null
+     */
+    public function latestPeriod(Access $actor): ?array
+    {
+        $this->authorize($actor);
+        $latest = $this->posted($actor)->orderByDesc('created_at')->orderByDesc('period_end')->orderByDesc('id')->first(['id', 'period_start', 'period_end']);
+        if ($latest === null) {
+            return null;
+        }
+        $to = $latest->period_end->format('Y-m-d');
+
+        return ['from' => $latest->period_start->diffInDays($latest->period_end) > 31 ? $to : $latest->period_start->format('Y-m-d'), 'to' => $to];
+    }
+
     private function authorize(Access $actor): void
     {
         abort_unless($actor->hasModule(ModuleCode::REPORTS) && $actor->hasModule(ModuleCode::PAYROLL), 403);

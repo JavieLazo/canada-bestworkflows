@@ -132,6 +132,45 @@ final class TimekeepingReports
         ], ['Requested days', '', '', '', '', '', '', LeaveCreditPolicy::format($requestedDays), '', '', ''], [7]);
     }
 
+    /**
+     * Approved leave days in a period, per leave type, largest first — the Reports home's graph.
+     * The same scope, day count and exclusions as the Leave Requests report: business travel is
+     * not leave, and a cancelled date is not a leave day.
+     *
+     * @return list<array{label: string, value: float}>
+     */
+    public function approvedLeaveByType(Access $actor, string $from, string $to): array
+    {
+        abort_unless($actor->hasModule(ModuleCode::REPORTS) && $actor->hasModule(ModuleCode::LEAVES), 403);
+        $requests = LeaveTravelRequest::query()->with('cancellations:id,leave_travel_request_id,date')->toEmployee($actor, 'employee_id', ModuleCode::LEAVES)
+            ->where('status', 'APPROVED')->where('request_type', '!=', 'BUSINESS_TRAVEL')
+            ->whereDate('start_date', '<=', $to)->whereDate('end_date', '>=', $from)
+            ->orderBy('start_date')->orderBy('id')->limit(ReportDocument::MAX_ROWS + 1)
+            ->get(['id', 'request_type', 'day_type', 'start_date', 'end_date']);
+        ReportDocument::guardSize($requests->count());
+        $typeNames = [];
+        foreach (LeaveType::query()->orderBy('name')->get(['name']) as $type) {
+            $typeNames[] = $type->name;
+        }
+        $days = [];
+        foreach ($requests as $request) {
+            $cancelled = array_values(array_filter($request->cancelledDates(),
+                static fn (string $date): bool => $date >= $from && $date <= $to));
+            $covered = LeaveCreditPolicy::coveredDays($request->day_type,
+                max($request->start_date->format('Y-m-d'), $from), min($request->end_date->format('Y-m-d'), $to), $cancelled);
+            $label = HrisFormat::requestDescription($request->request_type, $typeNames);
+            $days[$label] = ($days[$label] ?? 0.0) + $covered;
+        }
+        $days = array_filter($days, static fn (float $total): bool => $total > 0);
+        uksort($days, static fn (string $left, string $right): int => ($days[$right] <=> $days[$left]) ?: strnatcasecmp($left, $right));
+        $points = [];
+        foreach ($days as $label => $total) {
+            $points[] = ['label' => (string) $label, 'value' => $total];
+        }
+
+        return $points;
+    }
+
     private function attendance(Access $actor, ReportCriteria $criteria): ReportDocument
     {
         abort_unless($actor->hasModule(ModuleCode::EDTR), 403);

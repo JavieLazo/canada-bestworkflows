@@ -698,353 +698,379 @@ select:focus[data-flux-control] {
     color: var(--color-muted-foreground);
 }
 
-/* Reports keep the presentation envelope readable as a document on every
-   screen. Business totals and grouping remain in the owning queries. */
-.reports-document {
-    /* Paper tokens stay independent of the screen theme: a dark-mode report
-       must still produce readable ink when print backgrounds are disabled. */
-    --report-paper: oklch(1 0 0);
-    --report-ink: oklch(0.23 0.035 260);
-    --report-muted-ink: oklch(0.45 0.025 258);
-    --report-rule: oklch(0.85 0.01 252);
-    --report-fill: oklch(0.965 0.005 250);
-    --report-accent-ink: oklch(0.45 0.15 258);
-    --report-accent-fill: oklch(0.95 0.025 258);
-    min-width: 0;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-xl);
-    background: var(--color-card);
-    color: var(--color-card-foreground);
-    box-shadow: var(--shadow-card);
-}
-
-.reports-document-header {
-    padding: 1.5rem 1.5rem 0;
-}
-
-.reports-document-heading,
-.reports-document-title,
-.reports-section-heading,
-.reports-sheet-brand {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.reports-brand {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.75rem;
-    min-width: 0;
-    font-size: 0.8rem;
-}
-
-.reports-brand img {
-    width: 216px;
-    height: auto;
-    max-width: 100%;
-    flex-shrink: 0;
-    object-fit: contain;
-}
-
-.reports-overline {
-    color: var(--color-muted-foreground);
-    font-size: 0.65rem;
-    font-weight: 600;
-    letter-spacing: 0.065em;
-    line-height: 1.5;
-    text-transform: uppercase;
-}
-
-.reports-document-label {
-    padding-top: 0.3rem;
-    color: var(--color-muted-foreground);
-    font-size: 0.7rem;
-    white-space: nowrap;
-}
-
-.reports-document-title {
-    margin-top: 1.5rem;
-    padding-bottom: 1.25rem;
-}
-
-.reports-document-title h2 {
-    overflow-wrap: anywhere;
-    font-size: clamp(1.25rem, 1.5vw, 1.6rem);
-    font-weight: 750;
-    letter-spacing: -0.035em;
-    line-height: 1.3;
-}
-
-.reports-document-title p {
-    margin-top: 0.35rem;
-    color: var(--color-muted-foreground);
-    font-size: 0.8rem;
-}
-
-.reports-document-meta {
-    flex-shrink: 0;
-    font-size: 0.68rem;
-    line-height: 1.6;
-}
-
-.reports-document-meta > div {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-}
-
-.reports-document-meta dt {
-    color: var(--color-muted-foreground);
-}
-
-.reports-document-meta dd {
-    text-align: right;
-}
-
-.reports-summary {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
-    gap: 0.75rem 1.25rem;
-    padding: 1.1rem 0;
-    border-top: 1px solid var(--color-border);
-    border-bottom: 1px solid var(--color-border);
-}
-
-.reports-summary dt {
-    color: var(--color-muted-foreground);
-    font-size: 0.65rem;
-    line-height: 1.45;
-}
-
-.reports-summary dd {
-    margin-top: 0.3rem;
-    overflow-wrap: anywhere;
-    font-size: 1rem;
-    font-weight: 700;
-    line-height: 1.3;
-}
-
-.reports-document-body {
-    min-width: 0;
-    padding: 1.25rem 0 0;
-}
-
-.reports-detail-section {
-    min-width: 0;
-    margin: 0 0 1.5rem;
-}
-
-.reports-section-heading {
-    align-items: center;
-    padding: 0 1.5rem 0.8rem;
-}
-
-.reports-section-heading h3 {
-    overflow-wrap: anywhere;
-    font-size: 0.85rem;
-    font-weight: 700;
-    line-height: 1.4;
-}
-
-.reports-row-count {
-    flex-shrink: 0;
-    color: var(--color-muted-foreground);
-    font-size: 0.65rem;
-}
-
-.reports-section-period {
-    margin-top: 0.3rem;
-    color: var(--color-muted-foreground);
-    font-size: 0.65rem;
-    line-height: 1.5;
-}
-
-.reports-table-wrap:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: -2px;
-}
-
-.reports-table th {
-    max-width: 14rem;
-    white-space: normal !important;
-    line-height: 1.45;
-}
-
-.reports-table td {
-    min-width: 6rem;
-    max-width: 22rem;
-    overflow-wrap: anywhere;
-    line-height: 1.55;
-}
-
-.reports-table .reports-number,
+/* Reports. The screen's own tables and graphs use the system's tokens; business totals and
+   grouping remain in the owning queries. */
 .reports-data-table .reports-number {
     text-align: right;
 }
 
-.reports-table tbody .reports-number,
-.reports-table tfoot .reports-number {
-    white-space: nowrap;
+/* Graphs: one hue for a single measure, thin marks, hairline grid. A column's whole slot is its
+   hover target, so the figure is never a matter of landing on the bar. */
+.hris-chart {
+    overflow: visible;
 }
 
-.reports-table tfoot td {
-    font-size: 0.8rem;
+.hris-chart-grid {
+    stroke: var(--color-border);
+    stroke-width: 1;
 }
 
-.reports-section-notes {
-    display: grid;
-    gap: 0.3rem;
-    padding: 0.85rem 1.5rem 0;
-    color: var(--color-muted-foreground);
-    font-size: 0.67rem;
-    line-height: 1.6;
-    overflow-wrap: anywhere;
+.hris-chart-axis {
+    stroke: color-mix(in oklab, var(--color-muted-foreground) 50%, transparent);
+    stroke-width: 1;
 }
 
-.reports-source-notes {
-    margin: 0 1.5rem;
-    padding: 1.25rem 0 1rem;
-    border-top: 1px solid var(--color-border);
-    color: var(--color-muted-foreground);
-    overflow-wrap: anywhere;
+.hris-chart-tick {
+    fill: var(--color-muted-foreground);
+    font-size: 11px;
 }
 
-.reports-source-notes h3 {
-    margin-bottom: 0.65rem;
-    color: var(--color-foreground);
-    font-size: 0.72rem;
-    font-weight: 700;
-}
-
-.reports-source-notes ol {
-    display: grid;
-    gap: 0.4rem;
-    padding-left: 1rem;
-    list-style: decimal;
-    font-size: 0.67rem;
-    line-height: 1.65;
-}
-
-.reports-document-end {
-    margin-top: 1rem;
-    font-size: 0.6rem;
-}
-
-.reports-statement {
-    margin: 0 1.5rem 1.5rem;
-    padding: 1.25rem;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-}
-
-.reports-sheet-identity {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.65rem 1.5rem;
-    margin-bottom: 1.25rem;
-    font-size: 0.75rem;
-}
-
-.reports-sheet-identity dt {
-    color: var(--color-muted-foreground);
-    font-size: 0.63rem;
-}
-
-.reports-sheet-identity dd {
-    margin-top: 0.1rem;
-    overflow-wrap: anywhere;
-    font-weight: 500;
-}
-
-.reports-sheet-brand {
-    margin: 0 1.5rem 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--color-border);
-    font-size: 0.65rem;
+.hris-chart-value {
+    fill: var(--color-foreground);
+    font-size: 11px;
     font-weight: 600;
 }
 
-.reports-attendance-sheet .reports-sheet-identity {
-    margin-right: 1.5rem;
-    margin-left: 1.5rem;
+.hris-chart-bar {
+    fill: var(--color-primary);
+    pointer-events: none;
 }
 
-.reports-section-summary {
-    margin: 0 1.5rem 1rem;
+.hris-chart-hit {
+    fill: transparent;
 }
 
-@media (max-width: 767px) {
-    .reports-document-header {
-        padding: 1rem 1rem 0;
-    }
-
-    .reports-document-title {
-        flex-direction: column;
-        gap: 0.75rem;
-        margin-top: 1rem;
-    }
-
-    .reports-document-meta {
-        width: 100%;
-        max-width: 22rem;
-    }
-
-    .reports-document-label {
-        display: none;
-    }
-
-    .reports-section-heading {
-        padding-right: 1rem;
-        padding-left: 1rem;
-    }
-
-    .reports-section-notes {
-        padding-right: 1rem;
-        padding-left: 1rem;
-    }
-
-    .reports-source-notes,
-    .reports-statement,
-    .reports-section-summary,
-    .reports-sheet-brand,
-    .reports-attendance-sheet .reports-sheet-identity {
-        margin-right: 1rem;
-        margin-left: 1rem;
-    }
-
-    .reports-statement {
-        padding: 1rem;
-    }
+.hris-chart-hit:hover {
+    fill: color-mix(in oklab, var(--color-accent) 70%, transparent);
 }
 
-@media (max-width: 479px) {
-    .reports-brand {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.5rem;
-        font-size: 0.7rem;
-    }
+.hris-chart-fill {
+    border-radius: 0 4px 4px 0;
+    background: var(--color-primary);
+}
 
-    .reports-brand img {
-        width: 192px;
-    }
+/* A report on paper is an A4 portrait sheet in the payslip's style: PPMC's header over a primary
+   rule, ruled blocks, framed tables under a primary band, the sign-off at the foot.
 
-    .reports-overline {
-        font-size: 0.57rem;
-    }
+   THE SHEET IS WHITE PAPER WHATEVER THE THEME: it carries `hris-always-light`, which redeclares
+   the underlying tokens. The `--color-*` aliases this block reads were resolved at :root, so they
+   are pointed at those tokens again, as the payslip's are. */
+.reports-document {
+    min-width: 0;
+}
 
-    .reports-statement {
-        margin-right: 0.6rem;
-        margin-left: 0.6rem;
-        padding: 0.8rem;
-    }
+.reports-sheet {
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-foreground: var(--foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-border: var(--border);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary-soft: var(--primary-soft);
+    --sheet-ink: var(--color-foreground);
+    --sheet-rule: oklch(0.82 0.01 252);
+    --sheet-tint: var(--color-muted);
+    --sheet-mute: oklch(0.45 0.025 258);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 794px;
+    min-height: 1080px;
+    margin-inline: auto;
+    padding: 10mm 12mm;
+    border-radius: 3px;
+    background: var(--color-card);
+    color: var(--color-card-foreground);
+    box-shadow:
+        0 4px 24px color-mix(in srgb, var(--color-foreground) 5%, transparent),
+        0 0 0 1px var(--color-border);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9pt;
+    line-height: 1.25;
+    -webkit-font-smoothing: antialiased;
+}
 
-    .reports-sheet-identity {
-        grid-template-columns: minmax(0, 1fr);
-    }
+.reports-sheet + .reports-sheet {
+    margin-top: 1.5rem;
+}
+
+.reports-sheet .num {
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: normal;
+}
+
+.reports-sheet-top {
+    display: flex;
+    align-items: center;
+    gap: 4mm;
+    padding-bottom: 2.5mm;
+    border-bottom: 2px solid var(--color-primary);
+}
+
+.reports-sheet-logo {
+    width: 40mm;
+    height: auto;
+    flex-shrink: 0;
+    object-fit: contain;
+}
+
+.reports-sheet-org {
+    flex: 1;
+    min-width: 0;
+    color: var(--sheet-mute);
+    font-size: 7.5pt;
+}
+
+.reports-sheet-org p:first-child {
+    color: var(--sheet-ink);
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+}
+
+.reports-sheet-doc {
+    flex-shrink: 0;
+    max-width: 45%;
+    text-align: right;
+}
+
+.reports-sheet-doc h2 {
+    margin: 0;
+    font-size: 13pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.reports-sheet-doc p {
+    font-size: 9pt;
+    font-weight: 700;
+}
+
+/* What the report covers and its answer: the payslip's employee block, the result tinted. */
+.reports-sheet-block {
+    display: flex;
+    flex-wrap: wrap;
+    margin: 3mm 0 0;
+    border: 1px solid var(--sheet-ink);
+}
+
+.reports-sheet-block > div {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 1.5mm 2.5mm;
+    border-right: 1px solid var(--sheet-rule);
+}
+
+.reports-sheet-block > div:last-child {
+    border-right: 0;
+}
+
+.reports-sheet-block dt {
+    color: var(--sheet-mute);
+    font-size: 6.5pt;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+}
+
+.reports-sheet-block dd {
+    margin: 0.5mm 0 0;
+    overflow-wrap: anywhere;
+    font-size: 10pt;
+    font-weight: 700;
+}
+
+.reports-sheet-key {
+    background: var(--color-primary-soft);
+}
+
+.reports-sheet-frame {
+    margin-top: 3mm;
+    border: 1px solid var(--sheet-ink);
+}
+
+.reports-sheet-band {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 3mm;
+    padding: 1.2mm 2.5mm;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+}
+
+.reports-sheet-band h3 {
+    margin: 0;
+    font-size: 9pt;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.reports-sheet-band > span {
+    font-size: 7.5pt;
+    white-space: nowrap;
+}
+
+/* The sheet's tables are `hris-table`s restated for paper: no sticky header, no hover, no tint. */
+.reports-sheet .reports-sheet-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8pt;
+    font-variant-numeric: tabular-nums;
+}
+
+.reports-sheet .reports-sheet-table th,
+.reports-sheet .reports-sheet-table td {
+    position: static;
+    padding: 1.2mm 1.8mm;
+    border-bottom: 1px dotted var(--sheet-rule);
+    background: transparent;
+    color: inherit;
+    font-size: inherit;
+    font-weight: 400;
+    letter-spacing: normal;
+    line-height: 1.3;
+    text-align: left;
+    text-transform: none;
+    vertical-align: top;
+    white-space: normal;
+    /* break-word, not anywhere: a column may wrap between words but never shrinks to a letter. */
+    overflow-wrap: break-word;
+}
+
+.reports-sheet .reports-sheet-table thead th {
+    border-bottom: 1px solid var(--sheet-ink);
+    font-size: 7.5pt;
+    font-weight: 700;
+    vertical-align: bottom;
+}
+
+.reports-sheet .reports-sheet-table .reports-number {
+    text-align: right;
+}
+
+/* A figure stays on one line; its heading may wrap, so a narrow column of amounts stays narrow. */
+.reports-sheet .reports-sheet-table tbody .reports-number,
+.reports-sheet .reports-sheet-table tfoot .reports-number {
+    white-space: nowrap;
+}
+
+/* A short cell (a date, a time, a code) stays on one line; only real text wraps. */
+.reports-sheet .reports-sheet-table .reports-sheet-short {
+    white-space: nowrap;
+}
+
+/* A table of ten columns or more is set smaller so it still fits the portrait sheet. */
+.reports-sheet .reports-sheet-table.reports-sheet-dense {
+    font-size: 7pt;
+}
+
+.reports-sheet .reports-sheet-table.reports-sheet-dense th,
+.reports-sheet .reports-sheet-table.reports-sheet-dense td {
+    padding: 1mm 1.1mm;
+}
+
+.reports-sheet .reports-sheet-table.reports-sheet-dense thead th {
+    font-size: 6.5pt;
+}
+
+.reports-sheet .reports-sheet-table tbody tr:last-child td,
+.reports-sheet .reports-sheet-table tbody tr:last-child th {
+    border-bottom: 0;
+}
+
+.reports-sheet .reports-sheet-table tbody tr:hover td {
+    background: transparent;
+}
+
+.reports-sheet .reports-sheet-table tfoot td {
+    border-top: 1px solid var(--sheet-ink);
+    border-bottom: 0;
+    background: var(--sheet-tint);
+    font-weight: 700;
+}
+
+/* A graph printed as its figures: name and value, four pairs to a row. */
+.reports-sheet .reports-sheet-pairs td {
+    border-right: 1px solid var(--sheet-rule);
+    font-weight: 700;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.reports-sheet .reports-sheet-pairs td:last-child {
+    border-right: 0;
+}
+
+.reports-sheet-notes {
+    margin-top: 2mm;
+    color: var(--sheet-mute);
+    font-size: 7.5pt;
+}
+
+.reports-sheet-charts {
+    margin-top: 3mm;
+}
+
+/* The sign-off and the one closing line, always at the foot of the sheet. */
+.reports-sheet-end {
+    margin-top: auto;
+    padding-top: 6mm;
+}
+
+.reports-sheet-sign {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12mm;
+    margin-bottom: 4mm;
+    font-size: 8.5pt;
+}
+
+.reports-sheet-sign > div > p:first-child,
+.reports-sheet-sign > div > p:last-child {
+    color: var(--sheet-mute);
+}
+
+.reports-sheet-sign > div > div {
+    margin-top: 8mm;
+    border-bottom: 1px solid var(--sheet-ink);
+}
+
+.reports-sheet-sign > div > p:nth-child(3) {
+    min-height: 4mm;
+    margin-top: 1mm;
+    font-weight: 700;
+    text-align: center;
+}
+
+.reports-sheet-sign > div > p:last-child {
+    text-align: center;
+}
+
+.reports-sheet .hris-signatories {
+    margin-top: 0;
+    margin-bottom: 4mm;
+    padding-top: 0;
+    border-top: 0;
+}
+
+.reports-sheet-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    padding-top: 2mm;
+    border-top: 1px solid var(--sheet-rule);
+    color: var(--sheet-mute);
+    font-size: 7pt;
+}
+
+.reports-statement {
+    margin-bottom: 1.5rem;
 }
 
 /*
@@ -1152,292 +1178,80 @@ select:focus[data-flux-control] {
  * from the print flow here. (`:has()` — Chrome 105+, Safari 15.4+, Firefox 121+.)
  */
 @media print {
+    /* NO PAGE MARGIN, as for the payslip: the browser draws its date, title, address and page
+       number inside the margin, so with none it has nowhere to put them. The sheet's own
+       padding is the margin on paper, repeated on every page a long report runs to. */
     @page reports {
-        size: A4 landscape;
-        margin: 12mm;
-    }
-
-    @page report-statement {
         size: A4 portrait;
-        margin: 12mm;
+        margin: 0;
     }
 
     /* Keep the surrounding layout on the document's paper size, so its
        trailing space cannot create an empty page with the default size. */
     html:root:has(.reports-document) {
-        --report-paper: oklch(1 0 0);
-        background: var(--report-paper);
+        background: oklch(1 0 0);
         color-scheme: light;
     }
 
     body:has(.reports-document) {
+        display: block;
         page: reports;
-        background: var(--report-paper);
+        background: oklch(1 0 0);
     }
 
-    body:has(.reports-document-statements) {
-        page: report-statement;
+    body:has(.reports-document) [data-flux-main],
+    body:has(.reports-document) [data-flux-main] > div {
+        max-width: none;
+        padding: 0;
+        overflow: visible;
     }
 
     .reports-document {
-        /* Inline theme utilities read these underlying tokens directly;
-           custom report rules read the --color-* aliases below. */
-        --card: var(--report-paper);
-        --card-foreground: var(--report-ink);
-        --foreground: var(--report-ink);
-        --muted-foreground: var(--report-muted-ink);
-        --muted: var(--report-fill);
-        --border: var(--report-rule);
-        --primary: var(--report-accent-ink);
-        --primary-soft: var(--report-accent-fill);
-        --color-card: var(--report-paper);
-        --color-card-foreground: var(--report-ink);
-        --color-foreground: var(--report-ink);
-        --color-muted-foreground: var(--report-muted-ink);
-        --color-muted: var(--report-fill);
-        --color-border: var(--report-rule);
-        --color-primary: var(--report-accent-ink);
-        --color-primary-soft: var(--report-accent-fill);
         page: reports;
-        border: none;
+    }
+
+    .reports-sheet {
+        max-width: none;
+        min-height: 285mm;
+        margin: 0;
         border-radius: 0;
         box-shadow: none;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+        print-color-adjust: exact;
+        -webkit-print-color-adjust: exact;
     }
 
-    .reports-document-header {
-        padding: 0;
+    .reports-sheet + .reports-sheet {
+        margin-top: 0;
+        break-before: page;
     }
 
-    .reports-document-title {
-        flex-direction: row;
-        margin-top: 10pt;
-        padding-bottom: 10pt;
-    }
-
-    .reports-document-title h2 {
-        font-size: 16pt;
-    }
-
-    .reports-document-title p {
-        font-size: 9pt;
-    }
-
-    .reports-document-meta {
-        width: auto;
-        font-size: 7pt;
-    }
-
-    .reports-brand {
-        flex-direction: row;
-        align-items: center;
-        font-size: 9pt;
-    }
-
-    .reports-brand img {
-        width: 108pt;
-        height: auto;
-    }
-
-    .reports-overline {
-        font-size: 6pt;
-    }
-
-    .reports-document-body {
-        padding-top: 12pt;
-    }
-
-    .reports-summary {
-        grid-template-columns: repeat(auto-fit, minmax(60pt, 1fr));
-        gap: 8pt;
-        padding: 9pt 0;
+    .reports-sheet .reports-sheet-table tr,
+    .reports-sheet-block,
+    .reports-sheet-end {
         break-inside: avoid;
     }
 
-    .reports-summary dt {
-        font-size: 7pt;
-    }
-
-    .reports-summary dd {
-        font-size: 11pt;
-    }
-
-    .reports-detail-section {
-        margin-bottom: 16pt;
-    }
-
-    .reports-section-heading {
-        padding: 0 0 7pt;
+    .reports-sheet-band {
         break-after: avoid;
     }
 
-    .reports-section-heading h3 {
-        font-size: 9pt;
-    }
-
-    .reports-row-count {
-        font-size: 7pt;
-    }
-
-    .reports-document .hris-table-wrap {
-        overflow: visible;
-        max-height: none;
-    }
-
-    .reports-document .hris-table {
-        min-width: 0;
-        width: 100%;
-        font-size: 8pt;
-    }
-
-    .reports-document .hris-table th,
-    .reports-document .hris-table td {
-        padding: 4pt;
-        min-width: 0;
-        max-width: none;
-        white-space: normal;
-        overflow-wrap: anywhere;
-        line-height: 1.35;
-        position: static;
-    }
-
-    .reports-document .hris-table .reports-number {
-        white-space: normal;
-    }
-
-    .reports-document .hris-table th {
-        font-size: 7pt;
-    }
-
-    .reports-document .hris-table tr {
-        break-inside: avoid;
-    }
-
-    .reports-document .hris-table thead {
-        position: static;
+    .reports-sheet .reports-sheet-table thead {
         display: table-header-group;
     }
 
     /* Totals belong at the end, rather than repeating on every printed page. */
-    .reports-document .hris-table tfoot {
+    .reports-sheet .reports-sheet-table tfoot {
         display: table-row-group;
     }
 
-    .reports-source-notes {
-        margin: 0;
-        padding: 10pt 0 0;
-        break-inside: avoid;
-    }
-
-    .reports-source-notes h3 {
-        font-size: 8pt;
-        break-after: avoid;
-    }
-
-    .reports-source-notes ol,
-    .reports-section-notes {
-        font-size: 7pt;
-        line-height: 1.5;
-    }
-
-    .reports-source-notes li {
-        break-inside: avoid;
-    }
-
-    .reports-section-notes {
-        padding: 6pt 0 0;
-    }
-
-    .reports-document-end {
-        font-size: 6pt;
-    }
-
-    .reports-document-statements {
-        page: report-statement;
-    }
-
-    .reports-document-statements .reports-document-body {
-        padding: 0;
-    }
-
     .reports-statement {
-        page: report-statement;
         margin: 0;
-        padding: 0;
-        border: none;
-        border-radius: 0;
     }
 
-    .reports-statement + .reports-statement,
-    .reports-statement-appendix {
+    .reports-statement + .reports-statement {
         break-before: page;
-    }
-
-    .reports-sheet-identity {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 5pt 12pt;
-        margin-bottom: 9pt;
-        font-size: 8pt;
-    }
-
-    .reports-sheet-identity dt {
-        font-size: 6.5pt;
-    }
-
-    .reports-attendance-sheet + .reports-attendance-sheet {
-        break-before: page;
-    }
-
-    .reports-sheet-brand {
-        margin: 0 0 9pt;
-        padding-top: 9pt;
-        font-size: 7pt;
-    }
-
-    .reports-attendance-sheet .reports-sheet-identity,
-    .reports-section-summary {
-        margin-right: 0;
-        margin-left: 0;
-    }
-
-    .reports-attendance-sheet .reports-sheet-brand {
-        padding-top: 0;
-        margin-bottom: 5pt;
-        border-top: none;
-    }
-
-    .reports-attendance-sheet .reports-section-heading {
-        padding-bottom: 4pt;
-    }
-
-    .reports-section-period {
-        margin-top: 2pt;
-        font-size: 7pt;
-    }
-
-    .reports-attendance-sheet .reports-sheet-identity {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        margin-bottom: 6pt;
-    }
-
-    .reports-attendance-sheet .reports-section-summary {
-        grid-template-columns: repeat(6, minmax(0, 1fr));
-        gap: 6pt;
-        padding: 5pt 0;
-        margin-bottom: 6pt;
-    }
-
-    .reports-attendance-sheet .reports-table {
-        font-size: 6.5pt;
-    }
-
-    .reports-attendance-sheet .hris-table th,
-    .reports-attendance-sheet .hris-table td {
-        padding: 1pt 2pt;
-        line-height: 1.3;
-    }
-
-    .reports-attendance-sheet .hris-table th {
-        font-size: 6pt;
     }
 
     body > *:not(:has(.payslip-print, .record-print)) {

@@ -7,6 +7,7 @@ namespace App\Livewire\Reports;
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Livewire\Reports\Support\PrintOptions;
 use App\Livewire\Reports\Support\ReportCatalog;
 use App\Modules\Payroll\Application\Queries\PayrollReports;
 use App\Modules\Timekeeping\Application\Queries\TimekeepingReports;
@@ -22,7 +23,11 @@ use Livewire\Attributes\Renderless;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-/** On-demand reporting keeps document filters explicit and reauthorizes every generation. */
+/**
+ * One report on its own page and address. Document filters stay explicit and every generation
+ * is reauthorized: a changed filter drops the document on screen, and the page then asks for the
+ * new one itself, so what is shown always matches the filters beside it.
+ */
 #[Layout('layouts.app')]
 #[Title('Reports')]
 class Index extends Component
@@ -30,8 +35,19 @@ class Index extends Component
     use WithSorting { sortBy as private changeSort; }
     use WithTableFilters;
 
+    /** The Payroll Register's column sets on screen, by the owner's printed section they show. */
+    private const array REGISTER_SETS = ['summary' => 0, 'earnings' => 1, 'deductions' => 2];
+
+    /** The comparison's columns worth reading first: who, how late, how often absent, overtime approved, what to check. */
+    private const array ATTENDANCE_SUMMARY = [1, 2, 4, 5, 6, 7, 8, 12, 14];
+
     /** Request-local only; avoids reading the same document twice on Generate. */
     private ?ReportDocument $documentForRequest = null;
+
+    /** @var array{from: string, to: string}|null Request-local only; the newest posted payroll period, read once. */
+    private ?array $latestPayroll = null;
+
+    private bool $latestPayrollRead = false;
 
     #[Locked]
     public string $type = 'payroll-register';
@@ -62,23 +78,74 @@ class Index extends Component
 
     public string $view = 'summary';
 
+    /** Which of a wide report's column sets the screen's table shows; print and CSV keep them all. */
+    public string $columnsView = 'summary';
+
+    /** The employee list's starting point last chosen, so the switch can show it; blank once a filter or column is changed by hand. */
+    public string $preset = 'directory';
+
     /** @var array<string, string> Server-validated filters for the document being shown. */
     #[Locked]
     public array $generated = [];
 
-    public function mount(): void
+    public function mount(?string $report = null): void
     {
         $actor = app(Access::class);
         abort_unless($actor->hasModule(ModuleCode::REPORTS), 403);
         $this->to = ManilaClock::todayKey();
         $this->from = substr($this->to, 0, 8).'01';
-        foreach (array_keys(ReportCatalog::all()) as $type) {
-            if (ReportCatalog::allows($actor, $type)) {
-                $this->type = $type;
-                break;
+        if ($report !== null) {
+            abort_unless(isset(ReportCatalog::all()[$report]), 404);
+            $this->type = $report;
+        } else {
+            foreach (array_keys(ReportCatalog::all()) as $type) {
+                if (ReportCatalog::allows($actor, $type)) {
+                    $this->type = $type;
+                    break;
+                }
             }
         }
         $this->defaultFilters();
+        $view = request()->query('view');
+        if (is_string($view) && in_array($view, $this->views(), true)) {
+            $this->view = $view;
+        }
+        // A payroll report opens on the newest posted payroll, never on a month with nothing in it yet.
+        $latest = $this->latestPayroll();
+        if ($latest !== null) {
+            $this->from = $latest['from'];
+            $this->to = $latest['to'];
+        }
+        $this->carryOver();
+    }
+
+    /**
+     * The period and the employees chosen on the report the reader came from, so moving between a
+     * report's views, or between sibling reports, does not ask for them again. They are filters like
+     * any typed on this page: criteria validate them and every owner applies them after its row scope.
+     */
+    private function carryOver(): void
+    {
+        $from = request()->query('from');
+        $to = request()->query('to');
+        $day = '/\A\d{4}-\d{2}-\d{2}\z/';
+        if (is_string($from) && is_string($to) && preg_match($day, $from) === 1 && preg_match($day, $to) === 1 && $from <= $to) {
+            $this->from = $from;
+            $this->to = $to;
+        }
+        $employees = request()->query('employees');
+        if (is_string($employees) && $employees !== '' && $this->type !== 'audit-logs') {
+            $ids = array_values(array_unique(explode(',', $employees)));
+            if (count($ids) <= ReportCriteria::MAX_EMPLOYEES && array_filter($ids, static fn (string $id): bool => preg_match('/\A[^,\s]{1,26}\z/', $id) !== 1) === []) {
+                $this->employeeIds = $ids;
+            }
+        }
+    }
+
+    /** @return array<string, string> What a link to another view or sibling report carries with it. */
+    private function carried(): array
+    {
+        return array_filter(['from' => $this->from, 'to' => $this->to, 'employees' => implode(',', $this->employeeIds)]);
     }
 
     public function selectReport(string $type): void
@@ -99,13 +166,84 @@ class Index extends Component
         if ($property === 'perPage' || str_starts_with($property, 'paginators.')) {
             return;
         }
+        if ($property === 'columnsView') {
+            // Which columns the screen shows changes nothing about the document or its coverage.
+            $this->resetPage();
+
+            return;
+        }
         if ($property === 'sortKey' && $this->type === 'attendance-reports' && $this->sortKey === 'employee') {
             $this->filters['minimum'] = '0';
         }
+        if (str_starts_with($property, 'columns') || str_starts_with($property, 'filters.')) {
+            $this->preset = '';
+        }
+        $this->invalidate(true);
+    }
+
+    /** A column set this report does not have falls back to the first. */
+    public function updatedColumnsView(): void
+    {
+        if (! isset($this->columnSets()[$this->columnsView])) {
+            $this->columnsView = 'summary';
+        }
+    }
+
+    /**
+     * Drops the document on screen. `$rerun` then has the page ask for the new one, when the
+     * filters as they stand can produce a report at all.
+     */
+    private function invalidate(bool $rerun): void
+    {
         $this->documentForRequest = null;
         $this->generated = [];
         $this->resetPage();
         $this->resetValidation();
+        if ($rerun && $this->runnable()) {
+            $this->js('$wire.generate()');
+        }
+    }
+
+    /** Whether the filters as they stand name everything their report needs before it can be read. */
+    private function runnable(): bool
+    {
+        return ReportCatalog::allows(app(Access::class), $this->type)
+            && ! ($this->type === 'attendance-reports' && $this->employeeIds === [])
+            && ! ($this->type === 'loan-summary' && $this->deductionCodes === [])
+            && ! ($this->type === 'employee-list' && $this->view !== 'analysis' && $this->columns === []);
+    }
+
+    /** @return list<string> */
+    private function views(): array
+    {
+        return match ($this->type) {
+            'attendance-reports' => ['summary', 'details', 'analysis'],
+            'employee-list' => ['summary', 'analysis'],
+            default => ['summary'],
+        };
+    }
+
+    /** @return array<string, string> The column sets this report's table can show, none for a report narrow enough to show whole. */
+    private function columnSets(): array
+    {
+        return match (true) {
+            $this->type === 'payroll-register' => ['summary' => 'Summary', 'earnings' => 'Earnings', 'deductions' => 'Deductions', 'all' => 'Everything'],
+            $this->type === 'attendance-reports' && $this->view === 'summary' => ['summary' => 'Summary', 'all' => 'All columns'],
+            default => [],
+        };
+    }
+
+    /** @return array{from: string, to: string}|null */
+    private function latestPayroll(): ?array
+    {
+        if (! $this->latestPayrollRead) {
+            $this->latestPayrollRead = true;
+            $actor = app(Access::class);
+            $this->latestPayroll = in_array($this->type, ReportCatalog::PAYROLL, true) && ReportCatalog::allows($actor, $this->type)
+                ? app(PayrollReports::class)->latestPeriod($actor) : null;
+        }
+
+        return $this->latestPayroll;
     }
 
     private function defaultFilters(): void
@@ -123,6 +261,8 @@ class Index extends Component
         $this->sortKey = $this->type === 'attendance-reports' ? 'late_minutes' : ($this->type === 'employee-list' ? 'employee' : '');
         $this->sortDir = $this->type === 'attendance-reports' ? 'desc' : 'asc';
         $this->view = 'summary';
+        $this->columnsView = 'summary';
+        $this->preset = 'directory';
         $this->analysisFilters = $this->type === 'employee-list'
             ? ['analysis' => 'composition', 'groupBy' => 'department', 'crossTab' => 'sex']
             : ($this->type === 'attendance-reports' ? ['groupBy' => 'department', 'compare' => 'none', 'threshold' => '3'] : []);
@@ -131,9 +271,12 @@ class Index extends Component
     public function resetFilters(): void
     {
         abort_unless(ReportCatalog::allows(app(Access::class), $this->type), 403);
+        $view = $this->view;
         $this->employeeIds = [];
         $this->deductionCodes = [];
         $this->defaultFilters();
+        // The view is the page the reader is on, not one of its filters.
+        $this->view = $view;
         $this->updated();
     }
 
@@ -155,6 +298,10 @@ class Index extends Component
                     'demographics' => 'age', 'development' => 'education', 'service' => 'tenure', default => 'department',
                 };
             }
+            $this->updated();
+            $this->preset = in_array($preset, ['directory', 'profile', 'missing'], true) ? $preset : '';
+
+            return;
         } elseif ($this->type === 'attendance-reports') {
             if ($preset === 'attendance-analysis') {
                 $this->view = 'analysis';
@@ -208,7 +355,7 @@ class Index extends Component
         if ($this->type === 'attendance-reports' && $key === 'employee') {
             $this->filters['minimum'] = '0';
         }
-        $this->updated();
+        $this->invalidate(! $regenerate);
         if ($regenerate) {
             $this->generate();
         }
@@ -245,8 +392,10 @@ class Index extends Component
     {
         $today = ManilaClock::instant(ManilaClock::todayKey().'T00:00:00')->setTimezone(ManilaClock::TZ);
         $previous = $today->subMonthNoOverflow();
+        $latest = $this->latestPayroll();
 
         return [
+            ...($latest === null ? [] : ['latest' => ['label' => 'Latest payroll', 'from' => $latest['from'], 'to' => $latest['to']]]),
             'month' => ['label' => 'Month to date', 'from' => $today->startOfMonth()->format('Y-m-d'), 'to' => $today->format('Y-m-d')],
             'previous-month' => ['label' => 'Previous month', 'from' => $previous->startOfMonth()->format('Y-m-d'), 'to' => $previous->endOfMonth()->format('Y-m-d')],
             'last-seven' => ['label' => 'Last 7 days', 'from' => $today->subDays(6)->format('Y-m-d'), 'to' => $today->format('Y-m-d')],
@@ -281,28 +430,67 @@ class Index extends Component
         $this->generated = $criteria->query();
     }
 
+    /**
+     * The table the screen draws from a document: the whole of it, or the column set chosen
+     * for a report too wide to read at once. Print and CSV never pass through here.
+     *
+     * @return array{columns: list<string>, rows: list<list<string>>, totals: list<string>, numeric: list<int>, keys: list<string>}
+     */
+    private function tableFor(ReportDocument $document, ReportCriteria $criteria): array
+    {
+        $section = $criteria->type === 'payroll-register' ? ($document->sections[self::REGISTER_SETS[$this->columnsView] ?? -1] ?? null) : null;
+        if ($section !== null) {
+            return ['columns' => $section['columns'], 'rows' => $section['rows'], 'totals' => $section['totals'] ?? [],
+                'numeric' => $section['numericColumns'] ?? [], 'keys' => []];
+        }
+        if ($criteria->type === 'attendance-reports' && $criteria->view === 'summary' && $this->columnsView === 'summary') {
+            $pick = static fn (array $cells): array => array_map(static fn (int $index): string => (string) ($cells[$index] ?? ''), self::ATTENDANCE_SUMMARY);
+
+            return ['columns' => $pick($document->columns), 'rows' => array_map($pick, $document->rows),
+                'totals' => $document->totals === [] ? [] : $pick($document->totals),
+                'numeric' => array_keys(array_filter(self::ATTENDANCE_SUMMARY, static fn (int $index): bool => in_array($index, $document->numericColumns, true))),
+                'keys' => $pick($document->columnKeys)];
+        }
+
+        return ['columns' => $document->columns, 'rows' => $document->rows, 'totals' => $document->totals,
+            'numeric' => $document->numericColumns, 'keys' => $document->columnKeys];
+    }
+
     public function render(): View
     {
         $actor = app(Access::class);
         abort_unless($actor->hasModule(ModuleCode::REPORTS), 403);
+        $allowed = ReportCatalog::allows($actor, $this->type);
         $criteria = $this->generated === [] ? null : ReportCriteria::from($this->generated);
         $document = $criteria === null ? null : ($this->documentForRequest ?? ReportCatalog::generate($actor, $criteria));
+        // Payslips and daily sheets are documents by nature: the screen shows the sheets themselves.
+        $sheets = $criteria !== null && $document !== null && $document->sections !== []
+            && ($criteria->type === 'payslips' || ($criteria->type === 'attendance-reports' && $criteria->view === 'details'));
+        $table = $document === null || $sheets ? null : $this->tableFor($document, $criteria);
 
         return view('livewire.reports.index', [
             'catalog' => ReportCatalog::all(), 'actor' => $actor,
-            'groups' => collect(ReportCatalog::all())->groupBy('category', preserveKeys: true),
+            'switch' => ReportCatalog::switch($this->type, $this->view),
+            'printTitle' => ReportCatalog::printTitle($this->type, $this->view),
+            'carried' => $this->carried(),
+            'printOptions' => $document === null ? ['parts' => [], 'tables' => []] : PrintOptions::for($this->type, $this->view, $document, $sheets),
             'periods' => $this->periods(),
-            'allowed' => ReportCatalog::allows($actor, $this->type),
+            'latestPayroll' => $this->latestPayroll(),
+            'allowed' => $allowed,
+            'runnable' => $this->runnable(),
             'document' => $document,
-            'previewRows' => $document === null || ($document->sections !== [] && $criteria->view !== 'analysis') ? null : $this->paginateClamped($document->rows),
+            'sheets' => $sheets,
+            'table' => $table,
+            'columnSets' => $this->columnSets(),
+            'previewRows' => $table === null ? null : $this->paginateClamped($table['rows']),
             'columnOptions' => EmployeeReport::columns(),
             'sortOptions' => $this->sortOptions(),
             'analysisTopics' => EmployeeReport::analysisTopics(),
             'analysisGroups' => $this->type === 'employee-list' ? EmployeeReport::groupings() : TimekeepingReports::analysisGroups(),
             'analysisCrossTabs' => EmployeeReport::crossTabs(),
-            'employeeOptions' => $this->type === 'employee-list' && ReportCatalog::allows($actor, $this->type)
+            'employeeOptions' => $this->type === 'employee-list' && $allowed
                 ? app(EmployeeReport::class)->options($actor) : [],
-            'loanTypes' => $this->type === 'loan-summary' && ReportCatalog::allows($actor, $this->type)
+            'loanTypes' => $this->type === 'loan-summary' && $allowed
                 ? app(PayrollReports::class)->loanTypes($actor) : [],
             'generatedAt' => ManilaClock::instant(now()->toIso8601String())->setTimezone(ManilaClock::TZ)->format('d M Y, g:i A'),
         ]);

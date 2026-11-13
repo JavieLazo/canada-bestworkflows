@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Domain\Enums\ModuleCode;
+use App\Livewire\Reports\Home;
 use App\Livewire\Reports\Index;
 use App\Livewire\Reports\Support\ReportCatalog;
 use App\Livewire\Reports\Support\ReportsExport;
@@ -45,12 +46,12 @@ it('gates the reports page and export on the new grant', function () {
 it('shows nine report choices without giving a Reports-only actor source access', function () {
     $user = reportsModuleActor([ModuleCode::REPORTS], true);
     $this->actingAs($user);
-    $screen = Livewire::test(Index::class)->assertSee('source-module grant');
+    $home = Livewire::test(Home::class)->assertSee('Needs Payroll access')->assertDontSee('reports/payroll-register', false);
     foreach (ReportCatalog::all() as $report) {
-        $screen->assertSee($report['title']);
+        $home->assertSee($report['title']);
     }
     expect(ReportCatalog::all())->toHaveCount(9);
-    $screen->call('generate')->assertForbidden();
+    Livewire::test(Index::class)->assertSee('source-module grant')->call('generate')->assertForbidden();
     $this->get('/reports/export?type=employee-list&from=2026-09-01&to=2026-09-30')->assertForbidden();
 });
 
@@ -61,7 +62,7 @@ it('generates printable employee records and exports those same scoped cells', f
     $this->actingAs($user);
     Livewire::test(Index::class)
         ->assertSet('type', 'employee-list')
-        ->call('generate')->assertSee('EMP-2026-007')->assertSee('Print / Save as PDF')
+        ->call('generate')->assertSee('EMP-2026-007')->assertSee('window.print()', false)
         ->assertSee('Fixture Company')->assertSee('bestworkflows-wordmark.png', false)
         ->assertSee('record-print', false)->assertSee('reports/export', false)
         ->set('employeeIds', [$employee->id])->assertSet('generated', [])
@@ -121,7 +122,8 @@ it('prints attendance in separate tables for selected employees with their posit
         ->set('employeeIds', $ids)->set('from', '2026-09-28')->set('to', '2026-09-29')
         ->call('generate')->assertHasNoErrors()
         ->assertViewHas('document', fn (ReportDocument $document): bool => count($document->sections) === 2)
-        ->assertSee('Position: Engineer')->assertSee('Position: Foreman')
+        ->assertSeeInOrder(['Position', 'Engineer', 'Position', 'Foreman'])
+        ->assertViewHas('sheets', true)
         ->assertDontSee('Export CSV')
         ->call('selectReport', 'employee-list')->assertSet('employeeIds', [])->assertSet('generated', []);
 });

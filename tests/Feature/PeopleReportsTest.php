@@ -344,3 +344,24 @@ it('allows exactly 5000 requested attendance employee-days without classifying f
 
     expect($document->rows)->toBe([])->and($document->sections)->toHaveCount(200);
 });
+
+it('totals approved leave days per type for the home graph without travel, pending or foreign rows', function () {
+    $own = peopleReportsEmployee('OWN');
+    $other = peopleReportsEmployee('OTHER');
+    peopleReportsLeave($own, 'SICK-WHOLE');
+    peopleReportsLeave($own, 'SICK-HALF', ['start_date' => '2026-09-27', 'end_date' => '2026-09-30', 'day_type' => 'HALF_DAY']);
+    peopleReportsLeave($own, 'VACATION', ['request_type' => 'VACATION', 'start_date' => '2026-09-29', 'end_date' => '2026-09-29']);
+    peopleReportsLeave($own, 'TRAVEL', ['request_type' => 'BUSINESS_TRAVEL', 'is_paid' => null]);
+    peopleReportsLeave($own, 'PENDING', ['status' => 'PENDING', 'is_paid' => null]);
+    peopleReportsLeave($other, 'FOREIGN');
+    $reports = app(TimekeepingReports::class);
+
+    $everyone = $reports->approvedLeaveByType(peopleReportsActor([ModuleCode::REPORTS, ModuleCode::LEAVES], true), '2026-09-28', '2026-09-29');
+    expect(array_column($everyone, 'value'))->toBe([5.0, 1.0])
+        ->and($everyone[0]['label'])->toBe('Sick Leave');
+
+    $mine = $reports->approvedLeaveByType(peopleReportsActor([ModuleCode::REPORTS, ModuleCode::LEAVES], false, $own->id), '2026-09-28', '2026-09-29');
+    expect(array_column($mine, 'value'))->toBe([3.0, 1.0]);
+
+    peopleReportsForbidden(fn () => $reports->approvedLeaveByType(peopleReportsActor([ModuleCode::REPORTS], true), '2026-09-28', '2026-09-29'));
+});
