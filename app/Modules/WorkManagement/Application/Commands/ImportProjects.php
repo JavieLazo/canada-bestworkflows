@@ -11,6 +11,7 @@ use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\WorkManagement\Application\ProjectDraft;
 use App\Modules\WorkManagement\Application\Queries\WorkExports;
 use App\Modules\WorkManagement\Application\WorkRules;
+use App\Modules\WorkManagement\Infrastructure\WorkScope;
 use App\Platform\Transfer\ImportLayout;
 use App\Platform\Transfer\ImportOutcome;
 use App\Platform\Transfer\ImportRow;
@@ -40,7 +41,7 @@ final class ImportProjects implements TableImport
     public function layout(Access $actor, string $context): ImportLayout
     {
         return new ImportLayout('projects', 'Code', WorkExports::PROJECT_IMPORT_COLUMNS, [
-            'Site names a site from Site Settings and Task Leader an account, as the table shows them; either may be blank.',
+            'Site names a site from Site Settings. Task Leader names the project lead account; either may be blank.',
             'Status is one of '.implode(', ', ProjectPolicy::STATUSES).', and moves only as the project screen allows. Descriptions stay as they are.',
         ]);
     }
@@ -56,7 +57,7 @@ final class ImportProjects implements TableImport
         $code = $row->identifier('Code');
         $project = null;
         if ($code !== '') {
-            $project = Project::query()->where('code', $code)->first();
+            $project = WorkScope::projects($actor)->where('code', $code)->first();
             if ($project === null) {
                 throw new RuntimeException("No project has code {$code}. Leave Code blank to add a new project.");
             }

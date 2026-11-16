@@ -542,21 +542,20 @@ it('toasts a review-panel start date outside the project window and leaves the r
         ->and(AuditLog::query()->where('action', 'TASK_UPDATED')->count())->toBe(0);
 });
 
-it('shows the planned start in the review dialog, and a dash when there is none', function () {
+it('shows the planned start in the task panel editor and leaves an unplanned start empty', function () {
     $project = tstartProject();
     $planned = tstartTask($project, ['start_date' => '2026-02-10', 'due_date' => '2026-03-01']);
     $blank = tstartTask($project, ['due_date' => '2026-03-01']);
     tstartActor(['PROJECTS'], allData: true);
 
-    // A search that matches no row empties the table, so a date on the page
-    // can only come from the dialog.
-    Livewire::test(Show::class, ['project' => $project->id])
+    // Keep the dates in the panel's fields even when no task matches the search.
+    $panel = Livewire::test(Show::class, ['project' => $project->id])
         ->set('search', 'no-match')
-        ->call('openTask', $planned->id)
-        ->assertSeeHtmlInOrder(['>Project</p>', '>Start</p>', 'Feb 10, 2026', '>Due</p>', 'Mar 01, 2026'])
-        ->call('openTask', $blank->id)
-        ->assertSeeHtmlInOrder(['>Start</p>', '<span class="num">—</span>', '>Due</p>'])
-        ->assertDontSee('Feb 10, 2026');
+        ->call('openTask', $planned->id);
+    $panel->assertSet('draftStartDate', '2026-02-10')->assertSet('draftDueDate', '2026-03-01')
+        ->assertSeeHtml('aria-label="Start date"');
+    $panel->call('openTask', $blank->id)->assertSet('draftStartDate', '')
+        ->assertSeeHtml('aria-label="Start date"');
 });
 
 /*
@@ -598,7 +597,7 @@ it('saves a project timeline that still holds every task start date', function (
     expect($audit->details)->toContain('start_date');
 });
 
-it('toasts the stranded task from the edit-project dialog and saves nothing', function () {
+it('keeps a refused project edit inside its dialog and saves nothing', function () {
     $project = tstartProject(['status' => 'PLANNING', 'start_date' => '2026-01-01']);
     $task = tstartTask($project, ['start_date' => '2026-02-10']);
     tstartActor(['PROJECTS'], allData: true);
@@ -608,7 +607,9 @@ it('toasts the stranded task from the edit-project dialog and saves nothing', fu
         ->set('editDueDate', '2026-02-05')
         ->call('saveProject')
         ->assertSet('editing', true)
-        ->assertDispatched('toast-show', fn (string $name, array $params): bool => ($params['slots']['text'] ?? null) === "The project timeline would leave Task {$task->code} outside it.");
+        ->assertHasErrors('projectEdit')
+        ->assertSee("The project timeline would leave Task {$task->code} outside it.")
+        ->assertNotDispatched('toast-show');
 
     expect($project->refresh()->due_date)->toBeNull()
         ->and(AuditLog::query()->where('action', 'PROJECT_UPDATED')->count())->toBe(0);
@@ -666,7 +667,7 @@ it('sorts the project task table by start date both ways, blanks last ascending 
 
     // Driven in steps: the see-assertions forward to TestResponse through
     // `@mixin`, so a chain past them is no longer typed as the Testable.
-    $table = Livewire::test(Show::class, ['project' => $project->id]);
+    $table = Livewire::test(Show::class, ['project' => $project->id])->set('taskView', 'list');
     $table->call('sortBy', 'start')
         ->assertSet('sortKey', 'start')
         ->assertSet('sortDir', 'asc')
@@ -693,7 +694,7 @@ it('sorts My Tasks by start date both ways and prints each date', function () {
     $page->call('sortBy', 'start')
         ->assertSet('sortKey', 'start')
         ->assertSet('sortDir', 'asc')
-        ->assertSeeHtml("\$wire.sortBy('start')");
+        ->assertSeeHtml('wire:click="sortBy(\'start\')"');
     $page->assertSeeInOrder(['Jan 15, 2026', 'Feb 01, 2026', 'Mar 01, 2026', 'Mar 01, 2026']);
     $page->assertViewHas('rows', fn (mixed $rows): bool => tstartCodes($rows) === $ascending);
 
@@ -713,10 +714,10 @@ it('shows the planned start in the My Tasks detail dialog, or says there is none
     Livewire::test(MyTasksPage::class)
         ->call('openTask', $planned->id)
         ->assertSet('openId', $planned->id)
-        ->assertSeeHtmlInOrder(['>Start</p>', 'Feb 10, 2026', '>Due</p>', 'Mar 01, 2026'])
+        ->assertSeeHtmlInOrder(['>Start</dt>', 'Feb 10, 2026', '>Due</dt>', 'Mar 01, 2026'])
         ->call('openTask', $blank->id)
         ->assertSet('openId', $blank->id)
-        ->assertSeeHtmlInOrder(['>Start</p>', 'No start date', '>Due</p>']);
+        ->assertSeeHtmlInOrder(['>Start</dt>', 'No start date', '>Due</dt>']);
 });
 
 /*

@@ -13,21 +13,28 @@ use App\Models\TaskComment;
 use App\Modules\IdentityAccess\Contracts\AccountLabel;
 use App\Modules\IdentityAccess\Contracts\AccountNames;
 use App\Modules\Workforce\Contracts\AssignmentEmployees;
+use App\Modules\WorkManagement\Application\TableOrder;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskFileView;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView;
 use App\Modules\WorkManagement\Contracts\Views\ProjectView;
 use App\Modules\WorkManagement\Contracts\Views\TaskCommentView;
+use App\Modules\WorkManagement\Contracts\Views\TaskParentView;
 use App\Modules\WorkManagement\Contracts\Views\TaskResponseView;
+use App\Modules\WorkManagement\Domain\Tasks\TaskInbox;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Modules\WorkManagement\Infrastructure\WorkScope;
+use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
+use App\Support\ManilaClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -48,10 +55,26 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 final class WorkRecords
 {
+    /** @return LengthAwarePaginator<int, TaskCommentView> */
+    public function projectActivity(Access $actor, string $projectId, int $page = 1, string $search = '', string $event = 'ALL', string $sort = 'date', string $direction = 'desc', int $perPage = 20): LengthAwarePaginator
+    {
+        $query = TaskComment::query()->whereIn('task_id', WorkScope::tasks($actor)->where('project_id', $projectId)->select('id'));
+        SqlText::contains($query, ['body', 'author_name'], $search);
+        if ($event === 'COMMENTS') {
+            $query->whereNull('event');
+        } elseif ($event === 'CHANGES') {
+            $query->whereNotNull('event');
+        }
+        TableOrder::apply($query, ['date' => 'created_at', 'author' => 'author_name'], $sort, $direction, ['author']);
+        $query->orderByDesc('id');
+
+        return QueryPage::get($query, $page, max(1, min(100, $perPage)), TaskCommentView::class, 'activityPage');
+    }
+
     /** @return Collection<int, ProjectView> */
     public function projects(Access $actor, ?string $id = null): Collection
     {
-        $query = WorkScope::projects($actor)->orderBy('code');
+        $query = WorkScope::projects($actor)->select('projects.*')->selectRaw(WorkScope::PROJECT_CLIENT_NAME_SQL.' AS client_name')->orderBy('code');
         if ($id !== null) {
             $query->whereKey($id);
         }
@@ -67,7 +90,7 @@ final class WorkRecords
     /** @return Collection<int, ProjectTaskView> */
     public function tasks(Access $actor, ?string $projectId = null, ?string $taskId = null, bool $own = false): Collection
     {
-        $query = $this->withResponseFacts($this->taskQuery($actor, $own))->with(['assignments', 'project'])->orderBy('code');
+        $query = $this->withHierarchyFacts($this->withResponseFacts($this->taskQuery($actor, $own)), $actor, $own)->with($this->taskContext())->orderBy('code');
         if ($projectId !== null) {
             $query->where('project_id', $projectId);
         }
@@ -75,7 +98,7 @@ final class WorkRecords
             $query->whereKey($taskId);
         }
 
-        return $this->taskViews($actor, $query->get());
+        return $this->taskViews($actor, $query->get(), $own);
     }
 
     /**
@@ -86,23 +109,38 @@ final class WorkRecords
      * own response comes in through a LEFT JOIN, never a per-row query or a
      * withCount(): the page stays ONE select.
      *
-     * @param  array{q: string, status: string, project: string}  $filters
+     * @param  array{q: string, status: string, project: string, parent?: string, queue?: string}  $filters
      * @return LengthAwarePaginator<int, ProjectTaskView>
      */
-    public function ownPage(Access $actor, array $filters, string $sort, string $direction, int $page, int $perPage): LengthAwarePaginator
+    public function ownPage(Access $actor, array $filters, string $sort, string $direction, int $page, int $perPage, ?string $today = null): LengthAwarePaginator
     {
-        $query = $this->taskQuery($actor, true)->select('project_tasks.*')
+        $today ??= ManilaClock::todayKey();
+        $query = $this->taskQuery($actor, true)->select('project_tasks.*')->selectRaw(WorkScope::TASK_GROUP_NAME_SQL.' AS group_name')
             ->leftJoin('projects', 'projects.id', '=', 'project_tasks.project_id');
-        WorkScope::joinOwnResponse($query, $actor)->selectRaw(WorkScope::MY_STATUS_SQL.' AS my_status');
+        WorkScope::joinOwnResponse($query, $actor)->selectRaw(WorkScope::MY_STATUS_SQL.' AS my_status')->addSelect('project_task_submissions.status AS my_response_status');
+        $states = TaskInbox::statuses($filters['queue'] ?? 'ALL');
+        if ($states !== []) {
+            $query->whereIn(DB::raw('('.WorkScope::MY_STATUS_SQL.')'), $states);
+        }
+        if (($filters['queue'] ?? '') === 'OVERDUE') {
+            $query->where('project_tasks.due_date', '<', $today);
+        }
         if ($filters['status'] !== 'ALL') {
             $query->whereRaw('('.WorkScope::MY_STATUS_SQL.') = ?', [$filters['status']]);
         }
         if ($filters['project'] !== 'ALL') {
             $query->where('project_tasks.project_id', $filters['project']);
         }
-        SqlText::contains($query, ['project_tasks.code', 'project_tasks.title', 'projects.name'], $filters['q']);
+        if (($filters['parent'] ?? 'ALL') !== 'ALL') {
+            $query->where('project_tasks.parent_id', $filters['parent']);
+        }
+        SqlText::contains($query, ['project_tasks.code', 'project_tasks.title', 'projects.name', WorkScope::PROJECT_CLIENT_NAME_SQL], $filters['q']);
         $direction = $direction === 'desc' ? 'desc' : 'asc';
-        if ($sort === 'priority') {
+        if ($sort === 'focus') {
+            $query->orderByRaw(WorkScope::OWN_FOCUS_SQL.' '.$direction, [$today, $today, $today, $today]);
+            SqlText::orderMapped($query, 'project_tasks.priority', TaskPolicy::PRIORITY_RANK, '2', $direction, false);
+            SqlText::order($query, 'project_tasks.due_date', $direction);
+        } elseif ($sort === 'priority') {
             SqlText::orderMapped($query, 'project_tasks.priority', TaskPolicy::PRIORITY_RANK, '2', $direction, false);
             SqlText::order($query, 'project_tasks.due_date', $direction);
         } elseif ($sort === 'status') {
@@ -120,16 +158,17 @@ final class WorkRecords
         // is the ascending one turned round whole, equal keys included.
         $query->orderBy('project_tasks.code', $direction);
         $perPage = max(1, min(100, $perPage));
-        $rows = $query->with(['assignments', 'project'])->paginate($perPage, ['project_tasks.*'], 'page', max(1, $page));
+        $this->withHierarchyFacts($query, $actor, true);
+        $rows = $query->with($this->taskContext())->paginate($perPage, ['project_tasks.*'], 'page', max(1, $page));
         if ($rows->currentPage() > $rows->lastPage()) {
             $rows = $query->paginate($perPage, ['project_tasks.*'], 'page', $rows->lastPage());
         }
 
-        return new LengthAwarePaginator($this->taskViews($actor, $rows->getCollection()), $rows->total(), $perPage, $rows->currentPage(), $rows->getOptions());
+        return new LengthAwarePaginator($this->taskViews($actor, $rows->getCollection(), true), $rows->total(), $perPage, $rows->currentPage(), $rows->getOptions());
     }
 
     /**
-     * The My Tasks tiles, counted by the same `my_status` the page filters
+     * The personal queue counters, counted by the same `my_status` the page filters
      * on: a response approved while its task is still in progress waits with
      * the reviewers, like a submitted one.
      *
@@ -137,13 +176,16 @@ final class WorkRecords
      * ONLY_FULL_GROUP_BY does not match a repeated expression against the
      * select list and refuses the query (1055), which sqlite never shows.
      *
-     * @return array{total: int, counts: array{todo: int, awaiting: int, returned: int, completed: int}, projects: Collection<int, ProjectView>}
+     * @return array{total: int, counts: array{todo: int, awaiting: int, returned: int, completed: int}, queues: array<string, int>, projects: Collection<int, ProjectView>}
      */
-    public function ownSummary(Access $actor): array
+    public function ownSummary(Access $actor, ?string $today = null): array
     {
-        $counts = WorkScope::joinOwnResponse($this->taskQuery($actor, true), $actor)
-            ->selectRaw(WorkScope::MY_STATUS_SQL.' AS k, COUNT(*) AS n')->groupBy('k')->pluck('n', 'k');
-        $projects = Project::query()->whereIn('id', $this->taskQuery($actor, true)->select('project_id'))->orderBy('code')->get()
+        $today ??= ManilaClock::todayKey();
+        $rows = WorkScope::joinOwnResponse($this->taskQuery($actor, true), $actor)
+            ->selectRaw(WorkScope::MY_STATUS_SQL.' AS k, COUNT(*) AS n, SUM(CASE WHEN project_tasks.due_date < ? THEN 1 ELSE 0 END) AS overdue_n', [$today])->groupBy('k')->get();
+        $counts = $rows->pluck('n', 'k');
+        $overdue = (int) $rows->filter(static fn (ProjectTask $row): bool => in_array($row->getAttribute('k'), TaskInbox::ACTIONABLE, true))->sum('overdue_n');
+        $projects = Project::query()->whereIn('id', $this->taskQuery($actor, true)->select('project_id'))->select('projects.*')->selectRaw(WorkScope::PROJECT_CLIENT_NAME_SQL.' AS client_name')->orderBy('code')->get()
             ->map(static fn (Project $row): ProjectView => Snapshot::of($row, ProjectView::class));
 
         return ['total' => (int) $counts->sum(), 'counts' => [
@@ -151,13 +193,19 @@ final class WorkRecords
             'awaiting' => (int) ($counts['SUBMITTED'] ?? 0) + (int) ($counts['APPROVED'] ?? 0),
             'returned' => (int) ($counts['RETURNED'] ?? 0),
             'completed' => (int) ($counts['COMPLETED'] ?? 0),
+        ], 'queues' => [
+            'ALL' => (int) $counts->sum(),
+            'ACTIONABLE' => (int) ($counts['PENDING'] ?? 0) + (int) ($counts['IN_PROGRESS'] ?? 0) + (int) ($counts['RETURNED'] ?? 0),
+            'RETURNED' => (int) ($counts['RETURNED'] ?? 0), 'OVERDUE' => $overdue,
+            'WAITING' => (int) ($counts['SUBMITTED'] ?? 0) + (int) ($counts['APPROVED'] ?? 0),
+            'CLOSED' => (int) ($counts['COMPLETED'] ?? 0) + (int) ($counts['CANCELLED'] ?? 0),
         ], 'projects' => $projects];
     }
 
     /** @param Collection<int, ProjectTask> $rows
      * @return Collection<int, ProjectTaskView>
      */
-    private function taskViews(Access $actor, Collection $rows): Collection
+    private function taskViews(Access $actor, Collection $rows, bool $own = false): Collection
     {
         if ($rows->isEmpty()) {
             return new Collection;
@@ -180,12 +228,16 @@ final class WorkRecords
             }
         }
         $accounts = app(AccountNames::class)->list($actor, $accountIds)->keyBy('id');
+        $parentIds = $rows->pluck('parent_id')->filter()->unique()->values()->all();
+        $parents = $parentIds === [] ? collect() : WorkScope::tasks($actor, $own)->whereKey($parentIds)->get(['project_tasks.id', 'project_tasks.code', 'project_tasks.title', 'project_tasks.status'])
+            ->map(static fn (ProjectTask $parent): TaskParentView => Snapshot::of($parent, TaskParentView::class))->keyBy('id');
 
         return $rows->map(static fn (ProjectTask $row): ProjectTaskView => Snapshot::of($row, ProjectTaskView::class, [
             'assignees' => $employees->only($row->assigneeIds())->values(),
             'project' => $row->project === null ? null : Snapshot::of($row->project, ProjectView::class),
             'submitter' => $employees->get($row->submitted_by),
             'assigner' => $accounts->get($row->assigned_by), 'reviewer' => $accounts->get($row->reviewed_by),
+            'parent' => $row->parent_id === null ? null : $parents->get($row->parent_id),
         ]));
     }
 
@@ -199,7 +251,7 @@ final class WorkRecords
      */
     public function tasksByIds(Access $actor, array $ids): Collection
     {
-        return $this->taskViews($actor, $this->withResponseFacts($this->taskQuery($actor, false))->whereKey($ids)->with(['assignments', 'project'])->orderBy('code')->get());
+        return $this->taskViews($actor, $this->withHierarchyFacts($this->withResponseFacts($this->taskQuery($actor, false)), $actor)->whereKey($ids)->with($this->taskContext())->orderBy('code')->get());
     }
 
     /**
@@ -218,12 +270,17 @@ final class WorkRecords
     {
         /** @var Collection<string, TaskResponseView> $views */
         $views = new Collection;
-        // `project` is not eager-loaded: reviewsTask() reads it only for an
-        // actor who is not a manager, so a manager's read stays three queries.
-        $task = $this->taskQuery($actor, $own)->with('assignments')->whereKey($taskId)->first();
+        // Project access facts share the task read, keeping response reads bounded.
+        $task = $this->taskQuery($actor, $own)->with('assignments')
+            ->join('projects', 'projects.id', '=', 'project_tasks.project_id')
+            ->select(['project_tasks.*', 'projects.client_id as viewer_client_id', 'projects.manager_id as viewer_manager_id'])
+            ->where('project_tasks.id', $taskId)->first();
         if ($task === null || ! TaskSubmissionPolicy::isIndividual($task->submission_mode)) {
             return $views;
         }
+        $project = new Project;
+        $project->setRawAttributes(['id' => $task->project_id, 'client_id' => $task->getAttribute('viewer_client_id'), 'manager_id' => $task->getAttribute('viewer_manager_id')], true);
+        $task->setRelation('project', $project);
         $reviewer = WorkRules::reviewsTask($actor, $task);
         $me = $actor->hasEmployeeLink() ? $actor->ownEmployeeId() : null;
         $rows = ProjectTaskSubmission::query()->where('task_id', $task->id)->get()->keyBy('employee_id');
@@ -312,8 +369,7 @@ final class WorkRecords
         abort_if($row === null || $row->task === null, 404, 'That file was not found.');
         // Whoever runs the task's project — an all-data PROJECTS holder or
         // its Task Leader, the same widening as WorkScope — or an assignee.
-        abort_unless(WorkRules::runsProject($actor, $row->task->project)
-            || ($actor->hasEmployeeLink() && $row->task->hasAssignee($actor->ownEmployeeId())), 403, 'You do not have access to that.');
+        abort_unless(WorkScope::tasks($actor)->whereKey($row->task_id)->exists(), 403, 'You do not have access to that.');
         // A peer's evidence on an INDIVIDUAL task is theirs and the reviewer's
         // alone, even for an all-data PROJECTS holder or a Task Leader who is
         // on the crew.
@@ -327,6 +383,12 @@ final class WorkRecords
             'Content-Type' => $row->mime !== '' ? $row->mime : 'application/octet-stream',
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    /** @return array{0: string, project: \Closure} */
+    private function taskContext(): array
+    {
+        return ['assignments', 'project' => static fn (BelongsTo $projects) => $projects->select('projects.*')->selectRaw(WorkScope::PROJECT_CLIENT_NAME_SQL.' AS client_name')];
     }
 
     /** @return Builder<ProjectTask> */
@@ -345,12 +407,28 @@ final class WorkRecords
      */
     private function withResponseFacts(Builder $query): Builder
     {
-        return $query->withCount([
+        return $query->select('project_tasks.*')->selectRaw(WorkScope::TASK_GROUP_NAME_SQL.' AS group_name')->withCount([
             'submissions as responses_submitted' => static fn (Builder $q) => $q->where('project_task_submissions.status', 'SUBMITTED'),
             'submissions as responses_approved' => static fn (Builder $q) => $q->where('project_task_submissions.status', 'APPROVED'),
             'submissions as responses_returned' => static fn (Builder $q) => $q->where('project_task_submissions.status', 'RETURNED'),
         ])->withExists(['files as has_submission_files' => static fn (Builder $q) => $q->where('project_task_files.kind', 'SUBMISSION')])
             ->withCasts(['responses_submitted' => 'integer', 'responses_approved' => 'integer', 'responses_returned' => 'integer']);
+    }
+
+    /** @param Builder<ProjectTask> $query
+     * @return Builder<ProjectTask>
+     */
+    private function withHierarchyFacts(Builder $query, Access $actor, bool $own = false): Builder
+    {
+        $visible = static fn (Builder $children) => $children->whereIn($children->getModel()->qualifyColumn('id'), WorkScope::tasks($actor, $own)->select('project_tasks.id'));
+
+        return $query->selectRaw(WorkScope::EFFECTIVE_GROUP_SQL.' AS effective_group_id')
+            ->withExists('subtasks as has_subtasks')
+            ->withCount([
+                'subtasks as subtasks_count' => $visible,
+                'subtasks as subtasks_completed' => static fn (Builder $children) => $visible($children)->where($children->getModel()->qualifyColumn('status'), 'COMPLETED'),
+                'subtasks as subtasks_cancelled' => static fn (Builder $children) => $visible($children)->where($children->getModel()->qualifyColumn('status'), 'CANCELLED'),
+            ])->withCasts(['has_subtasks' => 'boolean', 'subtasks_count' => 'integer', 'subtasks_completed' => 'integer', 'subtasks_cancelled' => 'integer']);
     }
 
     /**

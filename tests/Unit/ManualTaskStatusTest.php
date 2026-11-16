@@ -5,6 +5,15 @@ declare(strict_types=1);
 use App\Domain\Projects\TaskPolicy;
 use App\Modules\WorkManagement\Domain\Tasks\ManualTaskStatus;
 
+it('keeps review cancellation and reopening deliberate while ordinary moves can settle immediately', function () {
+    expect(ManualTaskStatus::needsDecision('PENDING', 'IN_PROGRESS'))->toBeFalse()
+        ->and(ManualTaskStatus::needsDecision('IN_PROGRESS', 'PENDING'))->toBeFalse()
+        ->and(ManualTaskStatus::needsDecision('SUBMITTED', 'IN_PROGRESS'))->toBeTrue()
+        ->and(ManualTaskStatus::needsDecision('IN_PROGRESS', 'COMPLETED'))->toBeTrue()
+        ->and(ManualTaskStatus::needsDecision('PENDING', 'CANCELLED'))->toBeTrue()
+        ->and(ManualTaskStatus::needsDecision('CANCELLED', 'PENDING'))->toBeTrue();
+});
+
 /**
  * A task status set BY HAND moves along a map keyed by the CURRENT status,
  * never a flat list of targets, and never leaves the task contradicting its

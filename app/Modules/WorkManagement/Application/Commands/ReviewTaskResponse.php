@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskAssignee;
 use App\Models\ProjectTaskSubmission;
 use App\Modules\Workforce\Contracts\AssignmentEmployees;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Support\Access;
@@ -51,8 +51,8 @@ final class ReviewTaskResponse
     {
         // Who runs the task's project: an all-data PROJECTS holder, or the
         // project's Task Leader — re-checked on the locked project row below.
-        if (! WorkRules::managesProjects($actor)) {
-            $seen = WorkRules::task($actor, $projectId, $taskId);
+        $seen = WorkRules::task($actor, $projectId, $taskId);
+        if (! WorkRules::managesProject($actor, $seen?->project)) {
             if ($seen === null || ! WorkRules::leadsProject($actor, $seen->project)) {
                 throw new RuntimeException(WorkRules::forbiddenMessage());
             }
@@ -71,12 +71,13 @@ final class ReviewTaskResponse
         /** @var array{0: ProjectTask, 1: ProjectTaskSubmission} $decided */
         $decided = DB::transaction(static function () use ($actor, $projectId, $taskId, $responseId, $decision, $remark, $revision): array {
             // L1.
-            $task = WorkRules::lockedTask($taskId, $projectId);
+            $task = WorkRules::lockedTask($actor, $taskId, $projectId);
             if ($task === null) {
                 throw new RuntimeException('That task no longer exists.');
             }
             // P, after L1: the leader is re-read under lock.
-            if (! WorkRules::managesProjects($actor) && ! WorkRules::leadsProject($actor, WorkRules::lockedProject($task->project_id))) {
+            $project = WorkRules::lockedProject($actor, $task->project_id);
+            if (! WorkRules::runsProject($actor, $project)) {
                 throw new RuntimeException(WorkRules::forbiddenMessage());
             }
             if (! TaskSubmissionPolicy::isIndividual($task->submission_mode)) {
@@ -129,7 +130,7 @@ final class ReviewTaskResponse
         // Only the member whose response it is, on every account they sign
         // in with — never the reviewer, and never the rest of the crew.
         $label = WorkRules::taskLabel($task);
-        Notifier::employees([$row->employee_id], [$actor->userId], 'TASK_RESPONSE_'.$decision,
+        Notifier::employees($actor, $task, [$row->employee_id], [$actor->userId], 'TASK_RESPONSE_'.$decision,
             $decision === 'APPROVED' ? "Your response on {$label} was approved" : "Your response on {$label} was returned for rework",
             $decision === 'RETURNED' ? $remark : ($remark !== '' ? $remark : 'The task completes once every response is approved.'),
             '/my-tasks');

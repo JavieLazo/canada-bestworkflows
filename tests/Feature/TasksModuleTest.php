@@ -211,7 +211,7 @@ it('will not open another employee\'s task even with the id in hand', function (
 */
 
 it('walks a task from pending to submitted with audit, thread and notification', function () {
-    $manager = User::factory()->create();
+    $manager = User::factory()->create(['role_id' => tasksRole(['PROJECTS'], true)->id]);
     $employee = tasksEmployee('EMP-001');
     $project = tasksProject();
     $task = tasksTask($project, $employee->getKey(), assignedBy: (int) $manager->getKey());
@@ -253,7 +253,7 @@ it('walks a task from pending to submitted with audit, thread and notification',
     $bell = Notification::query()->where('user_id', $manager->getKey())->where('kind', 'TASK_SUBMITTED')->first();
     expect($bell)->not->toBeNull();
     expect($bell->title)->toBe('Task TSK-001 submitted for review');
-    expect($bell->href)->toBe('/projects');
+    expect($bell->href)->toBe('/projects/'.$project->id.'?task='.$task->id);
 
     // Working alone: submitted_by is the submitter, and there is nobody
     // else to tell — no second TASK_SUBMITTED row anywhere.
@@ -284,7 +284,7 @@ it('lists and opens a shared task for its second assignee', function () {
 });
 
 it('submits a shared task for everyone, records who did, and tells the co-assignee', function () {
-    $manager = User::factory()->create();
+    $manager = User::factory()->create(['role_id' => tasksRole(['PROJECTS'], true)->id]);
     $me = tasksEmployee('EMP-001');
     $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
     $peerLogin = User::factory()->create(['employee_id' => $peer->getKey(), 'is_active' => true]);
@@ -311,7 +311,7 @@ it('submits a shared task for everyone, records who did, and tells the co-assign
     expect($bell)->not->toBeNull();
     expect($bell->title)->toBe('Liza Domingo submitted Task TSK-001 for review');
     expect($bell->body)->toBe('Both halves are done.');
-    expect($bell->href)->toBe('/my-tasks');
+    expect($bell->href)->toBe('/my-tasks?task='.$task->id);
 
     // The submitter is not told about their own submission.
     expect(Notification::query()->where('kind', 'TASK_SUBMITTED')->count())->toBe(2);
@@ -324,7 +324,7 @@ it('submits a shared task for everyone, records who did, and tells the co-assign
 });
 
 it('tells the co-assignee about a peer\'s comment, and every assignee about a management note', function () {
-    $manager = User::factory()->create();
+    $manager = User::factory()->create(['role_id' => tasksRole(['PROJECTS'], true)->id]);
     $me = tasksEmployee('EMP-001');
     $peer = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
     $peerLogin = User::factory()->create(['employee_id' => $peer->getKey(), 'is_active' => true]);
@@ -341,7 +341,7 @@ it('tells the co-assignee about a peer\'s comment, and every assignee about a ma
     $bell = Notification::query()->where('user_id', $peerLogin->getKey())->where('kind', 'TASK_COMMENT')->first();
     expect($bell)->not->toBeNull();
     expect($bell->title)->toBe('New note on Task TSK-001');
-    expect($bell->href)->toBe('/my-tasks');
+    expect($bell->href)->toBe('/my-tasks?task='.$task->id);
     expect(Notification::query()->where('kind', 'TASK_COMMENT')->count())->toBe(2);
 });
 
@@ -350,7 +350,7 @@ it('tells an assigner who is also on the crew once, as the assigner, and the act
     $lead = tasksEmployee('EMP-002', 'Ramon', 'Cruz');
     // The task leader put themselves on the crew, so their login is reachable
     // twice in one fan-out: as assigned_by and through the pivot.
-    $leadLogin = User::factory()->create(['employee_id' => $lead->getKey(), 'is_active' => true]);
+    $leadLogin = User::factory()->create(['role_id' => tasksRole(['PROJECTS', 'TASKS'], true)->id, 'employee_id' => $lead->getKey(), 'is_active' => true]);
     $project = tasksProject();
     $task = tasksTask($project, [$me->getKey(), $lead->getKey()], status: 'IN_PROGRESS', assignedBy: (int) $leadLogin->getKey());
     $myLogin = tasksActor(['TASKS'], employeeId: $me->getKey());
@@ -367,7 +367,7 @@ it('tells an assigner who is also on the crew once, as the assigner, and the act
         // the Projects screen. An assigner on the crew cannot decide it there
         // (ReviewTask refuses a self-review); another reviewer does.
         ->and($submitted[0]->title)->toBe('Task TSK-001 submitted for review')
-        ->and($submitted[0]->href)->toBe('/projects');
+        ->and($submitted[0]->href)->toBe('/projects/'.$project->id.'?task='.$task->id);
 
     Livewire::test(MyTasksPage::class)
         ->call('openTask', $task->getKey())
@@ -377,7 +377,7 @@ it('tells an assigner who is also on the crew once, as the assigner, and the act
     $noted = Notification::query()->where('kind', 'TASK_COMMENT')->get();
     expect($noted)->toHaveCount(1)
         ->and((int) $noted[0]->user_id)->toBe((int) $leadLogin->getKey())
-        ->and($noted[0]->href)->toBe('/projects');
+        ->and($noted[0]->href)->toBe('/projects/'.$project->id.'?task='.$task->id);
 
     // The actor is never told about their own actions.
     expect(Notification::query()->where('user_id', $myLogin->getKey())->count())->toBe(0);
@@ -439,7 +439,7 @@ it('refuses a transition the policy does not allow', function () {
 });
 
 it('posts a standalone comment to the thread', function () {
-    $manager = User::factory()->create();
+    $manager = User::factory()->create(['role_id' => tasksRole(['PROJECTS'], true)->id]);
     $employee = tasksEmployee('EMP-001');
     $project = tasksProject();
     $task = tasksTask($project, $employee->getKey(), status: 'SUBMITTED', assignedBy: (int) $manager->getKey());

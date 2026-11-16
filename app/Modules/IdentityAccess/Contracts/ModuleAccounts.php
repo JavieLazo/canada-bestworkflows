@@ -27,5 +27,5 @@ interface ModuleAccounts
      * @param  list<int>  $ids
      * @return list<int>
      */
-    public function filter(Access $actor, string $module, array $ids): array;
+    public function filter(Access $actor, string $module, array $ids, bool $lock = false): array;
 }

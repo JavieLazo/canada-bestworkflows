@@ -50,7 +50,7 @@ final class ScheduleProject
         /** @var Project|null $saved */
         $saved = DB::transaction(static function () use ($actor, $project, $startDate): ?Project {
             // P first; the tasks are read plainly after it (WorkRules' protocol).
-            $locked = WorkRules::lockedProject($project->id);
+            $locked = WorkRules::lockedProject($actor, $project->id);
             if ($locked === null) {
                 return null;
             }

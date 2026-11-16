@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskAssignee;
 use App\Models\ProjectTaskSubmission;
 use App\Models\TaskComment;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Tasks\ManualTaskStatus;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
@@ -70,14 +70,14 @@ final class ChangeTaskStatus
 
         /** @var array{0: ProjectTask, 1: string, 2: list<string>} $moved */
         $moved = DB::transaction(static function () use ($actor, $projectId, $taskId, $to, $remark, $expectedFrom): array {
-            $task = WorkRules::lockedTask($taskId, $projectId);
+            $task = WorkRules::lockedTask($actor, $taskId, $projectId);
             if ($task === null) {
                 throw new RuntimeException('That task no longer exists.');
             }
             if ($task->status !== $expectedFrom) {
                 throw new RuntimeException('That task changed before this action completed.');
             }
-            $project = WorkRules::lockedProject($task->project_id);
+            $project = WorkRules::lockedProject($actor, $task->project_id);
             if ($project === null || ! WorkRules::runsProject($actor, $project)) {
                 throw new RuntimeException(WorkRules::forbiddenMessage());
             }
@@ -88,7 +88,7 @@ final class ChangeTaskStatus
             // moves that decide nothing — but nobody on the crew completes or
             // returns the work, or undoes a hand-in or an acceptance of it.
             $onCrew = $actor->employeeId !== null && in_array($actor->employeeId, $crew, true);
-            if ($onCrew && (! WorkRules::managesProjects($actor) || ManualTaskStatus::isReviewMove($task->status, $to))) {
+            if ($onCrew && (! WorkRules::managesProject($actor, $project) || ManualTaskStatus::isReviewMove($task->status, $to))) {
                 throw new RuntimeException(WorkRules::selfReviewMessage());
             }
             $individual = TaskSubmissionPolicy::isIndividual($task->submission_mode);
@@ -131,7 +131,7 @@ final class ChangeTaskStatus
         [$task, , $crew] = $moved;
 
         $others = array_values(array_filter($crew, static fn (string $id): bool => $id !== $actor->employeeId));
-        Notifier::employees($others, [], 'TASK_'.$to,
+        Notifier::employees($actor, $task, $others, [], 'TASK_'.$to,
             WorkRules::taskLabel($task).' set to '.mb_strtolower(TaskPolicy::statusLabel($to)),
             $remark !== '' ? $remark : $task->title, '/my-tasks');
     }

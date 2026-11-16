@@ -13,6 +13,7 @@ use App\Platform\Files\AttachmentStore;
 use App\Support\Access;
 use App\Support\AuditService;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -22,7 +23,7 @@ final class TaskBriefs
 {
     public function attach(Access $actor, string $projectId, ?string $taskId, UploadedFile $file): ?string
     {
-        if (! WorkRules::managesProjects($actor)) {
+        if (! WorkRules::editsWork($actor, WorkRules::project($actor, $projectId))) {
             throw new \RuntimeException(WorkRules::forbiddenMessage());
         }
         $task = WorkRules::task($actor, $projectId, $taskId);
@@ -57,17 +58,33 @@ final class TaskBriefs
         if ($file === null) {
             return null;
         }
-        // The brief is the reviewer's spec — deleting it is not the assignee's
-        // to do; the submission is not deletable from this screen at all.
-        if ($file->kind !== 'BRIEF' || ! WorkRules::managesProjects($actor)) {
+        // Shared briefs belong to task planners. Submission evidence uses its own protected flow.
+        if ($file->kind !== 'BRIEF' || ! WorkRules::editsWork($actor, WorkRules::project($actor, $projectId))) {
             throw new \RuntimeException(WorkRules::forbiddenMessage());
         }
         if (! in_array($task->status, TaskFilePolicy::BRIEF_EDITABLE_STATUSES, true)) {
             throw new \RuntimeException('Task evidence is locked in this status.');
         }
-        $path = $file->getAttribute('path');
-        $file->delete();
-        if (is_string($path) && $path !== '') {
+        $path = DB::transaction(static function () use ($actor, $task, $fileId): ?string {
+            $locked = WorkRules::lockedTask($actor, $task->id);
+            $project = $locked === null ? null : WorkRules::lockedProject($actor, $locked->project_id);
+            if ($locked === null || ! WorkRules::editsWork($actor, $project, lock: true)
+                || ! in_array($locked->status, TaskFilePolicy::BRIEF_EDITABLE_STATUSES, true)) {
+                throw new \RuntimeException('Task evidence is locked or no longer accessible.');
+            }
+            $file = ProjectTaskFile::query()->whereKey($fileId)->where('task_id', $task->id)->where('kind', 'BRIEF')->lockForUpdate()->first();
+            if ($file === null) {
+                return null;
+            }
+            $path = $file->path;
+            $file->delete();
+
+            return $path;
+        });
+        if ($path === null) {
+            return null;
+        }
+        if ($path !== '') {
             Storage::disk('local')->delete($path);
         }
         AuditService::record($actor, AuditEvent::TASK_FILE_REMOVED, 'project_task_files', $fileId, "{$file->file_name} removed from {$task->code}");
@@ -79,7 +96,7 @@ final class TaskBriefs
      * @return list<string> */
     public function batch(Access $actor, string $projectId, string $taskId, array $files): array
     {
-        if (! WorkRules::managesProjects($actor)) {
+        if (! WorkRules::editsWork($actor, WorkRules::project($actor, $projectId))) {
             throw new \RuntimeException(WorkRules::forbiddenMessage());
         }
         $task = WorkRules::task($actor, $projectId, $taskId);
@@ -121,6 +138,12 @@ final class TaskBriefs
 
         try {
             app(AttachmentStore::class)->store($file, TaskFilePolicy::FILE_DIR, (string) Str::ulid(), static function (string $stored) use ($file, $task, $actor, $kind, $size): void {
+                $locked = WorkRules::lockedTask($actor, $task->id);
+                $project = $locked === null ? null : WorkRules::lockedProject($actor, $locked->project_id);
+                if ($locked === null || ! WorkRules::editsWork($actor, $project, lock: true)
+                    || ! in_array($locked->status, TaskFilePolicy::BRIEF_EDITABLE_STATUSES, true)) {
+                    throw new \RuntimeException('Task evidence is locked or no longer accessible.');
+                }
                 $row = new ProjectTaskFile;
                 $row->fill([
                     'task_id' => $task->id,

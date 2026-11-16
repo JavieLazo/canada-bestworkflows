@@ -9,8 +9,9 @@ use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Livewire\Concerns\WithTaskLink;
+use App\Livewire\Concerns\WithTaskTimeline;
 use App\Livewire\Projects\ProjectsData;
-use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Modules\WorkManagement\Application\Commands\AttachSubmission;
 use App\Modules\WorkManagement\Application\Commands\CommentOnOwnTask;
 use App\Modules\WorkManagement\Application\Commands\DeleteSubmission;
@@ -19,6 +20,7 @@ use App\Modules\WorkManagement\Application\Commands\SubmitTask;
 use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView as ProjectTask;
 use App\Modules\WorkManagement\Contracts\Views\TaskResponseView;
+use App\Modules\WorkManagement\Domain\Tasks\TaskInbox;
 use App\Support\Access;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
@@ -32,6 +34,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithFileUploads;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -103,6 +106,14 @@ class MyTasksPage extends Component
     use WithFileUploads;
     use WithSorting;
     use WithTableFilters;
+    use WithTaskLink;
+    use WithTaskTimeline;
+
+    #[Url(as: 'queue', except: 'ALL')]
+    public string $queue = 'ALL';
+
+    #[Url(as: 'view', except: 'list')]
+    public string $taskView = 'list';
 
     /** Status filter — plain filter state, deliberately unlocked. */
     public string $status = 'ALL';
@@ -131,25 +142,63 @@ class MyTasksPage extends Component
 
     public function mount(): void
     {
-        // useSort<SortKey>("priority") — my-tasks-page.tsx:58.
-        $this->sortKey = 'priority';
+        // Returned work and approaching dates put the next action first.
+        $this->sortKey = 'focus';
+        $this->followTaskLink();
     }
 
     /** @return list<string> */
     protected function sortableKeys(): array
     {
-        return ['code', 'task', 'priority', 'start', 'due', 'status'];
+        return ['code', 'task', 'priority', 'start', 'due', 'status', 'focus'];
     }
 
     /** Filter changes restart from page 1 (my-tasks-page.tsx:215, 231). */
     public function updatedStatus(): void
     {
+        $this->queue = 'ALL';
         $this->resetPage();
     }
 
     public function updatedProjectId(): void
     {
         $this->resetPage();
+    }
+
+    public function updatedQueue(): void
+    {
+        $this->resetPage();
+    }
+
+    public function setQueue(string $queue): void
+    {
+        if (array_key_exists($queue, TaskInbox::QUEUES)) {
+            $this->queue = $queue;
+            $this->status = 'ALL';
+            $this->resetPage();
+        }
+    }
+
+    public function focusQueue(): void
+    {
+        $this->sortKey = 'focus';
+        $this->sortDir = 'asc';
+        $this->resetPage();
+    }
+
+    public function clearFilters(): void
+    {
+        $this->search = '';
+        $this->status = $this->projectId = $this->queue = 'ALL';
+        $this->resetPage();
+    }
+
+    protected function timelineTask(string $id): ?ProjectTask
+    {
+        $actor = $this->actor();
+        $this->authorizeModule($actor);
+
+        return app(WorkRecords::class)->task($actor, $id, own: true);
     }
 
     /* ---------------------------------- open ---------------------------------- */
@@ -167,10 +216,15 @@ class MyTasksPage extends Component
         $task = app(WorkRecords::class)->task($access, $id, own: true);
 
         if ($task === null) {
+            $this->linkedTask = null;
+            Flux::toast(variant: 'danger', text: 'This task is no longer available to you.');
+
             return;
         }
 
         $this->openId = $task->id;
+        $this->linkedTask = $task->id;
+        $this->resetPage('subtasks');
         // The dialog stays mounted across tasks, so a new one must not inherit
         // the draft typed against the last (task-detail-dialog.tsx:104-106).
         $this->reset('remarks', 'commentBody', 'upload');
@@ -181,8 +235,14 @@ class MyTasksPage extends Component
     /** The dialog was dismissed (Close button, ESC, overlay). */
     public function dialogClosed(): void
     {
+        $this->linkedTask = null;
         $this->openId = null;
         $this->reset('remarks', 'commentBody', 'upload');
+    }
+
+    protected function closeTaskPanel(): void
+    {
+        $this->closeDialog();
     }
 
     /** Close it from an action of ours. */
@@ -203,11 +263,11 @@ class MyTasksPage extends Component
      * ever started (INDIVIDUAL_EMPLOYEE_TRANSITIONS): a returned response is
      * resubmitted, the task itself is never returned.
      */
-    public function startTask(): void
+    public function startTask(?string $taskId = null): void
     {
         $access = $this->actor();
         try {
-            $done = app(StartTask::class)->handle($access, $this->openId);
+            $done = app(StartTask::class)->handle($access, $taskId ?? $this->openId);
         } catch (QueryException $e) {
             report($e);
             Flux::toast(variant: 'danger', text: 'The task could not be updated. Please try again.');
@@ -222,7 +282,6 @@ class MyTasksPage extends Component
             return;
         }
         Flux::toast(variant: 'success', text: 'Task started.');
-        $this->closeDialog();
     }
 
     /**
@@ -235,12 +294,12 @@ class MyTasksPage extends Component
      * round (task-detail-dialog.tsx:213-231). The task is shared, so this
      * submits it for every assignee: the status moves once, `submitted_by`
      * names the assignee who pressed the button, and the co-assignees are
-     * told alongside the assigner.
+     * told alongside the assigner and current reviewers.
      *
      * On an INDIVIDUAL task — the actor's OWN response goes to SUBMITTED (a
      * first hand-in, or a resubmission after a return) while the task stays in
      * progress. The note is private to the actor and the reviewer, so it goes
-     * to no thread, and only the assigner is told.
+     * to no thread or notification body. Current reviewers receive the handoff.
      */
     public function submitTask(): void
     {
@@ -372,19 +431,22 @@ class MyTasksPage extends Component
         $linked = $access->hasEmployeeLink();
         $today = ManilaClock::dayKey(CarbonImmutable::now());
 
-        $employee = $linked
-            ? app(OperationalDirectory::class)->find($access, $access->ownEmployeeId())
-            : null;
+        $this->queue = array_key_exists($this->queue, TaskInbox::QUEUES) ? $this->queue : 'ALL';
+        $this->taskView = in_array($this->taskView, ['list', 'gantt', 'capacity'], true) ? $this->taskView : 'list';
 
-        // Tiles/filter choices describe the whole own queue; only table rows
-        // and their attachment/comment counts are loaded for the current page.
-        $summary = app(WorkRecords::class)->ownSummary($access);
+        // Counts cover all assigned work; row details stay paginated.
+        $summary = app(WorkRecords::class)->ownSummary($access, $today);
         $rows = $this->acceptPage($this->ownTasks($access));
         $countsForTasks = app(WorkRecords::class)->counts($access, array_values($rows->getCollection()->map(static fn (ProjectTask $task): string => $task->id)->all()));
         $fileCounts = $countsForTasks['files'];
         $commentCounts = $countsForTasks['comments'];
 
         $open = $this->openId !== null ? app(WorkRecords::class)->task($access, $this->openId, own: true) : null;
+        $subtasks = null;
+        if ($open !== null && ! $open->isSubtask() && $open->has_subtasks) {
+            $subtasks = app(WorkRecords::class)->ownPage($access, ['q' => '', 'status' => 'ALL', 'project' => $open->project_id, 'parent' => $open->id], 'code', 'asc', (int) $this->getPage('subtasks'), 10)->setPageName('subtasks');
+            $this->acceptPage($subtasks, 'subtasks');
+        }
         // The uploader rides along, with their employee record for the
         // spelling the rest of the dialog uses: on a shared task the
         // attachments partial names who attached each peer's file.
@@ -433,7 +495,10 @@ class MyTasksPage extends Component
 
         return view('livewire.tasks.my-tasks-page', [
             'linked' => $linked,
-            'employee' => $employee,
+            'queues' => $summary['queues'],
+            'total' => $summary['total'],
+            'timeline' => $this->taskView === 'gantt' ? $this->timelineWindow() : null,
+            'activeFilterCount' => (trim($this->search) !== '' ? 1 : 0) + ($this->status !== 'ALL' ? 1 : 0) + ($this->projectId !== 'ALL' ? 1 : 0) + ($this->queue !== 'ALL' ? 1 : 0),
             'mineEmpty' => $summary['total'] === 0,
             'counts' => $summary['counts'],
             'myProjects' => $summary['projects'],
@@ -442,6 +507,7 @@ class MyTasksPage extends Component
             'rows' => $rows,
             'today' => $today,
             'open' => $open,
+            'openSubtasks' => $subtasks,
             'openFiles' => $openFiles,
             'openComments' => $openComments,
             'assignedBy' => $assigner?->getAttribute('full_name') ?? $assigner?->getAttribute('name'),
@@ -464,10 +530,7 @@ class MyTasksPage extends Component
             // the actor's own response, never the task row's.
             'submissionNote' => $individual ? $mine?->remarks : $open?->remarks,
             'reviewNote' => $reviewNote,
-            'openOverdue' => $open ? TaskPolicy::isOverdue(
-                ['status' => $open->status, 'due_date' => $open->due_date?->format('Y-m-d')],
-                $today,
-            ) : false,
+            'openOverdue' => $open !== null && TaskInbox::overdue($myState ?? $open->status, $open->due_date?->format('Y-m-d'), $today),
             // DELIBERATE DIVERGENCE: the reference offers Attach whenever the
             // task is neither closed nor under review
             // (task-detail-dialog.tsx:115-117), PENDING included, while its own
@@ -526,11 +589,12 @@ class MyTasksPage extends Component
     {
         return app(WorkRecords::class)->ownPage(
             $access,
-            ['q' => $this->search, 'status' => $this->status, 'project' => $this->projectId],
+            ['q' => $this->search, 'status' => $this->status, 'project' => $this->projectId, 'queue' => $this->queue],
             $this->sortKey,
             $this->sortDir,
             (int) $this->getPage(),
             $this->perPage,
+            ManilaClock::todayKey(),
         );
     }
 

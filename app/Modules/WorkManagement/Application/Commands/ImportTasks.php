@@ -7,6 +7,8 @@ namespace App\Modules\WorkManagement\Application\Commands;
 use App\Domain\Projects\TaskPolicy;
 use App\Models\ProjectTask;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
+use App\Modules\WorkManagement\Application\Queries\ClientPeople;
+use App\Modules\WorkManagement\Application\Queries\ProjectPeople;
 use App\Modules\WorkManagement\Application\Queries\WorkExports;
 use App\Modules\WorkManagement\Application\TaskDetails;
 use App\Modules\WorkManagement\Application\TaskDraft;
@@ -21,8 +23,8 @@ use RuntimeException;
 
 /**
  * One project's task list read back from its CSV. `$context` is the
- * project's id; it must be a project the actor can see, and only a Projects
- * manager (all_data + PROJECTS, the create gate) is offered the import.
+ * project's id; its manager or delegated task editor may import planning
+ * changes. Status and handed-in work keep their existing authority checks.
  *
  * A blank Code creates through {@see CreateTask} (the minted TSK- code, the
  * project window, the assignees told once it commits); a new task starts
@@ -30,8 +32,8 @@ use RuntimeException;
  * {@see UpdateTaskDetails}, then a changed status through
  * {@see ChangeTaskStatus} — the manual map, the no-self-review rule, and the
  * note some moves require (those are refused here; make them on screen).
- * A task's title cannot be renamed on screen, so a changed title is refused
- * rather than dropped. Assignees are named as the table names them (or by
+ * Rename briefs in the task panel so their prior versions stay in the thread.
+ * CSV edits keep titles unchanged. Assignees are named as the table names them (or by
  * their ID), "; "-separated.
  */
 final class ImportTasks implements TableImport
@@ -39,19 +41,21 @@ final class ImportTasks implements TableImport
     /** @var array<string, list<string>>|null lower-cased name or employee code => employee ids */
     private ?array $people = null;
 
+    private ?string $peopleContext = null;
+
     public function layout(Access $actor, string $context): ImportLayout
     {
         return new ImportLayout('tasks', 'Code', WorkExports::TASK_COLUMNS, [
             'Assignees lists people as the table names them (or by their ID), separated by "; ". A dash or a blank cell means nobody.',
             'Taking someone off Assignees removes them from the task, as the task screen does; on a task with individual responses, their response goes with them.',
             'Priority is one of '.implode(', ', TaskPolicy::PRIORITIES).'. Status moves only as the task screen allows; a new task starts Pending.',
-            'Task titles cannot be changed once a task exists.',
+            'Rename existing tasks in their task panel. CSV updates keep the task title unchanged.',
         ], 'Leave Code blank to add a new task. A row whose Code matches a task in this project updates it. No task is ever deleted.');
     }
 
     public function allows(Access $actor, string $context): bool
     {
-        return WorkRules::managesProjects($actor) && $context !== '' && WorkRules::project($actor, $context) !== null;
+        return $context !== '' && WorkRules::editsWork($actor, WorkRules::project($actor, $context));
     }
 
     public function row(Access $actor, string $context, ImportRow $row): ImportOutcome
@@ -71,7 +75,7 @@ final class ImportTasks implements TableImport
         $status = $row->choice('Status', TaskPolicy::STATUSES);
         $start = $row->date('Start date') ?? '';
         $due = $row->date('Due date') ?? '';
-        $assignees = $this->assignees($actor, $row->text('Assignees'));
+        $assignees = $this->assignees($actor, $row->text('Assignees'), $context, $task?->id);
 
         if ($task === null) {
             if ($status !== '' && $status !== 'PENDING') {
@@ -114,15 +118,22 @@ final class ImportTasks implements TableImport
      *
      * @return list<string>
      */
-    private function assignees(Access $actor, string $cell): array
+    private function assignees(Access $actor, string $cell, string $projectId, ?string $taskId): array
     {
         $cell = trim($cell);
         if ($cell === '' || $cell === EmployeeName::display(null) || $cell === '-') {
             return [];
         }
-        if ($this->people === null) {
+        $context = $projectId.':'.($taskId ?? '');
+        if ($this->people === null || $this->peopleContext !== $context) {
+            $this->peopleContext = $context;
             $this->people = [];
-            foreach (app(OperationalDirectory::class)->list($actor) as $employee) {
+            $project = WorkRules::project($actor, $projectId);
+            $employees = ! WorkRules::managesProject($actor, $project)
+                ? app(ProjectPeople::class)->employees($actor, $projectId, taskId: $taskId)
+                : ($project?->client_id === null ? app(OperationalDirectory::class)->list($actor)
+                    : app(ClientPeople::class)->employees($actor, $project->client_id, taskId: $taskId));
+            foreach ($employees as $employee) {
                 $this->people[mb_strtolower(EmployeeName::display($employee))][] = $employee->id;
                 $this->people[mb_strtolower($employee->employee_code)][] = $employee->id;
             }

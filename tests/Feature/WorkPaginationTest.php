@@ -121,7 +121,7 @@ it('filters before paging and keeps unfiltered own summaries and scopes', functi
     $queries = array_column(DB::getQueryLog(), 'query');
     DB::disableQueryLog();
     expect($page)->toHaveCount(10);
-    $taskReads = array_values(array_filter($queries, static fn (string $sql): bool => str_contains(strtolower($sql), 'select') && str_contains($sql, 'project_tasks') && ! str_contains(strtolower($sql), 'count(')));
+    $taskReads = array_values(array_filter($queries, static fn (string $sql): bool => preg_match('/^select\s+[`"]?project_tasks[`"]?\.\*/i', $sql) === 1));
     expect($taskReads)->toHaveCount(1)->and(strtolower($taskReads[0]))->toContain('limit 10');
 });
 

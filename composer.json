@@ -20,6 +20,7 @@
         "ext-pdo_mysql": "*",
         "ext-tokenizer": "*",
         "ext-xml": "*",
+        "ext-xmlwriter": "*",
         "ext-zip": "*",
         "laravel/chisel": "^0.1.0",
         "laravel/fortify": "^1.37.2",

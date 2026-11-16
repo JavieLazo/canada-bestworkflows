@@ -13,6 +13,8 @@ use Carbon\CarbonImmutable;
  * @property-read string $id
  * @property-read string $code
  * @property-read string $name
+ * @property-read string|null $client_id
+ * @property-read string|null $client_name
  * @property-read string|null $description
  * @property-read string|null $site_id
  * @property-read string $status

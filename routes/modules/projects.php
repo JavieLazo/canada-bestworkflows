@@ -2,10 +2,15 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Projects\FinanceExportController;
 use App\Http\Controllers\Projects\ProjectsExportController;
+use App\Http\Controllers\Projects\RecordFileController;
+use App\Http\Controllers\Projects\ReportWorkbookController;
 use App\Http\Controllers\Projects\TasksExportController;
 use App\Http\Controllers\Tasks\TaskFileController;
+use App\Livewire\Projects\ClientsPage;
 use App\Livewire\Projects\Index;
+use App\Livewire\Projects\PortfoliosPage;
 use App\Livewire\Projects\Show;
 use Illuminate\Support\Facades\Route;
 
@@ -32,8 +37,13 @@ Route::middleware(['web', 'auth', 'module:PROJECTS,TASKS'])->group(static functi
 
 Route::middleware(['web', 'auth', 'module:PROJECTS'])->group(static function (): void {
     Route::get('/projects/export', ProjectsExportController::class)->name('projects.export');
+    Route::get('/projects/record-files/{file}', RecordFileController::class)->name('projects.record-files.show');
     Route::get('/projects', Index::class)->name('projects.index');
+    Route::get('/projects/clients', ClientsPage::class)->name('projects.clients');
+    Route::get('/projects/portfolios', PortfoliosPage::class)->name('projects.portfolios');
     Route::get('/projects/{project}/tasks/export', TasksExportController::class)
         ->name('projects.tasks.export');
+    Route::get('/projects/{project}/finance/export', FinanceExportController::class)->name('projects.finance.export');
+    Route::get('/projects/{project}/reports/{report}/workbook', ReportWorkbookController::class)->name('projects.reports.workbook');
     Route::get('/projects/{project}', Show::class)->name('projects.show');
 });

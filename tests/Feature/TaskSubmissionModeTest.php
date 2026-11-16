@@ -410,7 +410,7 @@ it('stores an individual hand-in as the member\'s own row and tells only the ass
     expect((int) $notice->user_id)->toBe((int) $assigner->getKey())
         ->and($notice->kind)->toBe('TASK_RESPONSE_SUBMITTED')
         ->and($notice->body)->toBe($task->title)
-        ->and($notice->href)->toBe('/projects/'.$task->project_id);
+        ->and($notice->href)->toBe('/projects/'.$task->project_id.'?task='.$task->id);
 });
 
 it('refuses a hand-in that is not the member\'s to make, leaving no row', function (string $status, ?string $existing) {

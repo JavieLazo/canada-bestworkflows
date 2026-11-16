@@ -8,6 +8,7 @@ use App\Models\EmployeeDocument;
 use App\Models\Project;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskFile;
+use App\Models\ProjectTaskGroup;
 use App\Models\ProjectTaskSubmission;
 use App\Models\User;
 use App\Modules\IdentityAccess\Application\Commands\ManageRoles;
@@ -24,9 +25,11 @@ use App\Modules\WorkManagement\Application\Commands\ChangeTaskStatus;
 use App\Modules\WorkManagement\Application\Commands\CreateTask;
 use App\Modules\WorkManagement\Application\Commands\DeleteProject;
 use App\Modules\WorkManagement\Application\Commands\DeleteSubmission;
+use App\Modules\WorkManagement\Application\Commands\MoveTaskToGroup;
 use App\Modules\WorkManagement\Application\Commands\ReviewTask;
 use App\Modules\WorkManagement\Application\Commands\ReviewTaskResponse;
 use App\Modules\WorkManagement\Application\Commands\SubmitTask;
+use App\Modules\WorkManagement\Application\Commands\UpdateTaskContent;
 use App\Modules\WorkManagement\Application\Commands\UpdateTaskDetails;
 use App\Modules\WorkManagement\Application\TaskDetails;
 use App\Modules\WorkManagement\Application\TaskDraft;
@@ -120,6 +123,11 @@ try {
             $response = ProjectTaskSubmission::query()->where('task_id', $task->id)->where('employee_id', $employeeId)->firstOrFail();
             app(ReviewTaskResponse::class)->handle($actor, $task->project_id, $task->id, $response->id,
                 $operation === 'task-approve-response' ? 'APPROVED' : 'RETURNED', 'Redo the totals.', $response->revision);
+        } elseif ($operation === 'task-edit-brief') {
+            app(UpdateTaskContent::class)->handle($actor, $task->project_id, $task->id, 'Brief from worker '.$number, 'Updated scope', $task->title, (string) $task->description);
+        } elseif ($operation === 'task-move-group') {
+            $group = ProjectTaskGroup::query()->where('project_id', $task->project_id)->where('name', 'Race group '.$number)->sole();
+            app(MoveTaskToGroup::class)->handle($actor, $task->project_id, $task->id, $group->id, $task->group_id);
         } elseif ($operation === 'task-submit') {
             app(SubmitTask::class)->handle($actor, $task->id, 'Handed in by worker '.$number.'.');
         } elseif ($operation === 'task-attach') {

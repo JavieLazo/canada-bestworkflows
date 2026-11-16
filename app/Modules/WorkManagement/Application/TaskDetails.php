@@ -11,13 +11,20 @@ namespace App\Modules\WorkManagement\Application;
  * stored mode alone, so an edit that never touched the mode can neither
  * revert another reviewer's switch nor be refused by the mode lock.
  *
- * `startDate` works the same way: null leaves the stored start date alone,
- * '' clears it, and a 'Y-m-d' key sets it. Appended last, and null by
- * default, so a caller that predates it can never clear a start date it
- * never saw.
+ * A null date leaves the stored value alone; '' clears it and a calendar
+ * key sets it. Optional seen dates protect fields the editor actually
+ * changed without reverting a peer's untouched date.
  */
 final readonly class TaskDetails
 {
     /** @param array<array-key, mixed> $assigneeIds */
-    public function __construct(public string $priority, public string $dueDate, public array $assigneeIds, public ?string $submissionMode = null, public ?string $startDate = null) {}
+    public function __construct(
+        public string $priority,
+        public ?string $dueDate,
+        public array $assigneeIds,
+        public ?string $submissionMode = null,
+        public ?string $startDate = null,
+        public ?string $seenStartDate = null,
+        public ?string $seenDueDate = null,
+    ) {}
 }

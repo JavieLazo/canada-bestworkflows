@@ -11,6 +11,7 @@ use App\Models\ProjectTaskSubmission;
 use App\Modules\WorkManagement\Application\TaskFilePolicy;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
+use App\Modules\WorkManagement\Infrastructure\ClientScope;
 use App\Support\Access;
 use App\Support\AuditService;
 use Illuminate\Database\QueryException;
@@ -45,6 +46,7 @@ final class DeleteSubmission
             return null;
         }
         $task = $file->task;
+        abort_unless(ClientScope::allowsWork($access, $task->project?->client_id), 403);
         $individual = TaskSubmissionPolicy::isIndividual($task->submission_mode);
         $mine = $access->hasEmployeeLink() && $task->hasAssignee($access->ownEmployeeId()) && ($access->userId !== null && (string) $file->uploaded_by === $access->userId)
             && (! $individual || $file->employee_id === $access->ownEmployeeId());
@@ -56,7 +58,7 @@ final class DeleteSubmission
         }
         try {
             $removed = DB::transaction(static function () use ($access, $file, $task): bool {
-                $locked = WorkRules::lockedTask($file->task_id);
+                $locked = WorkRules::lockedTask($access, $file->task_id);
                 if ($locked === null) {
                     // The task — and with it this file — is gone.
                     return false;

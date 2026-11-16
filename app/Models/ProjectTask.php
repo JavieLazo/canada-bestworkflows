@@ -74,6 +74,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $id
  * @property string $code
  * @property string $project_id
+ * @property string|null $group_id
+ * @property string|null $parent_id
  * @property string $title
  * @property string|null $description
  * @property string $status
@@ -109,6 +111,7 @@ class ProjectTask extends BaseModel
     protected $fillable = [
         'code',
         'project_id',
+        'group_id',
         'title',
         'description',
         'status',
@@ -173,6 +176,12 @@ class ProjectTask extends BaseModel
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class, 'project_id');
+    }
+
+    /** @return HasMany<ProjectTask, $this> */
+    public function subtasks(): HasMany
+    {
+        return $this->hasMany(self::class, 'parent_id');
     }
 
     /**

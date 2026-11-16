@@ -25,7 +25,6 @@
     arrow-down-tray/trash on the Flux primitives.
 --}}
 @php
-    use App\Livewire\Tasks\MyTasksPage;
     use App\Support\EmployeeName;
 @endphp
 <div class="space-y-2">
@@ -66,35 +65,17 @@
     @else
         <ul class="space-y-1">
             @foreach ($files as $f)
-                <li
-                    wire:key="file-{{ $f->id }}"
-                    class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
-                >
-                    <flux:icon.paper-clip class="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                    <span class="min-w-0 flex-1 truncate text-sm">{{ $f->file_name }}</span>
-                    @if ($kind === 'SUBMISSION' && $f->uploader !== null && (int) $f->uploaded_by !== ($actorUserId ?? null))
-                        {{-- Somebody else's evidence: say whose. --}}
-                        <span class="shrink-0 text-xs text-muted-foreground">by {{ EmployeeName::display($f->uploader->employee, $f->uploader->name) }}</span>
-                    @endif
-                    <span class="num shrink-0 text-xs text-muted-foreground">{{ MyTasksPage::humanSize((int) $f->size) }}</span>
-                    <a
-                        href="{{ route('tasks.files.download', $f->id) }}"
-                        aria-label="Download {{ $f->file_name }}"
-                        class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-accent-foreground"
-                    >
-                        <flux:icon.arrow-down-tray class="h-3.5 w-3.5" />
-                    </a>
-                    @if ($canDelete && $f->uploaded_by !== null && (int) $f->uploaded_by === ($actorUserId ?? null))
-                        <button
-                            type="button"
-                            aria-label="Remove {{ $f->file_name }}"
-                            class="inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors hover:bg-accent"
-                            wire:click="deleteFile('{{ $f->id }}')"
-                            wire:loading.attr="disabled"
-                        >
-                            <flux:icon.trash class="h-3.5 w-3.5 text-danger" />
-                        </button>
-                    @endif
+                <li wire:key="file-{{ $f->id }}">
+                    <x-work.file :file="$f" :href="route('tasks.files.download', $f->id)">
+                        @if ($kind === 'SUBMISSION' && $f->uploader !== null && (int) $f->uploaded_by !== ($actorUserId ?? null))
+                            <x-slot:meta> · by {{ EmployeeName::display($f->uploader->employee, $f->uploader->name) }}</x-slot:meta>
+                        @endif
+                        @if ($canDelete && $f->uploaded_by !== null && (int) $f->uploaded_by === ($actorUserId ?? null))
+                            <x-slot:actions>
+                                <flux:button type="button" size="sm" variant="ghost" square icon="trash" aria-label="Remove {{ $f->file_name }}" wire:click="deleteFile('{{ $f->id }}')" wire:loading.attr="disabled" />
+                            </x-slot:actions>
+                        @endif
+                    </x-work.file>
                 </li>
             @endforeach
         </ul>

@@ -157,7 +157,9 @@ it('serves the header alone as each template, and offers imports only to a Proje
     expect(test()->get('/projects/export?template=1')->streamedContent())->toBe(Csv::BOM.'"Code","Project","Site","Task Leader","Start date","Due date","Progress","Health","Status"')
         ->and(test()->get('/projects/'.$project->id.'/tasks/export?template=1')->streamedContent())->toBe(Csv::BOM.'"Code","Task","Assignees","Priority","Start date","Due date","Status"');
     Livewire::test(Index::class)->assertSee('Import CSV');
-    Livewire::test(Show::class, ['project' => $project->id])->assertSee('Import CSV');
+    $workspace = Livewire::test(Show::class, ['project' => $project->id]);
+    $workspace->assertSee('Import CSV');
+    $workspace->set('taskView', 'overview')->assertSee('Import CSV');
 
     pxferActor([ModuleCode::PROJECTS], allData: false);
     Livewire::test(Index::class)->assertSee('Export CSV')->assertDontSee('Import CSV');

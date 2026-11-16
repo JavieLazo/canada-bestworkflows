@@ -9,13 +9,16 @@ use App\Models\Project;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskAssignee;
 use App\Models\ProjectTaskFile;
+use App\Models\ProjectTaskGroup;
 use App\Models\ProjectTaskSubmission;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
+use App\Modules\WorkManagement\Application\Commands\SaveTaskGroup;
 use App\Modules\WorkManagement\Application\TaskEvidenceLocked;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
+use App\Support\Access;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
@@ -294,6 +297,60 @@ function taskRaceStoredFiles(string $directory): array
 
     return is_dir($root) ? array_values(array_map(static fn (SplFileInfo $file): string => $file->getRelativePathname(), File::allFiles($root))) : [];
 }
+
+it('keeps one of two group moves that both started from the same task version', function () {
+    [$member] = taskRaceMember('Ana');
+    $first = taskRaceReviewer();
+    $second = taskRaceReviewer();
+    $task = taskRaceGroup([$member]);
+    $a = app(SaveTaskGroup::class)->handle(Access::forUser($first), $task->project_id, null, 'Race group 1');
+    app(SaveTaskGroup::class)->handle(Access::forUser($first), $task->project_id, null, 'Race group 2');
+    try {
+        [$saved, $stale] = taskRace([
+            ['op' => 'task-move-group', 'userId' => $first->id, 'employeeId' => $member->id, 'taskId' => $task->id],
+            ['op' => 'task-move-group', 'userId' => $second->id, 'employeeId' => $member->id, 'taskId' => $task->id],
+        ], [$task->id]);
+        expect($saved)->toBe(['ok' => true])->and($stale['ok'])->toBeFalse()
+            ->and($stale['message'] ?? '')->toContain('moved to another activity')
+            ->and($task->fresh()->group_id)->toBe($a->id)
+            ->and($task->fresh()->status)->toBe('IN_PROGRESS');
+    } finally {
+        $task->delete();
+        ProjectTaskGroup::query()->where('project_id', $task->project_id)->delete();
+        Project::query()->whereKey($task->project_id)->delete();
+    }
+});
+
+it('locks the brief against a hand-in or evidence that commits while its editor waits', function (bool $individual, string $operation) {
+    [$member, $login] = taskRaceMember('Ana');
+    [$peer] = taskRaceMember('Ben');
+    $reviewer = taskRaceReviewer();
+    $task = $individual ? taskRaceIndividual([[$member, null], [$peer, null]]) : taskRaceGroup([$member, $peer]);
+    [$work, $edit] = taskRace([
+        ['op' => $operation, 'userId' => $login->id, 'employeeId' => $member->id, 'taskId' => $task->id],
+        ['op' => 'task-edit-brief', 'userId' => $reviewer->id, 'employeeId' => $member->id, 'taskId' => $task->id],
+    ], [$task->id]);
+    expect($work)->toBe(['ok' => true])->and($edit['ok'])->toBeFalse()
+        ->and($edit['message'] ?? '')->toContain('brief is locked')
+        ->and($task->fresh()->title)->toBe($task->title)
+        ->and(DB::table('task_comments')->where('task_id', $task->id)->where('event', 'BRIEF_UPDATED')->count())->toBe(0);
+})->with(['group hand-in' => [false, 'task-submit'], 'individual hand-in' => [true, 'task-submit'], 'group evidence' => [false, 'task-attach'], 'individual evidence' => [true, 'task-attach']]);
+
+it('keeps exactly one of two brief edits that both started from the same version', function () {
+    [$member] = taskRaceMember('Ana');
+    $first = taskRaceReviewer();
+    $second = taskRaceReviewer();
+    $task = taskRaceGroup([$member]);
+    [$saved, $stale] = taskRace([
+        ['op' => 'task-edit-brief', 'userId' => $first->id, 'employeeId' => $member->id, 'taskId' => $task->id],
+        ['op' => 'task-edit-brief', 'userId' => $second->id, 'employeeId' => $member->id, 'taskId' => $task->id],
+    ], [$task->id]);
+    expect($saved)->toBe(['ok' => true])->and($stale['ok'])->toBeFalse()
+        ->and($stale['message'] ?? '')->toContain('changed while you were editing')
+        ->and($task->fresh()->title)->toBe('Brief from worker 1')
+        ->and(DB::table('task_comments')->where('task_id', $task->id)->where('event', 'BRIEF_UPDATED')->count())->toBe(1)
+        ->and(AuditLog::query()->where('entity_id', $task->id)->where('action', 'TASK_UPDATED')->count())->toBe(1);
+});
 
 it('never completes an individual task while a newcomer racing the completion has not been approved', function (bool $editFirst) {
     [$ana] = taskRaceMember('Ana');

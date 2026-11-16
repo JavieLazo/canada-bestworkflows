@@ -86,7 +86,7 @@ final class ManualProjectStatus
 
         $manager = $project['manager_id'] ?? null;
         if ($next === 'ACTIVE' && ($manager === null || $manager === '')) {
-            return 'Assign a task leader before activating this project.';
+            return 'Assign a project lead before activating this project.';
         }
 
         if ($next === 'COMPLETED') {

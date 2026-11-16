@@ -16,9 +16,11 @@
         @php($headingId = 'csv-import-heading-'.$this->getId())
         @php($inputId = 'csv-import-file-'.$this->getId())
 
-        <flux:button variant="outline" icon="arrow-up-tray" wire:click="openDialog">
-            Import CSV
-        </flux:button>
+        @if ($showTrigger)
+            <flux:button variant="outline" icon="arrow-up-tray" wire:click="openDialog">
+                Import CSV
+            </flux:button>
+        @endif
 
         <flux:modal
             wire:model.self="open"
@@ -27,7 +29,7 @@
         >
             <div class="space-y-5">
                 <div>
-                    <flux:heading size="lg" id="{{ $headingId }}">Import {{ $layout->title }}</flux:heading>
+                    <flux:heading level="2" size="lg" id="{{ $headingId }}">Import {{ $layout->title }}</flux:heading>
                     <flux:text class="mt-2">
                         Upload a CSV with the same columns as this table's export.
                     </flux:text>

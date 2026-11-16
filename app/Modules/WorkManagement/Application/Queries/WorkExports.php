@@ -33,7 +33,7 @@ final class WorkExports
 
     public const array TASK_COLUMNS = ['Code', 'Task', 'Assignees', 'Priority', 'Start date', 'Due date', 'Status'];
 
-    /** @param array{q: string, status: string, site: string, manager: string, queue: string} $filters */
+    /** @param array{q: string, status: string, site: string, manager: string, queue: string, client?: string, portfolio?: string} $filters */
     public function projects(Access $actor, array $filters, string $sort, string $direction, string $today): StreamedResponse
     {
         abort_if($actor->userId === null, 403);
@@ -62,15 +62,15 @@ final class WorkExports
         return $this->stream(self::PROJECT_COLUMNS, $rows, 'projects-'.$today.'.csv');
     }
 
-    /** @param array{q: string, status: string, assignee: string, priority: string, queue: string} $filters */
-    public function tasks(Access $actor, string $projectId, array $filters, string $sort, string $direction, string $today): StreamedResponse
+    /** @param array{q: string, status: string, assignee: string, priority: string, queue: string, group?: string, groups?: list<string>, parent?: string} $filters */
+    public function tasks(Access $actor, string $projectId, array $filters, string $sort, string $direction, string $today, bool $grouped = false): StreamedResponse
     {
         $project = app(WorkRecords::class)->project($actor, $projectId);
         abort_if($project === null, 404, 'That project no longer exists.');
-        $rows = static function () use ($actor, $project, $filters, $sort, $direction, $today): \Generator {
+        $rows = static function () use ($actor, $project, $filters, $sort, $direction, $today, $grouped): \Generator {
             $page = 1;
             do {
-                $batch = app(WorkLists::class)->taskPage($actor, $project->id, $filters, $sort, $direction, $today, $page++, 100);
+                $batch = app(WorkLists::class)->taskPage($actor, $project->id, $filters, $sort, $direction, $today, $page++, 100, $grouped);
                 foreach ($batch as $task) {
                     yield [$task->code, $task->title, self::assigneeCell($task), TaskPolicy::priorityLabel($task->priority), WorkRules::dateKey($task->start_date) ?? '', WorkRules::dateKey($task->due_date) ?? '', TaskPolicy::statusLabel($task->status)];
                 }

@@ -9,6 +9,7 @@ use App\Models\Project;
 use App\Modules\IdentityAccess\Contracts\ProjectAccounts;
 use App\Modules\Organization\Contracts\OrganizationReferences;
 use App\Modules\WorkManagement\Application\ProjectDraft;
+use App\Modules\WorkManagement\Application\Queries\ClientPeople;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Projects\ManualProjectStatus;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSchedule;
@@ -39,12 +40,15 @@ final class UpdateProject
 {
     public function handle(Access $actor, string $projectId, ProjectDraft $input): ?string
     {
-        if (! WorkRules::managesProjects($actor)) {
+        $project = WorkRules::project($actor, $projectId);
+        if (! WorkRules::managesProject($actor, $project) && ! ($project === null && WorkRules::managesProjects($actor))) {
             throw new \RuntimeException(WorkRules::forbiddenMessage());
         }
-        $project = WorkRules::project($actor, $projectId);
         if ($project === null) {
             return null;
+        }
+        if ($input->clientId !== null && $input->clientId !== $project->client_id) {
+            throw new \RuntimeException('The client association cannot be changed here.');
         }
         $name = trim($input->name);
         // Null = untouched (ProjectDraft): the start date the row holds when
@@ -78,22 +82,28 @@ final class UpdateProject
         // still saves.
         if ($managerId !== null) {
             $sameLeader = $project->manager_id !== null && $managerId === (string) $project->manager_id;
-            $valid = $sameLeader
-                ? app(ProjectAccounts::class)->active($actor, $managerId)
-                : app(ProjectAccounts::class)->canLead($actor, $managerId);
+            $valid = $project->client_id !== null
+                ? app(ClientPeople::class)->leaders($actor, $project->client_id)->contains('id', (int) $managerId)
+                : ($sameLeader ? app(ProjectAccounts::class)->active($actor, $managerId) : app(ProjectAccounts::class)->canLead($actor, $managerId));
             if (! $valid) {
-                throw new \RuntimeException($sameLeader ? 'Choose an active account as task leader.' : WorkRules::leaderRefusal());
+                throw new \RuntimeException($sameLeader ? 'Choose an active account as project lead.' : WorkRules::leaderRefusal());
             }
         }
         try {
             /** @var array{0: Project, 1: string, 2: list<string>}|null $saved */
-            $saved = DB::transaction(static function () use ($project, $input, $name, $description, $siteId, $dueDate, $managerId): ?array {
+            $saved = DB::transaction(static function () use ($actor, $project, $input, $name, $description, $siteId, $dueDate, $managerId): ?array {
                 // P first; the tasks are read plainly after it (WorkRules'
                 // protocol), so a task date or reopen committed by a writer
                 // holding P is either in this snapshot or waits for this save.
-                $locked = WorkRules::lockedProject($project->id);
+                $locked = WorkRules::lockedProject($actor, $project->id);
                 if ($locked === null) {
                     return null;
+                }
+                if (! WorkRules::managesProject($actor, $locked)) {
+                    throw new \RuntimeException(WorkRules::forbiddenMessage());
+                }
+                if ($locked->client_id !== null && $managerId !== null && ! app(ClientPeople::class)->leaders($actor, $locked->client_id)->contains('id', (int) $managerId)) {
+                    throw new \RuntimeException(WorkRules::leaderRefusal());
                 }
                 $from = $locked->status;
                 $status = $input->status ?? $from;

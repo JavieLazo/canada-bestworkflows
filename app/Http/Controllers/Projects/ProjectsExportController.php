@@ -27,6 +27,8 @@ class ProjectsExportController extends Controller
 
         return app(WorkExports::class)->projects($actor, [
             'q' => (string) $request->query('q', ''),
+            'client' => (string) $request->query('client', 'ALL'),
+            'portfolio' => (string) $request->query('portfolio', 'ALL'),
             'status' => (string) $request->query('status', 'ALL'),
             'site' => (string) $request->query('site', 'ALL'),
             'manager' => (string) $request->query('manager', 'ALL'),

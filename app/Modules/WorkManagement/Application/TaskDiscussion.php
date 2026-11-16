@@ -12,15 +12,14 @@ use App\Support\Access;
 /**
  * Writes an authorized task-thread entry with author identity supplied only by the server.
  *
- * Who may write: whoever runs the task (a Projects manager, or its project's
- * Task Leader off the crew — WorkRules::runsTask()) or one of its assignees.
+ * Task planners and assignees write shared discussion; review authority stays separate.
  */
 final class TaskDiscussion
 {
     public static function append(Access $actor, ProjectTask $task, string $body, ?string $event, string $authorName): TaskComment
     {
         abort_unless($actor->hasModule(ModuleCode::PROJECTS, ModuleCode::TASKS)
-            && (WorkRules::runsTask($actor, $task) || $task->hasAssignee($actor->employeeId)), 403);
+            && (WorkRules::runsTask($actor, $task) || WorkRules::editsWork($actor, $task->project) || $task->hasAssignee($actor->employeeId)), 403);
         $comment = new TaskComment;
         $comment->fill(['task_id' => $task->id, 'side' => WorkRules::commentSide($actor, $task), 'body' => $body, 'event' => $event]);
         $comment->author_id = $actor->userId === null ? null : (int) $actor->userId;

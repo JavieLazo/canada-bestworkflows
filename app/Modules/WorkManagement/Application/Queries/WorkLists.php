@@ -21,29 +21,27 @@ use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
 
 /** Scoped filtering and ordering happen before list pagination, shared with exports. */
 final class WorkLists
 {
-    /** @param array{q: string, status: string, assignee: string, priority: string, queue: string} $filters
+    /** @param array{q: string, status: string, assignee: string, priority: string, queue: string, group?: string, groups?: list<string>, parent?: string} $filters
      * @return LengthAwarePaginator<int, ProjectTaskView>
      */
-    public function taskPage(Access $actor, string $projectId, array $filters, string $sort, string $direction, string $today, int $page, int $perPage): LengthAwarePaginator
+    public function taskPage(Access $actor, string $projectId, array $filters, string $sort, string $direction, string $today, int $page, int $perPage, bool $grouped = false): LengthAwarePaginator
     {
-        $query = WorkScope::tasks($actor)->where('project_id', $projectId);
-        foreach (['status', 'priority'] as $column) {
-            if ($filters[$column] !== 'ALL') {
-                $query->where($column, $filters[$column]);
-            }
-        }
-        if ($filters['assignee'] === 'UNASSIGNED') {
-            $query->whereDoesntHave('assignments');
-        } elseif ($filters['assignee'] !== 'ALL') {
-            $query->whereHas('assignments', static fn (Builder $q) => $q->where('employee_id', '=', $filters['assignee']));
-        }
-        $this->taskQueue($query, $filters['queue'], $today);
-        SqlText::contains($query, ['code', 'title'], $filters['q']);
+        $query = $this->taskFilter($actor, $projectId, $filters, $today);
         $direction = $direction === 'desc' ? 'desc' : 'asc';
+        if ($grouped && $sort !== 'group') {
+            SqlText::order($query, WorkScope::TASK_GROUP_NAME_SQL, 'asc');
+        }
+        // Keep families together in the default grouped list; explicit sorts stay flat.
+        if ($grouped && $sort === 'stack') {
+            $query->orderByRaw('COALESCE(project_tasks.parent_id, project_tasks.id) '.$direction)
+                ->orderByRaw('CASE WHEN project_tasks.parent_id IS NULL THEN 0 ELSE 1 END');
+        }
         if ($sort === 'stack') {
             // A task waiting on review heads the stack whatever its mode: an
             // INDIVIDUAL task with a response handed in ranks as SUBMITTED.
@@ -63,6 +61,8 @@ final class WorkLists
             [$sql, $bindings, $blankRank] = $this->rankedNames('employee_id', $names);
             $rank = ProjectTaskAssignee::query()->whereColumn('task_id', 'project_tasks.id')->selectRaw('COALESCE(MIN('.$sql.'), ?)', [...$bindings, $blankRank]);
             $query->orderBy($rank, $direction);
+        } elseif ($sort === 'group') {
+            SqlText::order($query, WorkScope::TASK_GROUP_NAME_SQL, $direction);
         } elseif ($sort === 'status') {
             SqlText::orderMapped($query, 'status', TaskPolicy::STATUSES, 'status', $direction);
         } else {
@@ -82,7 +82,75 @@ final class WorkLists
         return new LengthAwarePaginator($ordered, $rows->total(), $rows->perPage(), $rows->currentPage(), $rows->getOptions());
     }
 
-    /** @param array{q: string, status: string, site: string, manager: string, queue: string} $filters
+    /** @param array{q: string, status: string, assignee: string, priority: string, queue: string, group?: string, groups?: list<string>, parent?: string} $filters
+     * @param  array<string, int>  $pages
+     * @return array<string, LengthAwarePaginator<int, ProjectTaskView>>
+     */
+    public function taskBoard(Access $actor, string $projectId, array $filters, string $today, array $pages = []): array
+    {
+        $query = $this->taskFilter($actor, $projectId, $filters, $today);
+        $lanes = [];
+        $ids = [];
+        foreach (TaskPolicy::STATUSES as $status => $label) {
+            if ($filters['status'] !== 'ALL' && $filters['status'] !== $status) {
+                continue;
+            }
+            $lane = (clone $query)->where('status', $status);
+            SqlText::order($lane, 'due_date', 'asc');
+            $lane->orderBy('code');
+            $lanes[$status] = $this->page($lane, $pages[$status] ?? 1, 20, ['id']);
+            array_push($ids, ...$lanes[$status]->getCollection()->map(static fn (ProjectTask $row): string => $row->id)->all());
+        }
+        $views = app(WorkRecords::class)->tasksByIds($actor, $ids)->keyBy('id');
+        $board = [];
+        foreach ($lanes as $status => $rows) {
+            $cards = $rows->getCollection()->map(static fn (ProjectTask $row): ?ProjectTaskView => $views->get($row->id))
+                ->filter(static fn (?ProjectTaskView $view): bool => $view !== null)->values();
+            $board[$status] = new LengthAwarePaginator($cards, $rows->total(), $rows->perPage(), $rows->currentPage(), [...$rows->getOptions(), 'pageName' => 'board_'.$status]);
+        }
+
+        return $board;
+    }
+
+    /** @param array{q: string, status: string, assignee: string, priority: string, queue: string, group?: string, groups?: list<string>, parent?: string} $filters
+     * @return Builder<ProjectTask>
+     */
+    private function taskFilter(Access $actor, string $projectId, array $filters, string $today): Builder
+    {
+        $query = WorkScope::tasks($actor)->where('project_id', $projectId);
+        $groups = $filters['groups'] ?? [];
+        Validator::make(['groups' => $groups], ['groups' => 'array|list|max:1000', 'groups.*' => 'required|string|max:26'])->validate();
+        if ($groups === [] && ($filters['group'] ?? 'ALL') !== 'ALL') {
+            $groups = [$filters['group']];
+        }
+        if ($groups !== []) {
+            $query->where(static function (Builder $q) use ($groups): void {
+                $q->whereIn(DB::raw(WorkScope::EFFECTIVE_GROUP_SQL), array_values(array_diff($groups, ['NONE'])));
+                if (in_array('NONE', $groups, true)) {
+                    $q->orWhereRaw(WorkScope::EFFECTIVE_GROUP_SQL.' IS NULL');
+                }
+            });
+        }
+        if (($filters['parent'] ?? 'ALL') !== 'ALL') {
+            $query->where('parent_id', $filters['parent']);
+        }
+        foreach (['status', 'priority'] as $column) {
+            if ($filters[$column] !== 'ALL') {
+                $query->where($column, $filters[$column]);
+            }
+        }
+        if ($filters['assignee'] === 'UNASSIGNED') {
+            $query->whereDoesntHave('assignments');
+        } elseif ($filters['assignee'] !== 'ALL') {
+            $query->whereHas('assignments', static fn (Builder $q) => $q->where('employee_id', '=', $filters['assignee']));
+        }
+        $this->taskQueue($query, $filters['queue'], $today);
+        SqlText::contains($query, ['code', 'title'], $filters['q']);
+
+        return $query;
+    }
+
+    /** @param array{q: string, status: string, site: string, manager: string, queue: string, client?: string, portfolio?: string} $filters
      * @return LengthAwarePaginator<int, ProjectView>
      */
     public function projectPage(Access $actor, array $filters, string $sort, string $direction, string $today, int $page, int $perPage): LengthAwarePaginator
@@ -111,12 +179,15 @@ final class WorkLists
         return $rows->through(static fn (Project $row): ProjectView => Snapshot::of($row, ProjectView::class));
     }
 
-    /** @param array{q: string, status: string, site: string, manager: string, queue: string} $filters
+    /** @param array{q: string, status: string, site: string, manager: string, queue: string, client?: string, portfolio?: string} $filters
      * @return Builder<Project>
      */
     private function projectFilter(Access $actor, array $filters, string $today): Builder
     {
-        $query = WorkScope::projects($actor);
+        $query = WorkScope::projects($actor, $filters['portfolio'] ?? 'ALL');
+        if (($filters['client'] ?? 'ALL') !== 'ALL') {
+            $query->where('projects.client_id', $filters['client']);
+        }
         foreach (['status' => 'status', 'site' => 'site_id', 'manager' => 'manager_id'] as $filter => $column) {
             if ($filters[$filter] !== 'ALL') {
                 $query->where($column, $filters[$filter]);

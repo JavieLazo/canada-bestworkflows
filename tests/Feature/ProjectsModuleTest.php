@@ -420,7 +420,7 @@ it('counts a zero-assignee task under the UNASSIGNED filter and queue', function
     // own — it forwards to TestResponse through `@mixin`, so PHPStan types
     // the chain as TestResponse from there on and TestResponse has no
     // set(). Each ->set() therefore starts from the Testable itself.
-    $show = Livewire::test(Show::class, ['project' => $project->id]);
+    $show = Livewire::test(Show::class, ['project' => $project->id])->set('taskView', 'board');
     $show->assertViewHas('unassignedCount', 1);
     $show->set('queue', 'UNASSIGNED')
         ->assertViewHas('visibleCount', 1)
@@ -447,7 +447,7 @@ it('shows a project to the SECOND assignee of one of its tasks and hides it from
     $task = projTask($project, ['code' => 'TSK-SHARED', 'assignee_ids' => [$first->id, $second->id]]);
 
     projActor(['PROJECTS'], allData: false, employeeId: $second->id);
-    $this->get('/projects/'.$project->id)->assertOk()->assertSee('Shared Project')->assertSee('TSK-SHARED');
+    $this->get('/projects/'.$project->id.'?view=board')->assertOk()->assertSee('Shared Project')->assertSee('TSK-SHARED');
     Livewire::test(Show::class, ['project' => $project->id])
         ->call('openTask', $task->id)
         ->assertSet('openTaskId', $task->id);
@@ -697,7 +697,7 @@ it('reopens a completed project through the status select, but never to Active w
 
     Livewire::test(Show::class, ['project' => $project->id])
         ->call('changeStatus', 'ACTIVE', 'COMPLETED')
-        ->assertDispatched('toast-show', fn ($name, $p) => ($p['slots']['text'] ?? null) === 'Assign a task leader before activating this project.');
+        ->assertDispatched('toast-show', fn ($name, $p) => ($p['slots']['text'] ?? null) === 'Assign a project lead before activating this project.');
     expect($project->refresh()->status)->toBe('COMPLETED');
 
     Livewire::test(Show::class, ['project' => $project->id])
@@ -812,7 +812,7 @@ it('deletes a project with its tasks, files and comments, then returns to the li
 |--------------------------------------------------------------------------
 */
 
-it('lists assignee Employee IDs POSITIONALLY, so an unnumbered one holds its place', function () {
+it('pairs each assignee with their own Employee ID in the shared identity summary', function () {
     $ana = projEmployee('COP-0501', 'Ana', 'Garcia');
     $ana->forceFill(['employee_id_no' => '2024-201'])->save();
     $ben = projEmployee('COP-0502', 'Ben', 'Reyes');
@@ -823,33 +823,26 @@ it('lists assignee Employee IDs POSITIONALLY, so an unnumbered one holds its pla
     projTask($project, ['assignee_ids' => [$ana->id, $ben->id, $cara->id]]);
     projActor(['PROJECTS'], allData: true);
 
-    // Assignees are listed by surname — Garcia, Lim, Reyes — so the id line
-    // must read 2024-201 · 2024-203 · — to stay under its own name. Dropping
-    // the unnumbered Ben instead would sit two ids under three names and pair
-    // Cara's number with him.
+    // Names and numbers stay together even when one person has no company number.
     Livewire::test(Show::class, ['project' => $project->id])
+        ->set('taskView', 'list')
         ->assertSee('Ana Garcia, Cara Lim, Ben Reyes')
-        ->assertSee('2024-201 · 2024-203 · —')
+        ->assertSeeHtml("title=\"Ana Garcia · 2024-201\nCara Lim · 2024-203\nBen Reyes\"")
         ->assertDontSee('COP-0501')
         ->assertDontSee('COP-0503');
 });
 
-it('shows one em dash, not a blank line, when no assignee on a task has a company number', function () {
+it('shows assignee names alone when nobody on a task has a company number', function () {
     $ben = projEmployee('COP-0504', 'Ben', 'Torres');
     $cara = projEmployee('COP-0505', 'Cara', 'Villar');
     $project = projProject();
     projTask($project, ['assignee_ids' => [$ben->id, $cara->id]]);
     projActor(['PROJECTS'], allData: true);
 
-    // Two unnumbered assignees collapse to ONE em dash, not to "— · —" and not
-    // to an empty line: with nothing to align, there is nothing to hold a place
-    // for. The names still render in full.
-    $page = Livewire::test(Show::class, ['project' => $project->id])
+    Livewire::test(Show::class, ['project' => $project->id])
+        ->set('taskView', 'list')
         ->assertSee('Ben Torres, Cara Villar')
+        ->assertSeeHtml("title=\"Ben Torres\nCara Villar\"")
         ->assertDontSee('COP-0504')
         ->assertDontSee('— · —');
-
-    // The id line itself, not just the absence of a wrong one: an empty <p>
-    // would satisfy every assertion above.
-    expect($page->html())->toMatch('/<p class="num break-words text-xs text-muted-foreground">\s*—\s*<\/p>/');
 });

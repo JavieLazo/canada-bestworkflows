@@ -60,10 +60,11 @@ final class Notifier
      *
      * @param  iterable<?string>  $employeeIds  null and '' entries are ignored
      * @param  iterable<int|string|null>  $exceptUserIds  users ids never told, whatever they are linked to
+     * @param  list<int>|null  $allowedUserIds
      */
-    public static function employees(iterable $employeeIds, iterable $exceptUserIds, string $kind, string $title, ?string $body = null, ?string $href = null): void
+    public static function employees(iterable $employeeIds, iterable $exceptUserIds, string $kind, string $title, ?string $body = null, ?string $href = null, ?array $allowedUserIds = null): void
     {
-        \App\Platform\Notifications\Notifier::employees($employeeIds, $exceptUserIds, $kind, $title, $body, $href);
+        \App\Platform\Notifications\Notifier::employees($employeeIds, $exceptUserIds, $kind, $title, $body, $href, $allowedUserIds);
     }
 
     /**

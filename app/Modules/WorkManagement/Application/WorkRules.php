@@ -12,6 +12,8 @@ use App\Models\ProjectTaskSubmission;
 use App\Modules\Workforce\Contracts\AssignmentEmployees;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView;
 use App\Modules\WorkManagement\Contracts\Views\ProjectView;
+use App\Modules\WorkManagement\Infrastructure\ClientScope;
+use App\Modules\WorkManagement\Infrastructure\ProjectMembership;
 use App\Modules\WorkManagement\Infrastructure\WorkScope;
 use App\Support\Access;
 use App\Support\CodeSequence;
@@ -53,8 +55,8 @@ use Illuminate\Database\Eloquent\Builder;
  *    REPEATABLE READ takes its snapshot at the first plain read — not at
  *    BEGIN, and not at a locking read — and every writer of these rows holds
  *    L1 while it writes. These reads are SubmitTask's own response row,
- *    DeleteSubmission's own response state, UpdateTaskDetails' mode-lock and
- *    discard reads, and syncAssignees()' crew and response reads. They stay
+ *    DeleteSubmission's own response state, UpdateTaskDetails' discard
+ *    reads, and syncAssignees()' crew and response reads. They stay
  *    plain ON PURPOSE: a locking read of a missing key, or of all of a task's
  *    rows, also locks the gaps next to them, which reach into NEIGHBOURING
  *    tasks' keys. In `pts_task_employee_unq`, SubmitTask inserts right after
@@ -102,14 +104,29 @@ use Illuminate\Database\Eloquent\Builder;
 final class WorkRules
 {
     /**
-     * The organisation-wide gate: requireAllDataModule("PROJECTS"). Creating,
-     * deleting and fully editing projects and tasks, briefs and crews stay
-     * behind it; what a project's own Task Leader may also do is
-     * {@see self::runsProject()}.
+     * The broad EMS grant for internal work. Client work uses
+     * managesProject() so that the same grant cannot bypass membership.
      */
     public static function managesProjects(Access $actor): bool
     {
         return $actor->mayReadAllData(ModuleCode::PROJECTS);
+    }
+
+    public static function managesProject(Access $actor, Project|ProjectView|null $project): bool
+    {
+        if ($project === null || ! $actor->hasModule(ModuleCode::PROJECTS) || ! ClientScope::allowsWork($actor, $project->client_id)) {
+            return false;
+        }
+
+        return self::managesProjects($actor) || ($project->client_id !== null
+            && ClientScope::manageable($actor)->whereKey($project->client_id)->exists());
+    }
+
+    public static function editsWork(Access $actor, Project|ProjectView|null $project, bool $lock = false): bool
+    {
+        return self::managesProject($actor, $project) || ($project !== null
+            && ClientScope::allowsWork($actor, $project->client_id, $lock)
+            && ProjectMembership::edits($actor, $project->id, $lock));
     }
 
     /**
@@ -126,6 +143,7 @@ final class WorkRules
     public static function leadsProject(Access $actor, Project|ProjectView|null $project): bool
     {
         return $project !== null && $actor->isSignedIn() && $actor->hasModule(ModuleCode::PROJECTS)
+            && ClientScope::allowsWork($actor, $project->client_id)
             && $project->manager_id !== null && (string) $project->manager_id === $actor->userId;
     }
 
@@ -137,13 +155,12 @@ final class WorkRules
      * the leader of a project may, on that project alone: change its
      * status and its tasks' statuses by hand, plan the project's and its
      * tasks' start dates, and review its tasks ({@see self::reviewsTask()}).
-     * Everything else — creating, deleting, renaming, due dates, crews,
-     * priorities, submission modes, briefs, reassigning the leader — stays
-     * with {@see self::managesProjects()}.
+     * Project administration stays with managesProject(). Task planning can
+     * also be delegated through editsWork(), without review authority.
      */
     public static function runsProject(Access $actor, Project|ProjectView|null $project): bool
     {
-        return self::managesProjects($actor) || self::leadsProject($actor, $project);
+        return self::managesProject($actor, $project) || self::leadsProject($actor, $project);
     }
 
     /** respond.ts `forbidden()` — the sentence every denied action toasts. */
@@ -153,21 +170,34 @@ final class WorkRules
     }
 
     /**
-     * Whether the actor may act on this TASK as someone who runs its project:
-     * any Projects manager — on the crew too (Cancel stays theirs) —
-     * or the project's Task Leader when they are NOT on the task's crew. A
-     * leader has no authority over work they share: on their own task they
-     * are an assignee like any other (no status by hand, no Cancel, no start
-     * date, and they speak from the ASSIGNEE side of the thread). The task's
-     * `project` is read only for a non-manager.
+     * Project managers and client owners may run tasks they share, but a
+     * leader alone acts only off the crew. Review decisions check the crew
+     * separately; client projects always require current membership.
      */
     public static function runsTask(Access $actor, ProjectTask|ProjectTaskView $task): bool
     {
-        if (self::managesProjects($actor)) {
-            return true;
+        return self::taskAuthority(self::managesProject($actor, $task->project), self::leadsProject($actor, $task->project), $task->hasAssignee($actor->employeeId));
+    }
+
+    /** @param iterable<ProjectTaskView> $tasks
+     * @return array<string, bool>
+     */
+    public static function taskPermissions(Access $actor, Project|ProjectView $project, iterable $tasks): array
+    {
+        $manages = self::managesProject($actor, $project);
+        $leads = self::leadsProject($actor, $project);
+        $permissions = [];
+        foreach ($tasks as $task) {
+            $permissions[$task->id] = $task->project_id === $project->id
+                && self::taskAuthority($manages, $leads, $task->hasAssignee($actor->employeeId));
         }
 
-        return ! $task->hasAssignee($actor->employeeId) && self::leadsProject($actor, $task->project);
+        return $permissions;
+    }
+
+    private static function taskAuthority(bool $manages, bool $leads, bool $onCrew): bool
+    {
+        return $manages || ($leads && ! $onCrew);
     }
 
     /**
@@ -175,25 +205,24 @@ final class WorkRules
      * project — a PROJECTS manager, or the project's Task Leader
      * ({@see self::runsProject()}) — and is NOT one of its assignees: nobody
      * decides on work they share. Null-safe: an employee-less actor is never
-     * on a crew. The task's `project` is read only when the actor is not a
-     * manager. The screens use it to hide the decision; ReviewTask and
+     * on a crew. Broad managers also need client access. The screens use
+     * this to hide the decision; ReviewTask and
      * ReviewTaskResponse re-check it under the task lock.
      */
     public static function reviewsTask(Access $actor, ProjectTask|ProjectTaskView $task): bool
     {
-        // The crew first, then a manager: the task's `project` is read only
-        // for someone who is neither, so a manager's check costs no query.
+        // The crew comes first because nobody reviews work they share.
         if ($task->hasAssignee($actor->employeeId)) {
             return false;
         }
 
-        return self::managesProjects($actor) || self::leadsProject($actor, $task->project);
+        return self::managesProject($actor, $task->project) || self::leadsProject($actor, $task->project);
     }
 
     /** The refusal for naming a Task Leader who could never open Project Management. */
     public static function leaderRefusal(): string
     {
-        return 'Choose an active account that can open Project Management as task leader.';
+        return 'Choose an active account that can open Project Management as project lead.';
     }
 
     /** The refusal a manager on the crew gets for Accept, Return, Complete or a response decision. */
@@ -208,11 +237,21 @@ final class WorkRules
      * transaction wherever the writer opens that transaction itself (see the
      * class docblock for AttachSubmission, which cannot).
      */
-    public static function lockedTask(string $taskId, ?string $projectId = null): ?ProjectTask
+    public static function lockedTask(Access $actor, string $taskId, ?string $projectId = null): ?ProjectTask
     {
-        return ProjectTask::query()
+        $task = ProjectTask::query()
             ->when($projectId !== null, static fn (Builder $query) => $query->where('project_id', $projectId))
             ->whereKey($taskId)->lockForUpdate()->first();
+        if ($task !== null && $task->project?->client_id !== null) {
+            // Keep the lock order task, project, client before deciding on access.
+            $project = self::lockedProject($actor, $task->project_id);
+            if ($project === null) {
+                return null;
+            }
+            $task->setRelation('project', $project);
+        }
+
+        return $task;
     }
 
     /**
@@ -246,15 +285,20 @@ final class WorkRules
         return is_string($status) ? $status : null;
     }
 
-    /** @return array{status: string, due_date: string|null} */
+    /** @return array{status: string, due_date: string|null, has_subtasks?: bool} */
     public static function taskShape(ProjectTask|ProjectTaskView $task): array
     {
-        return ['status' => $task->status, 'due_date' => self::dateKey($task->due_date)];
+        $shape = ['status' => $task->status, 'due_date' => self::dateKey($task->due_date)];
+        if (isset($task->has_subtasks) && $task->has_subtasks) {
+            $shape['has_subtasks'] = true;
+        }
+
+        return $shape;
     }
 
     /**
      * @param  iterable<array-key, ProjectTask|ProjectTaskView>  $tasks
-     * @return list<array{status: string, due_date: string|null}>
+     * @return list<array{status: string, due_date: string|null, has_subtasks?: bool}>
      */
     public static function taskShapes(iterable $tasks): array
     {
@@ -360,7 +404,7 @@ final class WorkRules
             return self::managesProjects($actor) ? 'MANAGEMENT' : 'ASSIGNEE';
         }
 
-        return self::runsTask($actor, $task) ? 'MANAGEMENT' : 'ASSIGNEE';
+        return self::runsTask($actor, $task) || self::editsWork($actor, $task->project) ? 'MANAGEMENT' : 'ASSIGNEE';
     }
 
     /**
@@ -422,9 +466,11 @@ final class WorkRules
      * project writer takes it as the FIRST statement of its transaction and
      * then reads the project's tasks plainly — never FOR UPDATE.
      */
-    public static function lockedProject(string $projectId): ?Project
+    public static function lockedProject(Access $actor, string $projectId): ?Project
     {
-        return Project::query()->whereKey($projectId)->lockForUpdate()->first();
+        $project = Project::query()->whereKey($projectId)->lockForUpdate()->first();
+
+        return $project !== null && ClientScope::allowsWork($actor, $project->client_id, lock: true) ? $project : null;
     }
 
     public static function ownTask(Access $actor, ?string $id): ?ProjectTask
@@ -435,7 +481,7 @@ final class WorkRules
         }
         $employeeId = $actor->ownEmployeeId();
 
-        return ProjectTask::query()->with(['assignments', 'project'])->whereKey($id)
+        return WorkScope::tasks($actor, true)->with(['assignments', 'project'])->whereKey($id)
             ->whereHas('assignments', static fn (Builder $query) => $query->where('employee_id', '=', $employeeId))->first();
     }
 

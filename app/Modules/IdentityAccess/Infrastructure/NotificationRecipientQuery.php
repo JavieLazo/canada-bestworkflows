@@ -12,6 +12,14 @@ use App\Support\Access;
 /** Resolves account scopes without exposing account persistence to notification callers. */
 final class NotificationRecipientQuery implements NotificationRecipients
 {
+    public function accounts(array $ids): iterable
+    {
+        foreach (User::query()->whereKey($ids)->where('is_active', true)->with('role.grants')
+            ->get(['id', 'employee_id', 'role_id', 'is_active']) as $user) {
+            yield Access::forUser($user);
+        }
+    }
+
     /** @param list<string> $employeeIds
      * @param list<int> $except
      * @return list<int> */

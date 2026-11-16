@@ -11,11 +11,16 @@
     Usage:
         $rows = $this->paginateClamped($query);          // in render()
         <x-kit.pagination :paginator="$rows" noun="punches" />
+
+    A second list in the same component supplies its own page-size-model so
+    changing the dialog's size does not change the page behind it.
 --}}
 @props([
     'paginator',
     /** Plural noun for the count line, e.g. "punches". */
     'noun' => 'rows',
+    'pageSizeModel' => 'perPage',
+    'pageSizeLabel' => 'Rows per page',
 ])
 <div {{ $attributes->class('flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-3') }}>
     <p class="text-xs text-muted-foreground">
@@ -31,8 +36,8 @@
         <x-kit.select
             size="sm"
             class="w-[4.5rem]"
-            wire:model.live="perPage"
-            aria-label="Rows per page"
+            wire:model.live="{{ $pageSizeModel }}"
+            :aria-label="$pageSizeLabel"
         >
             @foreach (\App\Livewire\Concerns\TableDefaults::PAGE_SIZE_OPTIONS as $size)
                 <flux:select.option value="{{ $size }}">{{ $size }}</flux:select.option>

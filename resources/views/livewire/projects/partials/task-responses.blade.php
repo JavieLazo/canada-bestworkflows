@@ -29,7 +29,7 @@
 @endphp
 <div class="space-y-2">
     <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Responses</p>
+        <h3 class="ppm-section-title">Individual responses</h3>
         <p class="num text-xs text-muted-foreground">{{ $openTask->responseSummary() }}</p>
     </div>
 
@@ -109,20 +109,8 @@
                                 @else
                                     <ul class="space-y-1">
                                         @foreach ($memberFiles as $f)
-                                            <li wire:key="response-file-{{ $f->id }}" class="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-2">
-                                                @include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3.5 shrink-0 text-muted-foreground'])
-                                                <span class="min-w-0 flex-1 truncate text-sm">{{ $f->file_name }}</span>
-                                                <span class="num shrink-0 text-xs text-muted-foreground">{{ ProjectsData::humanSize((int) $f->size) }}</span>
-                                                <flux:button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    square
-                                                    class="h-7 w-7 shrink-0"
-                                                    href="{{ route('projects.task-files.download', $f->id) }}"
-                                                    aria-label="Download {{ $f->file_name }}"
-                                                >
-                                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-3.5'])</x-slot:icon>
-                                                </flux:button>
+                                            <li wire:key="response-file-{{ $f->id }}">
+                                                <x-work.file :file="$f" :href="route('projects.task-files.download', $f->id)" />
                                             </li>
                                         @endforeach
                                     </ul>
@@ -194,20 +182,8 @@
             <p class="text-xs uppercase tracking-wide text-muted-foreground">Files from people no longer on this task</p>
             <ul class="space-y-1">
                 @foreach ($openTaskFormerFiles as $f)
-                    <li wire:key="former-file-{{ $f->id }}" class="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                        @include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3.5 shrink-0 text-muted-foreground'])
-                        <span class="min-w-0 flex-1 truncate text-sm">{{ $f->file_name }}</span>
-                        <span class="num shrink-0 text-xs text-muted-foreground">{{ ProjectsData::humanSize((int) $f->size) }}</span>
-                        <flux:button
-                            variant="ghost"
-                            size="sm"
-                            square
-                            class="h-7 w-7 shrink-0"
-                            href="{{ route('projects.task-files.download', $f->id) }}"
-                            aria-label="Download {{ $f->file_name }}"
-                        >
-                            <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-3.5'])</x-slot:icon>
-                        </flux:button>
+                    <li wire:key="former-file-{{ $f->id }}">
+                        <x-work.file :file="$f" :href="route('projects.task-files.download', $f->id)" />
                     </li>
                 @endforeach
             </ul>

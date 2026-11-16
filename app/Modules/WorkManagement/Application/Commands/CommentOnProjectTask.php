@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Notifications\Notifier;
 use App\Modules\WorkManagement\Application\TaskDiscussion;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Support\Access;
 use App\Support\AuditService;
+use Illuminate\Support\Facades\DB;
 
 /** Task operation with server-derived ownership, transition guards and side effects. */
 final class CommentOnProjectTask
@@ -31,19 +32,33 @@ final class CommentOnProjectTask
         // ASSIGNEE is a fact about the task (comments route). Whoever runs
         // the task — a Projects manager, or its project's Task Leader off the
         // crew — speaks for management.
-        $isReviewer = WorkRules::runsTask($actor, $task);
+        $isManagement = WorkRules::runsTask($actor, $task) || WorkRules::editsWork($actor, $task->project);
         $isAssignee = $task->hasAssignee($actor->employeeId);
-        if (! $isReviewer && ! $isAssignee) {
+        if (! $isManagement && ! $isAssignee) {
             throw new \RuntimeException(WorkRules::forbiddenMessage());
         }
-        $comment = TaskDiscussion::append($actor, $task, $text, null, $actor->fullName !== '' ? $actor->fullName : 'Unknown');
+        $comment = DB::transaction(static function () use ($actor, $task, $text) {
+            $locked = WorkRules::lockedTask($actor, $task->id);
+            $project = $locked === null ? null : WorkRules::lockedProject($actor, $locked->project_id);
+            if ($locked === null || $project === null) {
+                throw new \RuntimeException(WorkRules::forbiddenMessage());
+            }
+            $locked->setRelation('project', $project);
+            if (! WorkRules::editsWork($actor, $project, lock: true)
+                && ! WorkRules::runsTask($actor, $locked) && ! WorkRules::stillAssigned($locked, $actor)) {
+                throw new \RuntimeException(WorkRules::forbiddenMessage());
+            }
+
+            return TaskDiscussion::append($actor, $locked, $text, null, $actor->fullName !== '' ? $actor->fullName : 'Unknown');
+        });
+        $isManagement = $comment->side === 'MANAGEMENT';
         $taskLabel = WorkRules::taskLabel($task);
         AuditService::record($actor, AuditEvent::TASK_COMMENTED, 'task_comments', $comment->id, "Comment added to {$taskLabel}");
         $preview = mb_strlen($text) > 120 ? mb_substr($text, 0, 117).'…' : $text;
-        if ($isReviewer) {
+        if ($isManagement) {
             // Management speaks to the whole crew — minus themselves, when
             // the reviewer is on it.
-            Notifier::employees(WorkRules::crewExcept($task, $actor), [], 'TASK_COMMENT', "New comment on {$taskLabel}", $preview, '/my-tasks');
+            Notifier::employees($actor, $task, WorkRules::crewExcept($task, $actor), [], 'TASK_COMMENT', "New comment on {$taskLabel}", $preview, '/my-tasks');
         } else {
             // An assignee speaks to the assigner — and to their co-assignees,
             // who share the task and the thread; never back to themselves,
@@ -56,9 +71,9 @@ final class CommentOnProjectTask
             $assignedBy = $task->getAttribute('assigned_by');
             $assignerUserId = $assignedBy === null ? null : (int) $assignedBy;
             if ($assignerUserId !== null && (string) $assignerUserId !== $actor->userId) {
-                Notifier::account($assignerUserId, 'TASK_COMMENT', "New comment on {$taskLabel}", $preview, '/projects');
+                Notifier::account($actor, $task, $assignerUserId, 'TASK_COMMENT', "New comment on {$taskLabel}", $preview, '/projects');
             }
-            Notifier::employees(WorkRules::crewExcept($task, $actor), [$assignerUserId], 'TASK_COMMENT', "New comment on {$taskLabel}", $preview, '/my-tasks');
+            Notifier::employees($actor, $task, WorkRules::crewExcept($task, $actor), [$assignerUserId], 'TASK_COMMENT', "New comment on {$taskLabel}", $preview, '/my-tasks');
         }
 
         return true;

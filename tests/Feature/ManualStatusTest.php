@@ -246,7 +246,7 @@ it('starts a pending group task by hand without stamping a reviewer, and tells t
         ->toBe(collect([mstatAccountOf($ana)->getKey(), mstatAccountOf($ben)->getKey()])->sort()->values()->all());
     expect($notices->first()?->title)->toBe('Task '.$task->code.' set to in progress')
         ->and($notices->first()?->body)->toBe('Shared report')
-        ->and($notices->first()?->href)->toBe('/my-tasks');
+        ->and($notices->first()?->href)->toBe('/my-tasks?task='.$task->id);
     expect(Notification::query()->where('user_id', $manager->getKey())->count())->toBe(0);
 });
 
@@ -591,7 +591,7 @@ it('offers a manager only the moves the decision buttons do not already make', f
 
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
-        ->assertSee('Set Status by Hand')
+        ->assertSeeHtml('aria-label="Change task status"')
         ->assertViewHas('openTaskManualMoves', $moves);
 })->with([
     // Accept and Return are the decision buttons; Cancel is not offered
@@ -610,8 +610,7 @@ it('sets a status from the review dialog and toasts it', function () {
 
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
-        ->set('manualStatus', 'IN_PROGRESS')
-        ->call('setTaskStatus', 'PENDING')
+        ->call('chooseTaskStatus', 'IN_PROGRESS')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Task '.$task->code.' set to in progress.')
         ->assertSet('manualStatus', '')
         ->assertSet('remarks', '');
@@ -626,9 +625,10 @@ it('returns an accepted task from the dialog with the status note, required to r
     mstatManager();
 
     $page = Livewire::test(Show::class, ['project' => $task->project_id])
-        ->call('openTask', $task->id)
-        ->assertSee('Status Note (required to return)')
-        ->set('manualStatus', 'RETURNED')
+        ->call('openTask', $task->id);
+    $page->call('chooseTaskStatus', 'RETURNED')
+        ->assertSet('taskStatusConfirm', true)->assertSee('Reason for return');
+    $page
         ->call('setTaskStatus', 'COMPLETED')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Say what needs reworking before returning the task.');
     expect($task->refresh()->status)->toBe('COMPLETED');
@@ -654,7 +654,9 @@ it('shows no status picker to a viewer who does not run the project, and refuses
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
         ->assertSet('openTaskId', $task->id)
-        ->assertDontSee('Set Status by Hand')
+        ->assertDontSeeHtml('aria-label="Change task status"')
+        ->call('chooseTaskStatus', 'PENDING')
+        ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === WorkRules::forbiddenMessage())
         ->set('manualStatus', 'PENDING')
         ->call('setTaskStatus', 'IN_PROGRESS')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === WorkRules::forbiddenMessage())
@@ -665,7 +667,7 @@ it('shows no status picker to a viewer who does not run the project, and refuses
 
 /*
 |--------------------------------------------------------------------------
-| Project status by hand — ChangeProjectStatus and the header select
+| Project status by hand
 |--------------------------------------------------------------------------
 */
 
@@ -711,7 +713,7 @@ it('reactivates a cancelled project only with a task leader', function () {
     $manager = mstatManager();
 
     expect(fn () => app(ChangeProjectStatus::class)->handle(Access::forActor($manager), $bare->id, 'ACTIVE', 'CANCELLED'))
-        ->toThrow(RuntimeException::class, 'Assign a task leader before activating this project.');
+        ->toThrow(RuntimeException::class, 'Assign a project lead before activating this project.');
     expect($bare->refresh()->status)->toBe('CANCELLED');
     expect(AuditLog::query()->count())->toBe(0);
 
@@ -759,33 +761,37 @@ it('lets the project\'s Task Leader reopen it, and nobody else without all-data'
     expect(AuditLog::query()->where('action', 'PROJECT_STATUS_CHANGED')->where('actor_id', $leader->getKey())->count())->toBe(1);
 });
 
-it('disables Completed in the header select while a task is open', function () {
+it('disables Completed in the project details status editor while a task is open', function () {
     $project = mstatProject(['status' => 'ACTIVE', 'manager_id' => mstatLeaderAccount()->getKey()]);
     $open = mstatTask($project, 'IN_PROGRESS', [mstatEmployee('Ana')]);
     mstatManager();
     $disabledCompleted = '/<option\b[^>]*\bdisabled\b[^>]*value="COMPLETED"/';
 
-    expect(Livewire::test(Show::class, ['project' => $project->id])->html())->toMatch($disabledCompleted);
+    expect(Livewire::test(Show::class, ['project' => $project->id])
+        ->call('openProjectDetails')->call('editProjectStatus')->html())->toMatch($disabledCompleted);
 
     $open->forceFill(['status' => 'COMPLETED'])->save();
 
-    expect(Livewire::test(Show::class, ['project' => $project->id])->html())->not->toMatch($disabledCompleted);
+    expect(Livewire::test(Show::class, ['project' => $project->id])
+        ->call('openProjectDetails')->call('editProjectStatus')->html())->not->toMatch($disabledCompleted);
 });
 
-it('completes a project through the header select once every task is closed', function () {
+it('completes a project through its details status editor once every task is closed', function () {
     $project = mstatProject(['status' => 'ACTIVE', 'manager_id' => mstatLeaderAccount()->getKey()]);
     $open = mstatTask($project, 'IN_PROGRESS', [mstatEmployee('Ana')]);
     mstatManager();
 
     Livewire::test(Show::class, ['project' => $project->id])
-        ->call('changeStatus', 'COMPLETED', 'ACTIVE')
+        ->call('openProjectDetails')->call('editProjectStatus')
+        ->set('editStatus', 'COMPLETED')->call('saveProjectStatus')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Complete or cancel every task before completing the project.');
     expect($project->refresh()->status)->toBe('ACTIVE');
 
     $open->forceFill(['status' => 'CANCELLED'])->save();
 
     Livewire::test(Show::class, ['project' => $project->id])
-        ->call('changeStatus', 'COMPLETED', 'ACTIVE')
+        ->call('openProjectDetails')->call('editProjectStatus')
+        ->set('editStatus', 'COMPLETED')->call('saveProjectStatus')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Project marked completed.');
     expect($project->refresh()->status)->toBe('COMPLETED');
 });

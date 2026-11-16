@@ -46,7 +46,7 @@ final class ChangeProjectStatus
         }
         $moved = DB::transaction(static function () use ($actor, $project, $next, $expectedFrom): ?Project {
             // P first; the tasks after it are read plainly (see below).
-            $locked = WorkRules::lockedProject($project->id);
+            $locked = WorkRules::lockedProject($actor, $project->id);
             // Already there (someone else got there first): nothing to do.
             if ($locked === null || $locked->status === $next) {
                 return null;

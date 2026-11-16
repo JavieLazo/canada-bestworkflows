@@ -49,6 +49,20 @@ namespace App\Domain\Projects;
  */
 final class TaskPolicy
 {
+    public const int TITLE_LIMIT = 300;
+
+    public const int DESCRIPTION_LIMIT = 8000;
+
+    public static function briefError(string $title, string $description): ?string
+    {
+        return match (true) {
+            trim($title) === '' => 'Give the task a title.',
+            mb_strlen($title) > self::TITLE_LIMIT => 'title: must be at most '.self::TITLE_LIMIT.' characters',
+            mb_strlen($description) > self::DESCRIPTION_LIMIT => 'description: must be at most '.self::DESCRIPTION_LIMIT.' characters',
+            default => null,
+        };
+    }
+
     /**
      * TS: TASK_STATUSES. Ordered map — iteration order is picker order, the
      * key is the lookup taskStatusLabel() did with .find().

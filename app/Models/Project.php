@@ -29,6 +29,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  *
  * @property string $id
  * @property string $code
+ * @property string|null $client_id
  * @property string $name
  * @property string|null $description
  * @property string|null $site_id
@@ -43,6 +44,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Project extends BaseModel
 {
+    /** @var list<string> */
+    protected $hidden = ['internal_name'];
+
     use ScopesToActor;
 
     /** @var string */

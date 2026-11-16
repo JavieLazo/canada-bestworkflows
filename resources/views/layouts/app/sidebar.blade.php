@@ -116,7 +116,9 @@
 
                         <nav class="flex flex-col gap-0.5" aria-label="Modules">
                             @foreach ($navModules as $module)
-                                @if (isset($module['groups']))
+                                @if ($module['code'] === \App\Domain\Enums\ModuleCode::PROJECTS)
+                                    @include('livewire.projects.partials.sidebar-navigation')
+                                @elseif (isset($module['groups']))
                                     {{-- A module rendered as a tree: the module collapses, and
                                          each folder inside it collapses again. Both open by
                                          default when the current page lives inside. --}}

@@ -6,8 +6,8 @@ namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
-use App\Domain\Notifications\Notifier;
 use App\Modules\WorkManagement\Application\TaskDiscussion;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Support\Access;
 use App\Support\AuditService;
@@ -39,7 +39,7 @@ final class CommentOnOwnTask
             // Management speaks to the whole task: every OTHER assignee is
             // told — this is the actor's own queue, so they are on the crew
             // too, and need no news of their own note.
-            Notifier::employees(WorkRules::crewExcept($task, $access), [$access->userId], 'TASK_COMMENT', $title, $preview, '/my-tasks');
+            Notifier::employees($access, $task, WorkRules::crewExcept($task, $access), [$access->userId], 'TASK_COMMENT', $title, $preview, '/my-tasks');
         } else {
             // An assignee speaks to the assigner — and to the peers sharing
             // the task, who would otherwise find the thread moved without them.
@@ -47,9 +47,9 @@ final class CommentOnOwnTask
             // fan-out then skips both the actor and that account.
             $assignerUserId = $task->assigned_by === null ? null : (int) $task->assigned_by;
             if ($assignerUserId !== null && (string) $assignerUserId !== $access->userId) {
-                Notifier::account($assignerUserId, 'TASK_COMMENT', $title, $preview, '/projects');
+                Notifier::account($access, $task, $assignerUserId, 'TASK_COMMENT', $title, $preview, '/projects');
             }
-            Notifier::employees(WorkRules::crewExcept($task, $access), [$access->userId, $assignerUserId], 'TASK_COMMENT', $title, $preview, '/my-tasks');
+            Notifier::employees($access, $task, WorkRules::crewExcept($task, $access), [$access->userId, $assignerUserId], 'TASK_COMMENT', $title, $preview, '/my-tasks');
         }
 
         return true;

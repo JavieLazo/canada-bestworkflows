@@ -183,6 +183,7 @@ final class Notifier
      *
      * @param  iterable<?string>  $employeeIds  null and '' entries are ignored
      * @param  iterable<int|string|null>  $exceptUserIds  users ids never told, whatever they are linked to
+     * @param  list<int>|null  $allowedUserIds
      */
     public static function employees(
         iterable $employeeIds,
@@ -191,6 +192,7 @@ final class Notifier
         string $title,
         ?string $body = null,
         ?string $href = null,
+        ?array $allowedUserIds = null,
     ): void {
         $ids = [];
         foreach ($employeeIds as $employeeId) {
@@ -212,6 +214,9 @@ final class Notifier
 
         try {
             $accountIds = app(NotificationRecipients::class)->employees($ids, $told);
+            if ($allowedUserIds !== null) {
+                $accountIds = array_values(array_intersect($accountIds, $allowedUserIds));
+            }
         } catch (Throwable $e) {
             Log::error('[notify] lookup failed', ['error' => $e->getMessage()]);
 

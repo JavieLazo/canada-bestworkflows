@@ -52,6 +52,16 @@ final class ImportRunner
         return $this->run($actor, $import, $context, $bytes, true);
     }
 
+    public function previewSheet(Access $actor, TableImport $import, string $context, CsvSheet $sheet): ImportReport
+    {
+        return $this->runSheet($actor, $import, $context, $sheet, false);
+    }
+
+    public function commitSheet(Access $actor, TableImport $import, string $context, CsvSheet $sheet): ImportReport
+    {
+        return $this->runSheet($actor, $import, $context, $sheet, true);
+    }
+
     public static function maxFileBytes(): int
     {
         return max(1, (int) config('copems.imports.max_file_bytes'));
@@ -81,6 +91,16 @@ final class ImportRunner
             $sheet = CsvReader::parse($bytes, self::maxRows());
         } catch (RuntimeException $e) {
             return ImportReport::refused(0, $e->getMessage());
+        }
+
+        return $this->runSheet($actor, $import, $context, $sheet, $keep);
+    }
+
+    private function runSheet(Access $actor, TableImport $import, string $context, CsvSheet $sheet, bool $keep): ImportReport
+    {
+        abort_unless($import->allows($actor, $context), 403);
+        if (count($sheet->rows) > self::maxRows() || count($sheet->headers) > 128) {
+            return ImportReport::refused(0, 'This sheet exceeds the import row or column limit. Split it and import each part.');
         }
 
         $layout = $import->layout($actor, $context);

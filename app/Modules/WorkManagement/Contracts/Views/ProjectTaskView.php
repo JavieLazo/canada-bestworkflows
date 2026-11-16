@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\WorkManagement\Contracts\Views;
 
+use App\Domain\Projects\ProjectPolicy;
+use App\Domain\Projects\TaskPolicy;
 use App\Modules\IdentityAccess\Contracts\AccountLabel;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
+use App\Modules\WorkManagement\Domain\Tasks\TaskInbox;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Platform\ReadModels\Record;
 use Carbon\CarbonImmutable;
@@ -30,6 +33,15 @@ use Illuminate\Support\Collection;
  * @property-read string $id
  * @property-read string $code
  * @property-read string $project_id
+ * @property-read string|null $group_id
+ * @property-read string|null $group_name
+ * @property-read string|null $effective_group_id
+ * @property-read string|null $parent_id
+ * @property-read TaskParentView|null $parent
+ * @property-read bool|null $has_subtasks
+ * @property-read int|null $subtasks_count
+ * @property-read int|null $subtasks_completed
+ * @property-read int|null $subtasks_cancelled
  * @property-read string $title
  * @property-read string|null $description
  * @property-read string $status
@@ -52,9 +64,36 @@ use Illuminate\Support\Collection;
  * @property-read int|null $responses_returned
  * @property-read bool|null $has_submission_files
  * @property-read string|null $my_status
+ * @property-read string|null $my_response_status
  */
 final readonly class ProjectTaskView extends Record
 {
+    public function inboxBucket(string $today): string
+    {
+        return TaskInbox::bucket($this->my_status ?? $this->status, $this->start_date?->format('Y-m-d'), $this->due_date?->format('Y-m-d'), $today);
+    }
+
+    public function ownAction(): string
+    {
+        $moves = TaskPolicy::employeeCanMoveTo($this->status, $this->submission_mode);
+        if (in_array('IN_PROGRESS', $moves, true)) {
+            return 'start';
+        }
+
+        return ($this->isIndividual() ? TaskSubmissionPolicy::memberCanMove($this->status, $this->my_response_status, 'SUBMITTED') : in_array('SUBMITTED', $moves, true)) ? 'respond' : 'view';
+    }
+
+    public function isSubtask(): bool
+    {
+        return $this->parent_id !== null;
+    }
+
+    /** @return array{total: int, completed: int, percent: int} */
+    public function subtaskProgress(): array
+    {
+        return ProjectPolicy::progressCounts((int) $this->subtasks_count - (int) $this->subtasks_cancelled, (int) $this->subtasks_completed);
+    }
+
     /** @return list<string> */
     public function assigneeIds(): array
     {

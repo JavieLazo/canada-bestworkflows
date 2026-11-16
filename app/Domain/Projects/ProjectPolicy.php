@@ -250,7 +250,7 @@ final class ProjectPolicy
      * change is put through the transition map.
      *
      * @param  array{status: string, manager_id?: string|null}  $project
-     * @param  list<array{status: string}>  $tasks
+     * @param  list<array{status: string, has_subtasks?: bool}>  $tasks
      */
     public static function statusError(array $project, array $tasks, string $nextStatus): ?string
     {
@@ -268,7 +268,7 @@ final class ProjectPolicy
 
         $manager = $project['manager_id'] ?? null;
         if ($nextStatus === 'ACTIVE' && ($manager === null || $manager === '')) {
-            return 'Assign a task leader before activating this project.';
+            return 'Assign a project lead before activating this project.';
         }
 
         if ($nextStatus === 'COMPLETED') {
@@ -288,7 +288,7 @@ final class ProjectPolicy
      * Cancelled tasks leave the denominator — a project whose only open task
      * was called off reads as done, not as stuck at 0%.
      *
-     * @param  list<array{status: string}>  $tasks
+     * @param  list<array{status: string, has_subtasks?: bool}>  $tasks
      * @return array{total: int, completed: int, percent: int}
      */
     public static function progress(array $tasks): array
@@ -297,7 +297,7 @@ final class ProjectPolicy
         $completed = 0;
 
         foreach ($tasks as $task) {
-            if ($task['status'] === 'CANCELLED') {
+            if ($task['status'] === 'CANCELLED' || ($task['has_subtasks'] ?? false)) {
                 continue;
             }
             $total++;

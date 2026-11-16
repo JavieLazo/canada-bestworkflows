@@ -47,120 +47,44 @@
 
     $returned = $myState === 'RETURNED';
 @endphp
-<flux:modal name="task-detail" class="w-full max-w-2xl" wire:close="dialogClosed">
+<x-work.task-panel name="task-detail" :title="$open?->title ?? 'Task'" :code="$open?->code" wire:close="dialogClosed">
     @if ($open)
-        <div class="max-h-[80vh] space-y-4 overflow-y-auto">
-            <div>
-                <flux:heading size="lg">{{ trim($open->code) !== '' ? $open->code : 'Task' }}</flux:heading>
-                <flux:text class="mt-1">{{ $hint }}</flux:text>
-            </div>
-
-            {{-- The brief is what the work is done against, so it stays above the
-                 fold: right under the rework note when there is one, otherwise
-                 right under the task summary. --}}
-            @if ($returned)
-                <div class="space-y-1 rounded-md border border-danger/40 bg-danger/5 p-4">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-danger">Returned for Rework</p>
-                    <p class="text-sm">
-                        {{ trim((string) $reviewNote) !== '' ? $reviewNote : 'No remarks were left with the return.' }}
-                    </p>
-                </div>
-                @include('livewire.tasks.partials.task-attachments', [
-                    'kind' => 'BRIEF',
-                    'label' => 'Brief from Management',
-                    'files' => $openFiles->where('kind', 'BRIEF')->values(),
-                    'canUpload' => false,
-                    'canDelete' => false,
-                    'emptyLabel' => 'No brief was attached to this task.',
-                ])
+        <x-slot:headingActions>
+            @if ($canStart)<flux:button size="sm" variant="primary" icon="play" wire:click="startTask">{{ $open->status === 'RETURNED' ? 'Resume task' : 'Start task' }}</flux:button>
+            @elseif ($canSubmit)<flux:button size="sm" variant="primary" icon="paper-airplane" x-on:click="const section = $el.closest('dialog').querySelector('[data-task-response]'); section?.scrollIntoView({ block: 'start' }); section?.querySelector('textarea')?.focus({ preventScroll: true })">Respond</flux:button>
             @endif
-
-            <div class="flex flex-wrap items-center gap-3 rounded-md border border-border p-4">
-                <div class="min-w-0">
-                    <p class="truncate font-semibold">{{ $open->title }}</p>
-                    <p class="truncate text-xs text-muted-foreground">
-                        @if ($open->project)
-                            <span class="num">{{ $open->project->code }}</span> · {{ $open->project->name }}
-                        @else
-                            —
-                        @endif
-                    </p>
-                </div>
-                <div class="ml-auto flex shrink-0 items-center gap-2">
-                    <span class="{{ TaskPolicy::priorityPill($open->priority) }}">{{ TaskPolicy::priorityLabel($open->priority) }}</span>
-                    <span class="{{ TaskPolicy::statusPill($open->status) }}">{{ TaskPolicy::statusLabel($open->status) }}</span>
-                </div>
-                {{-- Its own flex item, so on a phone it wraps under the task
-                     pills instead of pushing them off the dialog. --}}
-                @if ($individual && $myResponse !== null)
-                    <span class="{{ $myResponse->pill() }}">Your response: {{ $myResponse->label() }}</span>
+        </x-slot:headingActions>
+        <x-slot:meta><span class="max-w-72 truncate">{{ $open->project?->name ?? 'Task' }}</span></x-slot:meta>
+        <div class="space-y-5">
+            @if ($open->parent !== null)<button type="button" wire:click="openTask('{{ $open->parent->id }}')" class="block w-full rounded text-left focus-visible:outline-2 focus-visible:outline-primary"><x-work.task-parent :task="$open" compact /></button>
+            @else<x-work.task-parent :task="$open" compact />
+            @endif
+            <dl class="ppm-property-grid" aria-label="Task properties">
+                <div class="ppm-property-row"><dt>Status</dt><dd class="flex items-center gap-1"><x-work.task-state :status="$open->status" /><flux:tooltip :content="$hint"><flux:button size="sm" variant="ghost" square icon="information-circle" aria-label="About this task status" /></flux:tooltip></dd></div>
+                <div class="ppm-property-row"><dt>Priority</dt><dd class="text-xs">{{ TaskPolicy::priorityLabel($open->priority) }}</dd></div>
+                <div class="ppm-property-row"><dt>Project</dt><dd class="truncate text-xs" title="{{ $open->project?->name }}">{{ $open->project?->name ?? '—' }}</dd></div>
+                <div class="ppm-property-row"><dt>Activity</dt><dd>@if ($open->group_name !== null)<x-work.task-group :task="$open" />@else<span>No activity</span>@endif</dd></div>
+                <div class="ppm-property-row"><dt>Start</dt><dd class="num text-xs">{{ $open->start_date?->format('M d, Y') ?? 'No start date' }}</dd></div>
+                <div class="ppm-property-row"><dt>Due</dt><dd>@if ($open->due_date)<x-work.task-deadline :task="$open" :today="$today" own />@else<span class="text-xs">No due date</span>@endif</dd></div>
+                @if ($individual && $myResponse !== null)<div class="ppm-property-row" role="group" aria-label="Your response: {{ $myResponse->label() }}"><dt>Your response</dt><dd><x-work.task-state :status="$myResponse->status" :label="$myResponse->label()" /></dd></div>
                 @endif
-            </div>
-
-            @unless ($returned)
-                @include('livewire.tasks.partials.task-attachments', [
-                    'kind' => 'BRIEF',
-                    'label' => 'Brief from Management',
-                    'files' => $openFiles->where('kind', 'BRIEF')->values(),
-                    'canUpload' => false,
-                    'canDelete' => false,
-                    'emptyLabel' => 'No brief was attached to this task.',
-                ])
-            @endunless
-
-            <div class="grid gap-4 sm:grid-cols-2">
-                {{-- The planned start: a plan from management, not a gate —
-                     the task can be started before it. --}}
-                <div class="min-w-0 space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Start</p>
-                    <div class="break-words text-sm font-medium">
-                        @if ($open->start_date !== null)
-                            <span class="num">{{ $open->start_date->format('M d, Y') }}</span>
-                        @else
-                            No start date
-                        @endif
-                    </div>
-                </div>
-                <div class="min-w-0 space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Due</p>
-                    <div class="break-words text-sm font-medium">
-                        @if ($open->due_date !== null)
-                            <span class="{{ $openOverdue ? 'num text-danger' : 'num' }}">
-                                {{ $open->due_date->format('M d, Y') }}@if ($openOverdue)<span class="text-xs"> · overdue</span>@endif
-                            </span>
-                        @else
-                            No due date
-                        @endif
-                    </div>
-                </div>
-                <div class="min-w-0 space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned By</p>
-                    <div class="break-words text-sm font-medium">{{ $assignedBy ?? '—' }}</div>
-                </div>
-                <div class="min-w-0 space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned</p>
-                    <div class="break-words text-sm font-medium">
-                        <span class="num">{{ $open->assigned_at?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') ?? '—' }}</span>
-                    </div>
-                </div>
-            </div>
-
-            {{-- A shared task: the peers on the same pivot. On a GROUP task any
-                 of them may start or submit it for everyone, so they are worth
-                 naming; on an INDIVIDUAL task each name carries that peer's
-                 response state — the state only, never what they handed in. --}}
-            @if ($coAssignees !== '')
-                <p class="text-xs text-muted-foreground">
-                    Working with: <span class="font-medium text-foreground">{{ $coAssignees }}</span>
-                </p>
+            </dl>
+            <details class="text-xs text-muted-foreground"><summary class="w-fit cursor-pointer">Assignment</summary><dl class="mt-3 grid grid-cols-2 gap-3"><div><dt>Assigned by</dt><dd class="mt-1 text-foreground">{{ $assignedBy ?? '—' }}</dd></div><div><dt>Assigned</dt><dd class="num mt-1 text-foreground">{{ $open->assigned_at?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') ?? '—' }}</dd></div></dl>
+                @if ($coAssignees !== '')<p class="mt-3">Working with: <span class="text-foreground">{{ $coAssignees }}</span></p>@endif
+            </details>
+            @if ($returned)
+                <section class="space-y-2" aria-label="Returned for rework"><h3 class="ppm-section-title text-danger">Returned for rework</h3><p class="text-sm">{{ trim((string) $reviewNote) !== '' ? $reviewNote : 'No remarks were left with the return.' }}</p></section>
             @endif
-
-            <div class="space-y-1">
-                <p class="text-xs uppercase tracking-wide text-muted-foreground">Description</p>
-                <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">
-                    {{ trim((string) $open->description) !== '' ? $open->description : 'No description given.' }}
-                </p>
-            </div>
+            <section class="space-y-2"><h3 class="ppm-section-title">Description</h3><p class="whitespace-pre-line break-words text-sm text-muted-foreground">{{ trim((string) $open->description) !== '' ? $open->description : 'No description given.' }}</p></section>
+            @if (! $open->isSubtask() && $open->has_subtasks)
+                <section class="space-y-3" aria-label="Your subtasks"><h3 class="ppm-section-title">Your subtasks</h3><x-work.subtask-progress :task="$open" /><x-work.subtask-list :rows="$openSubtasks" :today="$today" /></section>
+            @endif
+            @include('livewire.tasks.partials.task-attachments', [
+                'kind' => 'BRIEF', 'label' => 'Brief from management',
+                'files' => $openFiles->where('kind', 'BRIEF')->values(),
+                'canUpload' => false, 'canDelete' => false,
+                'emptyLabel' => 'No brief was attached to this task.',
+            ])
 
             @if (trim((string) $submissionNote) !== '')
                 <div class="space-y-1">
@@ -189,6 +113,7 @@
             {{-- Attaching the evidence and describing it are one action, so the
                  files sit directly on top of the note the reviewer reads. --}}
             @if ($canSubmit)
+                <section data-task-response class="space-y-4">
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'SUBMISSION',
                     'label' => 'Submission Files',
@@ -209,6 +134,7 @@
                         />
                     </flux:field>
                 </div>
+                </section>
             @endif
 
             {{-- Nothing left for the actor to do. One explicit arm per state
@@ -250,19 +176,13 @@
                 'canComment' => true,
             ])
 
-            <div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-                <flux:button variant="ghost" wire:click="closeDialog">Close</flux:button>
-                @if ($canStart)
-                    <flux:button variant="primary" icon="play" wire:click="startTask">
-                        {{ $open->status === 'RETURNED' ? 'Resume Task' : 'Start Task' }}
-                    </flux:button>
-                @endif
+            @if ($canSubmit)<div class="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
                 @if ($canSubmit)
                     <flux:button variant="primary" icon="paper-airplane" wire:click="submitTask">
                         {{ $individual ? 'Submit My Response' : 'Submit for Review' }}
                     </flux:button>
                 @endif
-            </div>
+            </div>@endif
         </div>
     @endif
-</flux:modal>
+</x-work.task-panel>

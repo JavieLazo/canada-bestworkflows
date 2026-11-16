@@ -11,6 +11,7 @@
         'docx' => ['DOC', 'bg-primary-soft text-primary'],
         'xlsx', 'csv' => [$extension === 'csv' ? 'CSV' : 'XLS', 'bg-success-soft text-success'],
         'pptx' => ['PPT', 'bg-warning-soft text-warning'],
+        'jpg', 'jpeg', 'png', 'webp', 'gif' => ['IMG', 'bg-primary-soft text-primary'],
         default => ['TXT', 'bg-muted text-muted-foreground'],
     };
 @endphp

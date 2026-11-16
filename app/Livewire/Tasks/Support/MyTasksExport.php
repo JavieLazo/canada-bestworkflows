@@ -28,13 +28,15 @@ final class MyTasksExport implements TableExport
             'q' => $query['q'] ?? '',
             'status' => ($query['status'] ?? '') !== '' ? (string) $query['status'] : 'ALL',
             'project' => ($query['project'] ?? '') !== '' ? (string) $query['project'] : 'ALL',
+            'queue' => ($query['queue'] ?? '') !== '' ? (string) $query['queue'] : 'ALL',
         ];
-        $sort = in_array($query['sort'] ?? '', ['code', 'task', 'priority', 'start', 'due', 'status'], true) ? (string) $query['sort'] : 'priority';
+        $sort = in_array($query['sort'] ?? '', ['code', 'task', 'priority', 'start', 'due', 'status', 'focus'], true) ? (string) $query['sort'] : 'priority';
         $direction = ($query['dir'] ?? '') === 'desc' ? 'desc' : 'asc';
 
-        $rows = static function () use ($actor, $filters, $sort, $direction): Generator {
+        $today = ManilaClock::todayKey();
+        $rows = static function () use ($actor, $filters, $sort, $direction, $today): Generator {
             $records = app(WorkRecords::class);
-            foreach (CsvExport::pages(static fn (int $page, int $perPage) => $records->ownPage($actor, $filters, $sort, $direction, $page, $perPage)) as $task) {
+            foreach (CsvExport::pages(static fn (int $page, int $perPage) => $records->ownPage($actor, $filters, $sort, $direction, $page, $perPage, $today)) as $task) {
                 yield [
                     $task->code, $task->title, $task->project->name ?? '', TaskPolicy::priorityLabel($task->priority),
                     $task->start_date?->format('Y-m-d') ?? '', $task->due_date?->format('Y-m-d') ?? '', $task->myStatusLabel(),

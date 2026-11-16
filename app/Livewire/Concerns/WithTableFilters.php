@@ -79,9 +79,16 @@ trait WithTableFilters
             ? $size
             : TableDefaults::DEFAULT_PAGE_SIZE;
 
-        // Port of setPageSize (usePagination.ts:55-58): a new size starts
-        // over from page 1.
-        $this->resetPage();
+        // A size change starts each list using this control on its first page.
+        foreach ($this->pageSizePageNames() as $name) {
+            $this->resetPage($name);
+        }
+    }
+
+    /** @return list<string> */
+    protected function pageSizePageNames(): array
+    {
+        return ['page'];
     }
 
     /**

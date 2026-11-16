@@ -398,7 +398,7 @@ it('prints an individual task\'s progress under its status in the task table', f
     $f = tuiFixture();
     tuiLogin($f['reviewer']);
 
-    Livewire::test(Show::class, ['project' => $f['task']->project_id])
+    Livewire::test(Show::class, ['project' => $f['task']->project_id])->set('taskView', 'board')
         ->assertSee('1 of 4 approved · 1 awaiting review · 1 returned · 1 not submitted');
 });
 
@@ -605,7 +605,7 @@ it('gives a member with no response the submit form and never a closed-task sent
 |--------------------------------------------------------------------------
 */
 
-it('renders the group dialogs with the texts they had before', function () {
+it('renders group submissions with their existing notes and decisions', function () {
     $ana = tuiEmployee('Ana', 'Cruz');
     $ben = tuiEmployee('Ben', 'Reyes');
     $project = tuiProject();
@@ -641,10 +641,10 @@ it('renders the group dialogs with the texts they had before', function () {
     tuiLogin(tuiUser(['PROJECTS'], true));
     Livewire::test(Show::class, ['project' => $project->id])
         ->call('openTask', $submitted->id)
-        ->assertSee('Team Response')
-        ->assertSee('Submitted Files')
-        ->assertSee('Accept Task')
-        ->assertSee('Return for Rework')
-        ->assertDontSee('Complete Task')
-        ->assertDontSee('Individual Responses');
+        ->assertSee('Team response')
+        ->assertSee('Both halves done')
+        ->assertSee('Accept task')
+        ->assertSee('Return for rework')
+        ->assertDontSee('Complete task')
+        ->assertDontSee('Individual responses');
 });

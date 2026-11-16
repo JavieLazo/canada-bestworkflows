@@ -68,7 +68,7 @@ final class AttachSubmission
                 // lock (L5) and read the usage PLAINLY, which opened this
                 // transaction's snapshot before the task lock — so every read
                 // below that decides must be a locking one to be fresh.
-                $locked = WorkRules::lockedTask($task->id);
+                $locked = WorkRules::lockedTask($access, $task->id);
                 if ($locked === null || $locked->submission_mode !== $task->submission_mode) {
                     throw new TaskEvidenceLocked('That task changed before this action completed.');
                 }

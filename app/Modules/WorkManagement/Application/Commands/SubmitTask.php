@@ -6,11 +6,11 @@ namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
-use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskSubmission;
 use App\Modules\WorkManagement\Application\TaskDiscussion;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Support\Access;
@@ -28,8 +28,8 @@ use Throwable;
  * A GROUP task is handed in once, for the whole crew, on the task row. On an
  * INDIVIDUAL task the actor hands in THEIR OWN response instead
  * ({@see self::submitResponse()}): the task stays IN_PROGRESS, nothing is
- * posted to the shared thread, and only the assigner is told — a member's
- * note is private to them and the reviewers.
+ * posted to the shared thread. Current reviewers and the eligible assigner
+ * hear about the hand-in without receiving a private response note.
  */
 final class SubmitTask
 {
@@ -81,19 +81,8 @@ final class SubmitTask
         } catch (Throwable $e) {
             Log::error('submission comment write failed', ['task' => $task->id, 'error' => $e->getMessage()]);
         }
-        // A submission is news to whoever handed the task out
-        // (api/tasks/[id]/route.ts:210-216) — told first, so an assigner whose
-        // login is also on the crew hears it once, as the assigner, through
-        // this review notice. On the crew they cannot decide it themselves
-        // (ReviewTask refuses a self-review), so another reviewer has to; they
-        // are told all the same, on purpose.
-        $assignerUserId = $task->assigned_by === null ? null : (int) $task->assigned_by;
-        if ($assignerUserId !== null && (string) $assignerUserId !== $access->userId) {
-            Notifier::account($assignerUserId, 'TASK_SUBMITTED', WorkRules::taskLabel($task).' submitted for review', $note, '/projects');
-        }
-        // ...and to the co-assignees, whose task just moved under them — never
-        // the actor, and never the assigner a second time through the crew.
-        Notifier::employees(WorkRules::crewExcept($task, $access), [$access->userId, $assignerUserId], 'TASK_SUBMITTED', WorkRules::actorName($task, $access).' submitted '.WorkRules::taskLabel($task).' for review', $note, '/my-tasks');
+        $told = Notifier::submitted($access, $task, $note);
+        Notifier::employees($access, $task, WorkRules::crewExcept($task, $access), [$access->userId, ...$told], 'TASK_SUBMITTED', WorkRules::actorName($task, $access).' submitted '.WorkRules::taskLabel($task).' for review', $note, '/my-tasks');
 
         return true;
     }
@@ -110,7 +99,7 @@ final class SubmitTask
         $employeeId = $access->ownEmployeeId();
         $row = DB::transaction(static function () use ($access, $task, $note, $employeeId): ProjectTaskSubmission {
             // L1: the task row first, then everything else is fresh.
-            $locked = WorkRules::lockedTask($task->id);
+            $locked = WorkRules::lockedTask($access, $task->id);
             if ($locked === null || ! TaskSubmissionPolicy::isIndividual($locked->submission_mode)) {
                 throw new RuntimeException('That task changed before this action completed.');
             }
@@ -162,13 +151,8 @@ final class SubmitTask
 
             return $row;
         });
-        // After commit. No thread comment and no notice to the co-assignees:
-        // this response is not theirs to see. The assigner is told — with the
-        // task's title, NEVER the note — unless they are the one submitting.
-        $assignerUserId = $task->assigned_by === null ? null : (int) $task->assigned_by;
-        if ($assignerUserId !== null && (string) $assignerUserId !== $access->userId) {
-            Notifier::account($assignerUserId, 'TASK_RESPONSE_SUBMITTED', WorkRules::actorName($task, $access).' submitted a response on '.WorkRules::taskLabel($task), $task->title, '/projects/'.$task->project_id);
-        }
+        // A private response never enters the shared thread or notification body.
+        Notifier::submitted($access, $task);
 
         return true;
     }

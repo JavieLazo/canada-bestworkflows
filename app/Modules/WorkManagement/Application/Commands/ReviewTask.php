@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Models\ProjectTask;
 use App\Models\ProjectTaskAssignee;
 use App\Models\ProjectTaskSubmission;
 use App\Models\TaskComment;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Support\Access;
@@ -51,8 +51,8 @@ final class ReviewTask
         // Who runs the task's project: an all-data PROJECTS holder, or the
         // project's Task Leader. A plain, scoped read for the early refusal;
         // the leader is re-checked against the locked project row below.
-        if (! WorkRules::managesProjects($actor)) {
-            $seen = WorkRules::task($actor, $projectId, $taskId);
+        $seen = WorkRules::task($actor, $projectId, $taskId);
+        if (! WorkRules::managesProject($actor, $seen?->project)) {
             if ($seen === null || ! WorkRules::leadsProject($actor, $seen->project)) {
                 throw new RuntimeException(WorkRules::forbiddenMessage());
             }
@@ -69,14 +69,15 @@ final class ReviewTask
             throw new RuntimeException('review_remarks: must be at most 8000 characters');
         }
         $task = DB::transaction(static function () use ($actor, $projectId, $taskId, $decision, $remark): ProjectTask {
-            $task = WorkRules::lockedTask($taskId, $projectId);
+            $task = WorkRules::lockedTask($actor, $taskId, $projectId);
             if ($task === null) {
                 throw new RuntimeException('That task no longer exists.');
             }
             // P, after L1: a leader named away while this request waited is
             // refused here, not decided for.
-            if (! WorkRules::managesProjects($actor)) {
-                if (! WorkRules::leadsProject($actor, WorkRules::lockedProject($task->project_id))) {
+            $project = WorkRules::lockedProject($actor, $task->project_id);
+            if (! WorkRules::managesProject($actor, $project)) {
+                if (! WorkRules::leadsProject($actor, $project)) {
                     throw new RuntimeException(WorkRules::forbiddenMessage());
                 }
                 // L2: a leader added to the crew while this waited decides
@@ -140,7 +141,7 @@ final class ReviewTask
         };
         $crew = array_values(array_filter($task->assigneeIds(), static fn (string $id): bool => $id !== $actor->employeeId));
         $label = trim($task->code) !== '' ? $task->code : $task->title;
-        Notifier::employees($crew, [], 'TASK_'.$decision, $label.' '.$outcome,
+        Notifier::employees($actor, $task, $crew, [], 'TASK_'.$decision, $label.' '.$outcome,
             $decision === 'RETURNED' ? $remark : $task->title, '/my-tasks');
     }
 }

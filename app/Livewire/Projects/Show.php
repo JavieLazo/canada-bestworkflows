@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace App\Livewire\Projects;
 
+use App\Domain\Enums\ModuleCode;
 use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\ProjectPolicy;
 use App\Domain\Projects\TaskPolicy;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
+use App\Livewire\Concerns\WithTaskLink;
+use App\Livewire\Concerns\WithTaskTimeline;
+use App\Livewire\Projects\Support\WithPeopleList;
 use App\Modules\IdentityAccess\Contracts\AccountLabel as User;
 use App\Modules\IdentityAccess\Contracts\AccountNames;
 use App\Modules\IdentityAccess\Contracts\ProjectAccounts;
@@ -16,33 +20,54 @@ use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\WorkManagement\Application\Commands\ChangeProjectStatus;
 use App\Modules\WorkManagement\Application\Commands\ChangeTaskStatus;
 use App\Modules\WorkManagement\Application\Commands\CommentOnProjectTask;
-use App\Modules\WorkManagement\Application\Commands\CreateTask;
+use App\Modules\WorkManagement\Application\Commands\CreateTaskInStatus;
 use App\Modules\WorkManagement\Application\Commands\DeleteProject;
+use App\Modules\WorkManagement\Application\Commands\DeleteTaskGroup;
+use App\Modules\WorkManagement\Application\Commands\MoveTaskToGroup;
 use App\Modules\WorkManagement\Application\Commands\ReviewTask;
 use App\Modules\WorkManagement\Application\Commands\ReviewTaskResponse;
+use App\Modules\WorkManagement\Application\Commands\SaveTaskGroup;
 use App\Modules\WorkManagement\Application\Commands\ScheduleProject;
+use App\Modules\WorkManagement\Application\Commands\SetProjectMember;
 use App\Modules\WorkManagement\Application\Commands\TaskBriefs;
 use App\Modules\WorkManagement\Application\Commands\UpdateProject;
+use App\Modules\WorkManagement\Application\Commands\UpdateTaskContent;
 use App\Modules\WorkManagement\Application\Commands\UpdateTaskDetails;
+use App\Modules\WorkManagement\Application\PeopleList;
 use App\Modules\WorkManagement\Application\ProjectDraft;
+use App\Modules\WorkManagement\Application\Queries\ClientPeople;
+use App\Modules\WorkManagement\Application\Queries\ProjectClients;
+use App\Modules\WorkManagement\Application\Queries\ProjectFinancials;
+use App\Modules\WorkManagement\Application\Queries\ProjectPeople;
+use App\Modules\WorkManagement\Application\Queries\ProjectPortfolios;
+use App\Modules\WorkManagement\Application\Queries\ProjectReports;
+use App\Modules\WorkManagement\Application\Queries\ProjectResults;
+use App\Modules\WorkManagement\Application\Queries\ProjectTaskGroups;
 use App\Modules\WorkManagement\Application\Queries\WorkLists;
 use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Modules\WorkManagement\Application\Queries\WorkSummary;
+use App\Modules\WorkManagement\Application\TaskDateEdit;
 use App\Modules\WorkManagement\Application\TaskDetails;
 use App\Modules\WorkManagement\Application\TaskDraft;
+use App\Modules\WorkManagement\Application\TaskHierarchy;
+use App\Modules\WorkManagement\Application\TaskPropertyEdit;
 use App\Modules\WorkManagement\Application\WorkRules;
+use App\Modules\WorkManagement\Contracts\Views\PortfolioView;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskFileView;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView as ProjectTask;
 use App\Modules\WorkManagement\Contracts\Views\ProjectView as Project;
 use App\Modules\WorkManagement\Contracts\Views\TaskCommentView as TaskComment;
 use App\Modules\WorkManagement\Contracts\Views\TaskResponseView;
+use App\Modules\WorkManagement\Domain\Tasks\ManualTaskStatus;
 use App\Support\Access;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
@@ -65,7 +90,7 @@ use Livewire\WithFileUploads;
  * The summary card shows Site / Task Leader / Due Date / Progress — no
  * Timeline or Health cell (the reference has both), so the page does not
  * compute {@see ProjectPolicy::health()} (the queue cards below it carry the
- * same counts). "Task Leader" is the user-facing name of
+ * same counts). "Project lead" is the user-facing name of
  * `projects.manager_id`; every identifier keeps the reference's "manager".
  *
  * ⚠ Divergence from the reference API, on purpose: the reference's task PATCH
@@ -126,8 +151,26 @@ use Livewire\WithFileUploads;
 class Show extends Component
 {
     use WithFileUploads;
+    use WithPeopleList;
     use WithSorting;
     use WithTableFilters;
+    use WithTaskLink;
+    use WithTaskTimeline;
+
+    public bool $scheduling = false;
+
+    #[Locked]
+    public ?string $scheduleTaskId = null;
+
+    #[Locked]
+    public string $scheduleSeenStart = '';
+
+    #[Locked]
+    public string $scheduleSeenDue = '';
+
+    public string $scheduleStart = '';
+
+    public string $scheduleDue = '';
 
     private const array QUEUES = ['ALL', 'REVIEW', 'OVERDUE', 'DUE_SOON', 'UNASSIGNED'];
 
@@ -135,6 +178,7 @@ class Show extends Component
     public string $projectId;
 
     /* Task-table filters — plain filter state, deliberately unlocked. */
+    #[Url(except: 'ALL')]
     public string $status = 'ALL';
 
     public string $assignee = 'ALL';
@@ -142,6 +186,190 @@ class Show extends Component
     public string $priority = 'ALL';
 
     public string $queue = 'ALL';
+
+    #[Url(as: 'group', except: 'ALL')]
+    public string $group = 'ALL';
+
+    /** @var list<string> Editable filters, validated by the scoped task query before use. */
+    #[Url(as: 'groups', except: [])]
+    public array $groupSelection = [];
+
+    #[Url(as: 'parent', except: 'ALL')]
+    public string $parent = 'ALL';
+
+    public bool $groupList = true;
+
+    #[Locked]
+    public ?string $taskParentId = null;
+
+    public bool $groupEditorOpen = false;
+
+    #[Locked]
+    public ?string $editingGroupId = null;
+
+    public string $groupName = '';
+
+    /** Editable draft, not #[Locked]; CreateTask revalidates its project/group link under the project lock. */
+    public string $taskGroupId = 'NONE';
+
+    #[Locked]
+    public ?string $seenGroupId = null;
+
+    #[Url(as: 'view', except: 'overview')]
+    public string $taskView = 'overview';
+
+    public string $lastTaskView = 'board';
+
+    public function quickCreate(string $kind): void
+    {
+        $actor = $this->access();
+        if ($kind === 'indicator' && app(ProjectResults::class)->permissions($actor, $this->projectId)['edit']) {
+            $this->taskView = 'reporting';
+            $this->dispatch('ppm-quick-indicator', projectId: $this->projectId)->to(ProjectReportingWorkspace::class);
+        } elseif ($kind === 'expense' && app(ProjectFinancials::class)->permissions($actor, $this->projectId)['edit'] && app(ProjectFinancials::class)->settings($actor, $this->projectId) !== null) {
+            $this->taskView = 'finance';
+            $this->dispatch('ppm-quick-expense', projectId: $this->projectId)->to(ProjectFinanceWorkspace::class);
+        }
+    }
+
+    public function openTasks(): void
+    {
+        $this->taskView = in_array($this->lastTaskView, ['board', 'list', 'gantt'], true) ? $this->lastTaskView : 'board';
+    }
+
+    public bool $memberEditorOpen = false;
+
+    public bool $membersOpen = false;
+
+    public bool $detailsOpen = false;
+
+    public bool $projectStatusEditing = false;
+
+    /** @var array<string, string> */
+    #[Locked]
+    public array $projectEditOriginal = [];
+
+    #[Locked]
+    public string $requestedTaskStatus = 'PENDING';
+
+    #[Locked]
+    public string $taskCreateStatus = 'PENDING';
+
+    public string $activitySearch = '';
+
+    public string $activityEvent = 'ALL';
+
+    public string $activityOrder = 'date-desc';
+
+    public function openPeople(): void
+    {
+        $this->resetPeople();
+        $this->membersOpen = true;
+        $this->detailsOpen = true;
+    }
+
+    public function updatedDetailsOpen(bool $open): void
+    {
+        if (! $open) {
+            $this->discardProjectDetails(true);
+        }
+    }
+
+    public function cancelProjectEdit(): void
+    {
+        $this->requestProjectDetailsExit(false);
+    }
+
+    public function closeProjectDetails(): void
+    {
+        $this->requestProjectDetailsExit(true);
+    }
+
+    public function discardProjectDetails(bool $close = false): void
+    {
+        $this->editing = $this->projectStatusEditing = false;
+        $this->projectEditOriginal = [];
+        $this->reset('editName', 'editDescription', 'editSiteId', 'editStatus', 'editStartDate', 'editDueDate', 'editManagerId');
+        $this->resetValidation(['projectEdit', 'projectStatus']);
+        if ($close) {
+            $this->membersOpen = $this->detailsOpen = false;
+        }
+    }
+
+    private function requestProjectDetailsExit(bool $close): void
+    {
+        if (($this->editing && $this->projectEditOriginal !== $this->projectEditValues())
+            || ($this->projectStatusEditing && $this->editStatus !== $this->seenEditStatus)) {
+            $this->dispatch('social-confirm', title: 'Discard unsaved changes?', body: "Your edits haven't been saved.", confirm: 'Discard changes', cancel: 'Keep editing', danger: true, call: ['discardProjectDetails', $close]);
+
+            return;
+        }
+        $this->discardProjectDetails($close);
+    }
+
+    /**
+     * Compare with the opened draft, even if someone else updates the project.
+     *
+     * @return array<string, string>
+     */
+    private function projectEditValues(): array
+    {
+        return ['name' => trim($this->editName), 'description' => trim($this->editDescription), 'site' => $this->editSiteId,
+            'status' => $this->editStatus, 'start' => $this->editStartDate, 'due' => $this->editDueDate, 'lead' => $this->editManagerId];
+    }
+
+    public function openProjectDetails(): void
+    {
+        $this->resetPeople();
+        $this->editing = $this->projectStatusEditing = false;
+        $this->projectEditOriginal = [];
+        $this->detailsOpen = true;
+    }
+
+    public function editProjectStatus(): void
+    {
+        $project = $this->scopedProject($this->access());
+        if ($project === null || ! WorkRules::runsProject($this->access(), $project)) {
+            return;
+        }
+        $this->editStatus = $this->seenEditStatus = $project->status;
+        $this->resetValidation('projectStatus');
+        $this->projectStatusEditing = true;
+    }
+
+    public function saveProjectStatus(): void
+    {
+        $actor = $this->access();
+        $project = $this->scopedProject($actor);
+        if ($project === null || ! WorkRules::runsProject($actor, $project)) {
+            Flux::toast(variant: 'danger', text: WorkRules::forbiddenMessage());
+
+            return;
+        }
+        $this->changeStatus($this->editStatus, $this->seenEditStatus);
+    }
+
+    /** Editable draft, not #[Locked]; SetProjectMember revalidates the account, project and role on save. */
+    public string $memberUserId = '';
+
+    #[Locked]
+    public ?int $editingMemberUserId = null;
+
+    public string $memberRole = 'PARTICIPANT';
+
+    public string $memberPosition = '';
+
+    public bool $editingContent = false;
+
+    public string $contentTitle = '';
+
+    public string $contentDescription = '';
+
+    #[Locked]
+    public string $seenContentTitle = '';
+
+    #[Locked]
+    public string $seenContentDescription = '';
 
     /* ------------------------- edit-project dialog ------------------------- */
 
@@ -241,6 +469,18 @@ class Show extends Component
 
     public bool $editingDetails = false;
 
+    public bool $taskStatusConfirm = false;
+
+    #[Locked]
+    public string $seenTaskStatus = 'PENDING';
+
+    #[Locked]
+    public string $seenPriority = 'NORMAL';
+
+    /** @var list<string> Observed crew for the field-specific stale-edit check. */
+    #[Locked]
+    public array $seenAssigneeIds = [];
+
     /**
      * The review dialog's assignee draft, seeded from the task's current set
      * on open; entangled and re-validated in saveDetails(), so NOT #[Locked]
@@ -249,6 +489,9 @@ class Show extends Component
      * @var list<string>
      */
     public array $draftAssigneeIds = [];
+
+    #[Locked]
+    public int $reviewAssigneeNonce = 0;
 
     public string $draftPriority = 'NORMAL';
 
@@ -265,6 +508,9 @@ class Show extends Component
     public string $seenStartDate = '';
 
     public string $draftDueDate = '';
+
+    #[Locked]
+    public string $seenDueDate = '';
 
     /**
      * The "Set status" choice ('' until one is picked). A status, not an id:
@@ -301,16 +547,74 @@ class Show extends Component
 
     public ?TemporaryUploadedFile $reviewBriefUpload = null;
 
+    /** @return list<string> */
+    protected function pageSizePageNames(): array
+    {
+        return ['page', 'activityPage'];
+    }
+
     public function mount(string $project): void
     {
         $this->projectId = $project;
         $this->sortKey = 'stack';
+        $this->followTaskLink();
+    }
+
+    public function openMember(?int $userId = null): void
+    {
+        $actor = $this->access();
+        if (! WorkRules::managesProject($actor, $this->scopedProject($actor))) {
+            return;
+        }
+        $member = $userId === null ? null : app(ProjectPeople::class)->member($actor, $this->projectId, $userId);
+        if ($userId !== null && $member === null && ! app(ProjectPeople::class)->candidates($actor, $this->projectId)->contains('id', $userId)) {
+            return;
+        }
+        $this->resetValidation();
+        $this->editingMemberUserId = $member?->user_id;
+        $this->memberUserId = $userId === null ? '' : (string) $userId;
+        $this->memberRole = $member->role ?? 'PARTICIPANT';
+        $this->memberPosition = $member->position ?? '';
+        $this->memberEditorOpen = true;
+    }
+
+    public function saveMember(): void
+    {
+        $actor = $this->access();
+        $this->validate(['memberUserId' => 'required|integer|min:1']);
+        $this->writeMember($actor, $this->editingMemberUserId ?? (int) $this->memberUserId, $this->memberRole);
+    }
+
+    public function removeMember(): void
+    {
+        $actor = $this->access();
+        if ($this->editingMemberUserId !== null) {
+            $this->writeMember($actor, $this->editingMemberUserId, null);
+        }
+    }
+
+    private function writeMember(Access $actor, int $userId, ?string $role): void
+    {
+        try {
+            app(SetProjectMember::class)->handle($actor, $this->projectId, $userId, $role, $this->memberPosition, mustBeNew: $this->editingMemberUserId === null);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'Project access could not be saved. Your draft is still here.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        $this->memberEditorOpen = false;
+        Flux::toast(variant: 'success', text: $role === null ? 'Shared project role removed. Existing assignments and lead access remain.' : 'Project access saved.');
     }
 
     /** @return list<string> */
     protected function sortableKeys(): array
     {
-        return ['stack', 'code', 'task', 'assignee', 'priority', 'start', 'due', 'status'];
+        return ['stack', 'code', 'task', 'group', 'assignee', 'priority', 'start', 'due', 'status'];
     }
 
     /* Every filter select on the detail page resets to page 1
@@ -330,6 +634,177 @@ class Show extends Component
         $this->resetPage();
     }
 
+    public function updatedGroup(): void
+    {
+        $this->groupSelection = [];
+        $this->parent = 'ALL';
+        $this->resetPage();
+        foreach (TaskPolicy::STATUSES as $status => $label) {
+            $this->resetPage('board_'.$status);
+        }
+    }
+
+    public function updatedGroupSelection(): void
+    {
+        $this->group = 'ALL';
+        $this->parent = 'ALL';
+        $this->resetPage();
+        foreach (TaskPolicy::STATUSES as $status => $label) {
+            $this->resetPage('board_'.$status);
+        }
+    }
+
+    public function openGroupEditor(?string $groupId = null): void
+    {
+        $actor = $this->access();
+        if (! WorkRules::editsWork($actor, $this->scopedProject($actor))) {
+            return;
+        }
+        $group = $groupId === null ? null : app(ProjectTaskGroups::class)->forProject($actor, $this->projectId)->firstWhere('id', $groupId);
+        if ($groupId !== null && $group === null) {
+            return;
+        }
+        $this->resetValidation('groupName');
+        $this->editingGroupId = $groupId;
+        $this->groupName = $group->name ?? '';
+        $this->groupEditorOpen = true;
+    }
+
+    public function saveGroup(): void
+    {
+        try {
+            $group = app(SaveTaskGroup::class)->handle($this->access(), $this->projectId, $this->editingGroupId, $this->groupName);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The activity could not be saved. Your draft is still here.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        $this->group = $group->id;
+        $this->updatedGroup();
+        $this->groupEditorOpen = false;
+        Flux::toast(variant: 'success', text: 'Activity saved.');
+    }
+
+    public function deleteGroup(string $groupId): void
+    {
+        try {
+            app(DeleteTaskGroup::class)->handle($this->access(), $this->projectId, $groupId);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The activity could not be removed.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        if ($this->group === $groupId) {
+            $this->group = 'ALL';
+            $this->updatedGroup();
+        }
+        Flux::toast(variant: 'success', text: 'Empty activity removed.');
+    }
+
+    public function openTaskCreation(?string $groupId = null, string $status = 'PENDING'): void
+    {
+        $actor = $this->access();
+        $project = $this->scopedProject($actor);
+        if (! WorkRules::editsWork($actor, $project) || in_array($project?->status, ['COMPLETED', 'CANCELLED'], true)) {
+            return;
+        }
+        if (! TaskPolicy::isStatus($status)) {
+            return;
+        }
+        $this->resetValidation('taskCreation');
+        $this->requestedTaskStatus = $status;
+        $this->taskCreateStatus = in_array($status, ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'], true) && WorkRules::runsProject($actor, $project) ? $status : 'PENDING';
+        if ($this->parent !== 'ALL') {
+            $this->openSubtaskCreation($this->parent, $status);
+
+            return;
+        }
+        $groups = app(ProjectTaskGroups::class)->forProject($actor, $this->projectId);
+        $selected = $groupId ?? (count($this->groupSelection) === 1 ? $this->groupSelection[0] : $this->group);
+        $this->taskParentId = null;
+        $this->taskGroupId = $groups->contains('id', $selected) ? $selected : 'NONE';
+        $this->adding = true;
+    }
+
+    public function openSubtaskCreation(string $parentId, string $status = 'PENDING'): void
+    {
+        $actor = $this->access();
+        $project = $this->scopedProject($actor);
+        $task = $this->scopedTask($actor, $parentId);
+        if (! WorkRules::editsWork($actor, $project) || $task === null || in_array($project?->status, ['COMPLETED', 'CANCELLED'], true)
+            || ! TaskHierarchy::canAdd($task->status, $task->parent_id, $this->modeLocked($task))) {
+            Flux::toast(variant: 'danger', text: 'Add subtasks to a top-level task before its work is handed in or closed.');
+
+            return;
+        }
+        $this->requestedTaskStatus = $status;
+        $this->taskCreateStatus = in_array($status, ['IN_PROGRESS', 'COMPLETED', 'CANCELLED'], true) && WorkRules::runsProject($actor, $project) ? $status : 'PENDING';
+        $this->taskParentId = $task->id;
+        $this->taskGroupId = 'NONE';
+        $this->closeTaskPanel();
+        $this->adding = true;
+    }
+
+    public function showSubtasks(string $parentId): void
+    {
+        $task = $this->scopedTask($this->access(), $parentId);
+        if ($task === null || $task->isSubtask()) {
+            return;
+        }
+        $this->parent = $parentId;
+        $this->groupSelection = [];
+        $this->taskView = 'list';
+        $this->closeTaskPanel();
+        $this->clearFilters();
+        $this->group = $task->effective_group_id ?? 'NONE';
+    }
+
+    public function clearParent(): void
+    {
+        $this->parent = 'ALL';
+        $this->resetPage();
+    }
+
+    public function updatedGroupList(): void
+    {
+        $this->resetPage();
+    }
+
+    public function moveTaskGroup(string $groupId): void
+    {
+        if ($this->openTaskId === null) {
+            return;
+        }
+        $target = $groupId === 'NONE' ? null : $groupId;
+        try {
+            app(MoveTaskToGroup::class)->handle($this->access(), $this->projectId, $this->openTaskId, $target, $this->seenGroupId);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The activity could not be changed.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            $this->addError('taskProperty', $e->getMessage());
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        $this->seenGroupId = $target;
+        $this->resetValidation('taskProperty');
+        $this->dispatch('task-property-saved', taskId: $this->openTaskId);
+        Flux::toast(variant: 'success', text: 'Activity updated.');
+    }
+
     public function updatedQueue(mixed $value): void
     {
         if (! in_array($value, self::QUEUES, true)) {
@@ -343,6 +818,11 @@ class Show extends Component
     public function setQueue(string $queue): void
     {
         if (in_array($queue, self::QUEUES, true)) {
+            if ($this->taskView === 'overview') {
+                $this->clearFilters();
+                $this->group = $this->parent = 'ALL';
+                $this->taskView = 'list';
+            }
             $this->queue = $queue;
         }
     }
@@ -350,6 +830,11 @@ class Show extends Component
     /** A workload row narrows the table to that person (project-detail.tsx:436-440). */
     public function filterByAssignee(string $employeeId): void
     {
+        $this->membersOpen = false;
+        $this->detailsOpen = false;
+        $this->clearFilters();
+        $this->group = $this->parent = 'ALL';
+        $this->taskView = 'list';
         $this->assignee = $employeeId;
         $this->queue = 'ALL';
         $this->resetPage();
@@ -360,37 +845,41 @@ class Show extends Component
     /* ------------------------------------------------------------------ */
 
     /**
-     * The header status select (project-detail.tsx:244-271). `$from` is the
-     * status the select was drawn with; ChangeProjectStatus refuses the move
-     * if the project has moved since. A status set by hand may reopen a
-     * closed project (ManualProjectStatus).
+     * Keep the status the editor saw so a later save cannot replace a newer change.
      */
     public function changeStatus(string $next, ?string $from = null): void
     {
+        $this->resetValidation('projectStatus');
         $actor = $this->access();
         try {
             $changed = app(ChangeProjectStatus::class)->handle($actor, $this->projectId, $next, $from);
         } catch (QueryException $e) {
             report($e);
+            $this->addError('projectStatus', 'The status could not be saved. Please try again.');
             Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
 
             return;
         } catch (\RuntimeException $e) {
+            $this->addError('projectStatus', $e->getMessage());
             Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
         }
         if (! $changed) {
+            $this->projectStatusEditing = false;
+
             return;
         }
+        $this->projectStatusEditing = false;
         Flux::toast(variant: 'success', text: 'Project marked '.mb_strtolower(ProjectPolicy::statusLabel($next)).'.');
     }
 
     /** Opening fills the drafts from the row (edit-project-dialog.tsx:67-76). */
     public function openEdit(): void
     {
+        $this->resetValidation('projectEdit');
         $project = $this->scopedProject($this->access());
-        if ($project === null) {
+        if ($project === null || ! WorkRules::runsProject($this->access(), $project)) {
             return;
         }
 
@@ -401,7 +890,10 @@ class Show extends Component
         $this->editStartDate = $this->seenEditStartDate = ProjectsData::dateKey($project->start_date) ?? '';
         $this->editDueDate = ProjectsData::dateKey($project->due_date) ?? '';
         $this->editManagerId = $project->manager_id === null ? 'NONE' : (string) $project->manager_id;
+        $this->projectEditOriginal = $this->projectEditValues();
+        $this->projectStatusEditing = false;
         $this->editing = true;
+        $this->detailsOpen = true;
     }
 
     /**
@@ -412,9 +904,10 @@ class Show extends Component
      */
     public function saveProject(): void
     {
+        $this->resetValidation('projectEdit');
         $actor = $this->access();
         try {
-            $code = ProjectsData::managesProjects($actor)
+            $code = ProjectsData::managesProject($actor, $this->scopedProject($actor))
                 ? app(UpdateProject::class)->handle($actor, $this->projectId, new ProjectDraft(
                     $this->editName,
                     $this->editDescription,
@@ -427,11 +920,11 @@ class Show extends Component
                 : app(ScheduleProject::class)->handle($actor, $this->projectId, $this->editStartDate);
         } catch (QueryException $e) {
             report($e);
-            Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
+            $this->addError('projectEdit', 'A record with those details already exists.');
 
             return;
         } catch (\RuntimeException $e) {
-            Flux::toast(variant: 'danger', text: $e->getMessage());
+            $this->addError('projectEdit', $e->getMessage());
 
             return;
         }
@@ -440,6 +933,7 @@ class Show extends Component
         }
         Flux::toast(variant: 'success', text: "Project {$code} updated.");
         $this->editing = false;
+        $this->projectEditOriginal = [];
     }
 
     /**
@@ -480,7 +974,11 @@ class Show extends Component
     public function updatedAdding(mixed $value): void
     {
         if (! $value) {
+            $parentId = $this->taskParentId;
             $this->resetTaskDraft();
+            if ($parentId !== null) {
+                $this->openTask($parentId);
+            }
         }
     }
 
@@ -516,14 +1014,22 @@ class Show extends Component
     public function saveTask(): void
     {
         $actor = $this->access();
+        $this->resetValidation('taskCreation');
+        if ($this->briefStage !== [] && in_array($this->taskCreateStatus, ['COMPLETED', 'CANCELLED'], true)) {
+            $this->addError('taskCreation', 'Attach references to an open task before closing it.');
+
+            return;
+        }
         try {
-            $task = app(CreateTask::class)->handle($actor, $this->projectId, new TaskDraft($this->taskTitle, $this->taskDescription, $this->taskPriority, $this->taskDueDate, $this->taskAssigneeIds, $this->taskSubmissionMode, $this->taskStartDate));
+            $task = app(CreateTaskInStatus::class)->handle($actor, $this->projectId, new TaskDraft($this->taskTitle, $this->taskDescription, $this->taskPriority, $this->taskDueDate, $this->taskAssigneeIds, $this->taskSubmissionMode, $this->taskStartDate, $this->taskGroupId === 'NONE' ? null : $this->taskGroupId, $this->taskParentId), $this->taskCreateStatus);
         } catch (QueryException $e) {
             report($e);
+            $this->addError('taskCreation', 'A record with those details already exists.');
             Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
 
             return;
         } catch (\RuntimeException $e) {
+            $this->addError('taskCreation', $e->getMessage());
             Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
@@ -540,21 +1046,46 @@ class Show extends Component
             : "Task {$task->code} created without an assignee.");
         $this->resetTaskDraft();
         $this->adding = false;
+        $this->openTask($task->id);
     }
 
     /* ------------------------------------------------------------------ */
     /*  Task review dialog */
     /* ------------------------------------------------------------------ */
 
+    public function clearFilters(): void
+    {
+        if ($this->taskView === 'activity') {
+            $this->activityEvent = 'ALL';
+            $this->resetPage('activityPage');
+
+            return;
+        }
+        $this->search = '';
+        $this->groupSelection = [];
+        $this->group = 'ALL';
+        $this->status = $this->assignee = $this->priority = $this->queue = 'ALL';
+        $this->resetPage();
+        foreach (TaskPolicy::STATUSES as $status => $label) {
+            $this->resetPage('board_'.$status);
+        }
+    }
+
     /** A row click opens the dialog; the id is re-resolved through the scope. */
     public function openTask(string $taskId): void
     {
         $task = $this->scopedTask($this->access(), $taskId);
         if ($task === null) {
+            $this->linkedTask = null;
+            Flux::toast(variant: 'danger', text: 'This task is no longer available to you.');
+
             return;
         }
 
         $this->openTaskId = $task->id;
+        $this->linkedTask = $task->id;
+        $this->resetPage('subtasks');
+        $this->seenGroupId = $task->group_id;
         $this->reviewOpen = true;
 
         // A new task must not inherit the draft typed against the last
@@ -562,24 +1093,87 @@ class Show extends Component
         $this->remarks = '';
         $this->commentBody = '';
         $this->editingDetails = false;
-        $this->draftAssigneeIds = $task->assigneeIds();
-        $this->draftPriority = $task->priority;
-        $this->draftStartDate = $this->seenStartDate = ProjectsData::dateKey($task->start_date) ?? '';
-        $this->draftDueDate = ProjectsData::dateKey($task->due_date) ?? '';
+        $this->editingContent = false;
+        $this->contentTitle = $this->contentDescription = $this->seenContentTitle = $this->seenContentDescription = '';
+        $this->seedDetails($task);
         $this->manualStatus = '';
-        $this->draftSubmissionMode = $this->seenSubmissionMode = $task->submission_mode;
         $this->expandedMemberId = null;
         $this->responseRemark = '';
         $this->reviewBriefUpload = null;
     }
 
+    public function editContent(): void
+    {
+        $actor = $this->access();
+        $task = $this->currentTask($actor);
+        if ($task === null || ! WorkRules::editsWork($actor, $task->project) || $this->modeLocked($task)) {
+            return;
+        }
+        $this->contentTitle = $this->seenContentTitle = $task->title;
+        $this->contentDescription = $this->seenContentDescription = (string) $task->description;
+        $this->editingContent = true;
+    }
+
+    public function saveContent(): void
+    {
+        $actor = $this->access();
+        if ($this->openTaskId === null) {
+            return;
+        }
+        $this->validate(['contentTitle' => 'required|string|max:'.TaskPolicy::TITLE_LIMIT, 'contentDescription' => 'string|max:'.TaskPolicy::DESCRIPTION_LIMIT], [], ['contentTitle' => 'task title', 'contentDescription' => 'description']);
+        try {
+            app(UpdateTaskContent::class)->handle($actor, $this->projectId, $this->openTaskId, $this->contentTitle, $this->contentDescription, $this->seenContentTitle, $this->seenContentDescription);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The brief could not be saved. Your draft is still here.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return;
+        }
+        $this->editingContent = false;
+        Flux::toast(variant: 'success', text: 'Task brief saved.');
+    }
+
+    public function resetDetails(): void
+    {
+        $this->resetValidation('taskProperty');
+        $task = $this->currentTask($this->access());
+        if ($task !== null) {
+            $this->seedDetails($task);
+        }
+    }
+
+    private function seedDetails(ProjectTask $task): void
+    {
+        // Recreate the chooser so discarded ticks and its summary reset together.
+        $this->reviewAssigneeNonce++;
+        $this->draftAssigneeIds = $this->seenAssigneeIds = $task->assigneeIds();
+        $this->draftPriority = $this->seenPriority = $task->priority;
+        $this->seenTaskStatus = $task->status;
+        $this->seenGroupId = $task->group_id;
+        $this->draftStartDate = $this->seenStartDate = ProjectsData::dateKey($task->start_date) ?? '';
+        $this->draftDueDate = $this->seenDueDate = ProjectsData::dateKey($task->due_date) ?? '';
+        $this->draftSubmissionMode = $this->seenSubmissionMode = $task->submission_mode;
+    }
+
     public function updatedReviewOpen(mixed $value): void
     {
         if (! $value) {
+            $this->linkedTask = null;
             $this->openTaskId = null;
             $this->editingDetails = false;
             $this->expandedMemberId = null;
+            $this->taskStatusConfirm = false;
         }
+    }
+
+    protected function closeTaskPanel(): void
+    {
+        $this->reviewOpen = false;
+        $this->updatedReviewOpen(false);
     }
 
     public function toggleEditingDetails(): void
@@ -595,6 +1189,62 @@ class Show extends Component
         if ($task !== null) {
             $this->draftSubmissionMode = $this->seenSubmissionMode = $task->submission_mode;
             $this->draftStartDate = $this->seenStartDate = ProjectsData::dateKey($task->start_date) ?? '';
+            $this->draftDueDate = $this->seenDueDate = ProjectsData::dateKey($task->due_date) ?? '';
+        }
+    }
+
+    public function saveTaskProperty(string $field, ?string $value = null): void
+    {
+        $this->resetValidation('taskProperty');
+        $property = match ($field) {
+            'priority' => new TaskPropertyEdit($field, $value ?? $this->draftPriority, $this->seenPriority),
+            'assignees' => new TaskPropertyEdit($field, WorkRules::cleanIds($this->draftAssigneeIds), $this->seenAssigneeIds),
+            'mode' => new TaskPropertyEdit($field, $value ?? $this->draftSubmissionMode, $this->seenSubmissionMode),
+            'start' => new TaskPropertyEdit($field, $this->draftStartDate, $this->seenStartDate),
+            'due' => new TaskPropertyEdit($field, $this->draftDueDate, $this->seenDueDate),
+            default => null,
+        };
+        if ($property === null || $this->openTaskId === null) {
+            return;
+        }
+        try {
+            $code = app(UpdateTaskDetails::class)->handle($this->access(), $this->projectId, $this->openTaskId, $property);
+        } catch (QueryException $e) {
+            report($e);
+            $this->addError('taskProperty', 'That property could not be saved. Your draft is still here.');
+
+            return;
+        } catch (\RuntimeException $e) {
+            $this->addError('taskProperty', $e->getMessage());
+
+            return;
+        }
+        if ($code === null) {
+            $this->addError('taskProperty', 'That task changed before the property was saved. Reload and try again.');
+
+            return;
+        }
+        $this->resetDetails();
+        $this->dispatch('task-property-saved', taskId: $this->openTaskId);
+    }
+
+    public function chooseTaskStatus(string $status): void
+    {
+        $actor = $this->access();
+        $task = $this->currentTask($actor);
+        if ($task === null || ! TaskPolicy::isStatus($status)) {
+            return;
+        }
+        if (! WorkRules::runsProject($actor, $task->project)) {
+            Flux::toast(variant: 'danger', text: WorkRules::forbiddenMessage());
+
+            return;
+        }
+        $this->manualStatus = $status;
+        if (ManualTaskStatus::needsDecision($this->seenTaskStatus, $status)) {
+            $this->taskStatusConfirm = true;
+        } else {
+            $this->setTaskStatus($this->seenTaskStatus);
         }
     }
 
@@ -602,12 +1252,12 @@ class Show extends Component
     public function saveDetails(): void
     {
         $actor = $this->access();
-        // Null unless the reviewer changed the choice ($seenSubmissionMode),
-        // and likewise the start date ($seenStartDate).
+        // Untouched fields keep changes made from another view.
         $mode = $this->draftSubmissionMode === $this->seenSubmissionMode ? null : $this->draftSubmissionMode;
         $start = $this->draftStartDate === $this->seenStartDate ? null : $this->draftStartDate;
+        $due = $this->draftDueDate === $this->seenDueDate ? null : $this->draftDueDate;
         try {
-            $code = app(UpdateTaskDetails::class)->handle($actor, $this->projectId, $this->openTaskId, new TaskDetails($this->draftPriority, $this->draftDueDate, $this->draftAssigneeIds, $mode, $start));
+            $code = app(UpdateTaskDetails::class)->handle($actor, $this->projectId, $this->openTaskId, new TaskDetails($this->draftPriority, $due, $this->draftAssigneeIds, $mode, $start, $this->seenStartDate, $this->seenDueDate));
         } catch (QueryException $e) {
             report($e);
             Flux::toast(variant: 'danger', text: 'A record with those details already exists.');
@@ -623,8 +1273,10 @@ class Show extends Component
         if ($code === null) {
             return;
         }
-        $this->seenSubmissionMode = $this->draftSubmissionMode;
-        $this->seenStartDate = $this->draftStartDate;
+        $fresh = $this->currentTask($actor);
+        if ($fresh !== null) {
+            $this->seedDetails($fresh);
+        }
         if ($code === '') {
             $this->editingDetails = false;
 
@@ -715,8 +1367,7 @@ class Show extends Component
 
         Flux::toast(variant: 'success', text: "Task {$task->code} {$outcome}.");
         $this->remarks = '';
-        $this->reviewOpen = false;
-        $this->openTaskId = null;
+        $this->closeTaskPanel();
     }
 
     /**
@@ -729,6 +1380,7 @@ class Show extends Component
      */
     public function setTaskStatus(string $from): void
     {
+        $this->resetValidation('taskProperty');
         $actor = $this->access();
         $task = $this->currentTask($actor);
         if ($task === null || $this->manualStatus === '') {
@@ -740,10 +1392,12 @@ class Show extends Component
             app(ChangeTaskStatus::class)->handle($actor, $task->project_id, $task->id, $to, $this->remarks, $from);
         } catch (QueryException $e) {
             report($e);
+            $this->addError('taskProperty', 'The status could not be saved. Please try again.');
             Flux::toast(variant: 'danger', text: 'The status could not be saved. Please try again.');
 
             return;
         } catch (\RuntimeException $e) {
+            $this->addError('taskProperty', $e->getMessage());
             Flux::toast(variant: 'danger', text: $e->getMessage());
 
             return;
@@ -752,6 +1406,60 @@ class Show extends Component
         Flux::toast(variant: 'success', text: "Task {$task->code} set to ".mb_strtolower(TaskPolicy::statusLabel($to)).'.');
         $this->remarks = '';
         $this->manualStatus = '';
+        $this->taskStatusConfirm = false;
+        $this->resetDetails();
+        $this->dispatch('task-property-saved', taskId: $this->openTaskId);
+    }
+
+    public function moveBoardTask(string $taskId, string $to, string $from): bool
+    {
+        $actor = $this->access();
+        $task = $this->scopedTask($actor, $taskId);
+        if ($task === null || ! ProjectsData::runsTask($actor, $task)) {
+            Flux::toast(variant: 'danger', text: WorkRules::forbiddenMessage());
+
+            return false;
+        }
+        if ($task->status !== $from) {
+            Flux::toast(variant: 'danger', text: 'That task changed before this action completed.');
+
+            return false;
+        }
+        if (! ManualTaskStatus::canMove($from, $to, $task->submission_mode)) {
+            Flux::toast(variant: 'danger', text: $to === 'SUBMITTED'
+                ? 'Submit work from My Tasks with its response and files.'
+                : TaskPolicy::transitionError());
+
+            return false;
+        }
+
+        // Decisions and reopening need an explicit action in the task dialog.
+        if (ManualTaskStatus::needsDecision($from, $to)) {
+            $this->openTask($task->id);
+            $responses = $task->isIndividual() ? app(WorkRecords::class)->responses($actor, $task->id) : collect();
+            $moves = ProjectsData::manualMoves($actor, $task, $task->project->status ?? '',
+                $responses->map(static fn (TaskResponseView $response): string => $response->status)->all());
+            $this->manualStatus = in_array($to, $moves, true) ? $to : '';
+
+            return false;
+        }
+
+        try {
+            app(ChangeTaskStatus::class)->handle($actor, $this->projectId, $task->id, $to, '', $from);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The status could not be saved. Please try again.');
+
+            return false;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return false;
+        }
+
+        Flux::toast(variant: 'success', text: "Task {$task->code} set to ".mb_strtolower(TaskPolicy::statusLabel($to)).'.');
+
+        return true;
     }
 
     /**
@@ -877,9 +1585,87 @@ class Show extends Component
         Flux::toast(variant: 'success', text: 'Comment posted.');
     }
 
+    protected function timelineTask(string $id): ?ProjectTask
+    {
+        $actor = $this->access();
+        abort_unless($actor->hasModule(ModuleCode::PROJECTS), 403);
+
+        return $this->scopedTask($actor, $id);
+    }
+
+    public function openSchedule(string $id): void
+    {
+        $actor = $this->access();
+        $task = $this->scopedTask($actor, $id);
+        if ($task === null || (! WorkRules::runsTask($actor, $task) && ! WorkRules::editsWork($actor, $task->project)) || TaskPolicy::isClosed($task->status)) {
+            Flux::toast(variant: 'danger', text: 'These task dates are read-only.');
+
+            return;
+        }
+        $this->scheduleTaskId = $task->id;
+        $this->scheduleStart = $this->scheduleSeenStart = $task->start_date?->format('Y-m-d') ?? '';
+        $this->scheduleDue = $this->scheduleSeenDue = $task->due_date?->format('Y-m-d') ?? '';
+        $this->closeTaskPanel();
+        $this->scheduling = true;
+    }
+
+    public function updatedScheduling(bool $value): void
+    {
+        if (! $value) {
+            $this->scheduleTaskId = null;
+            $this->scheduleStart = $this->scheduleDue = $this->scheduleSeenStart = $this->scheduleSeenDue = '';
+        }
+    }
+
+    public function saveSchedule(): void
+    {
+        $actor = $this->access();
+        if ($this->scheduleTaskId !== null && $this->writeSchedule($actor, $this->scheduleTaskId, new TaskDateEdit($this->scheduleStart, $this->scheduleDue, $this->scheduleSeenStart, $this->scheduleSeenDue))) {
+            $this->scheduling = false;
+            $this->updatedScheduling(false);
+        }
+    }
+
+    public function moveSchedule(string $id, string $start, string $due, string $seenStart, string $seenDue): void
+    {
+        $actor = $this->access();
+        $this->writeSchedule($actor, $id, new TaskDateEdit($start, $due, $seenStart, $seenDue));
+    }
+
+    private function writeSchedule(Access $actor, string $id, TaskDateEdit $edit): bool
+    {
+        try {
+            $code = app(UpdateTaskDetails::class)->handle($actor, $this->projectId, $id, $edit);
+        } catch (QueryException $e) {
+            report($e);
+            Flux::toast(variant: 'danger', text: 'The dates could not be saved. Your draft is still here.');
+
+            return false;
+        } catch (\RuntimeException $e) {
+            Flux::toast(variant: 'danger', text: $e->getMessage());
+
+            return false;
+        }
+        if ($code === null) {
+            return false;
+        }
+        if ($code !== '') {
+            Flux::toast(variant: 'success', text: 'Task dates updated.');
+        }
+
+        return true;
+    }
+
     /* ------------------------------------------------------------------ */
     /*  Render */
     /* ------------------------------------------------------------------ */
+
+    private function contextPortfolio(Access $actor, string $clientId): ?PortfolioView
+    {
+        $client = app(ProjectClients::class)->client($actor, $clientId);
+
+        return $client?->portfolio_id !== null && $client->portfolio_name !== null ? app(ProjectPortfolios::class)->portfolio($actor, $client->portfolio_id) : null;
+    }
 
     public function render(): View
     {
@@ -888,12 +1674,16 @@ class Show extends Component
         $today = ProjectsData::todayKey();
         // The blade keeps the manage-only "Delete project" control away from
         // a viewer it could only ever refuse; deleteProject() re-checks anyway.
-        $canManage = ProjectsData::managesProjects($actor);
+        $canManage = ProjectsData::managesProject($actor, $project);
+        $canReadFinance = $project !== null && app(ProjectFinancials::class)->canView($actor, $project->id);
+        $canReadReporting = $project !== null && app(ProjectReports::class)->permissions($actor, $project->id)['view'];
 
         if ($project === null) {
             return view('livewire.projects.show', [
                 'project' => null,
                 'today' => $today,
+                'canReadFinance' => $canReadFinance,
+                'canReadReporting' => $canReadReporting,
                 'canManage' => $canManage,
                 'runsProject' => false,
             ]);
@@ -902,32 +1692,81 @@ class Show extends Component
         // status controls and the start dates. Display only — every command
         // re-checks it on the locked rows.
         $runsProject = ProjectsData::runsProject($actor, $project);
+        $canEditWork = WorkRules::editsWork($actor, $project);
 
-        $rows = $this->acceptPage(app(WorkLists::class)->taskPage(
-            $actor,
-            $project->id,
-            [
-                'q' => $this->search,
-                'status' => $this->status,
-                'assignee' => $this->assignee,
-                'priority' => $this->priority,
-                'queue' => $this->queue,
-            ],
+        if (in_array($this->taskView, ['details', 'members'], true)) {
+            $this->membersOpen = $this->taskView === 'members';
+            $this->detailsOpen = true;
+            $this->taskView = 'overview';
+        }
+        $this->taskView = in_array($this->taskView, ['overview', 'board', 'list', 'gantt', 'activity', 'finance', 'capacity', 'reporting', 'details', 'members'], true) ? $this->taskView : 'overview';
+        if (in_array($this->taskView, ['board', 'list', 'gantt'], true)) {
+            $this->lastTaskView = $this->taskView;
+        }
+        if ($this->taskView === 'finance' && ! $canReadFinance) {
+            $this->taskView = 'overview';
+        }
+        if ($this->taskView === 'reporting' && ! $canReadReporting) {
+            $this->taskView = 'overview';
+        }
+        if ($this->group !== 'ALL' && $this->groupSelection === []) {
+            $this->groupSelection = [$this->group];
+        }
+        $filters = [
+            'q' => $this->search,
+            'status' => $this->status,
+            'assignee' => $this->assignee,
+            'priority' => $this->priority,
+            'queue' => $this->queue,
+            'group' => $this->group,
+            'groups' => $this->groupSelection,
+            'parent' => $this->parent,
+        ];
+        $lists = app(WorkLists::class);
+        $rows = in_array($this->taskView, ['list', 'gantt'], true) ? $this->acceptPage($lists->taskPage(
+            $actor, $project->id, $filters,
             $this->sortKey,
             $this->sortDir,
             $today,
             (int) $this->getPage(),
             $this->perPage,
-        ));
+            $this->groupList,
+        )) : null;
+        $board = [];
+        if ($this->taskView === 'board') {
+            $pages = [];
+            foreach (TaskPolicy::STATUSES as $status => $label) {
+                $pages[$status] = (int) $this->getPage('board_'.$status);
+            }
+            $board = $lists->taskBoard($actor, $project->id, $filters, $today, $pages);
+            foreach ($board as $status => $lane) {
+                $this->acceptPage($lane, 'board_'.$status);
+            }
+        }
+        $visibleTasks = $rows?->getCollection() ?? collect($board)->flatMap(static fn (LengthAwarePaginator $lane): array => $lane->items());
         $records = app(WorkRecords::class);
         $summary = app(WorkSummary::class);
         $taskTotals = $summary->projects($actor, [$project->id], $today)[$project->id];
-        $workload = $summary->workload($actor, $project->id, $today);
-        $taskIds = $rows->getCollection()->map(static fn (ProjectTask $task): string => $task->id)->values()->all();
+        $groups = app(ProjectTaskGroups::class)->forProject($actor, $project->id);
+        $workload = in_array($this->taskView, ['board', 'list', 'gantt'], true) ? $summary->workload($actor, $project->id, $today) : collect();
+        $taskIds = $visibleTasks->map(static fn (ProjectTask $task): string => $task->id)->values()->all();
         $counts = $records->counts($actor, array_values($taskIds));
-        $recentActivity = $records->recentComments($actor, $project->id);
+        $activity = $this->taskView === 'activity' ? $records->projectActivity($actor, $project->id, (int) $this->getPage('activityPage'), $this->activitySearch, $this->activityEvent, str_starts_with($this->activityOrder, 'author-') ? 'author' : 'date', str_ends_with($this->activityOrder, '-asc') ? 'asc' : 'desc', $this->perPage) : null;
+        if ($activity !== null) {
+            $this->acceptPage($activity, 'activityPage');
+        }
+        $recentActivity = $activity?->getCollection() ?? collect();
+        $people = app(ProjectPeople::class)->roster($actor, $project->id, $today);
+        $team = $this->detailsOpen || $this->membersOpen || $this->taskView === 'members'
+            ? $this->acceptPage(PeopleList::page($people, $this->peopleSearch, $this->peopleAccess, $this->peopleSort, $this->peopleDirection, (int) $this->getPage('peoplePage'), $this->peoplePerPage), 'peoplePage') : null;
         $activityIds = $recentActivity->map(static fn (TaskComment $comment): string => $comment->task_id)->unique()->values()->all();
         $openTask = $this->currentTask($actor);
+        $focusedParent = $this->parent === 'ALL' ? null : $this->scopedTask($actor, $this->parent);
+        $subtasks = null;
+        if ($openTask !== null && ! $openTask->isSubtask() && $openTask->has_subtasks) {
+            $subtasks = $lists->taskPage($actor, $project->id, ['q' => '', 'status' => 'ALL', 'assignee' => 'ALL', 'priority' => 'ALL', 'queue' => 'ALL', 'parent' => $openTask->id], 'stack', 'asc', $today, (int) $this->getPage('subtasks'), 10)->setPageName('subtasks');
+            $this->acceptPage($subtasks, 'subtasks');
+        }
         $files = $openTask === null ? collect() : $records->files($actor, [$openTask->id]);
         $comments = $openTask === null ? collect() : $records->comments($actor, [$openTask->id]);
         $accounts = app(AccountNames::class)->list($actor);
@@ -952,13 +1791,44 @@ class Show extends Component
 
         return view('livewire.projects.show', [
             'project' => $project,
+            'contextPortfolio' => $project->client_id === null ? null : $this->contextPortfolio($actor, $project->client_id),
+            'groups' => $groups,
+            'activeGroup' => count($this->groupSelection) > 1 ? null : $groups->firstWhere('id', $this->groupSelection[0] ?? $this->group),
+            'groupTotals' => $summary->groups($actor, $project->id, $today),
+            'focusedParent' => $focusedParent,
+            'creatingParent' => $this->taskParentId === null ? null : $this->scopedTask($actor, $this->taskParentId),
+            'openSubtasks' => $subtasks,
+            'canAddSubtask' => $canEditWork && ! in_array($project->status, ['COMPLETED', 'CANCELLED'], true) && $openTask !== null
+                && TaskHierarchy::canAdd($openTask->status, $openTask->parent_id, $this->modeLocked($openTask)),
+            'activeFilterCount' => count(array_filter([$this->status, $this->assignee, $this->priority], static fn (string $value): bool => $value !== 'ALL')) + (trim($this->search) === '' ? 0 : 1) + ($this->groupSelection === [] ? 0 : 1),
+            'canCreateTasks' => $canEditWork && ! in_array($project->status, ['COMPLETED', 'CANCELLED'], true)
+                && ($this->parent === 'ALL' || ($focusedParent !== null && TaskHierarchy::canAdd($focusedParent->status, $focusedParent->parent_id, $this->modeLocked($focusedParent)))),
             'today' => $today,
+            'canReadFinance' => $canReadFinance,
+            'canReadReporting' => $canReadReporting,
             'canManage' => $canManage,
             'runsProject' => $runsProject,
+            'canEditWork' => $canEditWork,
+            'canQuickIndicator' => app(ProjectResults::class)->permissions($actor, $project->id)['edit'],
+            'canQuickExpense' => app(ProjectFinancials::class)->permissions($actor, $project->id)['edit'] && app(ProjectFinancials::class)->settings($actor, $project->id) !== null,
+            'team' => $team,
+            'peopleCount' => $people->count(),
+            'delivery' => $this->taskView === 'overview' ? $summary->projectDelivery($actor, $project->id) : null,
+            'memberAccounts' => $canManage && $this->memberEditorOpen && $this->editingMemberUserId === null ? app(ProjectPeople::class)->candidates($actor, $project->id) : collect(),
+            'activity' => $activity,
             'taskTotals' => $taskTotals,
             'taskCount' => $taskTotals->total,
-            'visibleCount' => $rows->total(),
+            'visibleCount' => $rows?->total() ?? array_sum(array_map(static fn (LengthAwarePaginator $lane): int => $lane->total(), $board)),
             'rows' => $rows,
+            'board' => $board,
+            'boardMoves' => $visibleTasks->mapWithKeys(static fn (ProjectTask $task): array => [$task->id => array_values(array_filter(
+                ManualTaskStatus::canMoveTo($task->status, $task->submission_mode),
+                static fn (string $next): bool => ! ManualTaskStatus::needsDecision($task->status, $next),
+            ))])->all(),
+            'taskAuthority' => WorkRules::taskPermissions($actor, $project, $visibleTasks),
+            'dateAuthority' => $canEditWork ? $visibleTasks->mapWithKeys(static fn (ProjectTask $task): array => [$task->id => true])->all() : WorkRules::taskPermissions($actor, $project, $visibleTasks),
+            'timeline' => $this->taskView === 'gantt' ? $this->timelineWindow() : null,
+            'scheduleTask' => $this->scheduleTaskId === null ? null : $this->scopedTask($actor, $this->scheduleTaskId),
             'holders' => $workload->pluck('employee'),
             'workload' => $workload,
             'recentActivity' => $recentActivity,
@@ -969,7 +1839,8 @@ class Show extends Component
             'accounts' => $accounts,
             // Who the edit dialog's Task Leader picker offers (UpdateProject
             // re-checks); the leader already named stays listed regardless.
-            'leaderIds' => $canManage ? app(ProjectAccounts::class)->leaderIds($actor) : [],
+            'leaderIds' => $canManage ? ($project->client_id === null ? app(ProjectAccounts::class)->leaderIds($actor) : app(ClientPeople::class)->leaders($actor, $project->client_id)->pluck('id')->all()) : [],
+            'client' => $project->client_id === null ? null : app(ProjectClients::class)->client($actor, $project->client_id),
             'progress' => $taskTotals->progress(),
             'reviewCount' => $taskTotals->review,
             'overdueCount' => $taskTotals->overdue,
@@ -984,6 +1855,7 @@ class Show extends Component
             // current status, less what the task's facts or the self-review
             // rule would refuse. Display only — ChangeTaskStatus re-decides.
             'openTaskRunnable' => $openTask !== null && ProjectsData::runsTask($actor, $openTask),
+            'openTaskCanComment' => $openTask !== null && ($canEditWork || ProjectsData::runsTask($actor, $openTask) || $openTask->hasAssignee($actor->employeeId)),
             'openTaskManualMoves' => $openTask !== null && ProjectsData::runsTask($actor, $openTask)
                 ? ProjectsData::manualMoves(
                     $actor,
@@ -1014,9 +1886,13 @@ class Show extends Component
                 'assignee' => $this->assignee,
                 'priority' => $this->priority,
                 'queue' => $this->queue,
+                'group' => $this->group,
+                'groups' => $this->groupSelection,
+                'parent' => $this->parent,
+                'grouped' => in_array($this->taskView, ['list', 'gantt'], true) && $this->groupList ? '1' : '0',
                 'sort' => $this->sortKey,
                 'dir' => $this->sortDir,
-            ], static fn (string $v): bool => $v !== ''))),
+            ], static fn (string|array $v): bool => $v !== '' && $v !== []))),
         ]);
     }
 
@@ -1027,6 +1903,9 @@ class Show extends Component
     private function resetTaskDraft(): void
     {
         $this->taskTitle = '';
+        $this->taskGroupId = 'NONE';
+        $this->requestedTaskStatus = $this->taskCreateStatus = 'PENDING';
+        $this->taskParentId = null;
         $this->taskDescription = '';
         $this->taskAssigneeIds = [];
         $this->taskPriority = 'NORMAL';

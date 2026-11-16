@@ -1,62 +1,81 @@
-{{-- The add-task dialog (add-task-dialog.tsx) — bound to Show's $adding and the task* draft properties. Included by show.blade.php and shares that view's variables. --}}
+
 @php
     use App\Domain\Projects\TaskPolicy;
     use App\Livewire\Projects\ProjectsData;
 @endphp
 {{-- add-task-dialog.tsx --}}
-<flux:modal wire:model.self="adding" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
-    <div class="space-y-4">
-        <div>
-            <flux:heading size="lg">Add Task</flux:heading>
-            <flux:text class="mt-1">
-                Hand out a unit of work on {{ $project->name }}. It stays pending until an assignee picks it
-                up from My Tasks; a start date only plans when that should be, and never stops anyone starting
-                early. With two or more assignees, choose whether they hand in one team response or each their
-                own.
-            </flux:text>
-        </div>
-
+<x-work.task-panel creating wire:model.live.self="adding" :title="$taskParentId === null ? 'New task' : 'New subtask'">
+    @if ($creatingParent !== null)
+        <x-slot:meta><flux:icon.arrow-turn-down-right class="size-3" /><span class="max-w-96 truncate" title="{{ $creatingParent->title }}">{{ $creatingParent->code }} · {{ $creatingParent->title }}</span></x-slot:meta>
+    @endif
+    {{-- A hidden assignee chooser must not join unrelated board requests. --}}
+    @if ($adding)
+    <form wire:submit="saveTask" class="space-y-5" x-data>
+        <div class="flex items-center gap-2 text-xs text-muted-foreground"><span>Status</span><x-work.task-state :status="$taskCreateStatus" /></div>
+        @if ($requestedTaskStatus !== $taskCreateStatus)<p class="text-xs text-muted-foreground">{{ in_array($requestedTaskStatus, ['SUBMITTED', 'RETURNED'], true) ? 'New tasks start Pending here. Submission and return need a recorded response and review.' : 'Your project lead sets this status. New tasks start Pending.' }}</p>
+        @endif
+        <flux:error name="taskCreation" />
         <div class="grid gap-4 sm:grid-cols-2">
             <div class="space-y-2 sm:col-span-2">
-                <flux:label for="task-title">Title</flux:label>
                 <flux:input
+                    label="Title"
                     id="task-title"
                     placeholder="What has to be done"
-                    wire:model.live.debounce.250ms="taskTitle"
+                    wire:model="taskTitle"
+                    maxlength="{{ TaskPolicy::TITLE_LIMIT }}"
+                    required
                 />
             </div>
 
             <div class="space-y-2 sm:col-span-2">
-                <flux:label for="task-description">Description</flux:label>
                 <flux:textarea
+                    label="Description"
                     id="task-description"
                     rows="3"
                     placeholder="Scope, acceptance criteria, anything the assignee needs"
                     wire:model="taskDescription"
+                    maxlength="{{ TaskPolicy::DESCRIPTION_LIMIT }}"
                 />
             </div>
 
             <div class="space-y-2 sm:col-span-2">
-                <flux:label>Assignees</flux:label>
-                {{-- Entangled list; the nonce remounts the checklist (clean
-                     search, fresh list) every time the draft resets.
+                @if ($taskParentId !== null)
+                    <flux:label>Activity</flux:label>
+                    @if ($creatingParent?->group_name !== null)<x-work.task-group :task="$creatingParent" />
+                    @else<span class="text-sm text-muted-foreground">No activity</span>
+                    @endif
+                @else
+                <x-kit.select label="Activity" aria-label="Activity" wire:model="taskGroupId" searchable>
+                    <flux:select.option value="NONE">No activity</flux:select.option>
+                    @foreach ($groups as $taskGroup)
+                        <flux:select.option value="{{ $taskGroup->id }}">{{ $taskGroup->name }}</flux:select.option>
+                    @endforeach
+                </x-kit.select>
+                @endif
+            </div>
 
-                     `.live` on purpose: a nested wire:model is DEFERRED — each
-                     tick is a request on the child only, and the new array is
-                     pushed into the parent's client-side state without a
-                     parent render. The "Add task" button's disabled gate
-                     below is evaluated server-side, so without `.live` it
-                     would go stale until some other parent round-trip. Live,
-                     the child root's `wire:model.live="$parent.taskAssigneeIds"`
-                     commits the parent after every toggle and the gate
-                     re-evaluates (the server rule is the same either way). --}}
-                <livewire:kit.employee-checklist
+            <div class="space-y-2 sm:col-span-2">
+                <flux:label>Assignees</flux:label>
+                {{-- The live selection shows the response mode as soon as a second person joins. --}}
+                @if (! $canManage)
+                    <livewire:projects.project-employee-checklist :project-id="$project->id" wire:model.live="taskAssigneeIds" name="task-assignees" placeholder="Search employees" aria-label="Assignees" :key="'task-assignees-'.$taskDraftNonce" />
+                @elseif ($project->client_id !== null)
+<livewire:projects.client-employee-checklist
+                    :client-id="$project->client_id" wire:model.live="taskAssigneeIds"
+                    name="task-assignees"
+                    placeholder="Search employees"
+                    aria-label="Assignees"
+                    :key="'task-assignees-'.$taskDraftNonce"
+                />
+@else
+<livewire:kit.employee-checklist
                     wire:model.live="taskAssigneeIds"
                     name="task-assignees"
                     placeholder="Search employees"
                     aria-label="Assignees"
                     :key="'task-assignees-'.$taskDraftNonce"
                 />
+@endif
             </div>
 
             {{-- The mode means something only with two or more people, so it
@@ -69,7 +88,6 @@
                             <flux:radio
                                 value="{{ $mode }}"
                                 :label="$modeLabel"
-                                :description="ProjectsData::SUBMISSION_MODE_HELP[$mode]"
                             />
                         @endforeach
                     </flux:radio.group>
@@ -108,8 +126,10 @@
                         size="sm"
                         class="h-7"
                         x-on:click="$refs.briefPickInput.click()"
+                        :disabled="in_array($taskCreateStatus, ['COMPLETED', 'CANCELLED'], true)"
                     >
-                        <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3'])</x-slot:icon>
+                        <x-slot:icon>
+@include('livewire.projects.partials.icon', ['icon' => 'paperclip', 'class' => 'size-3'])</x-slot:icon>
                         Attach
                     </flux:button>
                     <input
@@ -118,14 +138,11 @@
                         class="hidden"
                         x-ref="briefPickInput"
                         wire:model="briefPick"
+                        @disabled(in_array($taskCreateStatus, ['COMPLETED', 'CANCELLED'], true))
                     />
                 </div>
 
-                @if (count($briefStage) === 0)
-                    <p class="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
-                        Nothing attached. Anything you add here is stored with the task once it is created.
-                    </p>
-                @else
+                @if (count($briefStage) > 0)
                     <ul class="space-y-1">
                         @foreach ($briefStage as $i => $staged)
                             <li
@@ -146,7 +163,8 @@
                                     aria-label="Remove {{ $staged->getClientOriginalName() }}"
                                     wire:click="removeBrief({{ $i }})"
                                 >
-                                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-3.5 text-danger'])</x-slot:icon>
+                                    <x-slot:icon>
+@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-3.5 text-danger'])</x-slot:icon>
                                 </flux:button>
                             </li>
                         @endforeach
@@ -157,13 +175,14 @@
             <div class="flex items-end sm:col-span-2">
                 <flux:button
                     variant="primary"
-                    wire:click="saveTask"
-                    :disabled="trim($taskTitle) === '' || count($taskAssigneeIds) === 0"
+                    type="submit"
                 >
-                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                    Add Task
+                    <x-slot:icon>
+@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
+                    {{ $taskParentId === null ? 'Add task' : 'Add subtask' }}
                 </flux:button>
             </div>
         </div>
-    </div>
-</flux:modal>
+    </form>
+    @endif
+</x-work.task-panel>

@@ -308,13 +308,13 @@ it('shows a leader on no crew their whole project, every task in it and its whol
     expect($totals->total)->toBe(3)->and($totals->completed)->toBe(1)->and($totals->unassigned)->toBe(1);
 
     tleadLogin($f['leader']);
-    Livewire::test(Index::class)
+    Livewire::test(Index::class)->set('section', 'projects')
         ->assertViewHas('visibleCount', 1)
         ->assertSee('Harbour Survey')
         ->assertDontSee('Canal Works')
         ->assertDontSee('Orphan Plan');
 
-    Livewire::test(Show::class, ['project' => $f['project']->id])
+    Livewire::test(Show::class, ['project' => $f['project']->id])->set('taskView', 'board')
         ->assertSee('Harbour Survey')
         ->assertDontSee('Project not found.')
         ->assertViewHas('taskCount', 3)
@@ -341,7 +341,7 @@ it('opens the led project to a leader account with no employee link', function (
         ->and(WorkScope::ledProjectIds($actor))->toBe([$f['project']->id]);
 
     tleadLogin($f['leader']);
-    Livewire::test(Show::class, ['project' => $f['project']->id])
+    Livewire::test(Show::class, ['project' => $f['project']->id])->set('taskView', 'board')
         ->assertSee('Harbour Survey')
         ->assertDontSee('Project not found.')
         ->assertViewHas('taskCount', 3)
@@ -426,7 +426,7 @@ it('never narrows an all-data manager to the projects they lead', function () {
         ->and(tleadSql(WorkScope::tasks($actor)))->not->toContain('manager_id');
 
     tleadLogin($admin);
-    Livewire::test(Index::class)
+    Livewire::test(Index::class)->set('section', 'projects')
         ->assertViewHas('visibleCount', 3)
         ->assertSee('Harbour Survey')
         ->assertSee('Canal Works')
@@ -884,7 +884,7 @@ it('offers only accounts that can lead in the create picker, and the current lea
     $project = tleadProject('PRJ-871', 'Dry Dock', $tasksOnly);
 
     tleadLogin($admin);
-    $create = tleadPicker(Livewire::test(Index::class)->html(), 'Task Leader');
+    $create = tleadPicker(Livewire::test(Index::class)->html(), 'Project lead');
     expect($create)->toContain('draftManagerId')
         ->toContain($lead->name)
         ->toContain($admin->name)
@@ -892,7 +892,7 @@ it('offers only accounts that can lead in the create picker, and the current lea
         ->not->toContain($other->name)
         ->not->toContain($inactive->name);
 
-    $edit = tleadPicker(Livewire::test(Show::class, ['project' => $project->id])->call('openEdit')->html(), 'Project task leader');
+    $edit = tleadPicker(Livewire::test(Show::class, ['project' => $project->id])->call('openEdit')->html(), 'Project lead');
     expect($edit)->toContain('editManagerId')
         ->toContain($lead->name)
         ->toContain($tasksOnly->name)

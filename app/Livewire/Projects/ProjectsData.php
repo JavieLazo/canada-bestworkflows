@@ -130,6 +130,11 @@ final class ProjectsData
         return WorkRules::managesProjects($actor);
     }
 
+    public static function managesProject(Access $actor, ?Project $project): bool
+    {
+        return WorkRules::managesProject($actor, $project);
+    }
+
     /** respond.ts `forbidden()` — the sentence every denied action toasts. */
     public static function forbiddenMessage(): string
     {
@@ -387,7 +392,7 @@ final class ProjectsData
      *
      * @param  list<ProjectTask>  $projectTasks
      * @param  EloquentCollection<int, EmployeeProfile>  $employees
-     * @param  array{q: string, status: string, assignee: string, priority: string, queue: string}  $filters
+     * @param  array{q: string, status: string, assignee: string, priority: string, queue: string, group?: string, parent?: string}  $filters
      * @return list<ProjectTask>
      */
     public static function visibleTasks(
@@ -402,6 +407,15 @@ final class ProjectsData
 
         $filtered = [];
         foreach ($projectTasks as $task) {
+            $group = $filters['group'] ?? 'ALL';
+            $effectiveGroup = $task->effective_group_id ?? $task->group_id;
+            if (($group === 'NONE' && $effectiveGroup !== null)
+                || ($group !== 'ALL' && $group !== 'NONE' && $effectiveGroup !== $group)) {
+                continue;
+            }
+            if (($filters['parent'] ?? 'ALL') !== 'ALL' && $task->parent_id !== $filters['parent']) {
+                continue;
+            }
             if ($filters['status'] !== 'ALL' && $task->status !== $filters['status']) {
                 continue;
             }
@@ -470,6 +484,8 @@ final class ProjectsData
                     return $due !== 0 ? $due : self::compareText($a->code, $b->code);
                 case 'task':
                     return self::compareText($a->title, $b->title);
+                case 'group':
+                    return self::compareText($a->group_name, $b->group_name);
                 case 'assignee':
                     return self::compareText($firstAssigneeLastName($a), $firstAssigneeLastName($b));
                 case 'priority':
@@ -506,7 +522,7 @@ final class ProjectsData
 
     /* ------------------------- policy input shapes ------------------------- */
 
-    /** @return array{status: string, due_date: string|null} */
+    /** @return array{status: string, due_date: string|null, has_subtasks?: bool} */
     public static function taskShape(ProjectTask $task): array
     {
         return WorkRules::taskShape($task);
@@ -514,7 +530,7 @@ final class ProjectsData
 
     /**
      * @param  iterable<array-key, ProjectTask>  $tasks
-     * @return list<array{status: string, due_date: string|null}>
+     * @return list<array{status: string, due_date: string|null, has_subtasks?: bool}>
      */
     public static function taskShapes(iterable $tasks): array
     {

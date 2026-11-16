@@ -27,7 +27,7 @@ final class ModuleAccountQuery implements ModuleAccounts
             ->sortBy('name', SORT_NATURAL | SORT_FLAG_CASE)->values();
     }
 
-    public function filter(Access $actor, string $module, array $ids): array
+    public function filter(Access $actor, string $module, array $ids, bool $lock = false): array
     {
         abort_unless($actor->hasModule($module), 403);
 
@@ -37,7 +37,7 @@ final class ModuleAccountQuery implements ModuleAccounts
 
         return array_values(array_unique(array_map(
             static fn (mixed $id): int => (int) $id,
-            $this->holding($module)->whereIn('users.id', $ids)->pluck('users.id')->all(),
+            $this->holding($module)->whereIn('users.id', $ids)->when($lock, static fn (Builder $query) => $query->lockForUpdate())->pluck('users.id')->all(),
         )));
     }
 

@@ -7,6 +7,7 @@ namespace App\Modules\WorkManagement\Infrastructure;
 use App\Domain\Enums\ModuleCode;
 use App\Models\Project;
 use App\Models\ProjectTask;
+use App\Modules\WorkManagement\Domain\Tasks\TaskInbox;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSubmissionPolicy;
 use App\Support\Access;
 use Illuminate\Database\Eloquent\Builder;
@@ -24,6 +25,26 @@ use Illuminate\Database\Query\JoinClause;
  */
 final class WorkScope
 {
+    public const PROJECT_CLIENT_NAME_SQL = '(SELECT name FROM project_clients WHERE project_clients.id = projects.client_id)';
+
+    /** The member's own state drives attention, just as it drives their status filter. */
+    public const OWN_FOCUS_SQL = 'CASE WHEN ('.self::MY_STATUS_SQL.") IN ('PENDING', 'IN_PROGRESS', 'RETURNED') AND project_tasks.due_date < ? THEN ".TaskInbox::RANKS['OVERDUE']
+        .' WHEN ('.self::MY_STATUS_SQL.") = 'IN_PROGRESS' THEN ".TaskInbox::RANKS['IN_PROGRESS']
+        .' WHEN ('.self::MY_STATUS_SQL.") = 'RETURNED' THEN ".TaskInbox::RANKS['RETURNED']
+        .' WHEN ('.self::MY_STATUS_SQL.") IN ('PENDING', 'IN_PROGRESS') AND (project_tasks.due_date = ? OR project_tasks.start_date = ?) THEN ".TaskInbox::RANKS['TODAY']
+        .' WHEN ('.self::MY_STATUS_SQL.") IN ('PENDING', 'IN_PROGRESS') AND project_tasks.start_date > ? THEN ".TaskInbox::RANKS['UPCOMING']
+        .' WHEN ('.self::MY_STATUS_SQL.") IN ('SUBMITTED', 'APPROVED') THEN ".TaskInbox::RANKS['WAITING']
+        .' WHEN ('.self::MY_STATUS_SQL.") IN ('COMPLETED', 'CANCELLED') THEN ".TaskInbox::RANKS['CLOSED']
+        .' ELSE '.TaskInbox::RANKS['NEXT'].' END';
+
+    /** Group context rides on the scoped task read, without another query per row. */
+    public const EFFECTIVE_GROUP_SQL = '(CASE WHEN project_tasks.parent_id IS NULL THEN project_tasks.group_id ELSE (SELECT task_parent.group_id FROM project_tasks AS task_parent WHERE task_parent.id = project_tasks.parent_id AND task_parent.project_id = project_tasks.project_id) END)';
+
+    public const TASK_GROUP_NAME_SQL = '(SELECT name FROM project_task_groups WHERE project_task_groups.id = '.self::EFFECTIVE_GROUP_SQL.' AND project_task_groups.project_id = project_tasks.project_id)';
+
+    /** A container is not another work unit; acceptance still counts every record. */
+    public const LEAF_TASK_SQL = 'NOT EXISTS (SELECT 1 FROM project_tasks AS task_child WHERE task_child.parent_id = project_tasks.id)';
+
     /**
      * A task waiting on a reviewer: a GROUP task handed in, or an INDIVIDUAL
      * task in progress with at least one response submitted. The PHP twin is
@@ -64,7 +85,9 @@ final class WorkScope
         .' AND project_task_submissions.status IS NOT NULL THEN project_task_submissions.status ELSE project_tasks.status END';
 
     /**
-     * The projects the actor may see: every project for an all-data PROJECTS
+     * Client membership fences every client project. Explicit project members
+     * discover its metadata; viewers and editors also read its shared tasks.
+     * The projects the actor may see: every internal project for an all-data PROJECTS
      * holder; otherwise the projects holding a task their employee is on, AND
      * the projects whose Task Leader they are.
      *
@@ -83,22 +106,36 @@ final class WorkScope
      *
      * @return Builder<Project>
      */
-    public static function projects(Access $actor): Builder
+    public static function projects(Access $actor, string $portfolio = 'ALL'): Builder
     {
         $leader = self::leaderAccountId($actor);
 
-        return match ($actor->rowVisibility(ModuleCode::PROJECTS)) {
-            Access::ROWS_ALL => Project::query(),
-            Access::ROWS_OWN => Project::query()->where(static function (Builder $visible) use ($actor, $leader): void {
+        $query = Project::query();
+        if (! $actor->mayReadAllData(ModuleCode::PROJECTS)) {
+            $query->where(static function (Builder $visible) use ($actor, $leader): void {
                 $visible->toEmployeeVia($actor, 'tasks.assignments', 'employee_id', ModuleCode::PROJECTS);
                 if ($leader !== null) {
-                    $visible->orWhere('projects.manager_id', '=', $leader);
+                    $visible->orWhere('projects.manager_id', '=', $leader)
+                        ->orWhereIn('projects.client_id', ClientScope::clients($actor)->where('owner_id', '=', $leader)->select('id'));
                 }
-            }),
-            Access::ROWS_NONE => $leader !== null
-                ? Project::query()->where('projects.manager_id', '=', $leader)
-                : Project::query()->whereRaw('1 = 0'),
-        };
+                $visible->orWhereIn('projects.id', ProjectMembership::forActor($actor)->select('project_id'));
+            });
+        }
+
+        if ($portfolio !== 'ALL') {
+            $clients = PortfolioScope::clients(ClientScope::workClients($actor), $actor, $portfolio)->select('id');
+            $query->where(static function (Builder $scoped) use ($portfolio, $clients): void {
+                $scoped->whereIn('projects.client_id', $clients);
+                if ($portfolio === 'NONE') {
+                    $scoped->orWhereNull('projects.client_id');
+                }
+            });
+        }
+
+        return $query->where(static function (Builder $visible) use ($actor): void {
+            $visible->whereNull('projects.client_id')
+                ->orWhereIn('projects.client_id', ClientScope::workClients($actor)->select('id'));
+        });
     }
 
     /**
@@ -112,10 +149,10 @@ final class WorkScope
      */
     public static function tasks(Access $actor, bool $own = false): Builder
     {
-        $query = ProjectTask::query();
+        $query = ProjectTask::query()->whereIn('project_tasks.project_id', self::projects($actor)->select('projects.id'));
         if (! $own) {
             $leader = self::leaderAccountId($actor);
-            $led = static fn (int $account) => Project::query()->select('projects.id')->where('projects.manager_id', '=', $account);
+            $led = static fn (int $account) => self::ledProjects($actor, $account)->select('projects.id');
 
             return match ($actor->rowVisibility(ModuleCode::PROJECTS)) {
                 Access::ROWS_ALL => $query,
@@ -124,10 +161,14 @@ final class WorkScope
                     if ($leader !== null) {
                         $visible->orWhereIn('project_tasks.project_id', $led($leader));
                     }
+                    $visible->orWhereIn('project_tasks.project_id', ProjectMembership::forActor($actor, true)->select('project_id'));
                 }),
-                Access::ROWS_NONE => $leader !== null
-                    ? $query->whereIn('project_tasks.project_id', $led($leader))
-                    : $query->whereRaw('1 = 0'),
+                Access::ROWS_NONE => $query->where(static function (Builder $visible) use ($actor, $leader, $led): void {
+                    $visible->whereIn('project_tasks.project_id', ProjectMembership::forActor($actor, true)->select('project_id'));
+                    if ($leader !== null) {
+                        $visible->orWhereIn('project_tasks.project_id', $led($leader));
+                    }
+                }),
             };
         }
         if (! $actor->hasEmployeeLink()) {
@@ -138,7 +179,7 @@ final class WorkScope
     }
 
     /**
-     * The ids of the projects the actor is the Task Leader of — empty for
+     * The ids of projects led by the actor or owned through their client, empty for
      * anyone who cannot lead ({@see self::leaderAccountId()}). For per-task
      * checks over a batch (WorkRecords::visibleFiles()) without a lookup per
      * row.
@@ -152,8 +193,17 @@ final class WorkScope
             return [];
         }
 
-        return array_values(Project::query()->where('manager_id', '=', $leader)->pluck('id')
+        return array_values(self::ledProjects($actor, $leader)->pluck('projects.id')
             ->map(static fn ($id): string => (string) $id)->all());
+    }
+
+    /** @return Builder<Project> */
+    private static function ledProjects(Access $actor, int $leader): Builder
+    {
+        return self::projects($actor)->where(static function (Builder $query) use ($actor, $leader): void {
+            $query->where('projects.manager_id', '=', $leader)
+                ->orWhereIn('projects.client_id', ClientScope::clients($actor)->where('owner_id', '=', $leader)->select('id'));
+        });
     }
 
     /**

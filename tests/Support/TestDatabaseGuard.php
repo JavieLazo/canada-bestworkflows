@@ -48,9 +48,11 @@ final class TestDatabaseGuard
         if ($statement === false) {
             throw new RuntimeException('Cannot verify test account privileges.');
         }
+        // MariaDB quotes the literal underscore in a schema-only grant.
         foreach ($statement->fetchAll(PDO::FETCH_COLUMN) as $grant) {
             if (! is_string($grant) || (! str_starts_with($grant, 'GRANT USAGE ON *.* TO ')
-                && ! str_starts_with($grant, 'GRANT ALL PRIVILEGES ON `ems_testing`.* TO '))) {
+                && ! str_starts_with($grant, 'GRANT ALL PRIVILEGES ON `ems_testing`.* TO ')
+                && ! str_starts_with($grant, 'GRANT ALL PRIVILEGES ON `ems\_testing`.* TO '))) {
                 throw new RuntimeException('The test account must have privileges only on ems_testing.');
             }
         }

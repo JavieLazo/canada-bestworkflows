@@ -131,7 +131,7 @@ final class ReminderData implements ReminderSource
         if ($group === 'reviews') {
             $query = WorkScope::tasks($actor)->where('assigned_by', $actor->userId);
 
-            return $actor->mayReadAllData(ModuleCode::PROJECTS) ? $query : $query->whereRaw('1 = 0');
+            return $actor->hasModule(ModuleCode::PROJECTS) ? ($actor->mayReadAllData(ModuleCode::PROJECTS) ? $query : $query->whereHas('project', static fn (Builder $project) => $project->whereIn('client_id', ClientScope::manageable($actor)->select('id')))) : $query->whereRaw('1 = 0');
         }
         $query = WorkScope::projects($actor)->where('manager_id', $actor->userId);
 

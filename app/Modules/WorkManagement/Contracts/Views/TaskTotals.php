@@ -27,12 +27,15 @@ final readonly class TaskTotals
         public int $dueSoon = 0,
         public int $unassigned = 0,
         public ?string $earliestOpenDue = null,
+        public ?int $leafTotal = null,
+        public ?int $leafCompleted = null,
+        public ?int $leafCancelled = null,
     ) {}
 
     /** @return array{total: int, completed: int, percent: int} */
     public function progress(): array
     {
-        return ProjectPolicy::progressCounts($this->total - $this->cancelled, $this->completed);
+        return ProjectPolicy::progressCounts(($this->leafTotal ?? $this->total) - ($this->leafCancelled ?? $this->cancelled), $this->leafCompleted ?? $this->completed);
     }
 
     public function health(ProjectView $project, string $today): string

@@ -21,9 +21,9 @@
 <div
     wire:ignore
     x-data="{
-        ask: { title: '', body: '', confirm: 'OK', danger: false, call: [] },
+        ask: { title: '', body: '', confirm: 'OK', cancel: 'Cancel', danger: false, call: [] },
         open(question) {
-            this.ask = { title: '', body: '', confirm: 'OK', danger: false, call: [], ...question };
+            this.ask = { title: '', body: '', confirm: 'OK', cancel: 'Cancel', danger: false, call: [], ...question };
             this.$flux.modal('social-confirm').show();
         },
         yes() {
@@ -46,7 +46,7 @@
             </div>
             <div class="flex justify-end gap-2">
                 <flux:modal.close>
-                    <flux:button variant="outline">Cancel</flux:button>
+                    <flux:button variant="outline"><span x-text="ask.cancel">Cancel</span></flux:button>
                 </flux:modal.close>
                 <flux:button variant="danger" x-show="ask.danger" x-on:click="yes()"><span x-text="ask.confirm"></span></flux:button>
                 <flux:button variant="primary" x-show="! ask.danger" x-on:click="yes()"><span x-text="ask.confirm"></span></flux:button>

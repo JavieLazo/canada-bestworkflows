@@ -117,6 +117,11 @@ final class ManualTaskStatus
         return in_array($to, self::DECISIONS, true) || in_array($from, self::DECIDED, true);
     }
 
+    public static function needsDecision(string $from, string $to): bool
+    {
+        return self::isReviewMove($from, $to) || TaskPolicy::isClosed($from) || $to === 'CANCELLED';
+    }
+
     /**
      * Whether work has been handed in on the task, in its mode's own terms:
      * a GROUP hand-in on the task row (TaskSubmissionPolicy::groupHandedIn),

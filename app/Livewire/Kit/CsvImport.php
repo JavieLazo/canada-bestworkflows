@@ -13,6 +13,7 @@ use App\Support\Access;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
+use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
 use Livewire\WithFileUploads;
@@ -59,6 +60,10 @@ class CsvImport extends Component
     #[Locked]
     public string $template = '';
 
+    /** A host menu can open this same dialog without a second button. */
+    #[Locked]
+    public bool $showTrigger = true;
+
     /** Dialog visibility. Plain UI state. */
     public bool $open = false;
 
@@ -76,19 +81,29 @@ class CsvImport extends Component
      */
     public ?array $report = null;
 
-    public function mount(string $table, string $context = '', string $template = ''): void
+    public function mount(string $table, string $context = '', string $template = '', bool $showTrigger = true): void
     {
         abort_unless(app(TableTransfers::class)->imports($table), 404);
 
         $this->table = $table;
         $this->context = $context;
         $this->template = $template;
+        $this->showTrigger = $showTrigger;
     }
 
     public function openDialog(): void
     {
+        $this->allowedImport(app(Access::class));
         $this->discard();
         $this->open = true;
+    }
+
+    #[On('open-csv-import')]
+    public function openFromMenu(string $table, string $context = ''): void
+    {
+        if ($table === $this->table && $context === $this->context) {
+            $this->openDialog();
+        }
     }
 
     /** Closing the dialog by Escape or the × is a cancel: the upload goes too. */

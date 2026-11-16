@@ -22,6 +22,16 @@ use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
  */
 final class ImportUpload
 {
+    public function path(UploadedFile $file): string
+    {
+        $path = $file->getRealPath();
+        if ($path === false || ! is_file($path)) {
+            throw new \RuntimeException('The temporary upload is no longer available. Choose the file again.');
+        }
+
+        return $path;
+    }
+
     /** The file's bytes, or null when they can no longer be read. */
     public function bytes(UploadedFile $file): ?string
     {

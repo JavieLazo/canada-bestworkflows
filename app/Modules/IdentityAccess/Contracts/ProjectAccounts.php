@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace App\Modules\IdentityAccess\Contracts;
 
 use App\Support\Access;
+use Illuminate\Support\Collection;
 
 /** Account validity for assigning project leadership, without leaking credentials. */
 interface ProjectAccounts
 {
+    /** @param list<int>|null $ids
+     * @return Collection<int, AccountLabel>
+     */
+    public function participants(Access $actor, ?array $ids = null): Collection;
+
     public function active(Access $actor, string $id): bool;
 
     /**

@@ -318,7 +318,7 @@ it('pages own tasks in one select and reads each member own status', function ()
     $page = $records->ownPage($actor, ['q' => '', 'status' => 'ALL', 'project' => 'ALL'], 'code', 'asc', 1, 10);
     $queries = array_column(DB::getQueryLog(), 'query');
     DB::disableQueryLog();
-    $taskReads = array_values(array_filter($queries, static fn (string $sql): bool => str_contains(strtolower($sql), 'select') && str_contains($sql, 'project_tasks') && ! str_contains(strtolower($sql), 'count(')));
+    $taskReads = array_values(array_filter($queries, static fn (string $sql): bool => preg_match('/^select\s+[`"]?project_tasks[`"]?\.\*/i', $sql) === 1));
     expect($page)->toHaveCount(10)->and($page->total())->toBe(11)
         ->and($taskReads)->toHaveCount(1)->and(strtolower($taskReads[0]))->toContain('limit 10');
 
@@ -403,16 +403,17 @@ it('shows filters and labels My Tasks rows by the member own status', function (
         ->assertSee($tasks['submitted']->code)
         ->assertSee($tasks['groupSubmitted']->code)
         ->assertDontSee($tasks['none']->code)
-        ->assertSeeHtml('<span class="pill pill-success">Submitted</span>')
-        ->assertDontSeeHtml('<span class="pill pill-primary">In Progress</span>')
+        ->assertSeeHtml('aria-label="Open '.$tasks['submitted']->code.' · Submitted"')
+        ->assertSeeHtml('aria-label="Open '.$tasks['groupSubmitted']->code.' · Submitted"')
+        ->assertDontSeeHtml('aria-label="Open '.$tasks['submitted']->code.' · In Progress"')
         // The approved response the Awaiting review tile counts has a filter
         // option of its own, and its row says Approved.
         ->assertSeeHtml('value="APPROVED"')
         ->set('status', 'APPROVED')
         ->assertSee($tasks['approved']->code)
         ->assertDontSee($tasks['submitted']->code)
-        ->assertSeeHtml('<span class="pill pill-success-strong">Approved</span>')
-        ->assertDontSeeHtml('<span class="pill pill-primary">In Progress</span>');
+        ->assertSeeHtml('aria-label="Open '.$tasks['approved']->code.' · Approved"')
+        ->assertDontSeeHtml('aria-label="Open '.$tasks['approved']->code.' · In Progress"');
 });
 
 /*

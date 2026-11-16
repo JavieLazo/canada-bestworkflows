@@ -24,5 +24,6 @@ final readonly class ProjectDraft
         public ?string $startDate,
         public string $dueDate,
         public string $managerId,
+        public ?string $clientId = null,
     ) {}
 }

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Modules\WorkManagement\Application\Commands;
 
 use App\Domain\Enums\AuditEvent;
-use App\Domain\Notifications\Notifier;
 use App\Domain\Projects\TaskPolicy;
 use App\Models\ProjectTask;
-use App\Modules\Workforce\Contracts\AssignmentEmployees;
+use App\Modules\WorkManagement\Application\Queries\ProjectPeople;
 use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Modules\WorkManagement\Application\TaskDraft;
+use App\Modules\WorkManagement\Application\TaskGroups;
+use App\Modules\WorkManagement\Application\TaskHierarchy;
+use App\Modules\WorkManagement\Application\WorkNotifications as Notifier;
 use App\Modules\WorkManagement\Application\WorkRules;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSchedule;
@@ -34,23 +36,17 @@ final class CreateTask
 {
     public function handle(Access $actor, string $projectId, TaskDraft $input): ?ProjectTaskView
     {
-        if (! WorkRules::managesProjects($actor)) {
+        $project = WorkRules::project($actor, $projectId);
+        if (! WorkRules::editsWork($actor, $project, lock: true) && ! ($project === null && WorkRules::managesProjects($actor))) {
             throw new \RuntimeException(WorkRules::forbiddenMessage());
         }
-        $project = WorkRules::project($actor, $projectId);
         if ($project === null) {
             return null;
         }
         $title = trim($input->title);
-        if ($title === '') {
-            throw new \RuntimeException('Give the task a title.');
-        }
-        if (mb_strlen($title) > 300) {
-            throw new \RuntimeException('title: must be at most 300 characters');
-        }
         $description = trim($input->description);
-        if (mb_strlen($description) > 8000) {
-            throw new \RuntimeException('description: must be at most 8000 characters');
+        if (($error = TaskPolicy::briefError($title, $description)) !== null) {
+            throw new \RuntimeException($error);
         }
         if (! TaskPolicy::isPriority($input->priority)) {
             throw new \RuntimeException('priority: is not a supported value');
@@ -76,7 +72,7 @@ final class CreateTask
         // The checklist is entangled, so the list is client-writable: every
         // id is re-resolved here — to the database's own id of an ACTIVE
         // employee — before it is written, or the save is refused.
-        $assigneeIds = app(AssignmentEmployees::class)->resolveActive($actor, WorkRules::cleanIds($input->assigneeIds));
+        $assigneeIds = app(ProjectPeople::class)->resolveAssignees($actor, $projectId, WorkRules::cleanIds($input->assigneeIds));
         if (is_string($assigneeIds)) {
             throw new \RuntimeException($assigneeIds);
         }
@@ -86,16 +82,22 @@ final class CreateTask
         $byUserId = $actor->userId === null ? null : (int) $actor->userId;
         try {
             /** @var ProjectTask $task */
-            $task = DB::transaction(function () use ($byUserId, $project, $title, $description, $startDate, $dueDate, $assigneeIds, $input, $mode): ProjectTask {
+            $task = DB::transaction(function () use ($actor, $byUserId, $project, $title, $description, $startDate, $dueDate, $assigneeIds, $input, $mode): ProjectTask {
                 $codes = DB::table('project_tasks')->lockForUpdate()->pluck('code')->all();
                 // P, after the task rows the code scan locked: a completed or
                 // cancelled project takes no new work — a completed one would
                 // then hold an open task (ManualProjectStatus) — and a close
                 // racing this create either committed first and is seen here,
                 // or waits and then counts the new task.
-                $locked = WorkRules::lockedProject($project->id);
+                $locked = WorkRules::lockedProject($actor, $project->id);
                 if ($locked === null) {
                     throw new \RuntimeException('That project no longer exists.');
+                }
+                if (! WorkRules::editsWork($actor, $locked, lock: true)) {
+                    throw new \RuntimeException(WorkRules::forbiddenMessage());
+                }
+                if (is_string(app(ProjectPeople::class)->resolveAssignees($actor, $locked->id, $assigneeIds))) {
+                    throw new \RuntimeException('Choose active employees with client access for this task.');
                 }
                 if (in_array($locked->status, ['COMPLETED', 'CANCELLED'], true)) {
                     throw new \RuntimeException('Reopen the project before adding a task to it.');
@@ -109,6 +111,16 @@ final class CreateTask
                     throw new \RuntimeException($windowError);
                 }
                 $task = new ProjectTask;
+                if ($input->parentId !== null) {
+                    TaskHierarchy::validateParent($project->id, $input->parentId);
+                    if ($input->groupId !== null) {
+                        throw new \RuntimeException('Subtasks inherit their parent task\'s activity.');
+                    }
+                    $task->parent_id = $input->parentId;
+                    $task->group_id = null;
+                } else {
+                    $task->group_id = TaskGroups::resolve($project->id, $input->groupId);
+                }
                 $task->fill(['code' => WorkRules::nextCode('TSK', $codes), 'project_id' => $project->id, 'title' => $title, 'description' => $description === '' ? null : $description, 'status' => 'PENDING', 'priority' => $input->priority, 'submission_mode' => $mode, 'start_date' => $startDate, 'due_date' => $dueDate, 'assigned_at' => CarbonImmutable::now()]);
                 // Actor column: the session, never the request.
                 $task->setAttribute('assigned_by', $byUserId);
@@ -125,7 +137,7 @@ final class CreateTask
         $names = WorkRules::assigneeNames($task);
         $individual = TaskSubmissionPolicy::isIndividual($mode) ? ' (individual responses)' : '';
         AuditService::record($actor, AuditEvent::TASK_ASSIGNED, 'project_tasks', $task->id, $assigneeIds !== [] ? "Task {$task->code} — {$title} assigned to {$names}{$individual}" : "Task {$task->code} — {$title} created without an assignee");
-        Notifier::employees($assigneeIds, [], 'TASK_ASSIGNED', "Task {$task->code} assigned to you", WorkRules::assignedBody($title, $startDate, $dueDate), '/my-tasks');
+        Notifier::employees($actor, $task, $assigneeIds, [], 'TASK_ASSIGNED', "Task {$task->code} assigned to you", WorkRules::assignedBody($title, $startDate, $dueDate), '/my-tasks');
 
         return app(WorkRecords::class)->task($actor, $task->id, $projectId);
     }

@@ -370,7 +370,7 @@ class EmployeeChecklist extends Component
      * @param  array{position?: string, active?: string, employmentStatus?: string, sort?: string, keep?: list<string>}  $filters
      * @return Collection<int, EmployeeProfile>
      */
-    private function directoryEmployees(?array $ids = null, string $search = '', array $filters = [], ?Access $actor = null): Collection
+    protected function directoryEmployees(?array $ids = null, string $search = '', array $filters = [], ?Access $actor = null): Collection
     {
         $actor ??= app(Access::class);
 

@@ -1,22 +1,14 @@
 {{-- The edit-project dialog (edit-project-dialog.tsx) — bound to Show's $editing and the edit* draft properties. Included by show.blade.php and shares that view's variables. --}}
 @php
     use App\Domain\Projects\ProjectPolicy;
-    use App\Livewire\Projects\ProjectsData;
 @endphp
 {{-- edit-project-dialog.tsx --}}
-<flux:modal wire:model.self="editing" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
+<div class="space-y-4">
     <div class="space-y-4">
         @if ($runsProject && ! $canManage)
             {{-- The project's Task Leader who is not a Projects manager plans
-                 the start date and nothing else here (ScheduleProject); the
-                 status is the header select's. --}}
-            <div>
-                <flux:heading size="lg">Plan Project Start</flux:heading>
-                <flux:text class="mt-1">
-                    As Task Leader of {{ $project->code }} you can move its start date. Ask a Projects manager
-                    to change anything else.
-                </flux:text>
-            </div>
+                 the start date here. Status has its own explicit editor. --}}
+            <flux:error name="projectEdit" />
 
             <form class="grid gap-4" wire:submit="saveProject">
                 <div class="space-y-2">
@@ -24,27 +16,21 @@
                     <x-kit.date-field id="project-plan-start" aria-label="Start date" wire:model="editStartDate" />
                 </div>
 
-                <div class="flex items-center justify-end gap-3 border-t border-border pt-4">
-                    <flux:button type="submit" variant="primary">Save Start Date</flux:button>
+                <div class="flex items-center justify-between gap-3 border-t border-border pt-4">
+                    <flux:button type="button" variant="ghost" wire:click="cancelProjectEdit">Cancel</flux:button>
+                    <flux:button type="submit" variant="primary">Save start date</flux:button>
                 </div>
             </form>
         @else
-            <div>
-                <flux:heading size="lg">Edit Project</flux:heading>
-                <flux:text class="mt-1">
-                    Update the project brief, task leader, due date, or current status for {{ $project->code }}.
-                </flux:text>
-            </div>
+            <flux:error name="projectEdit" />
 
             <form class="grid gap-4 sm:grid-cols-2" wire:submit="saveProject">
                 <div class="space-y-2 sm:col-span-2">
-                    <flux:label for="project-edit-name">Project Name</flux:label>
-                    <flux:input id="project-edit-name" wire:model="editName" />
+                    <flux:input label="Project name" id="project-edit-name" wire:model="editName" />
                 </div>
 
                 <div class="space-y-2 sm:col-span-2">
-                    <flux:label for="project-edit-description">Description</flux:label>
-                    <flux:textarea id="project-edit-description" rows="3" wire:model="editDescription" />
+                    <flux:textarea label="Description" id="project-edit-description" rows="3" wire:model="editDescription" />
                 </div>
 
                 <div class="space-y-2">
@@ -60,9 +46,9 @@
                 </div>
 
                 <div class="space-y-2">
-                    <flux:label>Task Leader</flux:label>
-                    <x-kit.select aria-label="Project task leader" wire:model="editManagerId">
-                        <flux:select.option value="NONE">No task leader</flux:select.option>
+                    <flux:label>Project lead</flux:label>
+                    <x-kit.select aria-label="Project lead" wire:model="editManagerId">
+                        <flux:select.option value="NONE">No project lead</flux:select.option>
                         @foreach ($accounts as $account)
                             {{-- Accounts whose role can open Project Management,
                                  plus the leader already named, so an older
@@ -95,12 +81,10 @@
                 </div>
 
                 <div class="flex items-center justify-between gap-3 border-t border-border pt-4 sm:col-span-2">
-                    <p class="num text-xs text-muted-foreground">
-                        Created {{ ProjectsData::fmtDateManila($project->created_at) }}
-                    </p>
-                    <flux:button type="submit" variant="primary">Save Changes</flux:button>
+                    <flux:button type="button" variant="ghost" wire:click="cancelProjectEdit">Cancel</flux:button>
+                    <flux:button type="submit" variant="primary">Save changes</flux:button>
                 </div>
             </form>
         @endif
     </div>
-</flux:modal>
+</div>

@@ -151,7 +151,7 @@ it('refuses an unsupported target before anything else', function (string $next)
 ]);
 
 it('needs a task leader before a project is set active', function () {
-    $refusal = 'Assign a task leader before activating this project.';
+    $refusal = 'Assign a project lead before activating this project.';
 
     foreach (mpsStatuses() as $from) {
         expect(ManualProjectStatus::error(['status' => $from], [], 'ACTIVE'))->toBe($refusal, "{$from} with no manager_id key")

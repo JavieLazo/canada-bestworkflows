@@ -1,333 +1,163 @@
-{{--
-    /projects — the port of projects-page.tsx. Same heading copy, the same five
-    work-queue stat cards (which double as queue filters), the same filter row,
-    the same seven columns in the same order, the same empty state, and the
-    same New-project dialog (new-project-dialog.tsx).
-
-    Icons are the reference's own Lucide set, inlined through
-    livewire/projects/partials/icon.blade.php (Flux ships Heroicons; the
-    reference look is Lucide, exactly as the shell's module icons are inlined).
-    Inside a flux:button the include goes in the named icon slot, never the
-    default slot: Flux wraps the default slot in a bare span and preflight makes
-    an svg display:block, so an inline icon there stacks above the label.
-
-    The per-project manager (projects.manager_id, a user account) is shown to
-    people as the "Task Leader"; the identifiers keep the reference's name.
---}}
 @php
     use App\Domain\Projects\ProjectPolicy;
-    use App\Livewire\Projects\ProjectsData;
 @endphp
-<div class="space-y-6">
-    <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-            <h1 class="text-2xl font-bold tracking-tight">Project Management</h1>
-            <p class="text-sm text-muted-foreground">
-                The projects management runs and the tasks inside them. Open one to hand out work and
-                review what comes back.
-            </p>
-        </div>
-        <div class="flex flex-wrap items-center gap-3">
-            {{-- Green like every Export CSV (x-kit.export-button); its own markup only for the projects icon set. --}}
-            <flux:button variant="primary" href="{{ $exportUrl }}" class="hris-button-success">
-                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'download', 'class' => 'size-4'])</x-slot:icon>
-                Export CSV
-            </flux:button>
-            <livewire:kit.csv-import table="projects" :template="route('projects.export', ['template' => 1])" key="import-projects" />
-            <flux:button variant="primary" wire:click="$set('adding', true)">
-                <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                New Project
-            </flux:button>
-        </div>
-    </div>
-
-    <section aria-label="Project work queue" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <button
-            type="button"
-            aria-pressed="{{ $queue === 'ALL' ? 'true' : 'false' }}"
-            wire:click="setQueue('ALL')"
-            class="hris-card flex items-center gap-3 p-4 text-left transition-colors hover:bg-accent"
-        >
-            <span class="rounded-md bg-primary/10 p-2 text-primary">
-                @include('livewire.projects.partials.icon', ['icon' => 'clock-3', 'class' => 'size-4'])
-            </span>
-            <span>
-                <span class="num block text-xl font-bold">{{ $activeProjects }}</span>
-                <span class="text-xs text-muted-foreground">Active Projects</span>
-            </span>
-        </button>
-        <button
-            type="button"
-            aria-pressed="{{ $queue === 'REVIEW' ? 'true' : 'false' }}"
-            wire:click="setQueue('REVIEW')"
-            class="hris-card flex items-center gap-3 p-4 text-left transition-colors hover:bg-accent"
-        >
-            <span class="rounded-md bg-success/10 p-2 text-success">
-                @include('livewire.projects.partials.icon', ['icon' => 'clipboard-check', 'class' => 'size-4'])
-            </span>
-            <span>
-                <span class="num block text-xl font-bold">{{ $reviewCount }}</span>
-                <span class="text-xs text-muted-foreground">Needs Review</span>
-            </span>
-        </button>
-        <button
-            type="button"
-            aria-pressed="{{ $queue === 'OVERDUE' ? 'true' : 'false' }}"
-            wire:click="setQueue('OVERDUE')"
-            class="hris-card flex items-center gap-3 p-4 text-left transition-colors hover:bg-accent"
-        >
-            <span class="rounded-md bg-danger/10 p-2 text-danger">
-                @include('livewire.projects.partials.icon', ['icon' => 'alert-triangle', 'class' => 'size-4'])
-            </span>
-            <span>
-                <span class="num block text-xl font-bold">{{ $overdueCount }}</span>
-                <span class="text-xs text-muted-foreground">Overdue Tasks</span>
-            </span>
-        </button>
-        <button
-            type="button"
-            aria-pressed="{{ $queue === 'DUE_SOON' ? 'true' : 'false' }}"
-            wire:click="setQueue('DUE_SOON')"
-            class="hris-card flex items-center gap-3 p-4 text-left transition-colors hover:bg-accent"
-        >
-            <span class="rounded-md bg-warning/10 p-2 text-warning">
-                @include('livewire.projects.partials.icon', ['icon' => 'clock-3', 'class' => 'size-4'])
-            </span>
-            <span>
-                <span class="num block text-xl font-bold">{{ $dueSoonCount }}</span>
-                <span class="text-xs text-muted-foreground">Due Soon</span>
-            </span>
-        </button>
-        <button
-            type="button"
-            aria-pressed="{{ $queue === 'UNASSIGNED' ? 'true' : 'false' }}"
-            wire:click="setQueue('UNASSIGNED')"
-            class="hris-card flex items-center gap-3 p-4 text-left transition-colors hover:bg-accent"
-        >
-            <span class="rounded-md bg-muted p-2 text-muted-foreground">
-                @include('livewire.projects.partials.icon', ['icon' => 'user-round-x', 'class' => 'size-4'])
-            </span>
-            <span>
-                <span class="num block text-xl font-bold">{{ $unassignedCount }}</span>
-                <span class="text-xs text-muted-foreground">Unassigned Tasks</span>
-            </span>
-        </button>
-    </section>
-
-    <section class="hris-card overflow-hidden">
-        <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
-            <flux:input
-                aria-label="Search projects"
-                placeholder="Search code or project name"
-                class="w-full min-w-[12rem] max-w-xs flex-1"
-                wire:model.live.debounce.250ms="search"
-            />
-
-            <x-kit.filter-select label="Filter by Status" class="w-[13rem]" wire:model.live="status">
-                <flux:select.option value="ALL">All statuses</flux:select.option>
-                @foreach (ProjectPolicy::STATUSES as $value => $label)
-                    <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                @endforeach
-            </x-kit.filter-select>
-
-            <x-kit.filter-select label="Filter by Site" class="w-[13rem]" wire:model.live="site">
-                <flux:select.option value="ALL">All sites</flux:select.option>
-                @foreach ($sites as $siteRow)
-                    <flux:select.option value="{{ $siteRow->id }}">{{ $siteRow->name }}</flux:select.option>
-                @endforeach
-            </x-kit.filter-select>
-
-            <x-kit.filter-select label="Filter by Task Leader" class="w-[13rem]" wire:model.live="manager">
-                <flux:select.option value="ALL">All task leaders</flux:select.option>
-                @foreach ($accounts as $account)
-                    @if ((bool) $account->getAttribute('is_active'))
-                        <flux:select.option value="{{ $account->id }}">{{ $account->name }}</flux:select.option>
+<div class="ppm-workspace space-y-6">
+    <x-work.breadcrumbs :portfolio="$contextPortfolio" :client="$selectedClient" :page="$sectionTitle" />
+    @php
+        $projectCreation = $canCreateInternal || $creatableClients->isNotEmpty();
+        $clientShortcut = $section === 'overview' && $selectedClient === null && $canAddClient;
+        $portfolioShortcut = $clientShortcut && $selectedPortfolio === null;
+        $showCreation = in_array($section, ['overview', 'projects'], true) && ! $portfolioUnavailable && ! $clientUnavailable && ($projectCreation || $clientShortcut);
+    @endphp
+    <header class="ppm-page-header ppm-creation-header">
+        <div class="min-w-0 flex-1"><p class="ppm-eyebrow">{{ $selectedClient !== null ? 'Client' : ($selectedPortfolio !== null ? 'Portfolio' : ($portfolio === 'NONE' ? 'Unorganized work' : 'All visible work')) }}</p><h1 class="ppm-heading break-words">{{ $selectedClient->name ?? $selectedPortfolio->name ?? $sectionTitle }}</h1></div>
+        @if ($section !== 'capacity')
+        <div class="ppm-actions">
+            <flux:dropdown position="bottom" align="end"><flux:button variant="ghost" square icon="ellipsis-horizontal" :aria-label="$selectedClient !== null ? 'Client actions' : ($selectedPortfolio !== null ? 'Portfolio actions' : 'Project tools')" /><flux:menu>
+                @if ($selectedClient?->can_manage)
+                    <flux:menu.item icon="pencil-square" wire:click="$dispatch('edit-current-client')">Edit client</flux:menu.item>
+                    <flux:menu.item icon="rectangle-stack" wire:click="$dispatch('move-current-client')">Move client</flux:menu.item>
+                @elseif ($selectedClient === null && $selectedPortfolio?->can_manage)
+                    <flux:menu.item icon="pencil-square" wire:click="$dispatch('edit-current-portfolio')">Edit portfolio</flux:menu.item>
+                @endif
+                <flux:menu.item icon="arrow-down-tray" href="{{ $exportUrl }}">Export CSV</flux:menu.item>
+                @if ($canCreateInternal)<flux:menu.item icon="arrow-up-tray" wire:click="$dispatch('open-csv-import', { table: 'projects' })">Import CSV</flux:menu.item>
+                @endif
+            </flux:menu></flux:dropdown>
+            @if ($showCreation)
+                <div class="flex items-center gap-1" role="group" aria-label="Create project work">
+                    @if ($projectCreation)<flux:button variant="primary" icon="plus" icon:class="hidden sm:block" wire:click="openCreateProject">New project</flux:button>
+                    @else<flux:button variant="primary" icon="plus" icon:class="hidden sm:block" wire:click="$dispatch('new-project-client')">New client</flux:button>
                     @endif
-                @endforeach
-            </x-kit.filter-select>
-
-            <x-kit.filter-select label="Filter by Queue" class="w-[13rem]" wire:model.live="queue">
-                <flux:select.option value="ALL">All work</flux:select.option>
-                <flux:select.option value="REVIEW">Needs review</flux:select.option>
-                <flux:select.option value="OVERDUE">Overdue</flux:select.option>
-                <flux:select.option value="DUE_SOON">Due soon</flux:select.option>
-                <flux:select.option value="UNASSIGNED">Unassigned</flux:select.option>
-            </x-kit.filter-select>
-        </header>
-
-        <div class="hris-table-wrap hris-table-scroll">
-            <table class="hris-table">
-                <thead>
-                    <tr>
-                        <x-kit.sort-header field="code" label="Code" />
-                        <x-kit.sort-header field="name" label="Project" />
-                        <x-kit.sort-header field="manager" label="Task Leader" />
-                        <th>Timeline</th>
-                        <th>Progress</th>
-                        <th>Health</th>
-                        <x-kit.sort-header field="status" label="Status" />
-                    </tr>
-                </thead>
-                <tbody>
-                    @if ($visibleCount === 0)
-                        <tr wire:key="empty">
-                            <x-kit.empty-state :colspan="7" title="No project matches those filters." />
-                        </tr>
+                    @if (($clientShortcut && $projectCreation) || $portfolioShortcut)
+                        <flux:dropdown position="bottom" align="end"><flux:button variant="primary" square icon="chevron-down" aria-label="More creation actions" /><flux:menu>
+                            @if ($clientShortcut && $projectCreation)<flux:menu.item icon="building-office-2" wire:click="$dispatch('new-project-client')">New client</flux:menu.item>
+                            @endif
+                            @if ($portfolioShortcut)<flux:menu.item icon="rectangle-stack" href="{{ route('projects.portfolios', ['new' => 1]) }}" wire:navigate>New portfolio</flux:menu.item>
+                            @endif
+                        </flux:menu></flux:dropdown>
                     @endif
-                    @foreach ($rows as $project)
-                        @php
-                            $progress = $totalsByProject[$project->id]->progress();
-                            $siteName = $sites->firstWhere('id', $project->site_id)?->name ?? '—';
-                            $health = $totalsByProject[$project->id]->health($project, $today);
-                            $managerName = $project->manager_id === null
-                                ? null
-                                : $accounts->firstWhere('id', $project->manager_id)?->name;
-                            $detailUrl = route('projects.show', $project->id);
-                        @endphp
-                        <tr
-                            wire:key="project-{{ $project->id }}"
-                            tabindex="0"
-                            aria-label="Open {{ $project->name }}"
-                            class="cursor-pointer focus:outline-none focus-visible:bg-accent"
-                            x-on:click="window.location.assign(@js($detailUrl))"
-                            x-on:keydown.enter.prevent="window.location.assign(@js($detailUrl))"
-                            x-on:keydown.space.prevent="window.location.assign(@js($detailUrl))"
-                        >
-                            <td class="num whitespace-nowrap">{{ $project->code }}</td>
-                            <td>
-                                <p class="font-medium">{{ $project->name }}</p>
-                                <p class="text-xs text-muted-foreground">{{ $siteName }}</p>
-                            </td>
-                            <td>{{ $managerName ?? '—' }}</td>
-                            <td class="num whitespace-nowrap">
-                                {{ ProjectsData::fmtDate($project->start_date) }} &ndash; {{ $project->due_date ? ProjectsData::fmtDate($project->due_date) : 'open' }}
-                            </td>
-                            <td>
-                                @if ($progress['total'] === 0)
-                                    <span class="text-xs text-muted-foreground">No tasks yet</span>
-                                @else
-                                    <div class="flex items-center gap-2">
-                                        {{-- shadcn <Progress> — a plain track/bar pair. --}}
-                                        <div class="h-2 w-28 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $progress['percent'] }}">
-                                            <div class="h-full rounded-full bg-primary transition-all" style="width: {{ $progress['percent'] }}%"></div>
-                                        </div>
-                                        <span class="num text-xs text-muted-foreground">
-                                            {{ $progress['completed'] }}/{{ $progress['total'] }}
-                                        </span>
-                                    </div>
-                                @endif
-                            </td>
-                            <td class="whitespace-nowrap">
-                                <span class="{{ ProjectPolicy::healthPill($health) }}">
-                                    {{ ProjectPolicy::healthLabel($health) }}
-                                </span>
-                            </td>
-                            <td class="whitespace-nowrap">
-                                <span class="{{ ProjectPolicy::statusPill($project->status) }}">
-                                    {{ ProjectPolicy::statusLabel($project->status) }}
-                                </span>
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                </div>
+            @endif
         </div>
-
-        <x-kit.pagination :paginator="$rows" noun="projects" />
-    </section>
-
-    {{-- new-project-dialog.tsx --}}
-    <flux:modal wire:model.self="adding" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
-        <div class="space-y-4">
-            <div>
-                <flux:heading size="lg">New Project</flux:heading>
-                <flux:text class="mt-1">
-                    The project is the container for its tasks. Its code is assigned automatically, and
-                    tasks are handed out from the project itself.
-                </flux:text>
-            </div>
-
-            <form class="space-y-4" wire:submit="createProject">
-                <div class="space-y-2">
-                    <flux:label>Name</flux:label>
-                    <flux:input
-                        required
-                        wire:model="draftName"
-                        placeholder="What the project is called"
-                    />
+        @endif
+        @if ($selectedClient !== null || $selectedPortfolio !== null)
+        <div class="ppm-header-context space-y-3">
+            @if (($selectedClient !== null ? $selectedClient->description : $selectedPortfolio?->description) !== null)<div><x-work.description-preview :text="$selectedClient !== null ? $selectedClient->description : $selectedPortfolio->description" /></div>
+            @endif
+            @if ($selectedClient !== null || $selectedPortfolio !== null)
+                <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+                    @if ($selectedClient === null)<a href="{{ route('projects.clients', ['portfolio' => $selectedPortfolio->id]) }}" class="num hover:text-primary" wire:navigate>{{ $contextCounts['clients'] }} clients</a>
+                    @endif
+                    <button type="button" class="num hover:text-primary" wire:click="$set('section', 'projects')">{{ $contextCounts['projects'] }} projects</button>
+                    <button type="button" class="num inline-flex items-center gap-1.5 hover:text-primary" wire:click="$dispatch('{{ $selectedClient !== null ? 'open-current-client-members' : 'open-current-portfolio-members' }}')" aria-label="View {{ $selectedClient !== null ? 'client' : 'portfolio' }} members"><flux:icon.users class="size-4" />{{ $selectedClient->people_count ?? $selectedPortfolio->people_count }} members</button>
                 </div>
-
-                <div class="space-y-2">
-                    <flux:label>Description</flux:label>
-                    <flux:textarea
-                        rows="2"
-                        wire:model="draftDescription"
-                        placeholder="Optional — what the project covers"
-                    />
-                </div>
-
-                <div class="grid gap-4 sm:grid-cols-2">
-                    <div class="space-y-2">
-                        <flux:label>Site</flux:label>
-                        <x-kit.select aria-label="Site" wire:model="draftSiteId">
-                            <flux:select.option value="NONE">No site</flux:select.option>
-                            {{-- A new project is a new assignment: active sites only. --}}
-                            @foreach ($sites as $siteRow)
-                                @continue(! $siteRow->is_active)
-                                <flux:select.option value="{{ $siteRow->id }}">{{ $siteRow->name }}</flux:select.option>
-                            @endforeach
-                        </x-kit.select>
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Status</flux:label>
-                        <x-kit.select aria-label="Status" wire:model="draftStatus">
-                            @foreach (ProjectPolicy::STATUSES as $value => $label)
-                                <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                            @endforeach
-                        </x-kit.select>
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Start Date</flux:label>
-                        <x-kit.date-field
-                            required
-                            class="num"
-                            wire:model="draftStartDate"
-                            aria-label="Start date"
-                        />
-                    </div>
-
-                    <div class="space-y-2">
-                        <flux:label>Due Date</flux:label>
-                        <x-kit.date-field
-                            class="num"
-                            wire:model="draftDueDate"
-                            aria-label="Due date"
-                        />
-                    </div>
-                </div>
-
-                <div class="space-y-2">
-                    <flux:label>Task Leader</flux:label>
-                    <x-kit.select aria-label="Task Leader" wire:model="draftManagerId">
-                        <flux:select.option value="NONE">No task leader</flux:select.option>
+            @endif
+            @if ($selectedPortfolio?->archived_at !== null)<span class="pill pill-muted mt-2">Archived</span>
+            @endif
+        </div>
+        @endif
+    </header>
+    <x-work.context-tabs :portfolio="$contextPortfolio" :client="$selectedClient" :active="$section" />
+    @if ($portfolioUnavailable)
+        <div class="ppm-surface py-12 text-center"><h2 class="font-semibold">This portfolio is unavailable.</h2><flux:button class="mt-4" size="sm" variant="outline" wire:click="$set('portfolio', 'ALL')">Show my work</flux:button></div>
+    @elseif ($clientUnavailable)
+        <div class="ppm-surface p-8 text-center"><h2 class="font-semibold">This client is unavailable in this context.</h2><a href="{{ route('projects.clients') }}" class="mt-3 inline-block text-sm text-primary" wire:navigate>Browse clients</a></div>
+    @elseif ($section === 'members')
+        @if ($selectedClient !== null)
+            <livewire:projects.clients-page :members-for="$selectedClient->id" :key="'client-members-'.$selectedClient->id" />
+        @elseif ($selectedPortfolio !== null)
+            <livewire:projects.portfolios-page :members-for="$selectedPortfolio->id" :key="'portfolio-members-'.$selectedPortfolio->id" />
+        @endif
+    @elseif ($section === 'capacity')
+        <livewire:projects.capacity-workspace :portfolio="$portfolio" :client="$client" :key="'capacity-'.$portfolio.'-'.$client" />
+    @elseif ($section === 'overview')
+        {{-- All visible work gets the new overview; portfolios and clients keep theirs for now. --}}
+        @if ($selectedClient === null && $selectedPortfolio === null && $visibleCount > 0)
+            <livewire:projects.general-overview :portfolio="$portfolio" :key="'general-overview-'.$portfolio" />
+        @else
+            @include('livewire.projects.partials.module-overview')
+        @endif
+    @else
+    <section class="space-y-4" aria-label="Project library">
+        <div class="ppm-collection-toolbar" aria-label="Project controls">
+            <flux:input size="sm" icon="magnifying-glass" placeholder="Find a project…" aria-label="Search projects" wire:model.live.debounce.250ms="search" class="ppm-search" />
+            <div class="ppm-actions">
+                <flux:dropdown position="bottom" align="end">
+                    <flux:button size="sm" variant="ghost" icon="arrows-up-down" aria-label="Sort projects">Sort</flux:button>
+                    <flux:menu>
+                        @foreach (['code' => 'Code', 'name' => 'Name', 'manager' => 'Project lead', 'status' => 'Status'] as $field => $label)
+                            <flux:menu.item wire:click="sortBy('{{ $field }}')" :icon="$sortKey === $field ? ($sortDir === 'asc' ? 'arrow-up' : 'arrow-down') : null">{{ $label }}</flux:menu.item>
+                        @endforeach
+                    </flux:menu>
+                </flux:dropdown>
+                <x-work.filters id="project-library-filters" label="Project filters" :count="$activeFilterCount - (trim($search) === '' ? 0 : 1) - ($queue === 'ALL' ? 0 : 1)">
+                    <x-kit.select label="Status" aria-label="Filter by status" wire:model.live="status">
+                        <flux:select.option value="ALL">All statuses</flux:select.option>
+                        @foreach (ProjectPolicy::STATUSES as $value => $label)
+                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
+                        @endforeach
+                    </x-kit.select>
+                    <x-kit.select label="Site" aria-label="Filter by site" wire:model.live="site">
+                        <flux:select.option value="ALL">All sites</flux:select.option>
+                        @foreach ($sites as $siteRow)
+                            <flux:select.option value="{{ $siteRow->id }}">{{ $siteRow->name }}</flux:select.option>
+                        @endforeach
+                    </x-kit.select>
+                    <x-kit.select label="Project lead" aria-label="Filter by project lead" wire:model.live="manager" searchable>
+                        <flux:select.option value="ALL">All project leads</flux:select.option>
                         @foreach ($accounts as $account)
-                            @if (in_array((int) $account->id, $leaderIds, true))
-                                {{-- Active accounts whose role can open Project
-                                     Management: a leader acts on the project
-                                     from there (CreateProject re-checks). --}}
+                            @if ($account->is_active)
                                 <flux:select.option value="{{ $account->id }}">{{ $account->name }}</flux:select.option>
                             @endif
                         @endforeach
                     </x-kit.select>
+                </x-work.filters>
+                <div class="ppm-view-switch" role="group" aria-label="Project view">
+                    <flux:button size="sm" square icon="squares-2x2" :variant="$projectView === 'cards' ? 'filled' : 'ghost'" wire:click="$set('projectView', 'cards')" aria-label="Project cards" aria-pressed="{{ $projectView === 'cards' ? 'true' : 'false' }}" />
+                    <flux:button size="sm" square icon="list-bullet" :variant="$projectView === 'list' ? 'filled' : 'ghost'" wire:click="$set('projectView', 'list')" aria-label="Project list" aria-pressed="{{ $projectView === 'list' ? 'true' : 'false' }}" />
                 </div>
-
-                <flux:button type="submit" variant="primary">
-                    <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                    Create Project
-                </flux:button>
-            </form>
+            </div>
         </div>
-    </flux:modal>
+
+        @include('livewire.projects.partials.work-queues', ['allLabel' => 'All projects'])
+
+
+
+
+
+        @if ($visibleCount === 0)
+            <div class="ppm-surface py-12 text-center">
+                <flux:icon.folder class="mx-auto size-9 text-muted-foreground/50" />
+                <h2 class="mt-4 font-semibold">{{ $activeFilterCount > 0 ? 'No matching projects' : 'Your next project starts here' }}</h2>
+                @if ($activeFilterCount > 0)
+                    <flux:button class="mt-4" size="sm" variant="outline" wire:click="clearFilters">Clear filters</flux:button>
+                @elseif ($canCreateInternal || $creatableClients->isNotEmpty())
+                    <flux:button class="mt-4" size="sm" variant="primary" icon="plus" wire:click="openCreateProject">New project</flux:button>
+                @elseif ($selectedPortfolio?->archived_at === null)
+                    <flux:button class="mt-4" size="sm" variant="primary" wire:click="$dispatch('new-project-client')">Create a client</flux:button>
+                @endif
+            </div>
+        @elseif ($projectView === 'cards')
+            @include('livewire.projects.partials.project-cards')
+        @else
+            <div class="ppm-surface overflow-hidden">
+@include('livewire.projects.partials.project-list')</div>
+        @endif
+
+        <x-kit.pagination :paginator="$rows" noun="projects" class="!border-0 !px-0" />
+    </section>
+    @endif
+
+    @if ($canCreateInternal)
+        <livewire:kit.csv-import table="projects" :template="route('projects.export', ['template' => 1])" :show-trigger="false" key="import-projects" />
+    @endif
+
+    <livewire:projects.new-client :portfolio="$portfolio" :key="'new-client-'.$portfolio" />
+    @if ($selectedClient !== null)
+        <livewire:projects.clients-page :tools-for="$selectedClient->id" :key="'client-tools-'.$selectedClient->id" />
+    @elseif ($selectedClient === null && $selectedPortfolio !== null)
+        <livewire:projects.portfolios-page :tools-for="$selectedPortfolio->id" :key="'portfolio-tools-'.$selectedPortfolio->id" />
+    @endif
+    @include('livewire.projects.partials.dialog-project-add')
 </div>
