@@ -36,21 +36,21 @@
                 wire:model.live="search"
             />
 
-            <x-kit.filter-select label="Filter by action" class="w-[13rem]" wire:model.live="action">
+            <x-kit.filter-select label="Filter by Action" class="w-[13rem]" wire:model.live="action">
                 <flux:select.option value="ALL">All actions</flux:select.option>
                 @foreach ($actions as $a)
                     <flux:select.option value="{{ $a }}">{{ $a }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by entity" class="w-[13rem]" wire:model.live="entity">
+            <x-kit.filter-select label="Filter by Entity" class="w-[13rem]" wire:model.live="entity">
                 <flux:select.option value="ALL">All entities</flux:select.option>
                 @foreach ($entities as $e)
                     <flux:select.option value="{{ $e }}">{{ $e }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by actor" class="w-[13rem]" wire:model.live="actor">
+            <x-kit.filter-select label="Filter by Actor" class="w-[13rem]" wire:model.live="actor">
                 <flux:select.option value="ALL">All actors</flux:select.option>
                 @foreach ($actors as $a)
                     <flux:select.option value="{{ $a }}">{{ $a }}</flux:select.option>

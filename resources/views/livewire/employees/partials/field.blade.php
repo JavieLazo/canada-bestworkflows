@@ -195,7 +195,7 @@
                 @endforelse
                 @if (count($children) < \App\Livewire\Employees\EmployeeFields::MAX_CHILDREN)
                     <flux:button variant="outline" size="sm" icon="plus" wire:click="addChild">
-                        Add child
+                        Add Child
                     </flux:button>
                 @endif
             </div>

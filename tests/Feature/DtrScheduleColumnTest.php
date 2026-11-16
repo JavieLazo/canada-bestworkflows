@@ -222,5 +222,5 @@ it('labels the day dialog’s place as assigned and each punch’s as captured',
         ->call('employeePicked', 'dtr-employee', $sol->id)
         ->set('start', '2026-10-05')->set('end', '2026-10-07')
         ->call('openCorrection', '2026-10-06')
-        ->assertSeeInOrder(['Assigned location', 'Captured location', 'Web GPS']);
+        ->assertSeeInOrder(['Assigned Location', 'Captured Location', 'Web GPS']);
 });

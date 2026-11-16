@@ -18,17 +18,11 @@ use App\Models\Holiday;
 use App\Models\PayrollIncentiveType;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
-use App\Models\ShiftType;
 use App\Models\User;
-use App\Models\WorkSite;
 use App\Modules\Organization\Application\Commands\SaveHoliday;
-use App\Modules\Organization\Application\Commands\SaveSite;
 use App\Modules\Organization\Application\HolidayDraft;
-use App\Modules\Organization\Application\SiteDraft;
 use App\Modules\Payroll\Application\Commands\ImportIncentiveTypes;
 use App\Modules\Payroll\Application\Commands\SaveIncentiveType;
-use App\Modules\Timekeeping\Application\Commands\SaveShiftType;
-use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Platform\Transfer\ImportReport;
 use App\Platform\Transfer\ImportRunner;
 use App\Platform\Transfer\TableTransfers;
@@ -39,15 +33,15 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 /**
- * The Records tables beyond the plain lists — sites, holidays, shift types,
- * incentive types — export what their table shows and import back through
- * their own save command: an untouched export changes nothing, a known ID
- * updates, a blank one adds, and any bad row keeps the whole file out.
- * Writers see Import; readers only Export. Of the plain lists, Payroll
- * Deductions carries the same two buttons, while THE LEAVE TYPES AND THE
- * THREE GENERAL RECORDS LISTS — Position, Document, Employment — HAVE NO
- * CSV AT ALL: no button, no export route, no key an import could be
- * mounted under.
+ * The Records tables beyond the plain lists — holidays, incentive types —
+ * export what their table shows and import back through their own save
+ * command: an untouched export changes nothing, a known ID updates, a
+ * blank one adds, and any bad row keeps the whole file out. Writers see
+ * Import; readers only Export. Of the plain lists, Payroll Deductions
+ * carries the same two buttons, while THE LEAVE TYPES, SHIFTING SETTINGS,
+ * SITE SETTINGS AND THE THREE GENERAL RECORDS LISTS — Position, Document,
+ * Employment — HAVE NO CSV AT ALL: no button, no export route, no key an
+ * import could be mounted under.
  */
 
 /** @param list<string> $modules */
@@ -88,52 +82,6 @@ function rxferRows(string $url): array
     return array_slice($lines, 1);
 }
 
-/* |---| Sites |---| */
-
-it('exports sites with their id and plain coordinates, and imports them back unchanged', function () {
-    rxferActor([ModuleCode::RECORDS], allData: true);
-    app(SaveSite::class)->handle(app(Access::class), null, new SiteDraft('Makati HQ', '14.5547', '121.0244', '150', false));
-    app(SaveSite::class)->handle(app(Access::class), null, new SiteDraft('Field', '', '', '100', true));
-    $site = WorkSite::query()->where('name', 'Makati HQ')->firstOrFail();
-    $audits = AuditLog::query()->count();
-
-    $rows = rxferRows('/records/sites/export?geofence=ENFORCED');
-
-    // Punches and Status are export-only: the import reads neither.
-    expect($rows)->toBe([[(string) $site->getKey(), 'Makati HQ', '14.5547', '121.0244', '150', 'Enforced', '0', 'Active']]);
-
-    $csv = test()->get('/records/sites/export')->streamedContent();
-    $report = app(ImportRunner::class)->commit(app(Access::class), app(TableTransfers::class)->import('records.sites'), '', $csv);
-    expect($report->unchanged)->toBe(2)->and(AuditLog::query()->count())->toBe($audits);
-});
-
-it('renames a site by its id, adds a blank-id row, and keeps the whole file out for one bad row', function () {
-    rxferActor([ModuleCode::RECORDS], allData: true);
-    app(SaveSite::class)->handle(app(Access::class), null, new SiteDraft('Makati HQ', '14.5547', '121.0244', '150', false));
-    $site = WorkSite::query()->firstOrFail();
-    $headers = ['ID', 'Site', 'Latitude', 'Longitude', 'Radius (m)', 'Geofence', 'Punches'];
-
-    $refused = rxferImport('records.sites', $headers, [
-        [(string) $site->getKey(), 'Makati Main', '14.5547', '121.0244', '200', 'Enforced', '9'],
-        ['', 'Cebu', '', '', '100', 'Enforced', ''],
-    ]);
-    expect($refused->saved)->toBeFalse()
-        ->and($refused->errors)->toBe([['row' => 3, 'message' => 'A site the geofence enforces needs both coordinates.']])
-        ->and(WorkSite::query()->count())->toBe(1)
-        ->and($site->fresh()?->name)->toBe('Makati HQ');
-
-    $saved = rxferImport('records.sites', $headers, [
-        [(string) $site->getKey(), 'Makati Main', '14.5547', '121.0244', '200', 'Enforced', '9'],
-        ['', 'Cebu', '10.3157', '123.8854', '1,000', 'Exempt', ''],
-    ]);
-    expect($saved->saved)->toBeTrue()
-        ->and([$saved->created, $saved->updated])->toBe([1, 1])
-        ->and($site->fresh()?->name)->toBe('Makati Main')
-        ->and($site->fresh()?->radius_meters)->toBe(200)
-        ->and(WorkSite::query()->where('name', 'Cebu')->value('geofence_exempt'))->toBeTruthy()
-        ->and(AuditLog::query()->where('action', AuditEvent::SITE_UPDATED->value)->count())->toBe(1);
-});
-
 /* |---| Holidays |---| */
 
 it('exports the calendar with labels and ISO dates, and imports new and edited holidays', function () {
@@ -173,48 +121,6 @@ it('names a missing type, an unknown id and a repeated holiday, and saves none o
     ])->and(Holiday::query()->count())->toBe(1);
 });
 
-/* |---| Shift types |---| */
-
-it('spells a pattern out a value per column and imports it back unchanged', function () {
-    rxferActor([ModuleCode::RECORDS], allData: true);
-    app(SaveShiftType::class)->handle(app(Access::class), null, new ShiftTypeDraft('Day shift', 'FIXED', [1, 2, 3, 4, 5], '08:00', '17:00', '15', '8', true, '12:00', '13:00', '60', true));
-    app(SaveShiftType::class)->handle(app(Access::class), null, new ShiftTypeDraft('Flexi', 'FLEXIBLE', [1, 2, 3, 4, 5, 6], '08:00', '17:00', '0', '7.5', false, '12:00', '13:00', '0', false));
-    $day = ShiftType::query()->where('name', 'Day shift')->firstOrFail();
-    $audits = AuditLog::query()->count();
-
-    $rows = rxferRows('/records/shifts/export?sort=name');
-    expect($rows[0])->toBe([(string) $day->code, 'Day shift', 'Fixed', 'Sun, Mon, Tue, Wed, Thu, Fri, Sat', '08:00', '17:00', '', '12:00', '13:00', '60', 'Yes', '15', ''])
-        ->and($rows[1][2])->toBe('Flexible')
-        ->and($rows[1][6])->toBe('7.5');
-
-    $csv = test()->get('/records/shifts/export')->streamedContent();
-    $report = app(ImportRunner::class)->commit(app(Access::class), app(TableTransfers::class)->import('records.shifts'), '', $csv);
-    expect($report->unchanged)->toBe(2)->and(AuditLog::query()->count())->toBe($audits);
-});
-
-it('adds a pattern from day ranges and 12-hour times, and refuses a list that is not days', function () {
-    rxferActor([ModuleCode::RECORDS], allData: true);
-    $headers = ['ID', 'Name', 'Mode', 'Work days', 'Start', 'End', 'Required hours', 'Break start', 'Break end', 'Break minutes', 'Clock out for break', 'Grace (min)', 'Effective from'];
-
-    $refused = rxferImport('records.shifts', $headers, [
-        ['', 'Night', 'Fixed', 'Mon - Fri', '10:00 PM', '7:00 AM', '', '', '', '0', 'No', '10', ''],
-        ['', 'Odd', 'Fixed', 'Funday', '08:00', '17:00', '', '', '', '0', 'No', '10', ''],
-    ]);
-    expect($refused->errors)->toBe([['row' => 3, 'message' => 'Work days: Funday is not a list of days, like "Mon, Tue, Wed" or "Mon–Fri".']])
-        ->and(ShiftType::query()->count())->toBe(0);
-
-    $saved = rxferImport('records.shifts', $headers, [['', 'Night', 'Fixed', 'Mon - Fri', '10:00 PM', '7:00 AM', '', '', '', '0', 'No', '10', '']]);
-
-    // A file from before the column existed is refused whole, by name.
-    $old = rxferImport('records.shifts', array_slice($headers, 0, 12), [['', 'Dawn', 'Fixed', 'Mon - Fri', '05:00', '13:00', '', '', '', '0', 'No', '10']]);
-    expect($old->errors[0]['message'])->toBe('Missing column: Effective from. Start from the template or an export of this table.');
-    $night = ShiftType::query()->where('name', 'Night')->firstOrFail();
-    expect($saved->created)->toBe(1)
-        // A new pattern works every day; the Work days cell is not used.
-        ->and($night->work_days)->toBe([0, 1, 2, 3, 4, 5, 6])
-        ->and([$night->start_time, $night->end_time])->toBe(['22:00:00', '07:00:00']);
-});
-
 /* |---| Incentive types |---| */
 
 it('lets an all-data payroll officer import incentive types by their tax label', function () {
@@ -247,9 +153,7 @@ it('shows Export to every reader and Import only to the table\'s writers', funct
     rxferActor([$module], allData: true);
     Livewire::test($component)->assertSee('Export CSV')->assertSee('Import CSV');
 })->with([
-    'sites' => [SitesPage::class, ModuleCode::RECORDS],
     'holidays' => [HolidaysPage::class, ModuleCode::RECORDS],
-    'shift types' => [ShiftTypesPage::class, ModuleCode::RECORDS],
     // A Payroll Setting: its writers hold PAYROLL (PayrollSettingsAccess).
     'incentive types' => [IncentiveTypesPage::class, ModuleCode::PAYROLL],
 ]);
@@ -275,7 +179,7 @@ it('has no CSV for the leave types: no button on Leave Settings, no export route
 
     // The Leave types card stands with its Add button, and nothing on the page links to an export.
     Livewire::test(LeaveCreditSettingsPage::class)
-        ->assertSee('Add leave type')
+        ->assertSee('Add Leave Type')
         ->assertDontSee('Export CSV')
         ->assertDontSee('Import CSV')
         ->assertDontSeeHtml('/records/leave-types/export');
@@ -295,7 +199,7 @@ it('has no CSV on a General Records list: no button, no export route, no transfe
 
     // The list stands with its Add button, and nothing on the page links to an export.
     Livewire::test(ReferenceListPage::class, ['slug' => $slug])
-        ->assertSee('Add '.ReferenceListPage::LISTS[$slug]['noun'])
+        ->assertSee('Add '.ucwords(ReferenceListPage::LISTS[$slug]['noun']))
         ->assertDontSee('Export CSV')
         ->assertDontSee('Import CSV')
         ->assertDontSeeHtml("/records/{$slug}/export");
@@ -310,7 +214,7 @@ it('has no CSV on a General Records list: no button, no export route, no transfe
     Livewire::test(CsvImport::class, ['table' => "records.{$slug}"])->assertNotFound();
 })->with(['documents', 'employment']);
 
-it('has no CSV on the Position or Departments & Units page: no button, no export route, no transfer key', function (string $component, string $slug) {
+it('has no CSV on the Position, Departments & Units, Shifting Settings or Site Settings page: no button, no export route, no transfer key', function (string $component, string $slug) {
     rxferActor([ModuleCode::RECORDS], allData: true);
 
     Livewire::test($component)
@@ -322,11 +226,26 @@ it('has no CSV on the Position or Departments & Units page: no button, no export
         ->and(app(TableTransfers::class)->exports("records.{$slug}"))->toBeFalse()
         ->and(app(TableTransfers::class)->imports("records.{$slug}"))->toBeFalse();
     test()->get("/records/{$slug}/export")->assertNotFound();
+    test()->get("/records/{$slug}/export?template=1")->assertNotFound();
     Livewire::test(CsvImport::class, ['table' => "records.{$slug}"])->assertNotFound();
 })->with([
     'positions' => [PositionsPage::class, 'positions'],
     'departments' => [DepartmentsPage::class, 'departments'],
+    'shifting settings' => [ShiftTypesPage::class, 'shifts'],
+    'site settings' => [SitesPage::class, 'sites'],
 ]);
+
+it('keeps the Add Site button on Site Settings for a Records manager', function () {
+    rxferActor([ModuleCode::RECORDS], allData: true);
+
+    Livewire::test(SitesPage::class)->assertSee('Add Site');
+});
+
+it('keeps the Add shift type button on Shifting Settings for a Records manager', function () {
+    rxferActor([ModuleCode::RECORDS], allData: true);
+
+    Livewire::test(ShiftTypesPage::class)->assertSee('Add Shift Type');
+});
 
 it('keeps the Export link in step with the table after every re-render', function () {
     rxferActor([ModuleCode::RECORDS], allData: true);

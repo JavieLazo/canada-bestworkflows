@@ -55,11 +55,11 @@
             <div class="flex items-center gap-2">
                 <flux:button variant="outline" size="sm" x-on:click="every(true)">
                     @include('livewire.employees.partials.org-icon', ['icon' => 'chevrons-up-down', 'class' => 'size-4'])
-                    Expand all
+                    Expand All
                 </flux:button>
                 <flux:button variant="outline" size="sm" x-on:click="every(false)">
                     @include('livewire.employees.partials.org-icon', ['icon' => 'chevrons-down-up', 'class' => 'size-4'])
-                    Collapse all
+                    Collapse All
                 </flux:button>
             </div>
         </header>

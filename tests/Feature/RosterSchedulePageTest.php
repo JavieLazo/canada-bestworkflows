@@ -87,7 +87,7 @@ it('toasts a past date as refused and keeps the dialog and its picks', function 
     rspActor();
 
     rspDefaultSchedule($sol)
-        ->assertSee('Effective from')
+        ->assertSee('Effective From')
         ->set('locationDays.5', 'WFH')
         ->set('weekFrom', '2026-10-06')
         ->call('saveDefaultSchedule')
@@ -173,7 +173,7 @@ it('applies a pattern edit from the date typed in Shifting Settings and refuses 
 
     Livewire::test(ShiftTypesPage::class)
         ->call('startEdit', $day->id)
-        ->assertSee('Effective from')
+        ->assertSee('Effective From')
         ->set('formStartTime', '09:00')->set('formEndTime', '18:00')
         ->set('formEffectiveFrom', '2026-10-06')
         ->call('save')

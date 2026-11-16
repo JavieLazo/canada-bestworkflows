@@ -699,7 +699,7 @@ it('lets only the uploader withdraw a submission file, never a co-assignee', fun
         ->call('openTask', $file->task_id)
         ->assertSet('openId', $file->task_id)
         // The list is the crew's, and somebody else's file says whose it is...
-        ->assertSee('Submission files')
+        ->assertSee('Submission Files')
         ->assertDontSee('Your files')
         ->assertSee('by Nora Reyes')
         // ...but the trash button is not even offered on a peer's file...

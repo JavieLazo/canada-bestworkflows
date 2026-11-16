@@ -102,8 +102,8 @@ it('ranks numeric attendance totals and breaks equal metrics consistently by emp
     expect(array_column($rows, 'Employee'))->toBe(['Ana Beta', 'Ana Gamma', 'Ana Alpha'])
         ->and(array_column($rows, 'Rank'))->toBe(['1', '2', '3'])
         ->and(array_column($rows, 'Late'))->toBe(['2h', '2h', '15m'])
-        ->and(array_column($rows, 'Late days'))->toBe(['1', '1', '2'])
-        ->and(array_column($rows, 'Undertime days'))->toBe(['1', '1', '0'])
+        ->and(array_column($rows, 'Late Days'))->toBe(['1', '1', '2'])
+        ->and(array_column($rows, 'Undertime Days'))->toBe(['1', '1', '0'])
         ->and(array_column($rows, 'Undertime'))->toBe(['2h', '2h', '0m'])
         ->and($report->sections)->toBe([])
         ->and($report->columnKeys[5])->toBe('late_minutes')
@@ -125,7 +125,7 @@ it('combines issue search and metric thresholds without changing the selected em
     ]));
     expect(array_column(attendanceRankingRows($report), 'Employee'))->toBe(['Ana One'])
         ->and(array_column($report->summary, 'value', 'label'))->toMatchArray([
-            'Employees selected' => '2', 'Employees matching' => '1', 'Employees shown' => '1', 'Undertime — shown' => '1h',
+            'Employees Selected' => '2', 'Employees Matching' => '1', 'Employees Shown' => '1', 'Undertime — Shown' => '1h',
         ]);
     $noMatches = app(TimekeepingReports::class)->generate($actor, attendanceRankingCriteria([$one->id, $two->id], [
         'sort' => 'undertime_days', 'filters' => ['minimum' => '2'],
@@ -144,7 +144,7 @@ it('limits the ranked display while keeping matched coverage and shown totals ex
     ]));
     expect($report->rows)->toHaveCount(10)
         ->and(array_column($report->summary, 'value', 'label'))->toMatchArray([
-            'Employees selected' => '12', 'Employees matching' => '12', 'Employees shown' => '10', 'Absences — shown' => '20',
+            'Employees Selected' => '12', 'Employees Matching' => '12', 'Employees Shown' => '10', 'Absences — Shown' => '20',
         ])
         ->and($report->totals[8])->toBe('20')
         ->and(implode(' ', $report->notes))->toContain('Totals cover the employees shown.');
@@ -158,14 +158,14 @@ it('excludes future dates and delays absence counts until the attendance day clo
         'from' => '2026-10-02', 'to' => '2026-10-03', 'filters' => ['issue' => 'incomplete'],
     ]));
     $row = attendanceRankingRows($report)[0];
-    expect($row['Absences'])->toBe('0')->and($row['Incomplete days'])->toBe('1')
+    expect($row['Absences'])->toBe('0')->and($row['Incomplete Days'])->toBe('1')
         ->and($row['Review'])->toBe('1 no schedule; 1 ongoing')
         ->and(implode(' ', $report->notes))->toContain('Future dates are excluded.', 'default hours and need review.');
     $future = app(TimekeepingReports::class)->generate(attendanceRankingActor(), attendanceRankingCriteria([$employee->id], [
         'from' => '2026-10-03', 'to' => '2026-10-03',
     ]));
     expect(attendanceRankingRows($future)[0]['Absences'])->toBe('0')
-        ->and(attendanceRankingRows($future)[0]['Incomplete days'])->toBe('0')
+        ->and(attendanceRankingRows($future)[0]['Incomplete Days'])->toBe('0')
         ->and(attendanceRankingRows($future)[0]['Review'])->toBe('');
 });
 
@@ -182,11 +182,11 @@ it('keeps stored approved overtime separate and preserves the individual attenda
     $summary = $query->generate($actor, attendanceRankingCriteria([$employee->id]));
     $details = $query->generate($actor, attendanceRankingCriteria([$employee->id], ['view' => 'details']));
     $row = attendanceRankingRows($summary)[0];
-    expect($row['OT computed'])->toBe('1h')->and($row['OT approved'])->toBe('45m')->and($row['OT payable'])->toBe('45m')
+    expect($row['OT Computed'])->toBe('1h')->and($row['OT Approved'])->toBe('45m')->and($row['OT Payable'])->toBe('45m')
         ->and($details->sections)->toHaveCount(1)
         ->and($details->sections[0]['rows'][0])->toBe(['2026-09-28', '8:00 AM', '—', '—', '6:00 PM', '8h', '0m', '0m', '1h', '45m', 'PARTIAL', 'PRESENT', ''])
-        ->and($details->sections[0]['totals'][5] ?? null)->toBe($row['Regular time'])
-        ->and($details->sections[0]['totals'][9] ?? null)->toBe($row['OT approved']);
+        ->and($details->sections[0]['totals'][5] ?? null)->toBe($row['Regular Time'])
+        ->and($details->sections[0]['totals'][9] ?? null)->toBe($row['OT Approved']);
 });
 
 it('counts a closed incomplete scheduled day as an absence in comparisons', function () {
@@ -197,7 +197,7 @@ it('counts a closed incomplete scheduled day as an absence in comparisons', func
         'to' => '2026-09-28', 'filters' => ['issue' => 'absent'],
     ]));
     $row = attendanceRankingRows($report)[0];
-    expect($row['Absences'])->toBe('1')->and($row['Incomplete days'])->toBe('1')->and($row['Review'])->toBe('');
+    expect($row['Absences'])->toBe('1')->and($row['Incomplete Days'])->toBe('1')->and($row['Review'])->toBe('');
 });
 
 it('reads daily remarks only for individual sheets while preserving their detailed evidence', function () {

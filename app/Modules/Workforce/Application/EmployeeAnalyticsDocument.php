@@ -24,19 +24,19 @@ final class EmployeeAnalyticsDocument
     /** @return array<string, string> */
     public static function topics(): array
     {
-        return ['composition' => 'Workforce composition', 'demographics' => 'Demographics', 'development' => 'Education and development', 'service' => 'Service and recorded movements', 'quality' => 'Record quality'];
+        return ['composition' => 'Workforce Composition', 'demographics' => 'Demographics', 'development' => 'Education and Development', 'service' => 'Service and Recorded Movements', 'quality' => 'Record Quality'];
     }
 
     /** @return array<string, string> */
     public static function groupings(): array
     {
-        return ['department' => 'Department', 'unit' => 'Unit', 'position' => 'Position', 'worksite' => 'Worksite', 'employment' => 'Employment status', 'active' => 'Active status', 'sex' => 'Sex at birth', 'age' => 'Age band', 'tenure' => 'Tenure band', 'education' => 'Highest recorded education'];
+        return ['department' => 'Department', 'unit' => 'Unit', 'position' => 'Position', 'worksite' => 'Worksite', 'employment' => 'Employment Status', 'active' => 'Active Status', 'sex' => 'Sex at Birth', 'age' => 'Age Band', 'tenure' => 'Tenure Band', 'education' => 'Highest Recorded Education'];
     }
 
     /** @return array<string, string> */
     public static function crossTabs(): array
     {
-        return ['none' => 'No comparison', 'sex' => 'Sex at birth', 'employment' => 'Employment status', 'active' => 'Active status', 'age' => 'Age band', 'tenure' => 'Tenure band', 'education' => 'Highest recorded education'];
+        return ['none' => 'No comparison', 'sex' => 'Sex at Birth', 'employment' => 'Employment Status', 'active' => 'Active Status', 'age' => 'Age Band', 'tenure' => 'Tenure Band', 'education' => 'Highest Recorded Education'];
     }
 
     /**
@@ -52,7 +52,7 @@ final class EmployeeAnalyticsDocument
         $primary = self::matrix($facts, $group, $cross);
         $count = count($facts);
         $active = count(array_filter($facts, static fn (array $fact): bool => $fact['active'] === 'Active'));
-        $summary = [self::metric('Employees', $count), self::metric('Active', $active), self::metric('Inactive', $count - $active), self::metric('Departments represented', count(array_unique(array_filter(array_column($facts, 'department'), static fn (mixed $value): bool => $value !== ''))))];
+        $summary = [self::metric('Employees', $count), self::metric('Active', $active), self::metric('Inactive', $count - $active), self::metric('Departments Represented', count(array_unique(array_filter(array_column($facts, 'department'), static fn (mixed $value): bool => $value !== ''))))];
         $sections = [];
         $notes = [
             $coverage,
@@ -64,7 +64,7 @@ final class EmployeeAnalyticsDocument
             $sections = [self::distribution($facts, 'employment'), self::distribution($facts, 'active'), self::distribution($facts, 'age'), self::distribution($facts, 'tenure')];
         } elseif ($topic === 'demographics') {
             $ages = array_values(array_filter(array_column($facts, 'age'), static fn (mixed $value): bool => $value !== null));
-            $summary = [self::metric('Employees', $count), self::metric('Known ages', count($ages)), self::metric('Age not recorded', $count - count($ages)), self::metric('Average age (years)', $ages === [] ? '—' : number_format(array_sum($ages) / count($ages), 1, '.', '')), self::metric('Median age (years)', self::median($ages)), self::metric('Sex not recorded', count(array_filter($facts, static fn (array $fact): bool => $fact['sex'] === '')))];
+            $summary = [self::metric('Employees', $count), self::metric('Known Ages', count($ages)), self::metric('Age Not Recorded', $count - count($ages)), self::metric('Average Age (years)', $ages === [] ? '—' : number_format(array_sum($ages) / count($ages), 1, '.', '')), self::metric('Median Age (years)', self::median($ages)), self::metric('Sex Not Recorded', count(array_filter($facts, static fn (array $fact): bool => $fact['sex'] === '')))];
             $sections = [self::distribution($facts, 'sex'), self::distribution($facts, 'age'), self::distribution($facts, 'civil_status'), self::distribution($facts, 'tenure')];
             $notes[] = 'Age is completed calendar years; averages and medians use only known non-future birth dates. Sex means sex at birth as recorded. Civil status Other retains its recorded category.';
         } elseif ($topic === 'development') {
@@ -82,18 +82,18 @@ final class EmployeeAnalyticsDocument
             $notes[] = 'Exception flags request a record review; they do not change the employee record or infer employment decisions. No salary, government identifier or private declaration is analyzed.';
         }
 
-        $charts = [self::chart($facts, $group, 'Employees by '.strtolower(self::groupings()[$group]))];
+        $charts = [self::chart($facts, $group, 'Employees by '.self::groupings()[$group])];
         $secondary = match ($topic) {
             'composition' => 'employment', 'demographics' => 'age', 'development' => 'education', 'service' => 'tenure', default => null
         };
         if ($secondary !== null && $secondary !== $group) {
-            $charts[] = self::chart($facts, $secondary, self::groupings()[$secondary].' distribution');
+            $charts[] = self::chart($facts, $secondary, self::groupings()[$secondary].' Distribution');
         } elseif ($topic === 'quality') {
             $points = [];
             foreach (self::QUALITY_FIELDS as $key => $label) {
                 $points[] = ['label' => $label, 'value' => count(array_filter($facts, static fn (array $fact): bool => $fact[$key] === ''))];
             }
-            $charts[] = ['title' => 'Missing information by field', 'unit' => 'employees', 'points' => $points, 'note' => 'One employee can be missing more than one field; counts are not additive.'];
+            $charts[] = ['title' => 'Missing Information by Field', 'unit' => 'employees', 'points' => $points, 'note' => 'One employee can be missing more than one field; counts are not additive.'];
         }
 
         return new ReportDocument(self::topics()[$topic], $primary['columns'], $primary['rows'], $notes, $sections, $summary, $primary['totals'], $primary['numericColumns'], [], $charts);
@@ -120,7 +120,7 @@ final class EmployeeAnalyticsDocument
         }
         uksort($counts, static fn (string $left, string $right): int => self::bucketOrder($left, $right, $group));
         uksort($crosses, static fn (string $left, string $right): int => self::bucketOrder($left, $right, $cross));
-        $columns = [self::groupings()[$group] ?? 'Civil status', 'Employees', 'Share of cohort'];
+        $columns = [self::groupings()[$group] ?? 'Civil Status', 'Employees', 'Share of Cohort'];
         $columns = [...$columns, ...array_map(static fn (int|string $key): string => (string) $key, array_keys($crosses))];
         if (count($counts) * count($columns) > ReportDocument::MAX_ROWS) {
             throw ValidationException::withMessages(['filters.groupBy' => 'This comparison exceeds 5,000 table cells. Choose a broader grouping, remove the comparison or narrow the employee filters.']);
@@ -134,7 +134,7 @@ final class EmployeeAnalyticsDocument
             $rows[] = $row;
         }
         $totals = ['Total', (string) count($facts), self::share(count($facts), count($facts)), ...array_map(static fn (int $value): string => (string) $value, array_values($crosses))];
-        $title = (self::groupings()[$group] ?? 'Civil status').($cross === 'none' ? ' distribution' : ' by '.self::crossTabs()[$cross]);
+        $title = (self::groupings()[$group] ?? 'Civil Status').($cross === 'none' ? ' Distribution' : ' by '.self::crossTabs()[$cross]);
 
         return self::section($title, $columns, $rows, $cross === 'none' ? [] : ['Each comparison column is a count of employees; the comparison cells in each row add to Employees.'], $totals, range(1, count($columns) - 1));
     }
@@ -246,13 +246,13 @@ final class EmployeeAnalyticsDocument
             $expiryRows[] = [$label, (string) $total];
         }
         $educationCount = count(array_filter($facts, static fn (array $fact): bool => $fact['education_level'] !== 'NONE'));
-        $summary = [self::metric('Employees', count($facts)), self::metric('Education recorded', $educationCount), self::metric('Training participants', count($participants)), self::metric('Training records', count($trainings)), self::metric('Known training hours', number_format($hours, 2, '.', '')), self::metric('Hours not recorded', $missing)];
+        $summary = [self::metric('Employees', count($facts)), self::metric('Education Recorded', $educationCount), self::metric('Training Participants', count($participants)), self::metric('Training Records', count($trainings)), self::metric('Known Training Hours', number_format($hours, 2, '.', '')), self::metric('Hours Not Recorded', $missing)];
         $sections = [
             self::distribution($facts, 'education'),
-            self::section('Training completed: '.$criteria->from.' to '.$criteria->to, ['Training type', 'Records', 'Employees', 'Known hours', 'Hours not recorded'], $trainingRows, ['Completion cutoff: '.min($criteria->to, $today).' (Manila); future end dates are excluded. Employees can appear in more than one training type; the total employee count is distinct across the period.'], ['Total', (string) count($trainings), (string) count($participants), number_format($hours, 2, '.', ''), (string) $missing], [1, 2, 3, 4]),
-            self::section('Recorded eligibility', ['Eligibility', 'Entries', 'Employees'], $eligibilityRows, ['Employees may hold several different eligibilities; the total counts distinct employees.'], ['Total', (string) count($eligibilities), (string) count($eligible)], [1, 2]),
-            self::section('Eligibility expiry as of '.$today, ['Expiry status', 'Entries'], $expiryRows, [], ['Total', (string) count($eligibilities)], [1]),
-            self::section('Development record coverage', ['Coverage', 'Employees', 'Share of cohort'], [
+            self::section('Training Completed: '.$criteria->from.' to '.$criteria->to, ['Training Type', 'Records', 'Employees', 'Known Hours', 'Hours Not Recorded'], $trainingRows, ['Completion cutoff: '.min($criteria->to, $today).' (Manila); future end dates are excluded. Employees can appear in more than one training type; the total employee count is distinct across the period.'], ['Total', (string) count($trainings), (string) count($participants), number_format($hours, 2, '.', ''), (string) $missing], [1, 2, 3, 4]),
+            self::section('Recorded Eligibility', ['Eligibility', 'Entries', 'Employees'], $eligibilityRows, ['Employees may hold several different eligibilities; the total counts distinct employees.'], ['Total', (string) count($eligibilities), (string) count($eligible)], [1, 2]),
+            self::section('Eligibility Expiry as of '.$today, ['Expiry Status', 'Entries'], $expiryRows, [], ['Total', (string) count($eligibilities)], [1]),
+            self::section('Development Record Coverage', ['Coverage', 'Employees', 'Share of Cohort'], [
                 ['Education recorded', (string) $educationCount, self::share($educationCount, count($facts))],
                 ['Eligibility recorded', (string) count($eligible), self::share(count($eligible), count($facts))],
                 ['Training completed in period', (string) count($participants), self::share(count($participants), count($facts))],
@@ -293,11 +293,11 @@ final class EmployeeAnalyticsDocument
             $rows[] = [$month, (string) ($counts['date_hired'] ?? 0), (string) ($counts['date_regular'] ?? 0), (string) ($counts['date_resigned'] ?? 0)];
         }
         $tenures = array_values(array_filter(array_column($facts, 'tenure'), static fn (mixed $value): bool => $value !== null));
-        $summary = [self::metric('Employees', count($facts)), self::metric('Known tenure', count($tenures)), self::metric('Average tenure (years)', $tenures === [] ? '—' : number_format(array_sum($tenures) / count($tenures), 1, '.', '')), self::metric('Joined in period', $totals['date_hired']), self::metric('Regularized in period', $totals['date_regular']), self::metric('Resigned in period', $totals['date_resigned'])];
+        $summary = [self::metric('Employees', count($facts)), self::metric('Known Tenure', count($tenures)), self::metric('Average Tenure (years)', $tenures === [] ? '—' : number_format(array_sum($tenures) / count($tenures), 1, '.', '')), self::metric('Joined in Period', $totals['date_hired']), self::metric('Regularized in Period', $totals['date_regular']), self::metric('Resigned in Period', $totals['date_resigned'])];
         $sections = [
             self::distribution($facts, 'tenure'),
-            self::section('Recorded movements by month', ['Month', 'Joined', 'Regularized', 'Resigned'], $rows, ['Only recorded dates within '.$criteria->from.' to '.$criteria->to.' are counted, including partial first and last months. These counts do not provide a historical headcount denominator.'], ['Total', (string) $totals['date_hired'], (string) $totals['date_regular'], (string) $totals['date_resigned']], [1, 2, 3]),
-            self::section('Employees behind recorded movements', ['Employee ID', 'Employee', 'Recorded movement', 'Recorded date', 'Current department', 'Current employment status'], $movements, ['One employee may have more than one date in the period. Dates are current record values, not employment-history event counts.']),
+            self::section('Recorded Movements by Month', ['Month', 'Joined', 'Regularized', 'Resigned'], $rows, ['Only recorded dates within '.$criteria->from.' to '.$criteria->to.' are counted, including partial first and last months. These counts do not provide a historical headcount denominator.'], ['Total', (string) $totals['date_hired'], (string) $totals['date_regular'], (string) $totals['date_resigned']], [1, 2, 3]),
+            self::section('Employees Behind Recorded Movements', ['Employee ID', 'Employee', 'Recorded Movement', 'Recorded Date', 'Current Department', 'Current Employment Status'], $movements, ['One employee may have more than one date in the period. Dates are current record values, not employment-history event counts.']),
         ];
 
         return [$summary, $sections];
@@ -349,11 +349,11 @@ final class EmployeeAnalyticsDocument
         foreach (self::QUALITY_FIELDS as $key => $label) {
             $rows[] = [$label, (string) (count($facts) - $missing[$key]), (string) $missing[$key], self::share(count($facts) - $missing[$key], count($facts))];
         }
-        $summary = [self::metric('Employees', count($facts)), self::metric('Complete assessed records', count($facts) - count($incomplete)), self::metric('Missing any assessed field', count($incomplete)), self::metric('Missing values', array_sum($missing)), self::metric('Records needing review', count($exceptions)), self::metric('Fields assessed', count(self::QUALITY_FIELDS))];
+        $summary = [self::metric('Employees', count($facts)), self::metric('Complete Assessed Records', count($facts) - count($incomplete)), self::metric('Missing Any Assessed Field', count($incomplete)), self::metric('Missing Values', array_sum($missing)), self::metric('Records Needing Review', count($exceptions)), self::metric('Fields Assessed', count(self::QUALITY_FIELDS))];
         $sections = [
-            self::section('Field completeness', ['Field', 'Recorded', 'Missing', 'Recorded share'], $rows, ['The denominator for every row is the complete filtered employee cohort. Fields overlap; missing counts must not be read as distinct employees.'], [], [1, 2, 3]),
-            self::section('Employees with missing information', ['Employee ID', 'Employee', 'Department', 'Missing fields', 'Information to complete'], $incomplete, ['Optional unit is not assessed.'], [], [3]),
-            self::section('Record exceptions to review', ['Employee ID', 'Employee', 'Department', 'Review flags'], $exceptions),
+            self::section('Field Completeness', ['Field', 'Recorded', 'Missing', 'Recorded Share'], $rows, ['The denominator for every row is the complete filtered employee cohort. Fields overlap; missing counts must not be read as distinct employees.'], [], [1, 2, 3]),
+            self::section('Employees with Missing Information', ['Employee ID', 'Employee', 'Department', 'Missing Fields', 'Information to Complete'], $incomplete, ['Optional unit is not assessed.'], [], [3]),
+            self::section('Record Exceptions to Review', ['Employee ID', 'Employee', 'Department', 'Review Flags'], $exceptions),
         ];
 
         return [$summary, $sections];

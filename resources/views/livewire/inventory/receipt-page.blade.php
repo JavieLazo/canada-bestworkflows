@@ -7,7 +7,7 @@
             <flux:button variant="outline" size="sm" icon="arrow-up-tray" href="#signed-mr">Signed MR</flux:button>
             <flux:button variant="outline" size="sm" icon="printer" :href="route('inventory.receipts.print', ['id' => $receipt->id])" target="_blank">Print MR</flux:button>
             @if ($canManage && $receipt->status === 'OPEN')
-                <flux:button variant="outline" size="sm" wire:click="openCorrection">Correct receipt</flux:button>
+                <flux:button variant="outline" size="sm" wire:click="openCorrection">Correct Receipt</flux:button>
             @endif
         </div>
     </div>
@@ -20,7 +20,7 @@
     <div class="grid items-start gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <section class="hris-card min-w-0 overflow-hidden">
             <div class="p-5">
-                <h2 class="text-base font-bold">Issued to</h2>
+                <h2 class="text-base font-bold">Issued To</h2>
                 <div class="mt-4 flex items-center gap-3">
                     <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted" aria-hidden="true"><flux:icon.user class="size-4 text-muted-foreground" /></span>
                     <div class="min-w-0">
@@ -29,11 +29,11 @@
                     </div>
                 </div>
                 <dl class="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Department at issue</dt><dd class="mt-1 break-words text-sm">{{ $receipt->employee_snapshot['department'] ?? '—' }}</dd></div>
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unit at issue</dt><dd class="mt-1 break-words text-sm">{{ $receipt->employee_snapshot['unit'] ?? '—' }}</dd></div>
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date issued</dt><dd class="num mt-1 text-sm">{{ HrisFormat::date($receipt->issued_on) }}</dd></div>
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Issued by</dt><dd class="mt-1 break-words text-sm">{{ $receipt->issuer_name }}</dd><dd class="break-words text-xs text-muted-foreground">{{ $receipt->issuer_snapshot['position'] ?? '—' }}</dd></div>
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recorded by</dt><dd class="mt-1 break-words text-sm">{{ $receipt->recorder_name }}</dd><dd class="text-xs text-muted-foreground">Signed-in account · audit attribution</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Department at Issue</dt><dd class="mt-1 break-words text-sm">{{ $receipt->employee_snapshot['department'] ?? '—' }}</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unit at Issue</dt><dd class="mt-1 break-words text-sm">{{ $receipt->employee_snapshot['unit'] ?? '—' }}</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date Issued</dt><dd class="num mt-1 text-sm">{{ HrisFormat::date($receipt->issued_on) }}</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Issued By</dt><dd class="mt-1 break-words text-sm">{{ $receipt->issuer_name }}</dd><dd class="break-words text-xs text-muted-foreground">{{ $receipt->issuer_snapshot['position'] ?? '—' }}</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Recorded By</dt><dd class="mt-1 break-words text-sm">{{ $receipt->recorder_name }}</dd><dd class="text-xs text-muted-foreground">Signed-in account · audit attribution</dd></div>
                     <div class="min-w-0 sm:col-span-2 xl:col-span-1"><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Remarks</dt><dd class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $receipt->remarks ?: '—' }}</dd></div>
                 </dl>
             </div>
@@ -53,9 +53,9 @@
             @endif
 
             <section class="hris-card overflow-hidden">
-                <header class="border-b border-border px-5 py-4"><h2 class="text-base font-bold">Items on this receipt</h2><p class="text-sm text-muted-foreground">Original items stay on the printed MR. Status shows what happened afterward.</p></header>
+                <header class="border-b border-border px-5 py-4"><h2 class="text-base font-bold">Items on This Receipt</h2><p class="text-sm text-muted-foreground">Original items stay on the printed MR. Status shows what happened afterward.</p></header>
                 <div class="hris-table-wrap"><table class="hris-table">
-                    <thead><tr><th>Item code</th><th>Item at issue</th><th class="text-right">Cost</th><th>Status</th></tr></thead>
+                    <thead><tr><th>Item Code</th><th>Item at Issue</th><th class="text-right">Cost</th><th>Status</th></tr></thead>
                     <tbody>
                         @foreach ($receipt->lines as $line)
                             <tr wire:key="line-{{ $line->id }}">
@@ -85,14 +85,14 @@
 
     <flux:modal wire:model.self="correctionDialog" class="w-full max-w-xl">
         <form wire:submit="correctReceipt" class="space-y-5">
-            <div><flux:heading size="lg">Correct memorandum receipt</flux:heading><flux:text>A correction issues a linked replacement and retains the original. All original items must still be held under this receipt.</flux:text></div>
+            <div><flux:heading size="lg">Correct Memorandum Receipt</flux:heading><flux:text>A correction issues a linked replacement and retains the original. All original items must still be held under this receipt.</flux:text></div>
             @include('livewire.inventory.partials.errors')
-            <div class="space-y-2"><flux:label id="correction-recipient-label">Received by</flux:label><livewire:kit.employee-picker :value="$employeeId" name="correction-recipient" labelled-by="correction-recipient-label" :key="'correction-recipient-'.$employeeId" /></div>
-            <div class="space-y-2"><flux:label id="correction-issuer-label">Issued by</flux:label><livewire:kit.employee-picker :value="$issuerId" name="correction-issuer" labelled-by="correction-issuer-label" :key="'correction-issuer-'.$issuerId" /></div>
-            <div class="space-y-2"><flux:label>Correct issue date</flux:label><x-kit.date-field wire:model="issuedOn" aria-label="Correct issue date" /></div>
+            <div class="space-y-2"><flux:label id="correction-recipient-label">Received By</flux:label><livewire:kit.employee-picker :value="$employeeId" name="correction-recipient" labelled-by="correction-recipient-label" :key="'correction-recipient-'.$employeeId" /></div>
+            <div class="space-y-2"><flux:label id="correction-issuer-label">Issued By</flux:label><livewire:kit.employee-picker :value="$issuerId" name="correction-issuer" labelled-by="correction-issuer-label" :key="'correction-issuer-'.$issuerId" /></div>
+            <div class="space-y-2"><flux:label>Correct Issue Date</flux:label><x-kit.date-field wire:model="issuedOn" aria-label="Correct issue date" /></div>
             <flux:input label="Replacement MR No." wire:model="mrNumber" maxlength="80" required />
-            <flux:textarea label="Reason for correction" wire:model="reason" rows="3" required />
-            <div class="flex justify-end gap-2"><flux:modal.close><flux:button variant="outline">Cancel</flux:button></flux:modal.close><flux:button type="submit" variant="primary">Issue corrected MR</flux:button></div>
+            <flux:textarea label="Reason for Correction" wire:model="reason" rows="3" required />
+            <div class="flex justify-end gap-2"><flux:modal.close><flux:button variant="outline">Cancel</flux:button></flux:modal.close><flux:button type="submit" variant="primary">Issue Corrected MR</flux:button></div>
         </form>
     </flux:modal>
 </div>

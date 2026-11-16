@@ -83,7 +83,7 @@ final class MobileEdtrSession
 
     /**
      * The device behind a bearer secret of the given ability, refused with
-     * the status and message the app shows. The account is read again on
+     * the status and message the device shows. The account is read again on
      * every call, so a disabled account or a lost System Admin role takes
      * the device on its next request.
      */

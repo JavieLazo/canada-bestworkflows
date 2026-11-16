@@ -38,6 +38,6 @@
             <b>{{ $note['rest'] }}</b> of rest between them.
         </p>
         <p class="text-muted-foreground">Move one of the two shifts, or give a day off in between. You can still save it as it is.</p>
-        <flux:button size="sm" variant="outline" x-on:click="$el.closest('[popover]').hidePopover()">Got it</flux:button>
+        <flux:button size="sm" variant="outline" x-on:click="$el.closest('[popover]').hidePopover()">Got It</flux:button>
     </div>
 </flux:dropdown>

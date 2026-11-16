@@ -244,7 +244,7 @@ it('shows an all_data LEAVES holder every employee with remaining days per type 
         ->assertSeeHtmlInOrder(['>Sick Leave</span></th>', '>Vacation Leave</span></th>'])
         ->assertSee('Ana Reyes')
         ->assertSee('Ben Torres')
-        ->assertSee('Set credits…')
+        ->assertSee('Set Credits…')
         ->assertSeeHtml("openCredits('{$ana->getKey()}')")
         ->assertSeeHtml("openCredits('{$ben->getKey()}')")
         ->assertSeeHtml('aria-label="Actions for Ana Reyes"');
@@ -334,7 +334,7 @@ it('opens the Set credits dialog seeded from the year balances for a visible emp
         ->assertSet('creditsEmployeeId', (string) $ana->getKey())
         ->assertSet('creditDraft', ['SICK_LEAVE' => '', 'VACATION_LEAVE' => '12.500', 'EMERGENCY_LEAVE' => '3.000'], true)
         ->assertDispatched('modal-show', name: 'leave-credits')
-        ->assertSee('Leave credits · Ana Reyes · 2026')
+        ->assertSee('Leave Credits · Ana Reyes · 2026')
         ->assertSeeHtml('wire:key="leave-credits-'.$ana->getKey().'"')
         ->assertSee('Emergency Leave')
         ->assertSee('used 0');
@@ -555,11 +555,11 @@ it('shows a pending leave request against its type credit: credited, used, left 
         ->assertSee('This request needs 2.000')
         ->assertSeeHtmlInOrder([
             'data-credits-line',
-            'Sick Leave credits · 2026',
+            'Sick Leave Credits · 2026',
             '<span class="num text-sm">This request needs 2.000</span>',
-            'Total credited</dt>', '>15.000</dd>',
+            'Total Credited</dt>', '>15.000</dd>',
             'Used</dt>', '>0.000</dd>',
-            'Available balance</dt>', 'text-success">15.000</dd>',
+            'Available Balance</dt>', 'text-success">15.000</dd>',
             'Credit usage', '0.00%',
         ]);
 
@@ -580,9 +580,9 @@ it('flags a pending request that needs more than is left', function () {
         ->assertSeeHtml('pill pill-caution')
         ->assertSeeHtmlInOrder([
             'class="num text-sm pill pill-caution">This request needs 2.000</span>',
-            'Total credited</dt>', '>1.000</dd>',
+            'Total Credited</dt>', '>1.000</dd>',
             'Used</dt>', '>0.000</dd>',
-            'Available balance</dt>', '>1.000</dd>',
+            'Available Balance</dt>', '>1.000</dd>',
         ]);
 
     expect(lctabCreditsLine($page->html()))->toContain('pill pill-caution');
@@ -600,11 +600,11 @@ it('says what an approved with-pay request counted, its days already inside used
         ->assertSee('This request counted 2.000')
         ->assertSeeHtmlInOrder([
             'data-credits-line',
-            'Sick Leave credits · 2026',
+            'Sick Leave Credits · 2026',
             '<span class="num text-sm text-muted-foreground">This request counted 2.000</span>',
-            'Total credited</dt>', '>15.000</dd>',
+            'Total Credited</dt>', '>15.000</dd>',
             'Used</dt>', '>2.000</dd>',
-            'Available balance</dt>', '>13.000</dd>',
+            'Available Balance</dt>', '>13.000</dd>',
             // 2 of 15 used.
             'Credit usage', '13.33%', 'aria-valuenow="13.333',
         ]);
@@ -624,7 +624,7 @@ it('says when no credit has been entered for the type of a pending request', fun
         ->call('show', $request->getKey())
         ->assertSee('No 2026 Sick Leave credits entered')
         ->assertSee('This request needs 2.000')
-        ->assertDontSee('Total credited')
+        ->assertDontSee('Total Credited')
         ->assertDontSee('Credit usage');
 
     // Nothing to exceed: no caution without an entered credit.

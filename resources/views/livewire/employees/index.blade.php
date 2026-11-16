@@ -45,7 +45,7 @@
                 wire:model.live.debounce.250ms="search"
             />
 
-            <x-kit.filter-select label="Filter by status" class="w-[11rem]" wire:model.live="status">
+            <x-kit.filter-select label="Filter by Status" class="w-[11rem]" wire:model.live="status">
                 <flux:select.option value="ALL">All statuses</flux:select.option>
                 @foreach ($statuses as $s)
                     <flux:select.option value="{{ $s }}">{{ $s }}</flux:select.option>
@@ -56,14 +56,14 @@
                 <flux:select.option value="INACTIVE">Inactive</flux:select.option>
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by position" class="w-[13rem]" wire:model.live="position">
+            <x-kit.filter-select label="Filter by Position" class="w-[13rem]" wire:model.live="position">
                 <flux:select.option value="ALL">All positions</flux:select.option>
                 @foreach ($positions as $p)
                     <flux:select.option value="{{ $p }}">{{ $p }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by department" class="w-[13rem]" wire:model.live="department">
+            <x-kit.filter-select label="Filter by Department" class="w-[13rem]" wire:model.live="department">
                 @foreach ($departments as $value => $label)
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                 @endforeach
@@ -73,7 +73,7 @@
                 {{-- Export only: Employee Records has no Import CSV. --}}
                 <x-kit.export-button :href="route('employees.export', array_filter(['q' => $search, 'status' => $status, 'position' => $position, 'department' => $department, 'sort' => $sortKey, 'dir' => $sortDir]))" />
                 <flux:button variant="primary" icon="user-plus" wire:click="$dispatch('open-add-employee')">
-                    Add employee
+                    Add Employee
                 </flux:button>
             </div>
         </header>

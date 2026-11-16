@@ -7,12 +7,12 @@
         </a>
         @if ($canManage)
             <div class="flex flex-wrap items-center gap-2">
-                <flux:button variant="outline" size="sm" :href="route('inventory.incidents', ['item' => $item->id])" wire:navigate>Report condition or loss</flux:button>
+                <flux:button variant="outline" size="sm" :href="route('inventory.incidents', ['item' => $item->id])" wire:navigate>Report Condition or Loss</flux:button>
                 @if ($item->status === 'IN_STOCK')
-                    <flux:button variant="primary" size="sm" icon="user-plus" wire:click="startMovement('issue', '{{ $item->id }}')">Issue item</flux:button>
+                    <flux:button variant="primary" size="sm" icon="user-plus" wire:click="startMovement('issue', '{{ $item->id }}')">Issue Item</flux:button>
                 @elseif ($item->status === 'ISSUED')
                     <flux:button variant="outline" size="sm" icon="arrows-right-left" wire:click="startMovement('transfer', '{{ $item->id }}')">Transfer</flux:button>
-                    <flux:button variant="outline" size="sm" icon="arrow-uturn-left" wire:click="startMovement('return', '{{ $item->id }}')">Return to stock</flux:button>
+                    <flux:button variant="outline" size="sm" icon="arrow-uturn-left" wire:click="startMovement('return', '{{ $item->id }}')">Return to Stock</flux:button>
                 @endif
             </div>
         @endif
@@ -30,16 +30,16 @@
     <div class="grid items-start gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
         <section class="hris-card min-w-0 overflow-hidden">
             <header class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-                <h2 class="text-base font-bold">Item details</h2>
+                <h2 class="text-base font-bold">Item Details</h2>
                 @if ($canManage)
-                    <flux:button variant="ghost" size="sm" icon="pencil" wire:click="startEdit('{{ $item->id }}')">Edit item</flux:button>
+                    <flux:button variant="ghost" size="sm" icon="pencil" wire:click="startEdit('{{ $item->id }}')">Edit Item</flux:button>
                 @endif
             </header>
             <dl class="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-1">
-                @foreach (['Item' => $item->name, 'Serial number' => $item->serial_no, 'Category' => $item->category_name, 'Location' => $item->location_name, 'Condition' => ucfirst(strtolower($item->condition)), 'Acquisition date' => HrisFormat::date($item->acquired_on), 'Acquisition cost' => '₱'.number_format($item->cost, 2)] as $label => $value)
+                @foreach (['Item' => $item->name, 'Serial Number' => $item->serial_no, 'Category' => $item->category_name, 'Location' => $item->location_name, 'Condition' => ucfirst(strtolower($item->condition)), 'Acquisition Date' => HrisFormat::date($item->acquired_on), 'Acquisition Cost' => '₱'.number_format($item->cost, 2)] as $label => $value)
                     <div class="min-w-0">
                         <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{{ $label }}</dt>
-                        <dd class="mt-1 break-words text-sm {{ in_array($label, ['Serial number', 'Acquisition date', 'Acquisition cost'], true) ? 'num' : '' }}">{{ $value ?: '—' }}</dd>
+                        <dd class="mt-1 break-words text-sm {{ in_array($label, ['Serial Number', 'Acquisition Date', 'Acquisition Cost'], true) ? 'num' : '' }}">{{ $value ?: '—' }}</dd>
                     </div>
                 @endforeach
                 <div class="min-w-0 sm:col-span-2 xl:col-span-1">
@@ -52,7 +52,7 @@
         <div class="min-w-0 space-y-4">
             <section class="hris-card overflow-hidden">
                 <div class="p-5">
-                    <h2 class="text-base font-bold">{{ $item->employee_name ? 'Issued to' : 'Current accountability' }}</h2>
+                    <h2 class="text-base font-bold">{{ $item->employee_name ? 'Issued To' : 'Current Accountability' }}</h2>
                     @if ($item->employee_name)
                         <div class="mt-4 flex items-center gap-3">
                             <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted" aria-hidden="true"><flux:icon.user class="size-4 text-muted-foreground" /></span>
@@ -64,9 +64,9 @@
                         <dl class="mt-4 grid gap-4 sm:grid-cols-2">
                             <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Department</dt><dd class="mt-1 break-words text-sm">{{ $item->employee_department ?: '—' }}</dd></div>
                             <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Unit</dt><dd class="mt-1 break-words text-sm">{{ $item->employee_unit ?: '—' }}</dd></div>
-                            <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date issued</dt><dd class="num mt-1 text-sm">{{ HrisFormat::date($item->current_receipt_issued_on) }}</dd></div>
+                            <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Date Issued</dt><dd class="num mt-1 text-sm">{{ HrisFormat::date($item->current_receipt_issued_on) }}</dd></div>
                             <div>
-                                <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Memorandum receipt</dt>
+                                <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Memorandum Receipt</dt>
                                 <dd class="mt-1 text-sm">
                                     @if ($item->current_receipt_id)
                                         <a class="num break-all text-foreground hover:underline" href="{{ route('inventory.receipts.show', ['id' => $item->current_receipt_id]) }}" wire:navigate>MR No. {{ $item->current_receipt_mr_number }}</a>
@@ -84,7 +84,7 @@
             </section>
 
             <section class="hris-card overflow-hidden">
-                <header class="border-b border-border px-5 py-4"><h2 class="text-base font-bold">Movement history</h2></header>
+                <header class="border-b border-border px-5 py-4"><h2 class="text-base font-bold">Movement History</h2></header>
                 <div class="hris-table-wrap"><table class="hris-table">
                     <thead><tr><th>Date</th><th>Movement</th><th>From</th><th>To</th><th>MR No.</th><th>Remarks</th></tr></thead>
                     <tbody>

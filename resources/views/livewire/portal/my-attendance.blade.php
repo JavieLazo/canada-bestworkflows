@@ -6,30 +6,30 @@
 <div class="min-w-0 space-y-4">
     @if (! $linked)
         <section class="hris-card space-y-2 p-6">
-            <h2 class="text-base font-bold">Employee record not linked</h2>
+            <h2 class="text-base font-bold">Employee Record Not Linked</h2>
             <p class="text-sm text-muted-foreground">Your attendance will appear here once management links this account to your employee record.</p>
         </section>
     @else
         <section class="hris-card space-y-4 p-4 sm:p-5" aria-labelledby="my-attendance-heading">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h2 class="text-base font-bold" id="my-attendance-heading">My attendance</h2>
+                    <h2 class="text-base font-bold" id="my-attendance-heading">My Attendance</h2>
                     <p class="mt-1 text-sm text-muted-foreground">Your daily time record. Choose up to 31 days to review.</p>
                 </div>
                 <flux:button variant="outline" icon="arrow-path" wire:click="refreshAttendance" wire:loading.attr="disabled">Refresh</flux:button>
             </div>
             <div class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
                 <div class="min-w-0 space-y-2">
-                    <flux:label for="my-attendance-start">Period start</flux:label>
+                    <flux:label for="my-attendance-start">Period Start</flux:label>
                     <x-kit.date-field id="my-attendance-start" wire:model.live="start" aria-label="Attendance period start" />
                 </div>
                 <div class="min-w-0 space-y-2">
-                    <flux:label for="my-attendance-end">Period end</flux:label>
+                    <flux:label for="my-attendance-end">Period End</flux:label>
                     <x-kit.date-field id="my-attendance-end" wire:model.live="end" aria-label="Attendance period end" />
                 </div>
                 <div class="flex flex-wrap items-center gap-2 sm:col-span-2 lg:col-span-1">
                     <flux:button variant="outline" icon="chevron-left" wire:click="previousCutoff" aria-label="Previous cutoff" title="Previous cutoff" wire:loading.attr="disabled" />
-                    <flux:button variant="outline" wire:click="thisCutoff" wire:loading.attr="disabled">This cutoff</flux:button>
+                    <flux:button variant="outline" wire:click="thisCutoff" wire:loading.attr="disabled">This Cutoff</flux:button>
                     <flux:button variant="outline" icon="chevron-right" wire:click="nextCutoff" aria-label="Next cutoff" title="Next cutoff" wire:loading.attr="disabled" />
                 </div>
             </div>

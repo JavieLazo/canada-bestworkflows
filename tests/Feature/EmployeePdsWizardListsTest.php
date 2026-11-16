@@ -238,32 +238,32 @@ it('adds and removes inline rows on a list step and holds the step on a bad row'
     // Each row is its own block, its inputs named by their row.
     $wizard->assertSeeHtml('<h4 class="text-sm font-semibold">School 1</h4>')
         ->assertSeeHtml('<h4 class="text-sm font-semibold">School 2</h4>')
-        ->assertSeeHtml('aria-label="Name of school — school 2"')
+        ->assertSeeHtml('aria-label="Name of School — school 2"')
         ->assertSeeHtml('aria-label="Remove school 2"')
         ->assertSeeHtml('wire:model="form.rows_education.1.school"');
 
     expect($wizard->instance()->stepErrors(5))->toBe([
-        'rows_education' => 'School 2: Name of school is required.',
-        'rows_education.1.school' => 'Name of school is required.',
+        'rows_education' => 'School 2: Name of School is required.',
+        'rows_education.1.school' => 'Name of School is required.',
     ]);
 
     // Next is refused, with the row's message under its input and the
     // list's under the Add button.
     $wizard->call('goNext')
         ->assertSet('step', 5)
-        ->assertSee('School 2: Name of school is required.')
-        ->assertSeeHtml('<p class="text-xs text-danger">Name of school is required.</p>');
+        ->assertSee('School 2: Name of School is required.')
+        ->assertSeeHtml('<p class="text-xs text-danger">Name of School is required.</p>');
 
     // A shape problem on the first row names that row.
     $wizard->set('form.rows_education.0.attended_from', '08')
-        ->assertSee('School 1: Attended from must be a four-digit year, like 2015.')
+        ->assertSee('School 1: Attended From must be a four-digit year, like 2015.')
         ->set('form.rows_education.0.attended_from', '2008');
 
     // Removing the bad row clears its messages; the step passes.
     $wizard->call('removeRow', 'education', 1)
         ->assertSet('form.rows_education', [pdswizlRow('education')])
         ->assertDontSee('School 2')
-        ->assertDontSee('Name of school is required.')
+        ->assertDontSee('Name of School is required.')
         ->call('goNext')
         ->assertSet('step', 6);
 
@@ -301,7 +301,7 @@ it('draws the Family and Declarations steps from the record\'s own parts', funct
             '<h4 class="text-sm font-semibold">Spouse</h4>',
             '<h4 class="text-sm font-semibold">Parents</h4>',
             '<h5 class="text-sm font-semibold">Father</h5>',
-            '<h5 class="text-sm font-semibold">Mother&#039;s maiden name</h5>',
+            '<h5 class="text-sm font-semibold">Mother&#039;s Maiden Name</h5>',
             '<h4 class="text-sm font-semibold">Children</h4>',
         ])
         ->assertSee('Employer / business name')
@@ -394,7 +394,7 @@ it('hires with the spouse, parents, children with birthdates, every list, Other 
         $wizard->call('goNext')->assertSet('step', $i + 1);
     }
 
-    $wizard->assertSee('Create employee')->call('create')->assertDispatched('employee-created');
+    $wizard->assertSee('Create Employee')->call('create')->assertDispatched('employee-created');
 
     $hire = EmployeeProfile::query()->sole();
     $details = EmployeePdsDetail::query()->where('employee_id', $hire->id)->sole();

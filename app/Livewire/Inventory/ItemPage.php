@@ -15,7 +15,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** An item's current custody stays separate from its immutable movement history. */
-#[Title('Inventory item')]
+#[Title('Inventory Item')]
 class ItemPage extends Component
 {
     use ManagesInventory;

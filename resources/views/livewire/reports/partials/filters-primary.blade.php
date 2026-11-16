@@ -28,7 +28,7 @@
     <div class="w-full sm:w-56">
         <flux:input type="search" icon="magnifying-glass" wire:model.live.debounce.350ms="filters.search" placeholder="Search name, ID or position" aria-label="Search employees" />
     </div>
-    @foreach (['department' => 'Department or unit', 'active' => 'Active status'] as $key => $label)
+    @foreach (['department' => 'Department or Unit', 'active' => 'Active Status'] as $key => $label)
         <div class="w-full sm:w-48">
             <x-kit.select wire:model.live="filters.{{ $key }}" :aria-label="$label">
                 @foreach ($employeeOptions[$key] ?? [] as $value => $option)

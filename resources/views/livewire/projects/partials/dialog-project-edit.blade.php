@@ -11,7 +11,7 @@
                  the start date and nothing else here (ScheduleProject); the
                  status is the header select's. --}}
             <div>
-                <flux:heading size="lg">Plan project start</flux:heading>
+                <flux:heading size="lg">Plan Project Start</flux:heading>
                 <flux:text class="mt-1">
                     As Task Leader of {{ $project->code }} you can move its start date. Ask a Projects manager
                     to change anything else.
@@ -20,17 +20,17 @@
 
             <form class="grid gap-4" wire:submit="saveProject">
                 <div class="space-y-2">
-                    <flux:label for="project-plan-start">Start date</flux:label>
+                    <flux:label for="project-plan-start">Start Date</flux:label>
                     <x-kit.date-field id="project-plan-start" aria-label="Start date" wire:model="editStartDate" />
                 </div>
 
                 <div class="flex items-center justify-end gap-3 border-t border-border pt-4">
-                    <flux:button type="submit" variant="primary">Save start date</flux:button>
+                    <flux:button type="submit" variant="primary">Save Start Date</flux:button>
                 </div>
             </form>
         @else
             <div>
-                <flux:heading size="lg">Edit project</flux:heading>
+                <flux:heading size="lg">Edit Project</flux:heading>
                 <flux:text class="mt-1">
                     Update the project brief, task leader, due date, or current status for {{ $project->code }}.
                 </flux:text>
@@ -38,7 +38,7 @@
 
             <form class="grid gap-4 sm:grid-cols-2" wire:submit="saveProject">
                 <div class="space-y-2 sm:col-span-2">
-                    <flux:label for="project-edit-name">Project name</flux:label>
+                    <flux:label for="project-edit-name">Project Name</flux:label>
                     <flux:input id="project-edit-name" wire:model="editName" />
                 </div>
 
@@ -85,12 +85,12 @@
                 </div>
 
                 <div class="space-y-2">
-                    <flux:label for="project-edit-start">Start date</flux:label>
+                    <flux:label for="project-edit-start">Start Date</flux:label>
                     <x-kit.date-field id="project-edit-start" aria-label="Start date" wire:model="editStartDate" />
                 </div>
 
                 <div class="space-y-2">
-                    <flux:label for="project-edit-due">Due date</flux:label>
+                    <flux:label for="project-edit-due">Due Date</flux:label>
                     <x-kit.date-field id="project-edit-due" aria-label="Due date" wire:model="editDueDate" />
                 </div>
 
@@ -98,7 +98,7 @@
                     <p class="num text-xs text-muted-foreground">
                         Created {{ ProjectsData::fmtDateManila($project->created_at) }}
                     </p>
-                    <flux:button type="submit" variant="primary">Save changes</flux:button>
+                    <flux:button type="submit" variant="primary">Save Changes</flux:button>
                 </div>
             </form>
         @endif

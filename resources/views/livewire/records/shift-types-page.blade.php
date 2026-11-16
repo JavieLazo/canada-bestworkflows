@@ -30,11 +30,10 @@
                 class="w-full min-w-[12rem] max-w-xs flex-1"
                 wire:model.live.debounce.250ms="search"
             />
+            {{-- SHIFTING SETTINGS HAS NO CSV: no Export CSV and no Import CSV. --}}
             <div class="ml-auto flex flex-wrap items-center gap-2">
-                <x-kit.export-button :href="route('records.shifts.export', array_filter(['q' => $search, 'sort' => $sortKey, 'dir' => $sortDir]))" />
-                <livewire:kit.csv-import table="records.shifts" :template="route('records.shifts.export', ['template' => 1])" key="import-shifts" />
                 <flux:button variant="primary" icon="plus" wire:click="openAdd">
-                    Add shift type
+                    Add Shift Type
                 </flux:button>
             </div>
         </header>
@@ -48,8 +47,9 @@
                         <x-kit.sort-header field="mode" label="Mode" />
                         <th>Hours</th>
                         <th>Break</th>
-                        <th class="text-right">Grace</th>
-                        <th class="text-right">Action</th>
+                        {{-- `!text-right`: hris-table's own header rule is left-aligned and outranks a plain `text-right`. --}}
+                        <th class="!text-right">Grace</th>
+                        <th class="!text-right">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -64,11 +64,7 @@
                         <tr wire:key="row-{{ $row->getKey() }}">
                             <td class="num whitespace-nowrap">{{ $row->code }}</td>
                             <td class="font-medium">{{ $row->name }}</td>
-                            <td>
-                                <span class="{{ $row->mode === 'FLEXIBLE' ? 'pill pill-info' : 'pill pill-muted' }}">
-                                    {{ $row->mode === 'FLEXIBLE' ? 'Flexible' : 'Fixed' }}
-                                </span>
-                            </td>
+                            <td>{{ $row->mode === 'FLEXIBLE' ? 'Flexible' : 'Fixed' }}</td>
                             <td class="num whitespace-nowrap">
                                 @if ($row->mode === 'FLEXIBLE')
                                     {{ $row->required_hours ?? 0 }} h per day
@@ -141,7 +137,7 @@
         <div class="space-y-4">
             <div class="space-y-2">
                 <flux:heading size="lg">
-                    {{ $editing !== null ? 'Edit shift type' : 'Add shift type' }}
+                    {{ $editing !== null ? 'Edit Shift Type' : 'Add Shift Type' }}
                     @if ($editing !== null)
                         <span class="num ml-2 text-sm font-normal text-muted-foreground">{{ $editing->code }}</span>
                     @endif
@@ -186,7 +182,7 @@
 
                 @if ($flexible)
                     <div class="space-y-2">
-                        <flux:label>Required hours per day</flux:label>
+                        <flux:label>Required Hours per Day</flux:label>
                         <flux:input
                             type="number"
                             min="0"
@@ -197,11 +193,11 @@
                     </div>
                 @else
                     <div class="space-y-2">
-                        <flux:label>Shift start</flux:label>
+                        <flux:label>Shift Start</flux:label>
                         <x-kit.time-field wire:model="formStartTime" aria-label="Shift start" />
                     </div>
                     <div class="space-y-2">
-                        <flux:label>Shift end</flux:label>
+                        <flux:label>Shift End</flux:label>
                         <x-kit.time-field wire:model="formEndTime" aria-label="Shift end" />
                     </div>
                     <div class="space-y-2">
@@ -213,7 +209,7 @@
                 <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-4 sm:col-span-2">
                     <flux:switch id="has-break" wire:model.live="formHasBreak" />
                     <div>
-                        <flux:label for="has-break">Unpaid break</flux:label>
+                        <flux:label for="has-break">Unpaid Break</flux:label>
                         <p class="text-xs text-muted-foreground">
                             Time off the clock in the middle of the shift &mdash; lunch, typically.
                         </p>
@@ -222,18 +218,18 @@
 
                 @if ($formHasBreak && ! $flexible)
                     <div class="space-y-2">
-                        <flux:label>Break start</flux:label>
+                        <flux:label>Break Start</flux:label>
                         <x-kit.time-field wire:model="formBreakStart" aria-label="Break start" />
                     </div>
                     <div class="space-y-2">
-                        <flux:label>Break end</flux:label>
+                        <flux:label>Break End</flux:label>
                         <x-kit.time-field wire:model="formBreakEnd" aria-label="Break end" />
                     </div>
                 @endif
 
                 @if ($formHasBreak)
                     <div class="space-y-2">
-                        <flux:label>Break minutes</flux:label>
+                        <flux:label>Break Minutes</flux:label>
                         <flux:input type="number" min="0" class:input="num" wire:model="formBreakMinutes" />
                         <p class="text-xs text-muted-foreground">
                             Deducted when the break is not punched.
@@ -264,7 +260,7 @@
                         variant="primary"
                         :icon="$editing !== null ? 'pencil' : 'plus'"
                     >
-                        {{ $editing !== null ? 'Save changes' : 'Add shift type' }}
+                        {{ $editing !== null ? 'Save Changes' : 'Add Shift Type' }}
                     </flux:button>
                 </div>
             </form>

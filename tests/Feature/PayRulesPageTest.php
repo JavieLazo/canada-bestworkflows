@@ -54,11 +54,11 @@ it('gates the page on the PAYROLL grant and shows a read-only form to a holder w
     $this->get('/records/payroll-settings/pay-rates')
         ->assertOk()
         ->assertSee('Pay Basis &amp; Rates', false)
-        ->assertSee('Rates by day type')
+        ->assertSee('Rates by Day Type')
         ->assertSee('Ordinary workday')
         ->assertSee('Double holiday on a rest day')
         // One set of rules: no version list, no date and no reason to give.
-        ->assertDontSee('Versions')->assertDontSee('Effective from')->assertDontSee('Superseded')
+        ->assertDontSee('Versions')->assertDontSee('Effective From')->assertDontSee('Superseded')
         ->assertSee('Rest day, overtime hour: 162.5% is below the usual minimum of 169%.')
         ->assertSee('Your role can view these rules.')
         ->assertDontSee('Applies to all draft payrolls now.')
@@ -197,8 +197,8 @@ it('names whose rules the form holds, explains the cell borders, and lists the w
         ->assertSee('Editing:')
         ->assertSee('the company rule.')
         ->assertSee('Base rate: the other cells are worked out from it')
-        ->assertSee('Daily limits')
-        ->assertSee('Other rates and checks');
+        ->assertSee('Daily Limits')
+        ->assertSee('Other Rates and Checks');
     $html = $page->html();
     // A warning names cells of the table, so it is read with them in view.
     expect(strpos($html, 'data-rates-legend'))->toBeLessThan((int) strpos($html, 'is below the usual minimum'))
@@ -206,7 +206,7 @@ it('names whose rules the form holds, explains the cell borders, and lists the w
 
     // ONE frame holds the form: six parts, each under a band naming it, in the order a rule is worked out.
     $at = static fn (string $name): int => (int) strpos($html, '>'.$name.'</h2>');
-    $parts = [$at('Pay basis'), $at('Daily rate'), $at('Night work'), $at('Rates by day type'), $at('Daily limits'), $at('Other rates and checks')];
+    $parts = [$at('Pay Basis'), $at('Daily Rate'), $at('Night Work'), $at('Rates by Day Type'), $at('Daily Limits'), $at('Other Rates and Checks')];
     $sorted = $parts;
     sort($sorted);
     expect(substr_count($html, 'data-rates-form'))->toBe(1)

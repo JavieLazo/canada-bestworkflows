@@ -51,7 +51,7 @@
                     <p class="mt-1 break-words text-muted-foreground">{{ implode(' · ', $layout->columns) }}</p>
                     @if ($template !== '')
                         <flux:button class="mt-3" size="sm" variant="ghost" icon="arrow-down-tray" href="{{ $template }}">
-                            Download template
+                            Download Template
                         </flux:button>
                     @endif
                 </div>
@@ -72,7 +72,7 @@
                             x-data
                             x-on:click="document.getElementById('{{ $inputId }}').click()"
                         >
-                            {{ $fileName === null ? 'Choose CSV file' : 'Choose another file' }}
+                            {{ $fileName === null ? 'Choose CSV File' : 'Choose Another File' }}
                         </flux:button>
                         <p class="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                             {{ $fileName ?? 'No file chosen' }}

@@ -19,7 +19,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Receipt details show frozen issue evidence and offer an explicit linked correction. */
-#[Title('Memorandum receipt')]
+#[Title('Memorandum Receipt')]
 class ReceiptPage extends Component
 {
     use WithChangeStamp;

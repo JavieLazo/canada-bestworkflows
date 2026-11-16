@@ -42,16 +42,16 @@ final class EmploymentHistoryRecords
     {
         return [
             'position' => 'Position',
-            'position_level' => 'Position level',
-            'employment_status' => 'Employment status',
+            'position_level' => 'Position Level',
+            'employment_status' => 'Employment Status',
             'work_site_id' => 'Worksite',
-            'date_hired' => 'Date joined',
-            'date_regular' => 'Date regularized',
-            'date_resigned' => 'Date resigned',
-            'is_active' => 'Active status',
-            'monthly_rate' => 'Monthly rate',
-            'daily_rate' => 'Daily rate',
-            'record_change' => 'Employee record changes',
+            'date_hired' => 'Date Joined',
+            'date_regular' => 'Date Regularized',
+            'date_resigned' => 'Date Resigned',
+            'is_active' => 'Active Status',
+            'monthly_rate' => 'Monthly Rate',
+            'daily_rate' => 'Daily Rate',
+            'record_change' => 'Employee Record Changes',
         ];
     }
 

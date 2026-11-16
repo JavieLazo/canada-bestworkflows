@@ -12,7 +12,6 @@ use App\Support\CodeSort;
 /**
  * The Shift Type rows as the table lists them: searched on id and name,
  * sorted by the chosen key, then reversed as a whole for descending order.
- * One copy, shared by the table and its CSV export.
  */
 final class ShiftTypeRows
 {

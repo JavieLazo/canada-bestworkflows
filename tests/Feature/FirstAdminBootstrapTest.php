@@ -23,8 +23,8 @@ it('offers credential-only setup on a fresh installation while ordinary registra
         ->and(Features::enabled(Features::registration()))->toBeFalse();
 
     $this->get(route('register'))->assertOk()
-        ->assertSee('Set up BestWorkflows')
-        ->assertSee('Create first administrator')
+        ->assertSee('Set Up BestWorkflows')
+        ->assertSee('Create First Administrator')
         ->assertDontSee('name="name"', false);
     $this->get(route('login'))->assertOk()->assertSee('Set up first administrator');
 });

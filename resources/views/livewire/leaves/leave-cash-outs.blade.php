@@ -25,7 +25,7 @@
             <p class="text-xs text-muted-foreground">Requests to convert leave credits into cash. An approved request is paid on the employee's next regular payroll.</p>
             @if ($canManage && $terminalReady)
                 <div class="ml-auto flex flex-wrap items-center gap-2">
-                    <flux:button size="sm" variant="outline" icon="user-minus" wire:click="openTerminal" data-file-terminal>File terminal leave</flux:button>
+                    <flux:button size="sm" variant="outline" icon="user-minus" wire:click="openTerminal" data-file-terminal>File Terminal Leave</flux:button>
                 </div>
             @endif
         </header>
@@ -38,7 +38,7 @@
                     <thead>
                         <tr>
                             <th>Employee</th>
-                            <th>Leave type</th>
+                            <th>Leave Type</th>
                             <th class="text-right">Days</th>
                             <th>Requested</th>
                             <th>Status</th>
@@ -109,7 +109,7 @@
     @if ($canManage)
         <flux:modal wire:model.self="reviewOpen" class="w-full max-w-md" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'cash-out-review-heading')">
             <div class="space-y-4" data-cash-out-review>
-                <flux:heading size="lg" id="cash-out-review-heading">{{ $reviewApprove ? 'Approve cash conversion' : 'Reject cash conversion' }}</flux:heading>
+                <flux:heading size="lg" id="cash-out-review-heading">{{ $reviewApprove ? 'Approve Cash Conversion' : 'Reject Cash Conversion' }}</flux:heading>
                 @if ($reviewing !== null)
                     <flux:text class="text-sm">{{ $reviewing->employee_name }} · {{ $reviewing->type_name }} · <span class="num">{{ LeaveQuantity::credits($reviewing->days) }}</span> {{ $reviewing->days === 1.0 ? 'day' : 'days' }}@if (isset(LeaveCashOuts::PURPOSES[$reviewing->purpose ?? ''])) · {{ LeaveCashOuts::PURPOSES[$reviewing->purpose] }}@endif @if ($reviewing->note !== null) · {{ $reviewing->note }}@endif</flux:text>
                     @if ($reviewing->large_request ?? false)
@@ -130,7 +130,7 @@
         {{-- Terminal leave: pick the employee who left, read what would be paid out, then file it as cash conversions to approve. --}}
         <flux:modal wire:model.self="terminalOpen" class="w-full max-w-lg" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'terminal-leave-heading')">
             <div class="space-y-4" data-terminal-leave-dialog>
-                <flux:heading size="lg" id="terminal-leave-heading">File terminal leave</flux:heading>
+                <flux:heading size="lg" id="terminal-leave-heading">File Terminal Leave</flux:heading>
                 <flux:text class="text-sm text-muted-foreground">Pays out the whole remaining balance of every leave type set to be paid out on separation, for an employee whose Date Resigned is set. Each type becomes a cash conversion to approve here, paid on a payroll that includes the employee at the highest salary on record.</flux:text>
                 <div class="space-y-2">
                     <p id="terminal-employee-label" class="text-sm font-medium">Employee</p>
@@ -163,7 +163,7 @@
                 <flux:textarea label="Note (optional)" wire:model="terminalNote" rows="2" maxlength="500" />
                 <div class="flex flex-wrap justify-end gap-2">
                     <flux:button variant="ghost" wire:click="$set('terminalOpen', false)">Cancel</flux:button>
-                    <flux:button variant="primary" icon="check" wire:click="fileTerminal" :disabled="$terminal === null || $terminal['resigned'] === null || $terminal['lines'] === [] || $terminal['blocker'] !== null">File terminal leave</flux:button>
+                    <flux:button variant="primary" icon="check" wire:click="fileTerminal" :disabled="$terminal === null || $terminal['resigned'] === null || $terminal['lines'] === [] || $terminal['blocker'] !== null">File Terminal Leave</flux:button>
                 </div>
             </div>
         </flux:modal>

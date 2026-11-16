@@ -71,7 +71,7 @@
                          and how far an INDIVIDUAL task's responses have got. --}}
                     @if ($individual || count($openTaskAssignees) >= 2)
                         <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span class="pill pill-muted">{{ $individual ? 'Individual responses' : 'Team response' }}</span>
+                            <span class="pill pill-muted">{{ $individual ? 'Individual Responses' : 'Team Response' }}</span>
                             @if ($individual)
                                 <p class="num text-xs text-muted-foreground">{{ $openTask->responseSummary() }}</p>
                             @endif
@@ -155,13 +155,13 @@
                     @endif
                     @if (! $leaderOnly || $openTaskRunnable)
                         <div class="space-y-2">
-                            <flux:label for="task-edit-start">Start date</flux:label>
+                            <flux:label for="task-edit-start">Start Date</flux:label>
                             <x-kit.date-field id="task-edit-start" aria-label="Start date" wire:model="draftStartDate" />
                         </div>
                     @endif
                     @unless ($leaderOnly)
                         <div class="space-y-2">
-                            <flux:label for="task-edit-due">Due date</flux:label>
+                            <flux:label for="task-edit-due">Due Date</flux:label>
                             <x-kit.date-field id="task-edit-due" aria-label="Due date" wire:model="draftDueDate" />
                         </div>
                     @endunless
@@ -171,7 +171,7 @@
                         </flux:button>
                         <flux:button type="button" variant="primary" wire:click="saveDetails">
                             <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'save', 'class' => 'size-4'])</x-slot:icon>
-                            Save task details
+                            Save Task Details
                         </flux:button>
                     </div>
                 </div>
@@ -201,7 +201,7 @@
                     </div>
                 </div>
                 <div class="min-w-0 space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned by</p>
+                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned By</p>
                     <div class="break-words text-sm font-medium">
                         {{ $accountName($openTask->getAttribute('assigned_by')) }}
                         <span class="num block text-xs font-normal text-muted-foreground">
@@ -223,7 +223,7 @@
                  answers "Task evidence is locked in this status." --}}
             <div class="space-y-2">
                 <div class="flex items-center justify-between gap-3">
-                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Brief &amp; references</p>
+                    <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Brief &amp; References</p>
                     <flux:button
                         type="button"
                         variant="outline"
@@ -288,7 +288,7 @@
                      or thin out what the assignee actually handed in. --}}
                 <div class="space-y-2">
                     <div class="flex items-center justify-between gap-3">
-                        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Submitted files</p>
+                        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Submitted Files</p>
                     </div>
                     @if ($openTaskSubmitted->isEmpty())
                         <p class="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground">
@@ -361,7 +361,7 @@
                     {{-- A review remark when there is a decision to make; for
                          "Set status" alone (a crew member, say) it is a note. --}}
                     <flux:label for="task-review-remark">
-                        {{ count($actions) > 0 ? 'Review remark' : 'Status note' }}{{ $needsRemark ? ' (required to return)' : '' }}
+                        {{ count($actions) > 0 ? 'Review Remark' : 'Status Note' }}{{ $needsRemark ? ' (required to return)' : '' }}
                     </flux:label>
                     <flux:textarea
                         id="task-review-remark"
@@ -422,7 +422,7 @@
                     <div class="flex justify-end">
                         <flux:button type="button" size="sm" variant="primary" wire:click="postComment">
                             <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'send', 'class' => 'size-3'])</x-slot:icon>
-                            Post comment
+                            Post Comment
                         </flux:button>
                     </div>
                 </div>
@@ -441,7 +441,7 @@
             @if ($openTaskManualMoves !== [])
                 <div class="flex flex-wrap items-end justify-between gap-3 border-t border-border pt-4">
                     <div class="space-y-2">
-                        <flux:label for="task-manual-status">Set status by hand</flux:label>
+                        <flux:label for="task-manual-status">Set Status by Hand</flux:label>
                         <x-kit.select id="task-manual-status" aria-label="New task status" class="w-[13rem]" wire:model="manualStatus">
                             <flux:select.option value="">Choose a status</flux:select.option>
                             @foreach ($openTaskManualMoves as $move)
@@ -450,7 +450,7 @@
                         </x-kit.select>
                     </div>
                     <flux:button type="button" variant="outline" wire:click="setTaskStatus('{{ $openTask->status }}')">
-                        Set status
+                        Set Status
                     </flux:button>
                 </div>
             @endif
@@ -460,13 +460,13 @@
                     @if (in_array('CANCELLED', $actions, true))
                         <flux:button variant="danger" wire:click="review('CANCELLED')">
                             <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'ban', 'class' => 'size-4'])</x-slot:icon>
-                            Cancel task
+                            Cancel Task
                         </flux:button>
                     @endif
                     @if (in_array('RETURNED', $actions, true))
                         <flux:button variant="outline" wire:click="review('RETURNED')">
                             <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'undo-2', 'class' => 'size-4'])</x-slot:icon>
-                            Return for rework
+                            Return for Rework
                         </flux:button>
                     @endif
                     @if (in_array('COMPLETED', $actions, true) && $individual)
@@ -480,12 +480,12 @@
                             aria-describedby="complete-reason"
                         >
                             <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'check', 'class' => 'size-4'])</x-slot:icon>
-                            Complete task
+                            Complete Task
                         </flux:button>
                     @elseif (in_array('COMPLETED', $actions, true))
                         <flux:button variant="primary" wire:click="review('COMPLETED')">
                             <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'check', 'class' => 'size-4'])</x-slot:icon>
-                            Accept task
+                            Accept Task
                         </flux:button>
                     @endif
                 </div>

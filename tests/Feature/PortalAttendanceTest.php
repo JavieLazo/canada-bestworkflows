@@ -146,7 +146,7 @@ it('returns no attendance for an unlinked account even with attendance managemen
     expect(app(OwnAttendance::class)->between(app(Access::class), '2026-10-05', '2026-10-06'))->toBeNull();
     Livewire::test(MyAttendance::class)
         ->assertViewHas('attendance', null)
-        ->assertSee('Employee record not linked')
+        ->assertSee('Employee Record Not Linked')
         ->assertDontSee('8:00 AM');
 })->with(['employee' => false, 'administrator' => true]);
 
@@ -376,7 +376,7 @@ it('keeps attendance out of My Profile and collapses its old tab link to the emp
         ->assertDontSeeHtml('&quot;name&quot;:&quot;portal.my-attendance&quot;')
         ->assertDontSeeHtml('&quot;name&quot;:&quot;profile.my-attendance&quot;');
     $this->get('/profile?tab=attendance')->assertOk()
-        ->assertSee('My record')
+        ->assertSee('My Record')
         ->assertDontSee('Attendance')
         ->assertDontSee('&quot;name&quot;:&quot;portal.my-attendance&quot;', false);
 });
@@ -427,7 +427,7 @@ it('reads the current employee link on later attendance interactions', function 
     $user->forceFill(['employee_id' => null])->save();
     $this->actingAs($user->refresh());
     app()->forgetInstance(Access::class);
-    $page->call('refreshAttendance')->assertViewHas('attendance', null)->assertSee('Employee record not linked');
+    $page->call('refreshAttendance')->assertViewHas('attendance', null)->assertSee('Employee Record Not Linked');
 });
 
 it('refuses attendance refresh immediately after PORTAL is revoked', function () {

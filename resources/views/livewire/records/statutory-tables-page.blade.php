@@ -52,20 +52,20 @@
                 @endforeach
             </div>
             @if ($canManage && $ready)
-                <flux:button variant="outline" size="sm" icon="calendar" wire:click="openConfirmAll">Confirm all tables</flux:button>
+                <flux:button variant="outline" size="sm" icon="calendar" wire:click="openConfirmAll">Confirm All Tables</flux:button>
             @endif
         </header>
 
         <div class="grid xl:grid-cols-6">
             <section class="min-w-0 p-5 {{ $withholding ? 'xl:col-span-4' : 'xl:col-span-3' }}">
                 <div class="flex flex-wrap items-center gap-2">
-                    <h2 class="text-lg font-bold">{{ $label }} figures</h2>
+                    <h2 class="text-lg font-bold">{{ $label }} Figures</h2>
                     @if ($canManage && $ready)
                         <div class="ml-auto flex flex-wrap items-center gap-2">
                             @if ($shown !== null)
-                                <flux:button variant="outline" size="sm" icon="calendar" wire:click="openConfirm('{{ $shown->id }}')">Confirm figures</flux:button>
+                                <flux:button variant="outline" size="sm" icon="calendar" wire:click="openConfirm('{{ $shown->id }}')">Confirm Figures</flux:button>
                             @endif
-                            <flux:button variant="primary" size="sm" icon="pencil" wire:click="openAdd">Edit figures</flux:button>
+                            <flux:button variant="primary" size="sm" icon="pencil" wire:click="openAdd">Edit Figures</flux:button>
                         </div>
                     @endif
                 </div>
@@ -81,7 +81,7 @@
                         <h3 class="mt-5 text-sm font-semibold">{{ $heading }}</h3>
                         <div class="hris-table-wrap mt-2">
                             <table class="hris-table">
-                                <thead><tr><th>Over</th><th class="text-right">Fixed tax</th><th class="text-right">Rate on the excess</th></tr></thead>
+                                <thead><tr><th>Over</th><th class="text-right">Fixed Tax</th><th class="text-right">Rate on the Excess</th></tr></thead>
                                 <tbody>
                                     @foreach ($bracketRows[$list] ?? [] as [$over, $base, $rate])
                                         <tr>
@@ -108,12 +108,12 @@
             </section>
 
             <section class="min-w-0 border-t border-border p-5 xl:border-l xl:border-t-0 {{ $withholding ? 'xl:col-span-2' : 'xl:col-span-3' }}">
-                <h2 class="text-base font-semibold">Check against sample {{ $withholding ? 'amounts' : 'salaries' }}</h2>
+                <h2 class="text-base font-semibold">Check Against Sample {{ $withholding ? 'Amounts' : 'Salaries' }}</h2>
                 <p class="mt-1 text-sm text-muted-foreground">What these figures {{ $withholding ? 'withhold' : 'deduct each month' }} at sample amounts.</p>
                 <div class="hris-table-wrap mt-4">
                     <table class="hris-table">
                         @if ($withholding)
-                            <thead><tr><th>Taxable compensation</th><th>Table</th><th class="text-right">Tax</th></tr></thead>
+                            <thead><tr><th>Taxable Compensation</th><th>Table</th><th class="text-right">Tax</th></tr></thead>
                             <tbody>
                                 @foreach ($samples as $sample)
                                     <tr>
@@ -124,7 +124,7 @@
                                 @endforeach
                             </tbody>
                         @else
-                            <thead><tr><th>Monthly salary</th><th class="text-right">Employee</th><th class="text-right">Employer</th><th class="text-right">Per half-month, employee</th></tr></thead>
+                            <thead><tr><th>Monthly Salary</th><th class="text-right">Employee</th><th class="text-right">Employer</th><th class="text-right">Per Half-Month, Employee</th></tr></thead>
                             <tbody>
                                 @foreach ($samples as $sample)
                                     <tr>
@@ -151,7 +151,7 @@
     >
         <form class="space-y-4 bg-inherit" wire:submit="save">
             <div class="space-y-2">
-                <flux:heading size="lg" id="statutory-version-heading">Edit {{ $label }} figures</flux:heading>
+                <flux:heading size="lg" id="statutory-version-heading">Edit {{ $label }} Figures</flux:heading>
                 @include('livewire.payroll.partials.settings-applies-note', ['class' => 'text-sm text-muted-foreground'])
             </div>
             <div class="space-y-2">
@@ -166,7 +166,7 @@
                             <flux:label>{{ $heading }}</flux:label>
                             <div class="hris-table-wrap">
                                 <table class="hris-table">
-                                    <thead><tr><th>Over</th><th>Fixed tax</th><th>Rate on the excess (%)</th><th class="w-10"><span class="sr-only">Remove</span></th></tr></thead>
+                                    <thead><tr><th>Over</th><th>Fixed Tax</th><th>Rate on the Excess (%)</th><th class="w-10"><span class="sr-only">Remove</span></th></tr></thead>
                                     <tbody>
                                         @foreach ($formBrackets[$list] ?? [] as $i => $row)
                                             <tr wire:key="bracket-{{ $list }}-{{ $i }}">
@@ -181,7 +181,7 @@
                                     </tbody>
                                 </table>
                             </div>
-                            <flux:button variant="ghost" size="sm" icon="plus" wire:click="addBracket('{{ $list }}')">Add bracket</flux:button>
+                            <flux:button variant="ghost" size="sm" icon="plus" wire:click="addBracket('{{ $list }}')">Add Bracket</flux:button>
                         </div>
                     @endforeach
                 </div>
@@ -218,7 +218,7 @@
                 @endif
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="outline" wire:click="$set('dialogOpen', false)">Cancel</flux:button>
-                    <flux:button type="submit" variant="primary" icon="check">Save figures</flux:button>
+                    <flux:button type="submit" variant="primary" icon="check">Save Figures</flux:button>
                 </div>
             </div>
         </form>
@@ -231,12 +231,12 @@
     >
         <form class="space-y-4" wire:submit="saveConfirm">
             <div class="space-y-2">
-                <flux:heading size="lg" id="statutory-confirm-heading">Confirm {{ $label }} figures</flux:heading>
+                <flux:heading size="lg" id="statutory-confirm-heading">Confirm {{ $label }} Figures</flux:heading>
                 <flux:text>Records that the figures were checked and still hold. They don't change. Payrolls past the confirmed date show a reminder.</flux:text>
                 <flux:text>Now confirmed through <span class="num">{{ $confirming?->covered_through->format('d M Y') }}</span>.</flux:text>
             </div>
             <div class="space-y-2">
-                <flux:label for="statutory-confirm-through">Confirmed through</flux:label>
+                <flux:label for="statutory-confirm-through">Confirmed Through</flux:label>
                 <x-kit.date-field id="statutory-confirm-through" wire:model="formConfirmThrough" aria-label="Confirmed through" />
             </div>
             @if ($formError !== null && $confirmOpen)
@@ -244,7 +244,7 @@
             @endif
             <div class="flex justify-end gap-2">
                 <flux:button type="button" variant="outline" wire:click="$set('confirmOpen', false)">Cancel</flux:button>
-                <flux:button type="submit" variant="primary" icon="check">Confirm figures</flux:button>
+                <flux:button type="submit" variant="primary" icon="check">Confirm Figures</flux:button>
             </div>
         </form>
     </flux:modal>
@@ -256,11 +256,11 @@
     >
         <form class="space-y-4" wire:submit="saveConfirmAll" data-confirm-all>
             <div class="space-y-2">
-                <flux:heading size="lg" id="statutory-confirm-all-heading">Confirm all tables</flux:heading>
+                <flux:heading size="lg" id="statutory-confirm-all-heading">Confirm All Tables</flux:heading>
                 <flux:text>Records that the SSS, PhilHealth, Pag-IBIG and Withholding Tax figures were checked and still hold. They don't change. Payrolls past the confirmed date show a reminder.</flux:text>
             </div>
             <div class="space-y-2">
-                <flux:label for="statutory-confirm-all-through">Confirmed through</flux:label>
+                <flux:label for="statutory-confirm-all-through">Confirmed Through</flux:label>
                 <x-kit.date-field id="statutory-confirm-all-through" wire:model="formConfirmThrough" aria-label="Confirmed through" />
             </div>
             @if ($formError !== null && $confirmAllOpen)
@@ -268,7 +268,7 @@
             @endif
             <div class="flex justify-end gap-2">
                 <flux:button type="button" variant="outline" wire:click="$set('confirmAllOpen', false)">Cancel</flux:button>
-                <flux:button type="submit" variant="primary" icon="check">Confirm all</flux:button>
+                <flux:button type="submit" variant="primary" icon="check">Confirm All</flux:button>
             </div>
         </form>
     </flux:modal>

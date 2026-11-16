@@ -240,7 +240,7 @@ it('gates the page on EMPLOYEES', function () {
     $this->get(route('employees.organization'))->assertRedirect();
 
     orgtabActor([ModuleCode::EMPLOYEES], false);
-    $this->get(route('employees.organization'))->assertOk()->assertSee('Expand all')->assertDontSee('Click a department to see its people');
+    $this->get(route('employees.organization'))->assertOk()->assertSee('Expand All')->assertDontSee('Click a department to see its people');
 });
 
 it('puts Organization third in the view switch and marks it current', function () {
@@ -264,8 +264,8 @@ it('draws the cards, previews and tables of the approved mockup', function () {
     orgtabActor([ModuleCode::EMPLOYEES], false, $people['reyes']);
     $html = Livewire::test(Organization::class)->html();
 
-    expect($html)->toContain('Expand all')
-        ->and($html)->toContain('Collapse all')
+    expect($html)->toContain('Expand All')
+        ->and($html)->toContain('Collapse All')
         // Every department is on the page, in HR order.
         ->and(orgtabAt($html, 'Board of Directors'))->toBeLessThan(orgtabAt($html, 'Bids and Awards Committee'))
         ->and(orgtabAt($html, 'Bids and Awards Committee'))->toBeLessThan(orgtabAt($html, 'Office for HR and Administration'))
@@ -341,7 +341,7 @@ it('shows the empty state, and never fails, before the structure migrations have
 
     try {
         orgtabActor();
-        $this->get('/employees/organization')->assertOk()->assertSee('Expand all')->assertSee('No departments have been set up yet.');
+        $this->get('/employees/organization')->assertOk()->assertSee('Expand All')->assertSee('No departments have been set up yet.');
         expect(app(OrganizationChart::class)->departments(app(Access::class)))->toBe([]);
     } finally {
         if ($engine) {

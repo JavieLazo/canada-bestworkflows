@@ -6,7 +6,7 @@
     </div>
 
     <div class="inline-flex max-w-full flex-wrap gap-1 rounded-lg bg-muted p-1 text-sm text-muted-foreground" role="tablist" aria-label="My Profile views">
-        @foreach (['record' => 'My record', 'requests' => 'My change requests', 'account' => 'Account & security'] as $key => $label)
+        @foreach (['record' => 'My Record', 'requests' => 'My Change Requests', 'account' => 'Account & Security'] as $key => $label)
             <button type="button" role="tab" aria-selected="{{ $tab === $key ? 'true' : 'false' }}"
                 wire:click="$set('tab', '{{ $key }}')"
                 class="rounded-md px-3 py-1.5 font-medium {{ $tab === $key ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">{{ $label }}</button>
@@ -16,7 +16,7 @@
     @if ($tab === 'record')
         @if ($employee === null)
             <section class="hris-card space-y-2 p-6">
-                <h2 class="text-base font-bold">Employee record not linked</h2>
+                <h2 class="text-base font-bold">Employee Record Not Linked</h2>
                 <p class="text-sm text-muted-foreground">Your information will appear here once management links this account to your employee record.</p>
             </section>
         @else
@@ -28,8 +28,8 @@
         <section class="hris-card space-y-3 p-4">
             <h2 class="text-base font-bold">Account</h2>
             <dl class="grid gap-3 sm:grid-cols-2">
-                <div><dt class="text-xs text-muted-foreground">Account name</dt><dd class="break-words text-sm">{{ $accountName }}</dd></div>
-                <div><dt class="text-xs text-muted-foreground">Sign-in email</dt><dd class="break-words text-sm">{{ $email }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Account Name</dt><dd class="break-words text-sm">{{ $accountName }}</dd></div>
+                <div><dt class="text-xs text-muted-foreground">Sign-In Email</dt><dd class="break-words text-sm">{{ $email }}</dd></div>
             </dl>
             <p class="text-xs text-muted-foreground">Your name comes from the linked employee record. You can update your sign-in email in Account settings. Management maintains your employee link.</p>
         </section>
@@ -49,7 +49,7 @@
                     <h3 class="text-sm font-semibold">Password</h3>
                     <p class="mt-1 text-sm text-muted-foreground">Use a unique password for this account.</p>
                 </div>
-                <flux:button variant="outline" wire:click="openPasswordChange">Change password</flux:button>
+                <flux:button variant="outline" wire:click="openPasswordChange">Change Password</flux:button>
             </div>
             @if ($passwordChanged)
                 <p class="border-t border-border px-4 py-3 text-sm text-success" role="status">Password changed. Your other sessions have been signed out. You are still signed in here.</p>
@@ -82,14 +82,14 @@
                 x-init="$el.closest('dialog')?.setAttribute('aria-labelledby', 'profile-password-heading')"
             >
                 <div class="space-y-2">
-                    <flux:heading size="lg" id="profile-password-heading">Change password</flux:heading>
+                    <flux:heading size="lg" id="profile-password-heading">Change Password</flux:heading>
                     <p class="text-sm text-muted-foreground">Choose a password you have never used for this account.</p>
                     <p class="text-sm text-muted-foreground">Try several unrelated words with a number and symbol.</p>
                 </div>
                 <flux:error name="passwordChange" />
                 <flux:input
                     id="profile-current-password"
-                    label="Current password"
+                    label="Current Password"
                     type="password"
                     autocomplete="current-password"
                     wire:model="currentPassword"
@@ -99,7 +99,7 @@
                 <div class="space-y-3">
                     <flux:input
                         id="profile-new-password"
-                        label="New password"
+                        label="New Password"
                         type="password"
                         autocomplete="new-password"
                         wire:model="newPassword"
@@ -129,7 +129,7 @@
                 <div class="space-y-2">
                     <flux:input
                         id="profile-confirm-password"
-                        label="Confirm new password"
+                        label="Confirm New Password"
                         type="password"
                         autocomplete="new-password"
                         wire:model="confirmPassword"
@@ -144,8 +144,8 @@
                 <div class="flex flex-wrap justify-end gap-2">
                     <flux:button variant="outline" wire:click="cancelPasswordChange">Cancel</flux:button>
                     <flux:button type="submit" variant="primary" :loading="false" x-bind:disabled="!ready" wire:loading.attr="disabled" wire:target="changePassword">
-                        <span wire:loading.remove wire:target="changePassword">Update password</span>
-                        <span wire:loading wire:target="changePassword">Updating password…</span>
+                        <span wire:loading.remove wire:target="changePassword">Update Password</span>
+                        <span wire:loading wire:target="changePassword">Updating Password…</span>
                     </flux:button>
                 </div>
             </form>

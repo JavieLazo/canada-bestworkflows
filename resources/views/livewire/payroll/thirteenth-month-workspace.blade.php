@@ -33,7 +33,7 @@
                 13th Month Payroll
             </flux:button>
             <h1 class="text-2xl font-bold tracking-tight">
-                {{ $run ? $run->name : 'Create 13th month payroll' }}
+                {{ $run ? $run->name : 'Create 13th Month Payroll' }}
                 @if ($run)
                     <span class="{{ $finalized ? 'pill pill-success' : 'pill pill-warning' }} ml-3 align-middle">
                         {{ $run->status }}
@@ -68,7 +68,7 @@
             @if ($run && ! $finalized)
                 @if ($reviewRequired)
                     <flux:button variant="primary" icon="arrow-path" wire:click="reviewChanges" wire:loading.attr="disabled">
-                        Review updated payroll
+                        Review Updated Payroll
                     </flux:button>
                 @else
                     <flux:button
@@ -88,7 +88,7 @@
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-end gap-4 border-b border-border px-5 py-4">
             <div class="min-w-[14rem] flex-1 space-y-2">
-                <flux:label>Payroll name</flux:label>
+                <flux:label>Payroll Name</flux:label>
                 <flux:input
                     placeholder="e.g. 13th Month Pay 2026"
                     wire:model.live.debounce.500ms="name"
@@ -106,7 +106,7 @@
             </div>
             @if (! $finalized)
                 <flux:button variant="primary" icon="plus" wire:click="openPicker">
-                    Add employee
+                    Add Employee
                 </flux:button>
             @endif
         </header>
@@ -140,15 +140,15 @@
                     <dd class="num mt-1 text-xl font-bold">{{ $lineCount }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">13th month pay</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">13th Month Pay</dt>
                     <dd class="num mt-1 text-xl font-bold">{{ PayrollData::peso($totals['gross_pay']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Withholding tax</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Withholding Tax</dt>
                     <dd class="num mt-1 text-xl font-bold text-danger">{{ PayrollData::peso($totals['total_deductions']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net pay</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net Pay</dt>
                     <dd class="num mt-1 text-xl font-bold text-success">{{ PayrollData::peso($totals['net_pay']) }}</dd>
                 </div>
             </dl>
@@ -166,20 +166,20 @@
                     <tr>
                         <th @unless ($finalized) rowspan="2" @endunless>Employee</th>
                         @unless ($finalized)
-                            <th colspan="3" class="text-center">Basic pay</th>
+                            <th colspan="3" class="text-center">Basic Pay</th>
                         @endunless
-                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">13th month</th>
-                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Tax-exempt</th>
-                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Taxable excess over ₱90,000</th>
-                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Withholding tax</th>
+                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">13th Month</th>
+                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Tax-Exempt</th>
+                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Taxable Excess Over ₱90,000</th>
+                        <th @unless ($finalized) rowspan="2" @endunless class="text-right">Withholding Tax</th>
                         <th @unless ($finalized) rowspan="2" @endunless class="text-right">Net Pay</th>
                         <th @unless ($finalized) rowspan="2" @endunless class="text-right">Actions</th>
                     </tr>
                     @unless ($finalized)
                         <tr>
-                            <th class="text-right">Paid in this system</th>
-                            <th class="text-right">From other records</th>
-                            <th class="text-right">For the year</th>
+                            <th class="text-right">Paid in This System</th>
+                            <th class="text-right">From Other Records</th>
+                            <th class="text-right">For the Year</th>
                         </tr>
                     @endunless
                 </thead>

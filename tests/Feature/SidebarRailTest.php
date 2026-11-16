@@ -102,7 +102,7 @@ it('draws the rail-only parts of the sidebar with the rail variant', function ()
     expect(preg_match('/<span class="[^"]*\bsidebar-rail:hidden\b[^"]*">Records Management<\/span>/', $sidebar['inside']))->toBe(1)
         ->and(preg_match('/<div x-show="open" x-cloak class="sidebar-rail:hidden">/', $sidebar['inside']))->toBe(1)
         ->and(preg_match('/wire:name="chat\.unread-badge" class="[^"]*\bsidebar-rail:hidden\b/', $sidebar['inside']))->toBe(1)
-        ->and(preg_match('/<span class="[^"]*\bsidebar-rail:hidden\b[^"]*">Sign out<\/span>/', $sidebar['inside']))->toBe(1);
+        ->and(preg_match('/<span class="[^"]*\bsidebar-rail:hidden\b[^"]*">Sign Out<\/span>/', $sidebar['inside']))->toBe(1);
 });
 
 it('opens the collapsed sidebar at Flux\'s widths without widening its column', function () {

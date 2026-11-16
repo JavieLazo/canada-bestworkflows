@@ -39,7 +39,7 @@
         $filter->to !== null => 'Until '.$filter->to->format('M j, Y'),
         default => '',
     };
-    $hasLabel = ['photos' => 'Has photos', 'files' => 'Has files', 'both' => 'Has photos and files'][$filter->has] ?? '';
+    $hasLabel = ['photos' => 'Has Photos', 'files' => 'Has Files', 'both' => 'Has Photos and Files'][$filter->has] ?? '';
     $chip = 'inline-flex h-7 max-w-full items-center gap-1 rounded-full bg-primary-soft pl-3 pr-1 text-xs font-medium text-primary';
     $chipX = 'inline-flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-primary hover:text-primary-foreground';
 @endphp
@@ -95,7 +95,7 @@
 
                         @if ($activeGroup === null)
                             <div class="space-y-1.5">
-                                <flux:label for="filter-where">Shared in</flux:label>
+                                <flux:label for="filter-where">Shared In</flux:label>
                                 <x-kit.select id="filter-where" size="sm" wire:model.live="filterWhere">
                                     <flux:select.option value="">Anywhere</flux:select.option>
                                     <flux:select.option value="everyone">Everyone (the whole company)</flux:select.option>
@@ -107,7 +107,7 @@
                         @endif
 
                         <div class="space-y-1.5">
-                            <flux:label for="filter-author">Posted by</flux:label>
+                            <flux:label for="filter-author">Posted By</flux:label>
                             <x-kit.select id="filter-author" size="sm" wire:model.live="filterAuthor">
                                 <flux:select.option value="0">Anyone</flux:select.option>
                                 @foreach ($authors as $person)
@@ -138,13 +138,13 @@
                         </div>
 
                         <div class="flex items-center justify-between gap-4">
-                            <flux:label for="filter-mentions">Mentions me</flux:label>
+                            <flux:label for="filter-mentions">Mentions Me</flux:label>
                             <flux:switch id="filter-mentions" wire:model.live="filterMentions" aria-label="Only posts that mention me" />
                         </div>
                         <p class="-mt-2 text-xs text-muted-foreground">In the post or its comments, including @everyone and your groups.</p>
 
                         <div class="flex justify-between gap-2 border-t border-border pt-3">
-                            <flux:button size="sm" variant="ghost" wire:click="clearFilters" x-on:click="open = false">Clear all</flux:button>
+                            <flux:button size="sm" variant="ghost" wire:click="clearFilters" x-on:click="open = false">Clear All</flux:button>
                             <flux:button size="sm" variant="primary" x-on:click="open = false">Done</flux:button>
                         </div>
                     </div>
@@ -197,11 +197,11 @@
             @endif
             @if (isset($active['mentions']))
                 <span class="{{ $chip }}">
-                    <span class="truncate">Mentions me</span>
+                    <span class="truncate">Mentions Me</span>
                     <button type="button" wire:click="dropFilter('mentions')" class="{{ $chipX }}" aria-label="Remove the mentions filter"><flux:icon.x-mark class="size-3" /></button>
                 </span>
             @endif
-            <button type="button" wire:click="clearFilters" class="ml-1 cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground hover:underline">Clear all</button>
+            <button type="button" wire:click="clearFilters" class="ml-1 cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground hover:underline">Clear All</button>
         </div>
     @endif
 </div>

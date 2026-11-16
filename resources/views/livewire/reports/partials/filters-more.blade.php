@@ -2,8 +2,8 @@
      Owners scope every choice: a filter or a column never changes which records are permitted. --}}
 @if ($type === 'loan-summary')
     <fieldset class="hris-card space-y-3 px-5 py-4">
-        <legend class="sr-only">Loan deduction types</legend>
-        <p class="text-sm font-medium">Loans to include</p>
+        <legend class="sr-only">Loan Deduction Types</legend>
+        <p class="text-sm font-medium">Loans to Include</p>
         <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             @forelse ($loanTypes as $code => $label)
                 <flux:checkbox wire:model.live="deductionCodes" value="{{ $code }}" label="{{ $label }} ({{ $code }})" />
@@ -19,7 +19,7 @@
     <details class="hris-card" wire:ignore.self wire:key="employee-advanced-filters">
         <summary class="cursor-pointer px-5 py-3 text-sm font-medium focus-visible:outline-primary">More filters @if ($advancedCount > 0)<span class="pill pill-primary ml-1">{{ $advancedCount }} in use</span>@endif</summary>
         <div class="grid gap-4 border-t border-border p-5 sm:grid-cols-2 xl:grid-cols-4">
-            @foreach (['employment' => 'Employment status', 'worksite' => 'Worksite', 'position' => 'Position', 'sex' => 'Sex', 'civilStatus' => 'Civil status', 'education' => 'Highest recorded education', 'missing' => 'Missing information'] as $key => $label)
+            @foreach (['employment' => 'Employment Status', 'worksite' => 'Worksite', 'position' => 'Position', 'sex' => 'Sex', 'civilStatus' => 'Civil Status', 'education' => 'Highest Recorded Education', 'missing' => 'Missing Information'] as $key => $label)
                 <x-kit.select :label="$label" wire:model.live="filters.{{ $key }}" :aria-label="$label">
                     @foreach ($employeeOptions[$key] ?? [] as $value => $option)
                         <flux:select.option :value="$value">{{ $option }}</flux:select.option>
@@ -27,24 +27,24 @@
                 </x-kit.select>
             @endforeach
             <div class="grid grid-cols-2 gap-2">
-                <flux:input label="Min age" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.ageMin" placeholder="Any" />
-                <flux:input label="Max age" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.ageMax" placeholder="Any" />
+                <flux:input label="Min Age" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.ageMin" placeholder="Any" />
+                <flux:input label="Max Age" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.ageMax" placeholder="Any" />
             </div>
             <div class="grid grid-cols-2 gap-2">
-                <flux:input label="Min tenure" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.tenureMin" placeholder="Years" />
-                <flux:input label="Max tenure" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.tenureMax" placeholder="Years" />
+                <flux:input label="Min Tenure" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.tenureMin" placeholder="Years" />
+                <flux:input label="Max Tenure" type="number" min="0" max="150" wire:model.live.debounce.350ms="filters.tenureMax" placeholder="Years" />
             </div>
-            <div class="space-y-1.5"><label for="report-hired-from" class="text-sm font-medium">Hired from</label><x-kit.date-field id="report-hired-from" wire:model.live="filters.hiredFrom" aria-label="Hired from" /></div>
-            <div class="space-y-1.5"><label for="report-hired-to" class="text-sm font-medium">Hired through</label><x-kit.date-field id="report-hired-to" wire:model.live="filters.hiredTo" aria-label="Hired through" /></div>
+            <div class="space-y-1.5"><label for="report-hired-from" class="text-sm font-medium">Hired From</label><x-kit.date-field id="report-hired-from" wire:model.live="filters.hiredFrom" aria-label="Hired from" /></div>
+            <div class="space-y-1.5"><label for="report-hired-to" class="text-sm font-medium">Hired Through</label><x-kit.date-field id="report-hired-to" wire:model.live="filters.hiredTo" aria-label="Hired through" /></div>
             @if ($view === 'analysis')
-                <x-kit.select label="Group employees by" wire:model.live="analysisFilters.groupBy" aria-label="Analysis grouping">
+                <x-kit.select label="Group Employees By" wire:model.live="analysisFilters.groupBy" aria-label="Analysis grouping">
                     @foreach ($analysisGroups as $key => $label)<flux:select.option :value="$key">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
-                <x-kit.select label="Cross-tabulate with" wire:model.live="analysisFilters.crossTab" aria-label="Analysis cross-tabulation">
+                <x-kit.select label="Cross-Tabulate With" wire:model.live="analysisFilters.crossTab" aria-label="Analysis cross-tabulation">
                     @foreach ($analysisCrossTabs as $key => $label)<flux:select.option :value="$key">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
             @else
-                <x-kit.select label="Sort by" wire:model.live="sortKey" aria-label="Sort employees by">
+                <x-kit.select label="Sort By" wire:model.live="sortKey" aria-label="Sort employees by">
                     @foreach ($sortOptions as $key => $label)<flux:select.option :value="$key">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
                 <x-kit.select label="Order" wire:model.live="sortDir" aria-label="Employee sort order">
@@ -57,10 +57,10 @@
     </details>
 @elseif ($type === 'attendance-reports' && $view !== 'details')
     <details class="hris-card" wire:ignore.self wire:key="attendance-more-filters-{{ $view }}">
-        <summary class="cursor-pointer px-5 py-3 text-sm font-medium focus-visible:outline-primary">More filters</summary>
+        <summary class="cursor-pointer px-5 py-3 text-sm font-medium focus-visible:outline-primary">More Filters</summary>
         <div class="grid gap-4 border-t border-border p-5 sm:grid-cols-2 xl:grid-cols-4">
             @if ($view === 'summary')
-                <x-kit.select label="Rank by" wire:model.live="sortKey" aria-label="Rank attendance by">
+                <x-kit.select label="Rank By" wire:model.live="sortKey" aria-label="Rank attendance by">
                     @foreach ($sortOptions as $key => $label)<flux:select.option :value="$key">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
                 <x-kit.select label="Order" wire:model.live="sortDir" aria-label="Attendance sort order">
@@ -68,7 +68,7 @@
                     <flux:select.option value="asc">Lowest first</flux:select.option>
                 </x-kit.select>
                 @if ($sortKey !== 'employee')
-                    <flux:input :label="str_ends_with($sortKey, '_minutes') ? 'At least this many minutes' : 'At least this many days'" type="number" min="0" step="1" wire:model.live.debounce.350ms="filters.minimum" />
+                    <flux:input :label="str_ends_with($sortKey, '_minutes') ? 'At Least This Many Minutes' : 'At Least This Many Days'" type="number" min="0" step="1" wire:model.live.debounce.350ms="filters.minimum" />
                 @endif
                 <x-kit.select label="Show" wire:model.live="filters.limit" aria-label="Attendance result limit">
                     <flux:select.option value="all">All matching employees</flux:select.option>

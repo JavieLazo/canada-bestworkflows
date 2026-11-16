@@ -96,7 +96,7 @@ it('allows management to list download and manage official documents including t
     expect(app(EmployeeDocuments::class)->page($actor, $employee->id, 1, 20)->total())->toBe(1);
     $this->actingAs($manager)->get(route('employees.documents.download', $document->id))
         ->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
-    Livewire::test(Documents::class, ['employeeId' => $employee->id])->assertSee('Official record')->assertSee('Add document');
+    Livewire::test(Documents::class, ['employeeId' => $employee->id])->assertSee('Official record')->assertSee('Add Document');
     $this->get(route('employees.documents.export', ['employee' => $employee->id]))->assertOk();
     app(DeleteDocument::class)->handle($actor, $employee->id, $document->id);
     expect(EmployeeDocument::query()->count())->toBe(0);
@@ -270,7 +270,7 @@ it('pins profile history to the linked employee after client filter changes', fu
     $owner = recordDocsUser($employee, [ModuleCode::PROFILE, ModuleCode::EMPLOYEES], true);
     $this->actingAs($owner);
     Livewire::test(History::class, ['own' => true])->set('employeeId', $other->id)
-        ->assertSet('employeeId', $employee->id)->assertDontSee('All employees');
+        ->assertSet('employeeId', $employee->id)->assertDontSee('All Employees');
 });
 
 it('keeps Documents out of Profile mode even for a manager linked to the employee', function () {

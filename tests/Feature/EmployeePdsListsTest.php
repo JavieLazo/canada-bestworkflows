@@ -271,24 +271,24 @@ it('validates each list\'s fields with their messages', function (string $list, 
         ->and(implode("\n", PdsLists::errors($list, $changes + pdslistRow($list))))->toContain($message)
         ->and(pdslistCount($list))->toBe(0);
 })->with([
-    'a school with no name' => ['education', ['school' => '  '], 'Name of school is required.'],
+    'a school with no name' => ['education', ['school' => '  '], 'Name of School is required.'],
     'a level off the list' => ['education', ['level' => 'DOCTORATE'], 'Level must be one of the listed options.'],
-    'a two-digit year' => ['education', ['attended_from' => '15'], 'Attended from must be a four-digit year, like 2015.'],
-    'a year before 1900' => ['education', ['year_graduated' => '1899', 'attended_from' => ''], 'Year graduated must be a four-digit year, like 2015.'],
+    'a two-digit year' => ['education', ['attended_from' => '15'], 'Attended From must be a four-digit year, like 2015.'],
+    'a year before 1900' => ['education', ['year_graduated' => '1899', 'attended_from' => ''], 'Year Graduated must be a four-digit year, like 2015.'],
     'attended to before attended from' => ['education', ['attended_to' => '2007'], 'Attended to cannot be before Attended from.'],
     'graduated before attended from' => ['education', ['year_graduated' => '2006', 'attended_to' => '2008'], 'Year graduated cannot be before Attended from.'],
     'a previous job ending before it began' => ['experience', ['date_to' => '2012-12-31'], 'To cannot be before From.'],
     'a previous job with no start' => ['experience', ['date_from' => ''], 'From is required.'],
-    'a salary with a thousands comma' => ['experience', ['monthly_salary' => '1,000.555'], 'Monthly salary must be a positive number.'],
-    'a negative salary' => ['experience', ['monthly_salary' => '-5'], 'Monthly salary must be a positive number.'],
-    'a salary with three decimals' => ['experience', ['monthly_salary' => '1000.555'], 'Monthly salary must be a plain amount with at most two decimals, like 25000.50.'],
-    'a Gov\'t service off the list' => ['experience', ['government_service' => 'Yes'], 'Gov\'t service must be one of the listed options.'],
+    'a salary with a thousands comma' => ['experience', ['monthly_salary' => '1,000.555'], 'Monthly Salary must be a positive number.'],
+    'a negative salary' => ['experience', ['monthly_salary' => '-5'], 'Monthly Salary must be a positive number.'],
+    'a salary with three decimals' => ['experience', ['monthly_salary' => '1000.555'], 'Monthly Salary must be a plain amount with at most two decimals, like 25000.50.'],
+    'a Gov\'t service off the list' => ['experience', ['government_service' => 'Yes'], 'Gov\'t Service must be one of the listed options.'],
     'hours over the column' => ['training', ['hours' => '10000'], 'Hours must be at most'],
     'a training ending before it began' => ['training', ['date_to' => '2023-03-01'], 'To cannot be before From.'],
-    'a date of exam that is no calendar day' => ['eligibility', ['exam_date' => '2013-02-30'], 'Date of exam / conferment must be a real calendar date.'],
+    'a date of exam that is no calendar day' => ['eligibility', ['exam_date' => '2013-02-30'], 'Date of Exam / Conferment must be a real calendar date.'],
     'a licence valid until before the exam' => ['eligibility', ['license_valid_until' => '2012-01-01'], 'Valid until cannot be before the date of exam.'],
     'an eligibility name over its column' => ['eligibility', ['name' => str_repeat('x', 256)], 'Eligibility must be at most 255 characters.'],
-    'a nature of work over its column' => ['voluntary', ['position' => str_repeat('x', 151)], 'Position / nature of work must be at most 150 characters.'],
+    'a nature of work over its column' => ['voluntary', ['position' => str_repeat('x', 151)], 'Position / Nature of Work must be at most 150 characters.'],
     'voluntary work ending before it began' => ['voluntary', ['date_to' => '2014-01-01'], 'To cannot be before From.'],
     'a tampered array for a required text' => ['training', ['title' => ['x']], 'Title is required.'],
 ]);
@@ -536,8 +536,8 @@ it('names the first failing hire row by its place in the wizard and drops the dr
     // failing row is the third one on the step, and is named so.
     expect($blank)->toMatchArray(['level' => 'SECONDARY', 'school' => ''])
         ->and(PdsLists::blankRow('education', 'PHD')['level'])->toBe('ELEMENTARY')
-        ->and(PdsLists::rowsError('education', $rows))->toBe('School 3: Name of school is required.')
-        ->and(PdsLists::rowErrors('education', $rows))->toBe([2 => ['school' => 'Name of school is required.']])
+        ->and(PdsLists::rowsError('education', $rows))->toBe('School 3: Name of School is required.')
+        ->and(PdsLists::rowErrors('education', $rows))->toBe([2 => ['school' => 'Name of School is required.']])
         ->and(PdsLists::rowErrors('education', [$blank, pdslistRow('education')]))->toBe([])
         ->and(PdsLists::rowsError('education', [$blank, pdslistRow('education')]))->toBeNull()
         ->and(PdsLists::rows('education', [$blank, pdslistRow('education')]))->toBe([PdsLists::columns('education', pdslistRow('education'))])

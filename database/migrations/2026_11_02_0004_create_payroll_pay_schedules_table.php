@@ -115,11 +115,13 @@ return new class extends Migration
                     }
                 }
             }
+            // MySQL/MariaDB drop a key by its name; sqlite only by its column.
+            $mysql = $this->isMySql();
             if (Schema::hasForeignKey('payroll_runs', ['released_by'])) {
-                Schema::table('payroll_runs', static fn (Blueprint $t) => $t->dropForeign(['released_by']));
+                Schema::table('payroll_runs', static fn (Blueprint $t) => $t->dropForeign($mysql ? 'runs_released_by_fk' : ['released_by']));
             }
             if (Schema::hasForeignKey('payroll_runs', ['schedule_id'])) {
-                Schema::table('payroll_runs', static fn (Blueprint $t) => $t->dropForeign(['schedule_id']));
+                Schema::table('payroll_runs', static fn (Blueprint $t) => $t->dropForeign($mysql ? 'runs_schedule_fk' : ['schedule_id']));
             }
             if (Schema::hasIndex('payroll_runs', 'runs_schedule_idx')) {
                 Schema::table('payroll_runs', static fn (Blueprint $t) => $t->dropIndex('runs_schedule_idx'));

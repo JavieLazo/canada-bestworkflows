@@ -97,10 +97,10 @@ it('weights grouped rates by qualified opportunities and excludes dates before e
     $criteria = attendanceAnalyticsCriteria([$one->id, $two->id]);
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), $criteria);
     $row = array_combine($report->columns, $report->rows[0]);
-    expect($row['Qualified days'])->toBe('3')->and($row['Completed days'])->toBe('2')
-        ->and($row['Completion rate'])->toBe('66.7% (2/3)')->and($row['Late rate'])->toBe('50.0% (1/2)')
-        ->and($row['Absence rate'])->toBe('33.3% (1/3)')
-        ->and(attendanceAnalyticsSection($report, 'Coverage excluded from attendance rates'))->toContain(['Outside recorded employment', '1', '1'])
+    expect($row['Qualified Days'])->toBe('3')->and($row['Completed Days'])->toBe('2')
+        ->and($row['Completion Rate'])->toBe('66.7% (2/3)')->and($row['Late Rate'])->toBe('50.0% (1/2)')
+        ->and($row['Absence Rate'])->toBe('33.3% (1/3)')
+        ->and(attendanceAnalyticsSection($report, 'Coverage Excluded from Attendance Rates'))->toContain(['Outside recorded employment', '1', '1'])
         ->and($report->charts[0]['points'])->toBe([['label' => '2026-09-28', 'value' => 15.0], ['label' => '2026-09-29', 'value' => 0.0]])
         ->and($report->charts[1]['points'])->toBe([['label' => 'Engineer', 'value' => 1.0]]);
     $roundTrip = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), ReportCriteria::from($criteria->query()));
@@ -115,8 +115,8 @@ it('keeps flexible attendance out of the lateness denominator while measuring it
     attendanceAnalyticsPunch($flex, '2026-09-28', '10:00:00');
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria([$fixed->id, $flex->id], ['to' => '2026-09-28']));
     $row = array_combine($report->columns, $report->rows[0]);
-    expect($row['Completion rate'])->toBe('100.0% (2/2)')->and($row['Late rate'])->toBe('100.0% (1/1)')
-        ->and($row['Undertime rate'])->toBe('50.0% (1/2)')->and($row['Undertime'])->toBe('1h');
+    expect($row['Completion Rate'])->toBe('100.0% (2/2)')->and($row['Late Rate'])->toBe('100.0% (1/1)')
+        ->and($row['Undertime Rate'])->toBe('50.0% (1/2)')->and($row['Undertime'])->toBe('1h');
 });
 
 it('separates approved half day paid leave unpaid leave and official business without manufacturing attendance rates', function () {
@@ -132,12 +132,12 @@ it('separates approved half day paid leave unpaid leave and official business wi
     Holiday::create(['code' => 'ANL-HOL', 'name' => 'Analysis holiday', 'date' => '2026-10-01', 'schedule' => 'ONE_TIME', 'type' => 'REGULAR', 'percent' => 100]);
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria([$employee->id], ['to' => '2026-10-03']));
     $row = array_combine($report->columns, $report->rows[0]);
-    expect($row['Qualified days'])->toBe('0')->and($row['Completion rate'])->toBe('N/A (0 days)')
-        ->and($row['Late rate'])->toBe('N/A (0 days)')->and($row['Absence days'])->toBe('0');
-    expect(attendanceAnalyticsSection($report, 'Approved leave and official business'))->toContain(
+    expect($row['Qualified Days'])->toBe('0')->and($row['Completion Rate'])->toBe('N/A (0 days)')
+        ->and($row['Late Rate'])->toBe('N/A (0 days)')->and($row['Absence Days'])->toBe('0');
+    expect(attendanceAnalyticsSection($report, 'Approved Leave and Official Business'))->toContain(
         ['Vacation — paid', '0.5', '1'], ['Sick — unpaid', '1', '1'], ['Official business', '1', '1'],
     );
-    expect(attendanceAnalyticsSection($report, 'Coverage excluded from attendance rates'))->toContain(
+    expect(attendanceAnalyticsSection($report, 'Coverage Excluded from Attendance Rates'))->toContain(
         ['Approved leave', '2', '1'], ['Approved official business', '1', '1'], ['Holiday', '1', '1'], ['Ongoing day', '1', '1'], ['Future date', '1', '1'],
     );
     expect(json_encode($report))->not->toContain('Private reason');
@@ -153,7 +153,7 @@ it('excludes uncertain and unassigned schedules and dates after recorded separat
         RosterScheduleChange::create(['employee_id' => $employee->id, 'source' => 'BASELINE', 'status' => 'ACTIVE', 'assumed_before' => '2026-10-01', 'may_differ_through' => $mayDiffer]);
     }
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria([$assumed->id, $changed->id, $none->id, $left->id]));
-    $exclusions = attendanceAnalyticsSection($report, 'Coverage excluded from attendance rates');
+    $exclusions = attendanceAnalyticsSection($report, 'Coverage Excluded from Attendance Rates');
     expect($exclusions)->toContain(['Assumed schedule history', '2', '1'], ['Schedule history may differ', '2', '1'], ['No assigned schedule', '2', '1'], ['Outside recorded employment', '1', '1'])
         ->and($report->rows[0][1])->toBe('1');
 });
@@ -163,7 +163,7 @@ it('keeps an overnight day provisional until its scheduled close even after midn
     $employee = attendanceAnalyticsEmployee('Night', shift: ['start_time' => '22:00:00', 'end_time' => '06:00:00', 'break_minutes' => 0]);
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria([$employee->id], ['from' => '2026-09-30', 'to' => '2026-09-30']));
     expect($report->rows[0][1])->toBe('0')
-        ->and(attendanceAnalyticsSection($report, 'Coverage excluded from attendance rates'))->toBe([['Ongoing day', '1', '1']]);
+        ->and(attendanceAnalyticsSection($report, 'Coverage Excluded from Attendance Rates'))->toBe([['Ongoing day', '1', '1']]);
 });
 
 it('shows exact repeated lateness dates and keeps a closed incomplete day inside the absence numerator', function () {
@@ -174,11 +174,11 @@ it('shows exact repeated lateness dates and keeps a closed incomplete day inside
     }
     attendanceAnalyticsPunch($employee, '2026-10-01', '08:00:00', null);
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria([$employee->id], ['to' => '2026-10-01']));
-    expect(attendanceAnalyticsSection($report, 'Repeated lateness — at least 3 qualifying days'))->toBe([
+    expect(attendanceAnalyticsSection($report, 'Repeated Lateness — At Least 3 Qualifying Days'))->toBe([
         ['ID-Repeated', 'Analysis Repeated', '3', '3', '30m', '2026-09-28, 2026-09-29, 2026-09-30'],
     ]);
     $row = array_combine($report->columns, $report->rows[0]);
-    expect($row['Absence days'])->toBe('1')->and($row['Incomplete days'])->toBe('1')->and($row['Absence rate'])->toBe('25.0% (1/4)');
+    expect($row['Absence Days'])->toBe('1')->and($row['Incomplete Days'])->toBe('1')->and($row['Absence Rate'])->toBe('25.0% (1/4)');
 });
 
 it('compares the same selected cohort over equal preceding calendar periods with explicit rate changes', function () {
@@ -191,7 +191,7 @@ it('compares the same selected cohort over equal preceding calendar periods with
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria([$employee->id], [
         'from' => '2026-09-30', 'to' => '2026-10-01', 'filters' => ['groupBy' => 'position', 'compare' => 'previous', 'threshold' => '3'],
     ]));
-    expect(attendanceAnalyticsSection($report, 'Previous-period comparison'))->toBe([
+    expect(attendanceAnalyticsSection($report, 'Previous-Period Comparison'))->toBe([
         ['Engineer', '2', '2', '50.0% (1/2)', '100.0% (2/2)', '-50.0 pp', '100.0% (1/1)', '0.0% (0/2)', '+100.0 pp', '50.0% (1/2)', '0.0% (0/2)', '+50.0 pp'],
     ]);
     expect(json_encode($report))->toContain('2026-09-28 through 2026-09-29')->not->toContain('NotSelected');
@@ -205,8 +205,8 @@ it('limits exception examples explicitly while keeping every qualified absence i
     }
     $report = app(TimekeepingReports::class)->generate(attendanceAnalyticsActor(), attendanceAnalyticsCriteria($ids, ['from' => '2026-09-01', 'to' => '2026-09-30']));
     $row = array_combine($report->columns, $report->rows[0]);
-    expect($row['Qualified days'])->toBe('220')->and($row['Absence days'])->toBe('220')
-        ->and(attendanceAnalyticsSection($report, 'Attendance exceptions to review'))->toHaveCount(200)
+    expect($row['Qualified Days'])->toBe('220')->and($row['Absence Days'])->toBe('220')
+        ->and(attendanceAnalyticsSection($report, 'Attendance Exceptions to Review'))->toHaveCount(200)
         ->and(json_encode($report))->toContain('Showing 200 of 220 employee-days with exceptions');
 });
 

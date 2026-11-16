@@ -342,7 +342,7 @@ it('labels a backfilled baseline as a starting record and never as a hire', func
     $page = ehtlPath($baseline->html());
 
     expect(ehtlTexts($page, EHTL_START.'/@data-event'))->toBe([EmploymentHistoryRecorder::BASELINE])
-        ->and(ehtlTexts($page, EHTL_START)[0])->toContain('Tracking began', 'Starting record', 'Details on file when tracking began', 'which may differ from the details at hire')
+        ->and(ehtlTexts($page, EHTL_START)[0])->toContain('Tracking began', 'Starting Record', 'Details on file when tracking began', 'which may differ from the details at hire')
         ->not->toContain('Employee record created')->not->toContain('Added by')
         // Nothing has changed since, so it is the latest record and starts open.
         ->and(ehtlCount($page, EHTL_START.'[@data-latest]'))->toBe(1)
@@ -351,8 +351,8 @@ it('labels a backfilled baseline as a starting record and never as a hire', func
     $ana = ehtlEmployee();
     $hired = ehtlPath(Livewire::test(History::class)->set('employeeId', $ana->id)->html());
     expect(ehtlTexts($hired, EHTL_START.'/@data-event'))->toBe([EmploymentHistoryRecorder::HIRED])
-        ->and(ehtlTexts($hired, EHTL_START)[0])->toContain('Record created', 'Employee record created', 'Added by')
-        ->not->toContain('Starting record')->not->toContain('Tracking began');
+        ->and(ehtlTexts($hired, EHTL_START)[0])->toContain('Record Created', 'Employee record created', 'Added by')
+        ->not->toContain('Starting Record')->not->toContain('Tracking began');
 });
 
 it('returns no starting record when the oldest stored row is an update', function () {
@@ -401,7 +401,7 @@ it('keeps the all-employees list free of headers, latest marks and starting reco
     expect(ehtlCount($page, EHTL_CHANGE))->toBe(2)
         ->and(ehtlCount($page, EHTL_SUBJECT.'|'.EHTL_START.'|'.EHTL_LATEST))->toBe(0)
         ->and(ehtlCount($page, '//details[@open]'))->toBe(0)
-        ->and(implode(' ', ehtlTexts($page, EHTL_CHANGE.'//summary')))->toContain('Ana Timeline', 'Ben Timeline', 'Position level', 'Monthly rate');
+        ->and(implode(' ', ehtlTexts($page, EHTL_CHANGE.'//summary')))->toContain('Ana Timeline', 'Ben Timeline', 'Position Level', 'Monthly Rate');
 });
 
 it('keeps folded comparisons in the server HTML with only the first single-employee entry open', function () {

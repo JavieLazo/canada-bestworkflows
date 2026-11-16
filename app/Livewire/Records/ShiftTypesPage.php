@@ -340,7 +340,6 @@ class ShiftTypesPage extends Component
 
         $usage = app(ReferenceData::class)->shiftTypeUsage($access);
 
-        // Search and sort: one copy shared with the CSV export.
         $rows = $this->paginateClamped(ShiftTypeRows::list($access, $this->search, $this->sortKey, $this->sortDir));
 
         $editing = $this->editingId !== null ? app(ReferenceData::class)->shiftType(app(Access::class), $this->editingId) : null;

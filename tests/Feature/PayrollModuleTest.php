@@ -148,7 +148,7 @@ it('renders the run list for an actor holding PAYROLL', function () {
 
     $this->get('/payroll')
         ->assertOk()
-        ->assertSee('Payroll list')
+        ->assertSee('Payroll List')
         ->assertSee('No payroll yet. Create one to get started.');
 });
 

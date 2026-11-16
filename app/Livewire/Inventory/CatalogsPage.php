@@ -18,7 +18,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Inventory reference names are managed separately from receipt snapshots. */
-#[Title('Inventory categories and locations')]
+#[Title('Inventory Categories and Locations')]
 class CatalogsPage extends Component
 {
     use WithChangeStamp;

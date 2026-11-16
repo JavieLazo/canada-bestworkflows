@@ -51,38 +51,6 @@ final class DatedChange
     public function __construct(private readonly ScheduleGuard $guard, private readonly ShiftRoster $roster) {}
 
     /**
-     * Run a change for a FILE IMPORT, whose row cannot answer a review. A
-     * change that could not start on the date the row asked for is REFUSED
-     * with the reason — the row names its date instead, so nothing is moved
-     * to another day unseen. What a change affects on the date it does start
-     * — rest-day flips inside a temporary schedule, open payroll drafts
-     * (which the payroll workspace flags) — is accepted, the import's own
-     * preview being the confirmation.
-     *
-     * @template T
-     *
-     * @param  Closure(?string): T  $attempt  runs the command with the confirmation to send
-     * @return T
-     *
-     * @throws ScheduleChangeRefused
-     */
-    public static function forImport(Closure $attempt): mixed
-    {
-        try {
-            return $attempt(null);
-        } catch (ScheduleImpactPending $pending) {
-            $moved = array_intersect_key($pending->impact->effective, $pending->impact->deferred);
-            if ($moved !== []) {
-                $reasons = implode('; ', array_unique($pending->impact->deferred));
-                $next = HrisFormat::date(min($moved));
-                throw new ScheduleChangeRefused('This change can no longer start today: '.$reasons.'. Put '.$next.' or a later date in Effective from to start it then.');
-            }
-
-            return $attempt($pending->impact->token());
-        }
-    }
-
-    /**
      * @param  list<string>  $employeeIds
      * @param  Closure(string, string): bool  $write  (employee id, effective date) => wrote something
      * @param  Closure(): void|null  $prepare  locks the caller takes before any employee (a pattern row)

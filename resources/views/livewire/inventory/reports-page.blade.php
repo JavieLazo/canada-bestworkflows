@@ -1,6 +1,6 @@
 {{-- Reports and CSV share the same selection; totals are labelled as register-wide. --}}
 <div class="space-y-6" wire:poll.60s="pollForChanges">
-    <div><h1 class="text-2xl font-bold tracking-tight">Inventory reports</h1></div>
+    <div><h1 class="text-2xl font-bold tracking-tight">Inventory Reports</h1></div>
     @include('livewire.inventory.partials.tabs', ['activeInventoryTab' => 'reports'])
     <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         @foreach (['stock' => 'In stock', 'issued' => 'Issued', 'exceptions' => 'Condition / count exceptions', 'open_incidents' => 'Open incident reports', 'open_counts' => 'Open counts'] as $key => $label)
@@ -15,7 +15,7 @@
             </x-kit.select>
             <flux:input class="w-full min-w-40 max-w-xs flex-1" aria-label="Search report items" placeholder="Search item code or name" wire:model.live.debounce.250ms="search" />
             <div class="w-full sm:w-60"><livewire:kit.employee-picker :value="$employeeId" name="inventory-report-employee" placeholder="All employees" :key="'inventory-report-employee-'.$employeeId" /></div>
-            @if ($employeeId !== '')<flux:button size="sm" variant="ghost" wire:click="clearEmployee">All employees</flux:button>@endif
+            @if ($employeeId !== '')<flux:button size="sm" variant="ghost" wire:click="clearEmployee">All Employees</flux:button>@endif
             <div class="ml-auto"><x-kit.export-button :href="route('inventory.reports.export', ['report' => $report, 'q' => $search, 'employee' => $employeeId])" /></div>
         </header>
         <div class="hris-table-wrap hris-table-scroll"><table class="hris-table"><thead><tr>@foreach ($columns as $column)<th>{{ $column }}</th>@endforeach</tr></thead><tbody>

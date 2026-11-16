@@ -11,13 +11,13 @@
             </div>
         @elseif ($type === 'employee-list' && $view !== 'analysis')
             <div role="group" aria-label="Start with" class="inline-flex max-w-full flex-wrap items-center gap-1 rounded-lg bg-muted p-1 text-sm text-muted-foreground">
-                @foreach (['directory' => 'Directory', 'profile' => 'Profiles', 'missing' => 'Missing information'] as $key => $label)
+                @foreach (['directory' => 'Directory', 'profile' => 'Profiles', 'missing' => 'Missing Information'] as $key => $label)
                     <button type="button" wire:click="applyPreset('{{ $key }}')" aria-pressed="{{ $preset === $key ? 'true' : 'false' }}"
                         class="rounded-md px-3 py-1.5 font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary {{ $preset === $key ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">{{ $label }}</button>
                 @endforeach
             </div>
         @elseif ($view === 'analysis')
-            <h2 class="text-base font-semibold">Group summary</h2>
+            <h2 class="text-base font-semibold">Group Summary</h2>
         @endif
         <p class="ml-auto text-sm text-muted-foreground"><span class="num">{{ number_format(count($table['rows'])) }}</span> {{ count($table['rows']) === 1 ? 'row' : 'rows' }}</p>
     </header>
@@ -63,7 +63,7 @@
     <x-kit.pagination :paginator="$previewRows" noun="rows" />
     @if ($document->notes !== [])
         <details class="border-t border-border px-5 py-3 text-xs text-muted-foreground">
-            <summary class="cursor-pointer text-sm font-medium text-foreground focus-visible:outline-primary">About these figures</summary>
+            <summary class="cursor-pointer text-sm font-medium text-foreground focus-visible:outline-primary">About These Figures</summary>
             <ol class="mt-2 list-decimal space-y-1 pl-4 leading-relaxed">
                 @foreach ($document->notes as $note)<li>{{ $note }}</li>@endforeach
             </ol>

@@ -47,7 +47,7 @@
                     @endunless
                     <th @if ($compact) class="w-[24%]" @endif>Distance</th>
                     @unless ($compact)
-                        <th>Captured location</th>
+                        <th>Captured Location</th>
                     @endunless
                 </tr>
             </thead>

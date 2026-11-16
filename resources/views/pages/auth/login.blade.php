@@ -6,9 +6,9 @@
     A fresh database exposes the first-administrator setup. Once any account
     exists, subsequent provisioning belongs to User Management.
 --}}
-<x-layouts::auth :title="__('Sign in')">
+<x-layouts::auth :title="__('Sign In')">
     <div class="hris-card p-6 sm:p-8">
-        <h1 class="text-2xl font-bold">Sign in</h1>
+        <h1 class="text-2xl font-bold">Sign In</h1>
         <p class="mt-1 text-sm text-muted-foreground">Use your company email and password.</p>
 
         <x-auth-session-status class="mt-4" :status="session('status')" />
@@ -36,7 +36,7 @@
             />
 
             <flux:button variant="primary" type="submit" class="w-full" data-test="login-button">
-                {{ __('Sign in') }}
+                {{ __('Sign In') }}
             </flux:button>
         </form>
 

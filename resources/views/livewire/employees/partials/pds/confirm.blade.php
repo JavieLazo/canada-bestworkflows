@@ -15,7 +15,7 @@
             <flux:modal.close>
                 <flux:button variant="outline">Cancel</flux:button>
             </flux:modal.close>
-            <flux:button variant="danger" wire:click="deleteConfirmed">{{ $requiresApproval ? 'Request removal' : 'Delete' }}</flux:button>
+            <flux:button variant="danger" wire:click="deleteConfirmed">{{ $requiresApproval ? 'Request Removal' : 'Delete' }}</flux:button>
         </div>
     </div>
 </flux:modal>

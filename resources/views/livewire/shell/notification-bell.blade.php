@@ -38,7 +38,7 @@
                         wire:click="markAllRead"
                         class="inline-flex h-7 cursor-pointer items-center rounded-md px-2 text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
                     >
-                        Mark all read
+                        Mark All Read
                     </button>
                 @endif
             </div>
@@ -84,7 +84,7 @@
                         x-on:click="open = false"
                         class="flex h-9 w-full items-center justify-center gap-1 rounded-md text-xs font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
                     >
-                        Show all notifications
+                        Show All Notifications
                         @include('layouts.app.module-icon', ['icon' => 'chevron-right', 'class' => 'h-3.5 w-3.5'])
                     </a>
                 </div>

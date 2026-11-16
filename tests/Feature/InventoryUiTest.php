@@ -65,7 +65,7 @@ it('requires a manually entered item code and shows field validation before savi
     $component->set('form.code', '  PROP-2026-041  ')->call('saveItem')->assertHasNoErrors()->assertSet('itemDialog', false);
     $item = InventoryItem::query()->sole();
     expect($item->code)->toBe('PROP-2026-041')->not->toBe($item->id);
-    $this->get(route('inventory.items'))->assertOk()->assertSee('Item code')->assertSee('PROP-2026-041')->assertDontSee('System ID');
+    $this->get(route('inventory.items'))->assertOk()->assertSee('Item Code')->assertSee('PROP-2026-041')->assertDontSee('System ID');
 
     $component->call('openAdd')->assertSet('form.code', '')->assertSet('editingId', null)
         ->set('form.code', 'PROP-2026-041')->set('form.name', 'Duplicate tablet')
@@ -105,7 +105,7 @@ it('renders the inventory core surfaces and a frozen printable receipt', functio
     $receipt = app(IssueItems::class)->handle(app(Access::class), [$item], $employee->id, $issuer->id, '2026-02-03', 'UI-MR-'.Str::random(8));
 
     $this->get(route('inventory.items'))->assertOk()->assertSee('Office laptop');
-    $this->get(route('inventory.items.show', ['id' => $item]))->assertOk()->assertSee('Movement history');
+    $this->get(route('inventory.items.show', ['id' => $item]))->assertOk()->assertSee('Movement History');
     $this->get(route('inventory.receipts'))->assertOk()->assertSee('Recipient Inventory');
     $this->get(route('inventory.receipts.show', ['id' => $receipt]))->assertOk()->assertSee('Original items');
     $this->get(route('inventory.catalogs'))->assertOk()->assertSee('Categories &amp; locations', false);
@@ -232,7 +232,7 @@ it('pins all-data Portal holdings and receipts to the signed-in employee', funct
 
     Livewire::test(EmployeeItems::class, ['employeeId' => $foreign->id, 'own' => true])
         ->assertSet('employeeId', $own->id)->assertSee('Own property')->assertDontSee('Foreign property')
-        ->assertDontSee('Issue items')->assertDontSee('Export CSV')
+        ->assertDontSee('Issue Items')->assertDontSee('Export CSV')
         ->call('pollForChanges')->assertDontSee('Export CSV');
     $this->get(route('portal.inventory.receipts.show', ['id' => $ownReceipt]))->assertOk()->assertSee('Own property');
     $this->get(route('portal.inventory.receipts.show', ['id' => $foreignReceipt]))->assertNotFound();
@@ -281,7 +281,7 @@ it('creates a receipt directly from the MR register with paginated serviceable s
     $alreadyIssued = inventoryUiItem('Already issued');
     app(IssueItems::class)->handle(app(Access::class), [$alreadyIssued], $employee->id, $issuer->id, '2026-02-03', 'UI-MR-'.Str::random(8));
 
-    $this->get(route('inventory.receipts'))->assertOk()->assertSee('Issue items');
+    $this->get(route('inventory.receipts'))->assertOk()->assertSee('Issue Items');
     $component = Livewire::test(IssueReceipt::class)->call('open')
         ->assertSet('dialogOpen', true);
     $component->assertViewHas('stockItems', fn ($rows) => $rows->total() === 21 && $rows->getPageName() === 'issueStockPage');

@@ -189,10 +189,10 @@ it('draws the Department column and the filter in the mockup\'s wording and orde
 
     $html = Livewire::test(Index::class)->html();
 
-    expect($html)->toContain('aria-label="Filter by department"')
+    expect($html)->toContain('aria-label="Filter by Department"')
         ->and($html)->toContain('x-on:click="$wire.sortBy(\'department\')"');
 
-    preg_match('/aria-label="Filter by department".*?<\/select>/s', $html, $select);
+    preg_match('/aria-label="Filter by Department".*?<\/select>/s', $html, $select);
     preg_match_all('/<option[^>]*value="([^"]*)"[^>]*>([^<]*)<\/option>/', $select[0] ?? '', $options, PREG_SET_ORDER);
     $labels = array_map(static fn (array $o): string => html_entity_decode($o[2]), $options);
     $nbsp = "\u{00A0}\u{00A0}\u{00A0}";

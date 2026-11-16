@@ -27,9 +27,9 @@
                     <flux:button variant="outline">Cancel</flux:button>
                 </flux:modal.close>
                 @if (! $requiresApproval)
-                    <flux:button variant="outline" wire:click="save(true)">Save &amp; add another</flux:button>
+                    <flux:button variant="outline" wire:click="save(true)">Save &amp; Add Another</flux:button>
                 @endif
-                <flux:button type="submit" variant="primary">{{ $requiresApproval ? 'Submit for approval' : 'Save' }}</flux:button>
+                <flux:button type="submit" variant="primary">{{ $requiresApproval ? 'Submit for Approval' : 'Save' }}</flux:button>
             </div>
         </form>
     </div>

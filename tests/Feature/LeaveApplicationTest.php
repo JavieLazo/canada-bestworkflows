@@ -458,7 +458,7 @@ it('records the recommendation from the review dialog and shows it there', funct
         ->set('recommending', true)
         ->assertSeeHtml('data-recommendation-form')
         ->set('recommendation', 'FOR_DISAPPROVAL')
-        ->assertSee('For disapproval due to')
+        ->assertSee('For Disapproval Due To')
         ->call('recommend')
         ->assertSet('recommendationError', 'Say why disapproval is recommended.')
         ->set('recommendationReason', 'Short of staff that week.')
@@ -467,7 +467,7 @@ it('records the recommendation from the review dialog and shows it there', funct
         ->assertSet('recommendationError', '')
         ->assertSet('detailOpen', true)
         ->assertSeeHtml('data-recommendation-text>For disapproval due to: Short of staff that week.</p>')
-        ->assertSee('Change recommendation…');
+        ->assertSee('Change Recommendation…');
     expect($request->fresh()->status)->toBe('PENDING')
         ->and($request->fresh()->recommendation)->toBe('FOR_DISAPPROVAL');
 

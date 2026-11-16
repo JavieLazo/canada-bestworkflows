@@ -325,7 +325,7 @@ it('shows a leader on no crew their whole project, every task in it and its whol
         ->assertSee('TSK-802')
         ->assertSee('TSK-803')
         ->assertDontSee('TSK-804')
-        ->assertDontSee('Delete project');
+        ->assertDontSee('Delete Project');
 
     $this->get(route('projects.show', $f['project']->id))->assertOk()
         ->assertSee('Harbour Survey')->assertDontSee('Project not found.');
@@ -515,8 +515,8 @@ it('lets a leader plan the project start through ScheduleProject and the reduced
     Livewire::test(Show::class, ['project' => $f['project']->id])
         ->call('openEdit')
         ->assertSet('editing', true)
-        ->assertSee('Plan project start')
-        ->assertDontSee('Save changes')
+        ->assertSee('Plan Project Start')
+        ->assertDontSee('Save Changes')
         ->set('editName', 'Hijacked')
         ->set('editDueDate', '2027-06-30')
         ->set('editManagerId', (string) $f['other']->getKey())

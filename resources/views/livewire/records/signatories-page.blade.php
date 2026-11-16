@@ -42,7 +42,7 @@
                         </fieldset>
                     @endforeach
                     <div class="flex justify-end">
-                        <flux:button type="submit" variant="primary" icon="check">Save signatories</flux:button>
+                        <flux:button type="submit" variant="primary" icon="check">Save Signatories</flux:button>
                     </div>
                 </form>
             @else

@@ -10,7 +10,7 @@
 >
     @if ($employee === null)
         <div class="hris-card p-10 text-center">
-            <h1 class="text-lg font-semibold">Employee not found</h1>
+            <h1 class="text-lg font-semibold">Employee Not Found</h1>
             <p class="mt-2 text-sm text-muted-foreground">
                 This record may have been removed.
                 <a href="{{ route('employees.index') }}" class="text-primary hover:underline">Back to Employee Records</a>
@@ -111,10 +111,10 @@
                             x-data
                             x-on:click="document.getElementById('employee-photo-input').click()"
                         >
-                            {{ $requiresApproval ? 'Change photo' : 'Upload' }}
+                            {{ $requiresApproval ? 'Change Photo' : 'Upload' }}
                         </flux:button>
                         @if ($requiresApproval && $photoUrl)
-                            <flux:button size="sm" variant="ghost" wire:click="stagePortraitRemoval">Remove photo</flux:button>
+                            <flux:button size="sm" variant="ghost" wire:click="stagePortraitRemoval">Remove Photo</flux:button>
                         @endif
                         @endif
                     </div>
@@ -147,7 +147,7 @@
                             class="w-full"
                             wire:click="$set('deleteConfirmOpen', true)"
                         >
-                            Delete employee
+                            Delete Employee
                         </flux:button>
                     </section>
                     @endif
@@ -275,7 +275,7 @@
                         Cancel
                     </flux:button>
                     <flux:button variant="danger" icon="trash" wire:click="deleteEmployee">
-                        Delete employee
+                        Delete Employee
                     </flux:button>
                 </div>
             </div>
@@ -286,14 +286,14 @@
         @if ($requiresApproval)
             <flux:modal wire:model.self="portraitOpen" class="w-full max-w-lg">
                 <form wire:submit="submitPortrait" class="space-y-4" x-init="$el.closest('dialog')?.setAttribute('aria-labelledby', 'portrait-request-heading')">
-                    <flux:heading size="lg" id="portrait-request-heading">{{ $portraitRemoved ? 'Request photo removal' : 'Request photo change' }}</flux:heading>
+                    <flux:heading size="lg" id="portrait-request-heading">{{ $portraitRemoved ? 'Request Photo Removal' : 'Request Photo Change' }}</flux:heading>
                     <p class="text-sm text-muted-foreground">Your current photo remains in use until management approves this request.</p>
                     @if ($photo !== null)
                         <p class="break-words text-sm">Selected: {{ $photo->getClientOriginalName() }}</p>
                     @endif
                     <div class="flex flex-wrap justify-end gap-2">
                         <flux:modal.close><flux:button variant="outline">Cancel</flux:button></flux:modal.close>
-                        <flux:button type="submit" variant="primary">Submit for approval</flux:button>
+                        <flux:button type="submit" variant="primary">Submit for Approval</flux:button>
                     </div>
                 </form>
             </flux:modal>

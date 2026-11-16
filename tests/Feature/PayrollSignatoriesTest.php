@@ -133,7 +133,7 @@ it('sets a slot only for a PAYROLL all-data holder, validates it, audits a chang
 
 it('saves the three slots from the page for a manager and shows them read-only to everyone else', function () {
     psigActor();
-    $this->get('/records/payroll-settings/signatories')->assertOk()->assertSee('Signatories')->assertSee('Save signatories');
+    $this->get('/records/payroll-settings/signatories')->assertOk()->assertSee('Signatories')->assertSee('Save Signatories');
     Livewire::test(SignatoriesPage::class)
         ->set('form.PREPARED.name', 'Pat Analyst')->set('form.PREPARED.designation', 'Finance Analyst')
         ->set('form.CHECKED.name', 'Chris Accountant')->set('form.CHECKED.designation', 'Accountant')
@@ -145,7 +145,7 @@ it('saves the three slots from the page for a manager and shows them read-only t
 
     psigActor(false);
     $this->get('/records/payroll-settings/signatories')->assertOk()
-        ->assertSee('Chris Accountant')->assertSee('Changing them requires Payroll access to all data.')->assertDontSee('Save signatories');
+        ->assertSee('Chris Accountant')->assertSee('Changing them requires Payroll access to all data.')->assertDontSee('Save Signatories');
     Livewire::test(SignatoriesPage::class)->set('form.PREPARED.name', 'Nobody')->call('save');
     expect(PayrollSignatory::query()->where('slot', SignatorySlot::PREPARED)->sole()->name)->toBe('Pat Analyst')
         ->and(AuditLog::query()->where('action', 'SIGNATORY_SET')->count())->toBe(3);

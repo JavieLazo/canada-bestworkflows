@@ -41,7 +41,7 @@
                 wire:model.live.debounce.250ms="search"
             />
 
-            <x-kit.filter-select label="Filter by department" class="w-[13rem]" wire:model.live="department">
+            <x-kit.filter-select label="Filter by Department" class="w-[13rem]" wire:model.live="department">
                 @foreach ($departments as $value => $label)
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                 @endforeach

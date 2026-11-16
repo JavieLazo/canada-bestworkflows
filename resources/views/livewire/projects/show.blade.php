@@ -75,12 +75,12 @@
             <div class="flex shrink-0 items-center gap-3">
                 <flux:button variant="outline" wire:click="openEdit">
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'edit-3', 'class' => 'size-4'])</x-slot:icon>
-                    Edit project
+                    Edit Project
                 </flux:button>
                 @if ($canManage)
                     <flux:button variant="danger" wire:click="$set('deleteConfirmOpen', true)">
                         <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-4'])</x-slot:icon>
-                        Delete project
+                        Delete Project
                     </flux:button>
                 @endif
                 {{-- A status set by hand (ManualProjectStatus): any status,
@@ -143,7 +143,7 @@
                 </span>
                 <span>
                     <span class="num block text-xl font-bold">{{ $reviewCount }}</span>
-                    <span class="text-xs text-muted-foreground">Needs review</span>
+                    <span class="text-xs text-muted-foreground">Needs Review</span>
                 </span>
             </button>
             <button
@@ -157,7 +157,7 @@
                 </span>
                 <span>
                     <span class="num block text-xl font-bold">{{ $overdueCount }}</span>
-                    <span class="text-xs text-muted-foreground">Overdue tasks</span>
+                    <span class="text-xs text-muted-foreground">Overdue Tasks</span>
                 </span>
             </button>
             <button
@@ -171,7 +171,7 @@
                 </span>
                 <span>
                     <span class="num block text-xl font-bold">{{ $dueSoonCount }}</span>
-                    <span class="text-xs text-muted-foreground">Due soon tasks</span>
+                    <span class="text-xs text-muted-foreground">Due Soon Tasks</span>
                 </span>
             </button>
             <button
@@ -185,7 +185,7 @@
                 </span>
                 <span>
                     <span class="num block text-xl font-bold">{{ $unassignedCount }}</span>
-                    <span class="text-xs text-muted-foreground">Unassigned tasks</span>
+                    <span class="text-xs text-muted-foreground">Unassigned Tasks</span>
                 </span>
             </button>
         </section>
@@ -242,7 +242,7 @@
 
         <section class="hris-card overflow-hidden">
             <header class="border-b border-border px-5 py-4">
-                <h2 class="text-base font-bold">Recent activity</h2>
+                <h2 class="text-base font-bold">Recent Activity</h2>
                 <p class="mt-1 text-sm text-muted-foreground">
                     The latest discussion on this project&rsquo;s tasks.
                 </p>
@@ -292,7 +292,7 @@
                 />
                 <flux:button variant="primary" wire:click="$set('adding', true)">
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                    Add task
+                    Add Task
                 </flux:button>
             </div>
         </div>
@@ -306,14 +306,14 @@
                     wire:model.live.debounce.250ms="search"
                 />
 
-                <x-kit.filter-select label="Filter by status" class="w-[13rem]" wire:model.live="status">
+                <x-kit.filter-select label="Filter by Status" class="w-[13rem]" wire:model.live="status">
                     <flux:select.option value="ALL">All statuses</flux:select.option>
                     @foreach (TaskPolicy::STATUSES as $value => $label)
                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                     @endforeach
                 </x-kit.filter-select>
 
-                <x-kit.filter-select label="Filter by assignee" class="w-[13rem]" wire:model.live="assignee">
+                <x-kit.filter-select label="Filter by Assignee" class="w-[13rem]" wire:model.live="assignee">
                     <flux:select.option value="ALL">All assignees</flux:select.option>
                     <flux:select.option value="UNASSIGNED">Unassigned</flux:select.option>
                     @foreach ($holders as $holder)
@@ -321,7 +321,7 @@
                     @endforeach
                 </x-kit.filter-select>
 
-                <x-kit.filter-select label="Filter by queue" class="w-[13rem]" wire:model.live="queue">
+                <x-kit.filter-select label="Filter by Queue" class="w-[13rem]" wire:model.live="queue">
                     <flux:select.option value="ALL">All work</flux:select.option>
                     <flux:select.option value="REVIEW">Needs review</flux:select.option>
                     <flux:select.option value="OVERDUE">Overdue</flux:select.option>
@@ -329,7 +329,7 @@
                     <flux:select.option value="UNASSIGNED">Unassigned</flux:select.option>
                 </x-kit.filter-select>
 
-                <x-kit.filter-select label="Filter by priority" class="w-[13rem]" wire:model.live="priority">
+                <x-kit.filter-select label="Filter by Priority" class="w-[13rem]" wire:model.live="priority">
                     <flux:select.option value="ALL">All priorities</flux:select.option>
                     @foreach (TaskPolicy::PRIORITIES as $value => $label)
                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>

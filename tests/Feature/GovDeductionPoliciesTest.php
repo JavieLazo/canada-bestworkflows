@@ -329,7 +329,7 @@ it('edits an employee\'s contributions and tax on the pay page, in effect at onc
     // "Reset to standard" fills the standard computation; saving replaces the same row.
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->call('startEdit')
-        ->assertSee('Reset to standard')
+        ->assertSee('Reset to Standard')
         ->call('useStandard')
         ->assertSet('form.sss_deduct', true)
         ->assertSet('form.percent.'.$fund->id, '')

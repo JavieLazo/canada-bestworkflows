@@ -14,10 +14,10 @@
     <tr>
         <th>Eligibility</th>
         <th class="text-right">Rating</th>
-        <th>Date of exam</th>
-        <th>Place of exam</th>
-        <th>License no.</th>
-        <th>Valid until</th>
+        <th>Date of Exam</th>
+        <th>Place of Exam</th>
+        <th>License No.</th>
+        <th>Valid Until</th>
         <th class="w-10"><span class="sr-only">Actions</span></th>
     </tr>
 </thead>

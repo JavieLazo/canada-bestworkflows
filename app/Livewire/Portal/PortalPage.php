@@ -49,7 +49,7 @@ use RuntimeException;
 /**
  * My Portal — the port of copems/src/app/(protected)/portal/portal-page.tsx:
  * the employee self-service landing. Its tabs hold the punch station and
- * "My punches" feed, read-only own attendance, the own schedule
+ * "My Punches" feed, read-only own attendance, the own schedule
  * (Portal\MySchedule), leave/OB filing and requests, posted payslips with
  * their printable detail, and the caller's issued items.
  *

@@ -55,7 +55,7 @@
                 {{ PayrollRunKind::LABELS[PayrollRunKind::REGULAR] }}
             </flux:button>
             <h1 class="text-2xl font-bold tracking-tight">
-                {{ $run ? $run->name : 'Create payroll' }}
+                {{ $run ? $run->name : 'Create Payroll' }}
                 @if ($run)
                     <span class="{{ $finalized ? 'pill pill-success' : 'pill pill-warning' }} ml-3 align-middle">
                         {{ $run->status }}
@@ -98,7 +98,7 @@
             @if ($run && ! $finalized)
                 @if ($reviewRequired)
                     <flux:button variant="primary" icon="arrow-path" wire:click="reviewChanges" wire:loading.attr="disabled">
-                        Review updated payroll
+                        Review Updated Payroll
                     </flux:button>
                 @else
                     <flux:button
@@ -118,7 +118,7 @@
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-end gap-4 border-b border-border px-5 py-4">
             <div class="min-w-[14rem] flex-1 space-y-2">
-                <flux:label>Payroll name</flux:label>
+                <flux:label>Payroll Name</flux:label>
                 <flux:input
                     placeholder="e.g. August 2026 — 1st cut-off"
                     wire:model.live.debounce.500ms="name"
@@ -126,11 +126,11 @@
                 />
             </div>
             <div class="w-[11rem] space-y-2">
-                <flux:label>Period from</flux:label>
+                <flux:label>Period From</flux:label>
                 <x-kit.date-field wire:model.live="start" :disabled="$finalized" aria-label="Period from" />
             </div>
             <div class="w-[11rem] space-y-2">
-                <flux:label>Period to</flux:label>
+                <flux:label>Period To</flux:label>
                 <x-kit.date-field wire:model.live="end" :disabled="$finalized" aria-label="Period to" />
             </div>
             {{-- The counted date is not a field: a draft is counted through yesterday
@@ -142,7 +142,7 @@
                  subtitle shows the pay date. The properties stay for the commands. --}}
             @if (! $finalized)
                 <flux:button variant="primary" icon="plus" wire:click="openPicker">
-                    Add employee
+                    Add Employee
                 </flux:button>
             @endif
         </header>
@@ -286,7 +286,7 @@
                     for {{ count($leaveCancellationWarnings) === 1 ? '1 employee' : count($leaveCancellationWarnings).' employees' }} since the last save. Review before finalizing.
                 </p>
                 <details wire:ignore.self class="mt-1 text-sm">
-                    <summary class="cursor-pointer text-xs font-medium text-primary">Show details</summary>
+                    <summary class="cursor-pointer text-xs font-medium text-primary">Show Details</summary>
                     <ul class="mt-2 list-disc space-y-1 ps-5">
                         @foreach ($leaveCancellationWarnings as $warning)
                             <li wire:key="leave-cancelled-{{ $warning['employee_id'] }}">
@@ -311,15 +311,15 @@
                     <dd class="num mt-1 text-xl font-bold">{{ $lineCount }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gross pay</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gross Pay</dt>
                     <dd class="num mt-1 text-xl font-bold">{{ PayrollData::peso($totals['gross_pay']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total deductions</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Deductions</dt>
                     <dd class="num mt-1 text-xl font-bold text-danger">{{ PayrollData::peso($totals['total_deductions']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
-                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net pay</dt>
+                    <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net Pay</dt>
                     <dd class="num mt-1 text-xl font-bold text-success">{{ PayrollData::peso($totals['net_pay']) }}</dd>
                 </div>
             </dl>
@@ -398,7 +398,7 @@
                         <th class="text-right">Leave Pay</th>
                         <th class="text-right">Other Earnings</th>
                         {{-- The settlement of days paid in advance on an earlier payroll, positive or negative. --}}
-                        <th class="text-right">Prior Cut-off Adjustment</th>
+                        <th class="text-right">Prior Cut-Off Adjustment</th>
                         {{-- Incentives and bonuses, taxed and tax-exempt together. --}}
                         <th class="text-right">Incentives</th>
                         <th class="text-right">Gross Pay</th>
@@ -843,7 +843,7 @@
         >
             <div class="space-y-4">
                 <div class="space-y-1">
-                    <flux:heading size="lg" id="recurring-heading">Recurring deductions &amp; allowances · {{ PayrollData::employeeName($recurringEmployee) }}</flux:heading>
+                    <flux:heading size="lg" id="recurring-heading">Recurring Deductions &amp; Allowances · {{ PayrollData::employeeName($recurringEmployee) }}</flux:heading>
                     <flux:text class="text-sm text-muted-foreground">
                         Proposed on every payroll they are due on. Skip one to leave it off this payroll only; a typed amount in its cell replaces the proposal.
                     </flux:text>
@@ -875,7 +875,7 @@
                                 <flux:checkbox
                                     :checked="$line['skipped']"
                                     wire:click="toggleRecurringSkip('{{ $line['id'] }}')"
-                                    label="Skip on this payroll"
+                                    label="Skip on This Payroll"
                                 />
                             @endif
                         </li>
@@ -905,7 +905,7 @@
         <div class="space-y-4" data-incentives-dialog>
             <div class="space-y-1.5">
                 <h2 id="incentives-heading" class="pr-8 text-lg font-semibold leading-none tracking-tight">
-                    Incentives and bonuses
+                    Incentives and Bonuses
                     @if ($incentivesEmployee)
                         <span class="text-muted-foreground">· {{ PayrollData::employeeName($incentivesEmployee) }}</span>
                     @endif
@@ -945,7 +945,7 @@
 
             <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
                 <flux:link :href="route('records.incentive-types')" wire:navigate class="text-sm">
-                    Manage incentive types
+                    Manage Incentive Types
                 </flux:link>
                 <div class="flex gap-2">
                     <flux:button variant="ghost" wire:click="$set('incentivesOpen', false)">

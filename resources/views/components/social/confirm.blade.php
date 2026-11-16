@@ -4,7 +4,7 @@
     and the action only runs on a yes:
 
         @php($ask = ['title' => 'Leave Book Club?', 'body' => 'You can join again whenever you like.',
-                     'confirm' => 'Leave group', 'danger' => true, 'call' => ['leave', $group->id]])
+                     'confirm' => 'Leave Group', 'danger' => true, 'call' => ['leave', $group->id]])
         <flux:menu.item x-on:click="$dispatch('social-confirm', @js($ask))">Leave group</flux:menu.item>
 
     `call` is the page's Livewire action and what to pass it. The dialog opens

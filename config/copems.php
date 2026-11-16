@@ -11,6 +11,12 @@ return [
     // Current employer label; frozen historical records keep their own copy.
     'company_name' => env('COMPANY_NAME', env('APP_NAME', 'BestWorkflows')),
 
+    // Where the header's App link downloads the eDTR mobile app from: a full
+    // address or a path on this host. The app file is uploaded by the
+    // operator, never shipped in a release, so the link is drawn only once
+    // this names where it is.
+    'mobile_app_url' => env('BESTWORKFLOWS_MOBILE_APP_URL', env('COPEMS_MOBILE_APP_URL')),
+
     // Livewire poll cadence of the EDTR live feed, Portal "My punches" and
     // the open Chat page, in seconds.
     'poll_feed' => (int) env('BESTWORKFLOWS_POLL_FEED', env('COPEMS_POLL_FEED', 15)),

@@ -76,7 +76,7 @@
                 icon="plus"
                 x-on:click="showForm = true"
             >
-                {{ __('Add passkey') }}
+                {{ __('Add Passkey') }}
             </flux:button>
         </div>
     </template>
@@ -84,7 +84,7 @@
     <template x-if="supported && showForm">
         <div class="space-y-4 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-4">
             <flux:input
-                label="{{ __('Passkey name') }}"
+                label="{{ __('Passkey Name') }}"
                 x-model="name"
                 placeholder="{{ __('e.g., MacBook Pro, iPhone') }}"
                 x-on:keydown.enter.prevent="register()"

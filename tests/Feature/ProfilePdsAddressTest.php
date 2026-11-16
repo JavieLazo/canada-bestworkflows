@@ -159,7 +159,7 @@ it('shows citizenship and statutory identifiers as part of the full own record',
         ->assertSee('0111-2222333-4')
         ->assertSee('1234-5678-9012-3456')
         ->call('startEdit', 'statutory')
-        ->assertSee('Submit for approval');
+        ->assertSee('Submit for Approval');
 });
 
 it('keeps all own reads and proposals pinned even when a manager supplies another employee id', function () {

@@ -44,7 +44,7 @@
 
         <div class="space-y-2">
             <div class="flex min-h-5 items-center">
-                <flux:label for="punch-site">{{ $wfhToday ? 'Location today' : 'Work site' }}</flux:label>
+                <flux:label for="punch-site">{{ $wfhToday ? 'Location Today' : 'Work Site' }}</flux:label>
             </div>
             {{-- Today's place, resolved by the roster (RosterLocations::forStation):
                  a Work from home day has no site to pick or check; an onsite day
@@ -76,7 +76,7 @@
 
         @if (! $selfService)
             <div class="space-y-2">
-                <flux:label>Punch source</flux:label>
+                <flux:label>Punch Source</flux:label>
                 <x-kit.select wire:model.live="source" aria-label="Punch source">
                     @foreach (Hris::SOURCES as $s)
                         <flux:select.option value="{{ $s['value'] }}">{{ $s['label'] }}</flux:select.option>

@@ -71,7 +71,7 @@ new class extends Component {
                 aria-expanded="false"
                 aria-controls="recovery-codes-section"
             >
-                {{ __('View recovery codes') }}
+                {{ __('View Recovery Codes') }}
             </flux:button>
 
             <flux:button
@@ -83,7 +83,7 @@ new class extends Component {
                 aria-expanded="true"
                 aria-controls="recovery-codes-section"
             >
-                {{ __('Hide recovery codes') }}
+                {{ __('Hide Recovery Codes') }}
             </flux:button>
 
             @if (filled($recoveryCodes))
@@ -93,7 +93,7 @@ new class extends Component {
                     variant="filled"
                     wire:click="regenerateRecoveryCodes"
                 >
-                    {{ __('Regenerate codes') }}
+                    {{ __('Regenerate Codes') }}
                 </flux:button>
             @endif
         </div>

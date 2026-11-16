@@ -40,7 +40,7 @@
                     </dl>
                 @endif
                 <section class="reports-sheet-frame">
-                    <div class="reports-sheet-band"><h3>Attendance, day by day</h3><span>Sheet <span class="num">{{ $loop->iteration }}</span> of <span class="num">{{ count($document->sections) }}</span></span></div>
+                    <div class="reports-sheet-band"><h3>Attendance, Day by Day</h3><span>Sheet <span class="num">{{ $loop->iteration }}</span> of <span class="num">{{ count($document->sections) }}</span></span></div>
                     @include('livewire.reports.partials.sheet-table', ['columns' => $section['columns'], 'reportRows' => $section['rows'], 'totals' => $section['totals'] ?? [], 'numericColumns' => $section['numericColumns'] ?? [], 'tableTitle' => $section['title'], 'printTable' => 'main'])
                 </section>
                 @php $sheetNotes = array_values(array_filter($section['notes'] ?? [], static fn (string $note): bool => ! str_starts_with($note, 'Position: '))); @endphp
@@ -50,7 +50,7 @@
                 <div class="reports-sheet-end">
                     <div class="reports-sheet-sign" aria-label="Signatures" data-print-part="sign">
                         <div><p>Certified true and correct:</p><div></div><p>{{ collect($section['identity'] ?? [])->firstWhere('label', 'Employee')['value'] ?? "\u{00A0}" }}</p><p>Employee</p></div>
-                        <div><p>Verified by:</p><div></div><p>&nbsp;</p><p>Head of office</p></div>
+                        <div><p>Verified by:</p><div></div><p>&nbsp;</p><p>Head of Office</p></div>
                     </div>
                     <p class="reports-sheet-foot"><span>Times are as recorded in the Daily Time Record.</span><span>Generated {{ $generatedAt }}</span></p>
                 </div>
@@ -111,7 +111,7 @@
             @else
                 <section class="reports-sheet-frame" data-print-part="main">
                     <div class="reports-sheet-band">
-                        <h3>{{ $printAnalysis ? 'Group summary' : Str::of($catalog[$type]['lead'])->before('.') }}</h3>
+                        <h3>{{ $printAnalysis ? 'Group Summary' : Str::of($catalog[$type]['lead'])->before('.') }}</h3>
                         <span><span class="num">{{ number_format(count($document->rows)) }}</span> {{ count($document->rows) === 1 ? 'row' : 'rows' }}</span>
                     </div>
                     @include('livewire.reports.partials.sheet-table', ['columns' => $document->columns, 'reportRows' => $document->rows, 'totals' => $document->totals, 'numericColumns' => $document->numericColumns, 'tableTitle' => $document->title, 'printTable' => 'main'])
@@ -141,7 +141,7 @@
 </div>
 @if ($sheets && $document->notes !== [])
     <details class="hris-card mt-4 px-5 py-3 text-xs text-muted-foreground print:hidden">
-        <summary class="cursor-pointer text-sm font-medium text-foreground focus-visible:outline-primary">About these figures</summary>
+        <summary class="cursor-pointer text-sm font-medium text-foreground focus-visible:outline-primary">About These Figures</summary>
         <ol class="mt-2 list-decimal space-y-1 pl-4 leading-relaxed">
             @foreach ($document->notes as $note)<li>{{ $note }}</li>@endforeach
         </ol>

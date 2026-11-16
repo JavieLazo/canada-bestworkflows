@@ -32,20 +32,20 @@
         : [
             'title' => 'Leave '.$group->name.'?',
             'body' => $group->private ? "It's private, so getting back in takes a yes from its owner or a moderator." : 'You can join again whenever you like.',
-            'confirm' => 'Leave group',
+            'confirm' => 'Leave Group',
             'danger' => true,
             'call' => ['leave', $group->id],
         ];
     $askWithdraw = [
         'title' => 'Withdraw your request to join '.$group->name.'?',
         'body' => 'You can ask again later.',
-        'confirm' => 'Withdraw request',
+        'confirm' => 'Withdraw Request',
         'call' => ['leave', $group->id],
     ];
     $askDelete = [
         'title' => 'Delete '.$group->name.'?',
         'body' => "Every post in it goes too. This can't be undone, and it's recorded in the audit trail.",
-        'confirm' => 'Delete group',
+        'confirm' => 'Delete Group',
         'danger' => true,
         'call' => ['deleteGroup'],
     ];
@@ -58,7 +58,7 @@
         class="inline-flex cursor-pointer items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
     >
         <flux:icon.arrow-left class="size-4" />
-        All posts
+        All Posts
     </button>
 
     <div class="hris-card">
@@ -86,7 +86,7 @@
             <div class="flex shrink-0 items-center gap-1.5">
                 @if ($group->joined())
                     <flux:button size="sm" icon="user-plus" wire:click="openPeople">
-                        <span class="max-sm:sr-only">Add people</span>
+                        <span class="max-sm:sr-only">Add People</span>
                     </flux:button>
                 @elseif ($group->requested())
                     <flux:button size="sm" icon="clock" x-on:click="$dispatch('social-confirm', @js($askWithdraw))">
@@ -94,23 +94,23 @@
                     </flux:button>
                 @else
                     <flux:button size="sm" variant="primary" icon="user-plus" wire:click="join('{{ $group->id }}')">
-                        {{ $group->private ? 'Ask to join' : 'Join' }}
+                        {{ $group->private ? 'Ask to Join' : 'Join' }}
                     </flux:button>
                 @endif
 
                 @if ($group->joined() || $group->canDelete)
                     <x-kit.row-actions :label="$group->name">
                         @if ($group->canManage)
-                            <flux:menu.item icon="pencil" wire:click="editGroup">Edit group</flux:menu.item>
+                            <flux:menu.item icon="pencil" wire:click="editGroup">Edit Group</flux:menu.item>
                         @endif
                         @if ($group->joined())
                             <flux:menu.item icon="arrow-right-start-on-rectangle" x-on:click="$dispatch('social-confirm', @js($askLeave))">
-                                Leave group
+                                Leave Group
                             </flux:menu.item>
                         @endif
                         @if ($group->canDelete)
                             <flux:menu.item icon="trash" variant="danger" x-on:click="$dispatch('social-confirm', @js($askDelete))">
-                                Delete group
+                                Delete Group
                             </flux:menu.item>
                         @endif
                     </x-kit.row-actions>

@@ -146,8 +146,8 @@ it('walks thirteen steps with Personal, Addresses, Emergency and Employee Detail
         ->assertSet('step', 1)
         ->assertSee('Step 2 of 13')
         ->assertSeeHtml('<h4 class="text-sm font-semibold">')
-        ->assertSee('Residential address')
-        ->assertSee('Permanent address')
+        ->assertSee('Residential Address')
+        ->assertSee('Permanent Address')
         ->assertSeeHtml('aria-label="Residential house/block/lot no."')
         ->assertSeeHtml('aria-label="Same as residential"')
         // No record exists yet, so nothing was entered before.
@@ -162,7 +162,7 @@ it('walks thirteen steps with Personal, Addresses, Emergency and Employee Detail
         ->assertSee('Step 13 of 13')
         ->assertSee('Government IDs & Bank')
         ->assertSeeInOrder(['SSS Number', 'UMID ID no.', 'Pag-IBIG Number', 'PhilHealth Number', 'PhilSys card no.', 'TIN'])
-        ->assertSee('Create employee');
+        ->assertSee('Create Employee');
 });
 
 it('holds the wizard on Addresses until a residential part is filled', function () {

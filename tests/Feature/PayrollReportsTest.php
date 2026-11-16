@@ -153,7 +153,7 @@ it('includes only selected employee postings in every payroll report and its dow
         expect(array_column($rows, 'SSS employee'))->toBe(['50.00', '50.00']);
     }
     if ($type === 'loan-summary') {
-        expect(array_column($rows, 'Amount deducted'))->toBe(['125.00', '125.00']);
+        expect(array_column($rows, 'Amount Deducted'))->toBe(['125.00', '125.00']);
     }
     if ($type === 'payslips') {
         expect($report->sections)->toHaveCount(2);
@@ -243,7 +243,7 @@ it('makes every register deduction visible and distinguishes stored overtime fro
     expect($currentReport->columns)->not->toContain('Legacy late / undertime deduction', 'Legacy absence deduction', 'Legacy unpaid leave deduction')
         ->and(payrollReportRows($currentReport)[0]['Overtime included in gross'])->toBe('Yes');
 
-    expect(array_column($report->sections, 'title'))->toBe(['Payroll overview', 'Earnings detail', 'Deductions detail']);
+    expect(array_column($report->sections, 'title'))->toBe(['Payroll Overview', 'Earnings Detail', 'Deductions Detail']);
     foreach ($report->sections as $section) {
         expect($section['totals'] ?? [])->toHaveCount(count($section['columns']))
             ->and($section['rows'][0])->toHaveCount(count($section['columns']));
@@ -266,8 +266,8 @@ it('reports only explicitly selected posted loan lines and keeps their issued na
     expect($query->loanTypes($actor))->toBe(['loan' => 'Original loan', 'uniform' => 'Uniform']);
     $report = $query->generate($actor, payrollReportCriteria('loan-summary', ['deductionCodes' => ['loan']]));
     $rows = payrollReportRows($report);
-    expect($rows)->toHaveCount(1)->and($rows[0]['Posted deduction name'])->toBe('Original loan')
-        ->and($rows[0]['Amount deducted'])->toBe('276.00')->and($rows[0]['Payslips'])->toBe('2')
+    expect($rows)->toHaveCount(1)->and($rows[0]['Posted Deduction Name'])->toBe('Original loan')
+        ->and($rows[0]['Amount Deducted'])->toBe('276.00')->and($rows[0]['Payslips'])->toBe('2')
         ->and(implode(' ', $report->notes))->toContain('this report infers no remaining balance');
     expect(fn () => $query->generate($actor, payrollReportCriteria('loan-summary')))->toThrow(ValidationException::class);
 });
@@ -333,7 +333,7 @@ it('counts employees and selected loan payslips once across repeated report grou
     expect($payroll->totals)->toBe(['Totals', '', '', '', '2', '1', '2469.12', '469.12', '2000.00', '270.00'])
         ->and($loans->totals)->toBe(['Totals', '', '', '', '2', '250.00'])
         ->and(array_column($loans->summary, 'value', 'label'))->toBe([
-            'Employees with deductions' => '1', 'Payslips with deductions' => '2', 'Selected deduction types' => '2', 'Amount deducted' => 'PHP 250.00',
+            'Employees with Deductions' => '1', 'Payslips with Deductions' => '2', 'Selected Deduction Types' => '2', 'Amount Deducted' => 'PHP 250.00',
         ]);
 });
 

@@ -369,10 +369,10 @@ it('shows the newest fifty messages and loads earlier ones on request', function
         ->assertSee('Message number 55.')
         ->assertSee('Message number 6.')
         ->assertDontSee('Message number 5.')
-        ->assertSee('Load earlier messages')
+        ->assertSee('Load Earlier Messages')
         ->call('showEarlier')
         ->assertSee('Message number 1.')
-        ->assertDontSee('Load earlier messages');
+        ->assertDontSee('Load Earlier Messages');
 });
 
 /*

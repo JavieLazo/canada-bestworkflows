@@ -23,7 +23,7 @@
 
     $groups = [
         'father' => 'Father',
-        'mother' => "Mother's maiden name",
+        'mother' => "Mother's Maiden Name",
     ];
 @endphp
 @if (! $editing)
@@ -33,7 +33,7 @@
             <dd class="mt-1 break-words text-sm">{{ EmployeeFields::fatherText($employee) ?: '—' }}</dd>
         </div>
         <div class="min-w-0">
-            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mother's maiden name</dt>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Mother's Maiden Name</dt>
             <dd class="mt-1 break-words text-sm">{{ EmployeeFields::motherText($employee) ?: '—' }}</dd>
         </div>
     </dl>

@@ -23,8 +23,8 @@
 
         <div class="space-y-2" role="group" aria-label="How to mute">
             @foreach ([
-                'ALL' => ['icon' => 'bell-slash', 'title' => 'Mute everything', 'hint' => 'No notifications, and it stays out of your Chat badge.'],
-                'MENTIONS' => ['icon' => 'at-symbol', 'title' => 'Allow mentions', 'hint' => 'You still get a notification when someone mentions you or @everyone, and only those count in your Chat badge.'],
+                'ALL' => ['icon' => 'bell-slash', 'title' => 'Mute Everything', 'hint' => 'No notifications, and it stays out of your Chat badge.'],
+                'MENTIONS' => ['icon' => 'at-symbol', 'title' => 'Allow Mentions', 'hint' => 'You still get a notification when someone mentions you or @everyone, and only those count in your Chat badge.'],
             ] as $mode => $choice)
                 <button
                     type="button"

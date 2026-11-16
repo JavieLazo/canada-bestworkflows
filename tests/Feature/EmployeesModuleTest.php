@@ -250,8 +250,8 @@ it('appends employment history only when employee details change', function () {
 
     $page = Livewire::test(History::class)->set('employeeId', $employee->id)
         ->assertSee('Employment History')
-        ->assertSee('Previous value')
-        ->assertSee('New value')
+        ->assertSee('Previous Value')
+        ->assertSee('New Value')
         ->assertSee('01 Jul 2024')
         ->assertSee('₱36,000.00')
         ->assertSee('₱1,500.00');
@@ -419,7 +419,7 @@ it('no longer carries Allowances, Residence Certificate or the Payroll Settings 
         ->assertSee('Step 13 of 13')
         ->assertSeeHtml('aria-label="Step 13: Government IDs &amp; Bank"')
         ->assertDontSee('Payroll Settings')
-        ->assertSee('Create employee');
+        ->assertSee('Create Employee');
 });
 
 it('keeps Place of Birth, the structured Citizenship and the emergency contact Address on the record and in the wizard', function () {

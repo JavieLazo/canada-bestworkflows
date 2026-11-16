@@ -20,7 +20,7 @@
         <div class="space-y-4">
             <div class="space-y-1.5">
                 <h2 class="text-lg font-semibold leading-none tracking-tight">
-                    {{ $mode === 'new' ? 'New chat' : 'Add people to '.($active->title ?? 'the chat') }}
+                    {{ $mode === 'new' ? 'New Chat' : 'Add People to '.($active->title ?? 'the chat') }}
                 </h2>
                 <p class="text-sm text-muted-foreground">
                     {{ $mode === 'new' ? 'Pick one person for a private chat, or several to start a group.' : 'They see what was already said here, and everyone is told who joined.' }}
@@ -55,7 +55,7 @@
 
             @if ($mode === 'new' && count($pickedIds) > 1)
                 <div class="space-y-2">
-                    <flux:label for="chat-group-name">Group name</flux:label>
+                    <flux:label for="chat-group-name">Group Name</flux:label>
                     <flux:input id="chat-group-name" wire:model="groupName" maxlength="60" placeholder="Optional. Uses first names if left blank." />
                 </div>
             @endif
@@ -66,7 +66,7 @@
                 </flux:modal.close>
                 @if ($mode === 'new')
                     <flux:button variant="primary" wire:click="startChat" :disabled="$pickedIds === []">
-                        {{ count($pickedIds) > 1 ? 'Start group' : 'Start chat' }}
+                        {{ count($pickedIds) > 1 ? 'Start Group' : 'Start Chat' }}
                     </flux:button>
                 @else
                     <flux:button variant="primary" wire:click="addPeople" :disabled="$pickedIds === []">

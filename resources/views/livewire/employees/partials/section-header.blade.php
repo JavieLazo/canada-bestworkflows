@@ -20,7 +20,7 @@
                     Cancel
                 </flux:button>
                 <flux:button variant="primary" size="sm" wire:click="saveSection('{{ $section['id'] }}')">
-                    {{ ($requiresApproval ?? false) ? 'Submit for approval' : 'Save' }}
+                    {{ ($requiresApproval ?? false) ? 'Submit for Approval' : 'Save' }}
                 </flux:button>
             </div>
         @elseif ($canEdit ?? false)

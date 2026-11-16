@@ -64,7 +64,7 @@
             />
             <div class="flex justify-end">
                 <flux:button type="button" size="sm" icon="paper-airplane" wire:click="postComment">
-                    Post comment
+                    Post Comment
                 </flux:button>
             </div>
         </div>

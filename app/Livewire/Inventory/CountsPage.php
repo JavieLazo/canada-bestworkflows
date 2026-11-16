@@ -22,7 +22,7 @@ use Livewire\Component;
 
 /** Paginated count sheets capture observations without silently writing custody or condition. */
 #[Layout('layouts.app')]
-#[Title('Inventory physical counts')]
+#[Title('Inventory Physical Counts')]
 class CountsPage extends Component
 {
     use WithTableFilters;

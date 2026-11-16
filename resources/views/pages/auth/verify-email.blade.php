@@ -1,4 +1,4 @@
-<x-layouts::auth :title="__('Email verification')">
+<x-layouts::auth :title="__('Email Verification')">
     <div class="mt-4 flex flex-col gap-6">
         <flux:text class="text-center">
             {{ __('Please verify your email address by clicking on the link we just emailed to you.') }}
@@ -14,14 +14,14 @@
             <form method="POST" action="{{ route('verification.send') }}">
                 @csrf
                 <flux:button type="submit" variant="primary" class="w-full">
-                    {{ __('Resend verification email') }}
+                    {{ __('Resend Verification Email') }}
                 </flux:button>
             </form>
 
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
                 <flux:button variant="ghost" type="submit" class="text-sm cursor-pointer" data-test="logout-button">
-                    {{ __('Log out') }}
+                    {{ __('Log Out') }}
                 </flux:button>
             </form>
         </div>

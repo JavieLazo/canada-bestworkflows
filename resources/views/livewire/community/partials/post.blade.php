@@ -92,7 +92,7 @@
                 @if ($post->groupId === null)
                     <span title="Everyone at the company"><flux:icon.globe-asia-australia class="size-3.5" /><span class="sr-only">Everyone</span></span>
                 @else
-                    <span title="Members of {{ $post->groupName }}"><flux:icon.user-group class="size-3.5" /><span class="sr-only">Group members</span></span>
+                    <span title="Members of {{ $post->groupName }}"><flux:icon.user-group class="size-3.5" /><span class="sr-only">Group Members</span></span>
                 @endif
             </p>
         </div>
@@ -117,11 +117,11 @@
                             x-bind:class="tags[editTag] ? tags[editTag].pill : 'pill-muted border border-dashed border-border'"
                             x-bind:aria-label="'Tag: ' + (tags[editTag]?.name ?? 'none') + '. Change it'"
                         >
-                            <span class="truncate" x-text="tags[editTag]?.name ?? 'Add a tag'"></span>
+                            <span class="truncate" x-text="tags[editTag]?.name ?? 'Add a Tag'"></span>
                             <flux:icon.chevron-down class="size-3 shrink-0" />
                         </button>
                         <flux:menu class="max-h-72 overflow-y-auto">
-                            <flux:menu.item x-on:click="editTag = ''" icon="x-mark">No tag</flux:menu.item>
+                            <flux:menu.item x-on:click="editTag = ''" icon="x-mark">No Tag</flux:menu.item>
                             <flux:menu.separator />
                             @foreach ($tagsByCode as $choice)
                                 <flux:menu.item x-on:click="editTag = @js($choice->code)">
@@ -153,21 +153,21 @@
                                 })
                             "
                         >
-                            Edit post
+                            Edit Post
                         </flux:menu.item>
                     @endif
                     @if ($post->canPin)
                         <flux:menu.item icon="bookmark" wire:click="togglePin('{{ $post->id }}', {{ $post->pinned ? 'false' : 'true' }})">
-                            {{ $post->pinned ? 'Unpin from the feed' : 'Pin to the top of the feed' }}
+                            {{ $post->pinned ? 'Unpin from the Feed' : 'Pin to the Top of the Feed' }}
                         </flux:menu.item>
                     @endif
                     {{-- The author's alone: nobody else is offered a post's delete, and RemovePost checks again. --}}
                     @if ($post->canDelete)
                         @php
-                            $askDelete = ['title' => 'Delete this post?', 'body' => 'Its comments, photos and files go with it.', 'confirm' => 'Delete post', 'danger' => true, 'call' => ['deletePost', $post->id]];
+                            $askDelete = ['title' => 'Delete this post?', 'body' => 'Its comments, photos and files go with it.', 'confirm' => 'Delete Post', 'danger' => true, 'call' => ['deletePost', $post->id]];
                         @endphp
                         <flux:menu.item icon="trash" variant="danger" x-on:click="$dispatch('social-confirm', @js($askDelete))">
-                            Delete post
+                            Delete Post
                         </flux:menu.item>
                     @endif
                 </x-kit.row-actions>
@@ -370,7 +370,7 @@
                 x-on:click="all = true"
                 class="cursor-pointer text-xs font-semibold text-muted-foreground hover:underline"
             >
-                View {{ $earlier }} earlier {{ $earlier === 1 ? 'comment' : 'comments' }}
+                View {{ $earlier }} Earlier {{ $earlier === 1 ? 'Comment' : 'Comments' }}
             </button>
         @endif
 

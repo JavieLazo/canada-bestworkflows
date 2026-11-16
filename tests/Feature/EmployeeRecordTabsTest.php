@@ -27,7 +27,7 @@ use Livewire\Livewire;
  * Details, Emergency Contact, Employee Details, Addresses and Government IDs
  * & Bank; Family carries Spouse, Parents and Children; the five list tabs
  * mount their `employees.pds-list` card, and the Documents tab its card,
- * only while shown; Other info carries three cards of lines; Declarations
+ * only while shown; Other Info carries three cards of lines; Declarations
  * one card. `?tab=` opens a tab, an unknown value collapses to Profile,
  * editing a section moves to its tab, and leaving that tab drops the open
  * edit. On management views the print-only 201 sheet sits outside the tabs
@@ -134,7 +134,7 @@ it('draws the record tabs in order in the strip and the Section select', functio
     rectabHr();
 
     $cards = rectabCards(Livewire::test(Show::class, ['employee' => $employee->id])->html());
-    $labels = ['Profile', 'Family', 'Education', 'Eligibility', 'Work experience', 'Training', 'Voluntary work', 'Other info', 'Declarations', 'Documents', 'Issued items'];
+    $labels = ['Profile', 'Family', 'Education', 'Eligibility', 'Work Experience', 'Training', 'Voluntary Work', 'Other Info', 'Declarations', 'Documents', 'Issued Items'];
 
     // Leave Management's strip, sized by its content and wrapping, so the
     // tabs take a second row at narrower widths instead of being clipped.
@@ -231,7 +231,7 @@ it('opens on Profile with its five cards and no card of another tab', function (
 
     expect($cards)->toContain('Government IDs &amp; Bank')
         ->toContain('>Addresses</h2>')
-        ->toContain('Delete employee')
+        ->toContain('Delete Employee')
         ->not->toContain('Colegio de la Ciudad de Tayabas')
         ->not->toContain('Ana Villanueva');
 });
@@ -377,7 +377,7 @@ it('moves to the tab of the section being edited', function () {
         ->assertSet('editingSection', null);
 });
 
-it('moves to Family when the spouse is edited and to Other info when a skill line is edited', function () {
+it('moves to Family when the spouse is edited and to Other Info when a skill line is edited', function () {
     $employee = rectabEmployee();
     rectabHr();
 
@@ -442,7 +442,7 @@ it('probes each PDS table at most once per request', function () {
     }
 });
 
-/* |---| Family and Other info |---| */
+/* |---| Family and Other Info |---| */
 
 it('draws Spouse, Parents and Children on Family with the legacy spouse note while no part is typed', function () {
     $employee = rectabEmployee(['spouse_employment' => 'Teacher, DepEd']);
@@ -473,7 +473,7 @@ it('draws Spouse, Parents and Children on Family with the legacy spouse note whi
     expect($cards)->toContain('<p class="mt-4 text-sm text-muted-foreground">'.$note.'</p>')
         ->and(substr_count($cards, 'Ben Villanueva'))->toBe(1)
         ->and($cards)->toMatch('/>Father<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
-        ->toMatch('/>Mother\'s maiden name<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
+        ->toMatch('/>Mother\'s Maiden Name<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
         ->not->toContain('Spouse&#039;s Name');
 
     // Typed parts replace the note, and the parents read as one line each.
@@ -506,7 +506,7 @@ it('draws the children with their dates of birth and No children listed. when no
     $cards = rectabCards($page->html());
 
     expect($cards)->toContain('<div class="hris-table-wrap hris-table-scroll">')
-        ->toMatch('/<th>Full name<\/th>\s*<th>Date of birth<\/th>/')
+        ->toMatch('/<th>Full Name<\/th>\s*<th>Date of Birth<\/th>/')
         ->toContain('<td class="font-medium">Ana Villanueva</td>')
         ->toContain('<td class="num whitespace-nowrap">04 May 2019</td>')
         ->toContain('<td class="font-medium">Ben Villanueva Jr.</td>')
@@ -531,7 +531,7 @@ it('draws the children with their dates of birth and No children listed. when no
         ->not->toContain('<td class="font-medium">');
 });
 
-it('draws the three Other info cards with one line per item', function () {
+it('draws the three Other Info cards with one line per item', function () {
     $employee = rectabEmployee();
     foreach ([['SKILL', 0, 'Advanced Excel'], ['SKILL', 1, 'Chess'], ['MEMBERSHIP', 0, 'Philippine Institute of Certified Public Accountants (PICPA)']] as [$kind, $position, $text]) {
         EmployeeOtherItem::query()->create(['employee_id' => $employee->id, 'kind' => $kind, 'position' => $position, 'text' => $text]);
@@ -585,7 +585,7 @@ it('names each parent input by its group', function () {
         ->call('startEdit', 'parents')
         ->assertSet('tab', 'family')
         ->assertSeeHtml('<h3 class="text-sm font-semibold">Father</h3>')
-        ->assertSeeHtml('<h3 class="text-sm font-semibold">Mother&#039;s maiden name</h3>')
+        ->assertSeeHtml('<h3 class="text-sm font-semibold">Mother&#039;s Maiden Name</h3>')
         ->assertSeeHtml('aria-label="Father&#039;s surname"')
         ->assertSeeHtml('aria-label="Father&#039;s name extension"')
         ->assertSeeHtml('aria-label="Mother&#039;s maiden surname"')
@@ -614,9 +614,9 @@ it('offers My Profile proposals while keeping nonmanager Employee Records views 
         $page->call('cancelEditing')->call('startEdit', $section)
             ->assertSet('editingSection', $viewer === 'profile' ? $section : null);
         if ($viewer === 'profile') {
-            $page->assertSee('Submit for approval')->assertDontSee('Reason for change');
+            $page->assertSee('Submit for Approval')->assertDontSee('Reason for Change');
         } else {
-            $page->assertDontSee('Submit for approval');
+            $page->assertDontSee('Submit for Approval');
         }
     }
 })->with(['profile', 'own record', 'payroll']);
@@ -650,8 +650,8 @@ it('shows a dash for the residential address and the stored address once, in the
     // Nothing typed: the residential line reads "—", the stored line shows
     // once, in the note under the card; nobody has answered whether the
     // permanent address is the same, so it reads "—" too.
-    expect($cards)->toMatch('/>Residential address<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
-        ->toMatch('/>Permanent address<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
+    expect($cards)->toMatch('/>Residential Address<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
+        ->toMatch('/>Permanent Address<\/dt>\s*<dd class="mt-1 break-words text-sm">—<\/dd>/')
         ->toContain('<p class="mt-4 text-sm text-muted-foreground">'.$note.'</p>')
         ->not->toContain('was entered before as one line')
         ->not->toContain('Same as residential')

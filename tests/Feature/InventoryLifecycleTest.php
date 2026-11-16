@@ -232,9 +232,9 @@ it('renders manager lifecycle screens and rejects forged employee write actions'
     $manager = invlifeUser();
     $this->actingAs($manager);
     app()->forgetInstance(Access::class);
-    Livewire::test(IncidentsPage::class)->assertSee('Condition and loss')->call('openAdd')->assertSee('Record condition or loss');
-    Livewire::test(DisposalsPage::class)->assertSee('Disposals')->call('openAdd')->assertSee('Approving employee');
-    Livewire::test(CountsPage::class)->assertSee('Physical counts')->call('openAdd')->assertSee('Record physical count');
+    Livewire::test(IncidentsPage::class)->assertSee('Condition and Loss')->call('openAdd')->assertSee('Record Condition or Loss');
+    Livewire::test(DisposalsPage::class)->assertSee('Disposals')->call('openAdd')->assertSee('Approving Employee');
+    Livewire::test(CountsPage::class)->assertSee('Physical Counts')->call('openAdd')->assertSee('Record Physical Count');
     [, , , $employee, $receipt] = invlifeIssued();
     $this->actingAs(invlifeUser($employee, false, [ModuleCode::PORTAL]));
     app()->forgetInstance(Access::class);
@@ -295,7 +295,7 @@ it('opens an item report from its detail link with locked custody context and pr
         ->assertSet('dialogOpen', false);
     expect(InventoryIncident::query()->where('reference', 'CONTEXT-REPORT')->value('item_id'))->toBe($item->id)
         ->and($other->fresh()->condition)->toBe('SERVICEABLE');
-    $page->call('openAdd')->assertSet('contextItemId', null)->assertSet('itemId', '')->assertSee('Find item');
+    $page->call('openAdd')->assertSet('contextItemId', null)->assertSet('itemId', '')->assertSee('Find Item');
     expect(fn () => Livewire::test(IncidentsPage::class)->set('contextItemId', $other->id))
         ->toThrow(CannotUpdateLockedPropertyException::class);
     Livewire::withQueryParams([]);

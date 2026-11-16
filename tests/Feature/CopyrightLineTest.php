@@ -9,8 +9,9 @@ use App\Support\Access;
 
 /**
  * The copyright line — "© 2026 Designed and Developed By CyberOnions and
- * Partners", the name linked to cyberonions.io — closes the sign-in pages and every page of the
- * signed-in shell's centred column, drawn once on each from one partial. It
+ * Partners Corporation", the name linked to cyberonions.io — closes the
+ * sign-in pages and every page of the signed-in shell's centred column,
+ * drawn once on each from one partial. It
  * is the ONLY place either page names CyberOnions: the installation's brand
  * stays BestWorkflows'. The link leaves the app, so it opens in a new tab without a
  * reference back to this window, and the line never reaches paper.
@@ -37,7 +38,7 @@ it('closes the sign-in page with the linked copyright line and names CyberOnions
 
     $text = (string) preg_replace('/\s+/', ' ', trim(html_entity_decode(strip_tags($footers[0]))));
 
-    expect($text)->toBe('© 2026 Designed and Developed By CyberOnions and Partners')
+    expect($text)->toBe('© 2026 Designed and Developed By CyberOnions and Partners Corporation')
         ->and($footers[0])->toContain('href="https://cyberonions.io/"')
         ->toContain('target="_blank"')
         ->toContain('rel="noopener noreferrer"')

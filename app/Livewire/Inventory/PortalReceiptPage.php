@@ -13,7 +13,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** A self-service receipt is always restricted to the account's own employee record. */
-#[Title('My memorandum receipt')]
+#[Title('My Memorandum Receipt')]
 class PortalReceiptPage extends Component
 {
     use WithChangeStamp;

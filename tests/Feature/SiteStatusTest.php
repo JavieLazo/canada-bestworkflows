@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Records\SitesPage;
-use App\Livewire\Records\Support\SitesExport;
 use App\Livewire\Roster\EmployeeSchedulePage;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
@@ -210,27 +209,20 @@ it('shows the status, filters by it and flips it from Site Settings, and points 
         ->toThrow(RuntimeException::class, 'This work site is in employee schedule history and must remain. Make it inactive instead.');
 
     Livewire::test(SitesPage::class)
-        ->assertSee('Make inactive')
+        ->assertSee('Make Inactive')
         ->call('confirmStatus', $used->id)
         ->assertSet('statusOpen', true)
         ->assertSee('Make Quezon Annex inactive?')
         ->call('statusConfirmed')
         ->assertSet('statusOpen', false)
         ->assertSet('statusId', null)
-        ->assertSee('Make active')
+        ->assertSee('Make Active')
         ->set('status', 'INACTIVE')
         ->assertSee('Quezon Annex')
         ->assertDontSee('Pasig Depot')
         ->set('status', 'ACTIVE')
         ->assertDontSee('Quezon Annex');
     expect($used->fresh()?->is_active)->toBeFalse();
-
-    $export = (new SitesExport)->export($actor, ['status' => 'INACTIVE']);
-    $csv = [...($export->rows)()];
-    expect($export->headers)->toBe(['ID', 'Site', 'Latitude', 'Longitude', 'Radius (m)', 'Geofence', 'Punches', 'Status'])
-        ->and($csv)->toHaveCount(1)
-        ->and($csv[0][1])->toBe('Quezon Annex')
-        ->and($csv[0][7])->toBe('Inactive');
 });
 
 it('writes nothing when Site Settings flips a site without all_data', function () {

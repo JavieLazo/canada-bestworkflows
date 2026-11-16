@@ -179,8 +179,8 @@ it('maps captured punch coordinates and distinguishes a hand-entered location af
     foreach ([$feed->html(), $feed->call('punchRecorded')->html()] as $html) {
         $header = Str::before(Str::after($html, '<thead>'), '</thead>');
         expect(trim((string) preg_replace('/\s+/', ' ', strip_tags($header))))
-            ->toBe('Employee Timestamp Site Type Source Distance Captured location');
-        expect($html)->toContain('Captured location')
+            ->toBe('Employee Timestamp Site Type Source Distance Captured Location');
+        expect($html)->toContain('Captured Location')
             ->toContain($site->name)
             ->toContain('Work from home')
             ->toContain('href="https://www.google.com/maps?q=14.612345,121.023456"')
@@ -198,7 +198,7 @@ it('maps captured punch coordinates and distinguishes a hand-entered location af
 
     $compact = Livewire::test(LiveFeed::class, ['compact' => true])->html();
     expect($compact)->toContain('>Site</th>')
-        ->not->toContain('Captured location')
+        ->not->toContain('Captured Location')
         ->not->toContain('google.com/maps');
 });
 
@@ -1370,7 +1370,7 @@ it('draws the correction dialog from the day\'s own shift and punches', function
     // map — no source, distance or accuracy — and an admin's MANUAL punch
     // says only "Manually Entered", with no place and no map even when it
     // carries the kiosk's fix.
-    $dialog = Str::after($page->html(), 'Recorded punches');
+    $dialog = Str::after($page->html(), 'Recorded Punches');
     expect($dialog)
         ->toContain('rel="noopener noreferrer"')
         ->toContain('>10:03 AM<')
@@ -1389,7 +1389,7 @@ it('draws the correction dialog from the day\'s own shift and punches', function
     expect(substr_count($dialog, 'Manually Entered'))->toBe(1);
 
     // The shift for THAT date, not the header card's label.
-    $facts = Str::before(Str::after($page->html(), 'correction-heading'), 'Recorded punches');
+    $facts = Str::before(Str::after($page->html(), 'correction-heading'), 'Recorded Punches');
     expect($facts)->toContain('10:00 AM – 5:00 PM')
         ->toContain('12:00 PM – 1:00 PM')
         ->not->toContain('Rest day');
@@ -1539,9 +1539,9 @@ it('keeps one Recorded punches anchor, no tab strip on a day without overtime, a
         ->html();
     $dialog = Str::after($html, 'correction-heading');
 
-    expect(substr_count($html, 'Recorded punches'))->toBe(1)
+    expect(substr_count($html, 'Recorded Punches'))->toBe(1)
         ->and($dialog)->not->toContain('role="tablist"')
-        ->and(Str::between($html, 'wire:submit="saveCorrection"', '</form>'))->toContain('Save punches')
+        ->and(Str::between($html, 'wire:submit="saveCorrection"', '</form>'))->toContain('Save Punches')
         // The title is the date; "Correct" is left for screen readers only.
         ->and($dialog)->toContain('<span class="sr-only">Correct </span>Wed, Sep 02, 2026');
 
@@ -1574,7 +1574,7 @@ it('keeps the dialog header to the date, the shift, the break and the place', fu
         ->call('openCorrection', '2026-09-02')
         ->assertSet('correctionOpen', true);
     $dialog = Str::after($page->html(), 'correction-heading');
-    $facts = Str::before($dialog, 'Recorded punches');
+    $facts = Str::before($dialog, 'Recorded Punches');
 
     expect($page->viewData('correction')->shift->overnight)->toBeTrue()
         ->and($page->viewData('correction')->location->from_roster)->toBeFalse()
@@ -1616,7 +1616,7 @@ it('shows a corrected time as Manually Entered and keeps the captured place of a
     $corrected = AttendanceLog::query()->where('source', AttendanceLog::SOURCE_CORRECTION)->sole();
     expect($corrected->site_id)->toBe($site->getKey());
 
-    $dialog = Str::after($page->html(), 'Recorded punches');
+    $dialog = Str::after($page->html(), 'Recorded Punches');
     $keptRow = Str::before(Str::after($dialog, 'wire:key="correct-punch-'.$in->getKey().'"'), '</tr>');
     $correctedRow = Str::before(Str::after($dialog, 'wire:key="correct-punch-'.$corrected->getKey().'"'), '</tr>');
     expect($keptRow)->toContain('>10:03 AM<')
@@ -1644,7 +1644,7 @@ it('folds the empty middle slots on a shift with no scheduled break without drop
     // Folded on the client only: all four boxes are always in the server HTML.
     expect($html)->toContain('id="correct-break_out-time"')->toContain('id="correct-break_in-time"')
         ->and(substr_count($html, 'x-show="middle"'))->toBe($scheduledBreak ? 0 : 2)
-        ->and(str_contains($html, 'Add break punches'))->toBe(! $scheduledBreak)
+        ->and(str_contains($html, 'Add Break Punches'))->toBe(! $scheduledBreak)
         ->and($html)->toContain($scheduledBreak ? 'data-middle="1"' : 'data-middle="0"');
 })->with([
     'a scheduled break' => [true],

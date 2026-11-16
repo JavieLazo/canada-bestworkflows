@@ -1305,7 +1305,7 @@ class RunWorkspace extends Component
             'allShown' => $allShown,
             // Each draft line links to the employee's pay settings for whoever may read them.
             'paySettingsLinks' => ! $finalized && $actor->mayReadAllData(ModuleCode::PAYROLL),
-        ])->title($run !== null ? 'Payroll' : 'Create payroll');
+        ])->title($run !== null ? 'Payroll' : 'Create Payroll');
     }
 
     /* ------------------------------------------------------------------ */

@@ -37,7 +37,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * My Profile edits require independent approval; Employee Records grants
  * management direct editing, including their linked employee record.
  */
-#[Title('Employee record')]
+#[Title('Employee Record')]
 class Show extends Component
 {
     use WithFileUploads;
@@ -48,13 +48,13 @@ class Show extends Component
         'family' => 'Family',
         'education' => 'Education',
         'eligibility' => 'Eligibility',
-        'experience' => 'Work experience',
+        'experience' => 'Work Experience',
         'training' => 'Training',
-        'voluntary' => 'Voluntary work',
-        'other' => 'Other info',
+        'voluntary' => 'Voluntary Work',
+        'other' => 'Other Info',
         'declarations' => 'Declarations',
         'documents' => 'Documents',
-        'inventory' => 'Issued items',
+        'inventory' => 'Issued Items',
     ];
 
     /** The tabs drawn by the list card (PdsList), one list each. */

@@ -108,13 +108,13 @@ Route::middleware(['web', 'auth', 'module:RECORDS'])->group(static function (): 
     Route::get('/records/shifts', ShiftTypesPage::class)->name('records.shifts');
     Route::get('/records/holidays', HolidaysPage::class)->name('records.holidays');
 
-    // Each table's CSV and import template (TableExportController); the table
-    // key is a route default, never the URL's.
-    foreach (['sites', 'shifts', 'holidays'] as $page) {
-        Route::get("/records/{$page}/export", TableExportController::class)
-            ->defaults('table', "records.{$page}")
-            ->name("records.{$page}.export");
-    }
+    // The holiday calendar's CSV and import template (TableExportController);
+    // the table key is a route default, never the URL's. SHIFTING SETTINGS
+    // AND SITE SETTINGS HAVE NO CSV, so /records/shifts and /records/sites
+    // get no export route.
+    Route::get('/records/holidays/export', TableExportController::class)
+        ->defaults('table', 'records.holidays')
+        ->name('records.holidays.export');
 
     // The plain reference lists share one screen, parameterised by slug —
     // the port of the thin page.tsx wrappers around <ReferenceList>. Payroll

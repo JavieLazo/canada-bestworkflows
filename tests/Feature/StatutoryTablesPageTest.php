@@ -47,19 +47,19 @@ it('gates the page on the PAYROLL grant and shows each table\'s one set of figur
         ->assertDontSee('tables are confirmed through')
         ->assertSee('Confirmed through')
         ->assertSee('31 Dec 2026')
-        ->assertSee('SSS figures')
+        ->assertSee('SSS Figures')
         // No list of dated versions, and no version state.
-        ->assertDontSee('SSS versions')->assertDontSee('Effective from')->assertDontSee('Superseded')
-        ->assertSee('Employee share (%)')
-        ->assertSee('Lowest salary credit')
+        ->assertDontSee('SSS versions')->assertDontSee('Effective From')->assertDontSee('Superseded')
+        ->assertSee('Employee Share (%)')
+        ->assertSee('Lowest Salary Credit')
         ->assertSee('₱1,500.00')
         ->assertSee('₱3,030.00')
         ->assertSee('Changing or confirming the figures requires Payroll access to all data.')
-        ->assertDontSee('Edit figures');
+        ->assertDontSee('Edit Figures');
 
     $page = Livewire::test(StatutoryTablesPage::class)
         ->set('tab', StatutorySchedule::WITHHOLDING_TAX)
-        ->assertSee('Withholding Tax figures')
+        ->assertSee('withholding tax figures')
         ->assertSeeHtml('>Semi-monthly</h3>')
         ->assertSee('₱10,417.00')
         ->assertSee('₱2,604.10')
@@ -72,7 +72,7 @@ it('gates the page on the PAYROLL grant and shows each table\'s one set of figur
     $html = $page->html();
     expect(substr_count($html, 'data-statutory-tables'))->toBe(1)
         ->and(strpos($html, 'data-statutory-tables'))->toBeLessThan((int) strpos($html, 'aria-label="Tables"'))
-        ->and(strpos($html, 'aria-label="Tables"'))->toBeLessThan((int) strpos($html, 'SSS figures'));
+        ->and(strpos($html, 'aria-label="Tables"'))->toBeLessThan((int) strpos($html, 'SSS Figures'));
 });
 
 it('replaces a table\'s figures from the dialog, converting percentages once, with no date to choose', function () {
@@ -83,8 +83,8 @@ it('replaces a table\'s figures from the dialog, converting percentages once, wi
     $page = Livewire::test(StatutoryTablesPage::class)
         ->call('openAdd')
         ->assertSet('dialogOpen', true)
-        ->assertSee('Edit SSS figures')
-        ->assertDontSee('Effective from')
+        ->assertSee('Edit SSS Figures')
+        ->assertDontSee('Effective From')
         ->assertSet('formFigures.ee_rate', '5')
         ->assertSet('formFigures.er_rate', '10')
         ->assertSet('formFigures.msc_max', '35000')
@@ -147,7 +147,7 @@ it('confirms every table through one date from the page, proposing the next year
     stpActor();
 
     Livewire::test(StatutoryTablesPage::class)
-        ->assertSee('Confirm all tables')
+        ->assertSee('Confirm All Tables')
         ->call('openConfirmAll')
         ->assertSet('confirmAllOpen', true)
         ->assertSet('formConfirmThrough', '2027-12-31')
@@ -182,7 +182,7 @@ it('refuses confirm all without all-data PAYROLL or a date, and changes nothing'
     expect(fn () => app(ConfirmAllStatutoryTables::class)->handle($reader, '2027-12-31'))
         ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');
     Livewire::test(StatutoryTablesPage::class)
-        ->assertDontSee('Confirm all tables')
+        ->assertDontSee('Confirm All Tables')
         ->set('formConfirmThrough', '2027-12-31')
         ->call('saveConfirmAll')
         ->assertSet('formError', 'Your role cannot manage organization-wide data.');

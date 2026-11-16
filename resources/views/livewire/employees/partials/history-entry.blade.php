@@ -95,8 +95,8 @@
                  so there the field name takes its own line above the two values. --}}
             <div class="grid max-w-3xl grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-[9rem_minmax(0,1fr)_minmax(0,1fr)] sm:gap-x-4">
                 <p aria-hidden="true" class="hidden text-xs text-muted-foreground sm:block">Field</p>
-                <p aria-hidden="true" class="text-xs text-muted-foreground">Previous value</p>
-                <p aria-hidden="true" class="text-xs text-muted-foreground">New value</p>
+                <p aria-hidden="true" class="text-xs text-muted-foreground">Previous Value</p>
+                <p aria-hidden="true" class="text-xs text-muted-foreground">New Value</p>
                 <dl class="contents">
                     @foreach ($history->changes as $change)
                         <div wire:key="employment-change-{{ $history->id }}-{{ $change['field'] }}" data-field="{{ $change['field'] }}" class="contents">

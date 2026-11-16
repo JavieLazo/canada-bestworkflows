@@ -45,8 +45,8 @@
         <table class="hris-table">
             <thead>
                 <tr>
-                    <th>Full name</th>
-                    <th>Date of birth</th>
+                    <th>Full Name</th>
+                    <th>Date of Birth</th>
                 </tr>
             </thead>
             <tbody>

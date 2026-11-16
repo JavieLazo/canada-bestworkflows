@@ -62,7 +62,7 @@
     {{-- WHOSE rules the form holds: the choice, the presets that fill it, and one line saying what a save reaches. --}}
     <section class="hris-card p-5" data-rates-scope>
         <div class="flex flex-wrap items-end gap-4">
-            <x-kit.select label="Applies to" wire:model.live="scope" class="w-full max-w-xs">
+            <x-kit.select label="Applies To" wire:model.live="scope" class="w-full max-w-xs">
                 @foreach ($scopes as $option)
                     <flux:select.option value="{{ $option['id'] }}">{{ $option['name'] }}{{ $option['override'] ? ' (override)' : '' }}</flux:select.option>
                 @endforeach
@@ -109,7 +109,7 @@
          an hour are worth, the night hours, then the rates and limits applied to them — at every width. --}}
     <section class="hris-card overflow-hidden" data-rates-form>
         <div class="{{ $band }}" data-rates-part>
-            <h2>Pay basis</h2>
+            <h2>Pay Basis</h2>
             <p class="{{ $bandNote }}">What the monthly salary covers.</p>
         </div>
         <div class="{{ $body }}">
@@ -132,7 +132,7 @@
         </div>
 
         <div class="{{ $band }}" data-rates-part>
-            <h2>Daily rate</h2>
+            <h2>Daily Rate</h2>
             <p class="{{ $bandNote }}">How a day's pay comes from the monthly salary. A Rate Per Day on the employee record is used as it is.</p>
         </div>
         <div class="{{ $body }}">
@@ -146,7 +146,7 @@
                     @if ($formMethod !== PayRules::METHOD_MONTH)
                         @php $divisorError = $figuresError !== null && str_starts_with($figuresError, 'Daily rate:'); @endphp
                         <div class="space-y-2">
-                            <flux:label for="rates-divisor">{{ $formMethod === PayRules::METHOD_FACTOR ? 'Days a year' : 'Divisor' }}</flux:label>
+                            <flux:label for="rates-divisor">{{ $formMethod === PayRules::METHOD_FACTOR ? 'Days a Year' : 'Divisor' }}</flux:label>
                             <flux:input id="rates-divisor" type="number" min="1" step="0.01" class:input="num" wire:model.live.debounce.400ms="formDivisor" :disabled="! $canManage" :aria-label="$formMethod === PayRules::METHOD_FACTOR ? 'Days a year' : 'Divisor'" aria-invalid="{{ $divisorError ? 'true' : 'false' }}" />
                             @if ($divisorError)
                                 <p class="text-xs text-danger">{{ $figuresError }}</p>
@@ -158,7 +158,7 @@
                 <div class="min-w-0 space-y-4">
                     <div class="grid gap-3 sm:grid-cols-2" data-rate-steps>
                         <div class="space-y-2">
-                            <flux:label for="rates-hourly-hours">Hours for the hourly rate</flux:label>
+                            <flux:label for="rates-hourly-hours">Hours for the Hourly Rate</flux:label>
                             <flux:input id="rates-hourly-hours" type="number" min="1" max="24" step="0.5" class:input="num" placeholder="Shift's paid hours" wire:model.live.debounce.400ms="formHourlyHours" :disabled="! $canManage" aria-label="Hours for the hourly rate" />
                             <p class="text-xs text-muted-foreground">Blank: each shift's own paid hours. A figure divides the day by it on every shift.</p>
                         </div>
@@ -190,7 +190,7 @@
         </div>
 
         <div class="{{ $band }}" data-rates-part>
-            <h2>Night work</h2>
+            <h2>Night Work</h2>
             <p class="{{ $bandNote }}">The hours that earn the night rate.</p>
         </div>
         <div class="{{ $body }}">
@@ -215,7 +215,7 @@
                 <div class="flex min-w-0 items-center gap-3 rounded-md border border-border bg-muted/40 p-4">
                     <flux:switch id="rates-night-ot" wire:model.live="formNightOnOvertime" :disabled="! $canManage" />
                     <div>
-                        <flux:label for="rates-night-ot">Night pay on overtime hours</flux:label>
+                        <flux:label for="rates-night-ot">Night Pay on Overtime Hours</flux:label>
                         <p class="text-xs text-muted-foreground">On: overtime worked inside the night hours also earns the night premium.</p>
                     </div>
                 </div>
@@ -224,7 +224,7 @@
 
         <div class="border-b border-border">
             <div class="{{ $band }}" data-rates-part>
-                <h2>Rates by day type</h2>
+                <h2>Rates by Day Type</h2>
             </div>
             <div class="px-5 py-4">
                     <p class="text-sm text-muted-foreground">A percent of the day's rate for a worked day, and of the hourly rate for an overtime or night hour. A blank cell pays the figure shown in grey.</p>
@@ -249,11 +249,11 @@
                 <table class="hris-table">
                     <thead>
                         <tr>
-                            <th>Day type</th>
-                            <th class="text-right">Worked day</th>
-                            <th class="text-right">Overtime hour</th>
-                            <th class="text-right">Night hour</th>
-                            <th class="text-right">Not worked</th>
+                            <th>Day Type</th>
+                            <th class="text-right">Worked Day</th>
+                            <th class="text-right">Overtime Hour</th>
+                            <th class="text-right">Night Hour</th>
+                            <th class="text-right">Not Worked</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -299,43 +299,43 @@
              share, so each label stays short enough for three across. The aria-labels keep the whole phrase. --}}
         <div data-rates-extra>
             <div class="{{ $band }}" data-rates-part>
-                <h2 id="rates-limits-heading">Daily limits</h2>
+                <h2 id="rates-limits-heading">Daily Limits</h2>
                 <p class="{{ $bandNote }}">The most hours a day that are paid at each rate.</p>
             </div>
             <div class="{{ $body }}" role="group" aria-labelledby="rates-limits-heading">
                 <div class="grid min-w-0 gap-4 sm:grid-cols-3">
                     <div class="space-y-2">
-                        <flux:label for="rates-ot-cap">Overtime hours</flux:label>
+                        <flux:label for="rates-ot-cap">Overtime Hours</flux:label>
                         <flux:input id="rates-ot-cap" type="number" min="0" max="24" step="0.5" class:input="num" wire:model.live.debounce.400ms="formOvertimeMax" :disabled="! $canManage" aria-label="Overtime hours a day at most" />
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="rates-night-cap">Night hours</flux:label>
+                        <flux:label for="rates-night-cap">Night Hours</flux:label>
                         <flux:input id="rates-night-cap" type="number" min="0" max="24" step="0.5" class:input="num" wire:model.live.debounce.400ms="formNightMax" :disabled="! $canManage" aria-label="Night hours a day at most" />
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="rates-rest-cap">Rest-day hours</flux:label>
+                        <flux:label for="rates-rest-cap">Rest-Day Hours</flux:label>
                         <flux:input id="rates-rest-cap" type="number" min="0" max="24" step="0.5" class:input="num" wire:model.live.debounce.400ms="formRestMax" :disabled="! $canManage" aria-label="Rest-day hours a day at most" />
                     </div>
                 </div>
             </div>
             <div class="{{ $band }}" data-rates-part>
-                <h2 id="rates-other-heading">Other rates and checks</h2>
+                <h2 id="rates-other-heading">Other Rates and Checks</h2>
                 <p class="{{ $bandNote }}">Two overtime rates outside the table, and the take-home check.</p>
             </div>
             <div class="{{ $bodyLast }}" role="group" aria-labelledby="rates-other-heading">
                 <div class="grid min-w-0 gap-4 sm:grid-cols-3">
                     <div class="space-y-2">
-                        <flux:label for="rates-holiday-ot">Holiday overtime (%)</flux:label>
+                        <flux:label for="rates-holiday-ot">Holiday Overtime (%)</flux:label>
                         <flux:input id="rates-holiday-ot" type="number" min="0" max="1000" step="0.01" class:input="num" wire:model.live.debounce.400ms="formHolidayOvertime" :disabled="! $canManage" aria-label="Holiday overtime as a percent of the holiday rate" />
                         <p class="text-xs text-muted-foreground">Of the holiday rate.</p>
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="rates-seaport-ot">Seaport overtime (%)</flux:label>
+                        <flux:label for="rates-seaport-ot">Seaport Overtime (%)</flux:label>
                         <flux:input id="rates-seaport-ot" type="number" min="0" max="1000" step="0.01" class:input="num" placeholder="Day's overtime rate" wire:model.live.debounce.400ms="formSeaportRate" :disabled="! $canManage" aria-label="Seaport overtime hour as a percent of the hourly rate" />
                         <p class="text-xs text-muted-foreground">Of the hourly rate, for days approved as seaport overtime, whatever the day type. Blank: the day's own overtime rate. No daily cap.</p>
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="rates-take-home">Minimum take-home pay</flux:label>
+                        <flux:label for="rates-take-home">Minimum Take-Home Pay</flux:label>
                         <x-kit.money-input id="rates-take-home" wire:model.live.debounce.400ms="formMinimumTakeHome" :disabled="! $canManage" aria-label="Minimum take-home pay" placeholder="No minimum" />
                         <p class="text-xs text-muted-foreground">Flags a draft with net pay below this. Nothing is cut automatically.</p>
                     </div>
@@ -383,8 +383,8 @@
                 <flux:text>Switching to {{ $pendingScopeName !== '' ? $pendingScopeName : 'another scope' }} reloads the form; the figures you changed here have not been saved.</flux:text>
             </div>
             <div class="flex justify-end gap-2">
-                <flux:button variant="outline" wire:click="keepEditing">Keep editing</flux:button>
-                <flux:button variant="primary" wire:click="discardAndSwitch">Discard and switch</flux:button>
+                <flux:button variant="outline" wire:click="keepEditing">Keep Editing</flux:button>
+                <flux:button variant="primary" wire:click="discardAndSwitch">Discard and Switch</flux:button>
             </div>
         </div>
     </flux:modal>

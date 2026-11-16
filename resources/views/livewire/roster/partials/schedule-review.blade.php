@@ -14,13 +14,13 @@
 >
     <div class="space-y-4">
         <div>
-            <flux:heading size="lg" id="schedule-review-heading">Review this change</flux:heading>
+            <flux:heading size="lg" id="schedule-review-heading">Review This Change</flux:heading>
             <flux:text class="mt-1">Nothing has been saved yet. Check what this change affects, then confirm it.</flux:text>
         </div>
 
         @if ($review['takes_effect'] !== '')
             <div>
-                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Takes effect</p>
+                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Takes Effect</p>
                 <p class="num mt-1 text-sm font-medium">{{ $review['takes_effect'] }}</p>
                 @if ($review['moved'] !== '')
                     <p class="mt-1 text-sm text-warning">{{ $review['moved'] }}</p>
@@ -65,13 +65,13 @@
 
         <div class="flex items-center justify-end gap-2">
             @if (($backAction ?? null) !== null)
-                <flux:button variant="outline" wire:click="{{ $backAction }}">Go back</flux:button>
+                <flux:button variant="outline" wire:click="{{ $backAction }}">Go Back</flux:button>
             @else
                 <flux:modal.close>
-                    <flux:button variant="outline">Go back</flux:button>
+                    <flux:button variant="outline">Go Back</flux:button>
                 </flux:modal.close>
             @endif
-            <flux:button variant="primary" wire:click="confirmReview" wire:loading.attr="disabled" wire:target="confirmReview">Confirm and save</flux:button>
+            <flux:button variant="primary" wire:click="confirmReview" wire:loading.attr="disabled" wire:target="confirmReview">Confirm and Save</flux:button>
         </div>
     </div>
 </flux:modal>

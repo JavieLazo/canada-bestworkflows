@@ -29,9 +29,9 @@ final class InventoryReports
     public function columns(string $kind): array
     {
         return match ($kind) {
-            'movements' => ['Date', 'Item code', 'Item', 'Event', 'From employee', 'To employee', 'MR No.', 'Recorded by', 'Remarks'],
-            'exceptions' => ['Item code', 'Item', 'Status', 'Condition', 'Employee', 'MR No.', 'Category', 'Location', 'Cost', 'Exception'],
-            default => ['Item code', 'Item', 'Status', 'Condition', 'Employee', 'MR No.', 'Category', 'Location', 'Cost'],
+            'movements' => ['Date', 'Item Code', 'Item', 'Event', 'From Employee', 'To Employee', 'MR No.', 'Recorded By', 'Remarks'],
+            'exceptions' => ['Item Code', 'Item', 'Status', 'Condition', 'Employee', 'MR No.', 'Category', 'Location', 'Cost', 'Exception'],
+            default => ['Item Code', 'Item', 'Status', 'Condition', 'Employee', 'MR No.', 'Category', 'Location', 'Cost'],
         };
     }
 

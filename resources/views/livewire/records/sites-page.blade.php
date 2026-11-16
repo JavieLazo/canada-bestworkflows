@@ -1,11 +1,13 @@
 {{--
     Site Settings — the port of src/app/(protected)/records/sites/sites-page.tsx.
-    Same columns in the same order (Site, Coordinates, Radius, Geofence,
-    Punches, Action), same search + geofence filter, same default sort (name,
-    ascending), same dialog fields, validation toasts and copy.
+    Same search + geofence filter, same default sort (name, ascending), same
+    dialog fields, validation toasts and copy.
     DELIBERATE DIVERGENCE: a Status column and filter, and Make inactive /
     Make active in the row menu — a site history names is retired, not
     deleted.
+    DELIBERATE DIVERGENCE: no Punches column. The count of recent punches is
+    read only to say why a site in use cannot be deleted.
+    SITE SETTINGS HAS NO CSV: no Export CSV and no Import CSV.
 --}}
 <div class="space-y-6">
     <div>
@@ -25,23 +27,21 @@
                 wire:model.live.debounce.250ms="search"
             />
 
-            <x-kit.filter-select label="Filter by geofence" class="w-[12rem]" wire:model.live="geofence">
+            <x-kit.filter-select label="Filter by Geofence" class="w-[12rem]" wire:model.live="geofence">
                 <flux:select.option value="ALL">All sites</flux:select.option>
                 <flux:select.option value="ENFORCED">Geofence enforced</flux:select.option>
                 <flux:select.option value="EXEMPT">Geofence exempt</flux:select.option>
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by status" class="w-[10rem]" wire:model.live="status">
+            <x-kit.filter-select label="Filter by Status" class="w-[10rem]" wire:model.live="status">
                 <flux:select.option value="ALL">All statuses</flux:select.option>
                 <flux:select.option value="ACTIVE">Active</flux:select.option>
                 <flux:select.option value="INACTIVE">Inactive</flux:select.option>
             </x-kit.filter-select>
 
             <div class="ml-auto flex flex-wrap items-center gap-2">
-                <x-kit.export-button :href="route('records.sites.export', array_filter(['q' => $search, 'geofence' => $geofence, 'status' => $status === 'ALL' ? null : $status, 'sort' => $sortKey, 'dir' => $sortDir]))" />
-                <livewire:kit.csv-import table="records.sites" :template="route('records.sites.export', ['template' => 1])" key="import-sites" />
                 <flux:button variant="primary" icon="plus" wire:click="openAdd">
-                    Add site
+                    Add Site
                 </flux:button>
             </div>
         </header>
@@ -55,15 +55,14 @@
                         <x-kit.sort-header field="radius" label="Radius" />
                         <th>Geofence</th>
                         <th>Status</th>
-                        <x-kit.sort-header field="punches" label="Punches" />
-                        <th class="text-right">Action</th>
+                        {{-- `!text-right`: hris-table's own header rule is left-aligned and outranks a plain `text-right`. --}}
+                        <th class="!text-right">Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     @if ($rows->total() === 0)
                         <tr wire:key="empty">
-                            {{-- colSpan 7 as the source writes it (sites-page.tsx:254). --}}
-                            <x-kit.empty-state :colspan="7" title="No site matches those filters." />
+                            <x-kit.empty-state :colspan="6" title="No site matches those filters." />
                         </tr>
                     @endif
                     @foreach ($rows as $s)
@@ -86,7 +85,6 @@
                                     {{ $s->is_active ? 'Active' : 'Inactive' }}
                                 </span>
                             </td>
-                            <td class="num">{{ $punches }}</td>
                             <td class="text-right">
                                 <x-kit.row-actions :label="$s->name">
                                     <flux:menu.item icon="pencil" wire:click="startEdit('{{ $s->getKey() }}')">
@@ -96,7 +94,7 @@
                                         :icon="$s->is_active ? 'no-symbol' : 'check-circle'"
                                         wire:click="confirmStatus('{{ $s->getKey() }}')"
                                     >
-                                        {{ $s->is_active ? 'Make inactive' : 'Make active' }}
+                                        {{ $s->is_active ? 'Make Inactive' : 'Make Active' }}
                                     </flux:menu.item>
                                     <flux:menu.item
                                         icon="trash"
@@ -160,7 +158,7 @@
                     <flux:button variant="outline">Cancel</flux:button>
                 </flux:modal.close>
                 <flux:button variant="primary" wire:click="statusConfirmed">
-                    {{ ($changing?->is_active ?? true) ? 'Make inactive' : 'Make active' }}
+                    {{ ($changing?->is_active ?? true) ? 'Make Inactive' : 'Make Active' }}
                 </flux:button>
             </div>
         </div>
@@ -170,7 +168,7 @@
     <flux:modal wire:model.self="dialogOpen" class="w-full max-w-lg">
         <div class="space-y-4">
             <div class="space-y-2">
-                <flux:heading size="lg">{{ $editing !== null ? 'Edit site' : 'Add site' }}</flux:heading>
+                <flux:heading size="lg">{{ $editing !== null ? 'Edit Site' : 'Add Site' }}</flux:heading>
                 <flux:text>
                     Punches are validated against these coordinates &mdash; or always pass, for a
                     site marked exempt.
@@ -205,14 +203,14 @@
                 }"
             >
                 <div class="space-y-2 sm:col-span-2">
-                    <flux:label>Site name</flux:label>
+                    <flux:label>Site Name</flux:label>
                     <flux:input placeholder="Makati Head Office" wire:model="formName" />
                 </div>
 
                 <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-4 sm:col-span-2">
                     <flux:switch id="geofence-exempt" wire:model.live="formExempt" />
                     <div>
-                        <flux:label for="geofence-exempt">Geofence-exempt</flux:label>
+                        <flux:label for="geofence-exempt">Geofence-Exempt</flux:label>
                         <p class="text-xs text-muted-foreground">
                             For field or remote work: punches here always pass, whatever the
                             coordinates.
@@ -274,7 +272,7 @@
                         variant="primary"
                         :icon="$editing !== null ? 'pencil' : 'plus'"
                     >
-                        {{ $editing !== null ? 'Save changes' : 'Add site' }}
+                        {{ $editing !== null ? 'Save Changes' : 'Add Site' }}
                     </flux:button>
                 </div>
             </form>

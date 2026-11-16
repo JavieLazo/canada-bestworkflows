@@ -221,7 +221,10 @@ final class AttendanceAnalysis
         ksort($excluded);
         ksort($leaveGroups);
         usort($exceptions, static fn (array $a, array $b): int => ($a[0] <=> $b[0]) ?: strnatcasecmp($a[2], $b[2]) ?: ($a[1] <=> $b[1]));
-        $columns = [self::groups()[$filters['groupBy']], ...self::metricColumns()];
+        // The grouping's name as a column heading and in a graph's title — the
+        // Group by choice itself keeps the wording of groups().
+        $groupTitle = ucwords(self::groups()[$filters['groupBy']]);
+        $columns = [$groupTitle, ...self::metricColumns()];
         $rows = [];
         foreach ($groups as $label => $sum) {
             $rows[] = [$label, ...self::metricCells($sum)];
@@ -239,17 +242,17 @@ final class AttendanceAnalysis
             $leaveRows[] = [$label, self::count($coverage['days']), (string) count($coverage['employees'])];
         }
         $sections = [
-            self::section('Daily attendance trend', ['Date', ...self::metricColumns(), 'Excluded employee-days'], $dailyRows,
+            self::section('Daily Attendance Trend', ['Date', ...self::metricColumns(), 'Excluded Employee-Days'], $dailyRows,
                 ['Each date belongs to the shift start. Future and ongoing days have no qualified denominator, not a zero attendance rate.'], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]),
-            self::section('Employee attendance detail', ['Employee ID', 'Employee', self::groups()[$filters['groupBy']], ...self::metricColumns(), 'OT computed', 'OT approved', 'OT payable'], $byEmployee,
+            self::section('Employee Attendance Detail', ['Employee ID', 'Employee', $groupTitle, ...self::metricColumns(), 'OT Computed', 'OT Approved', 'OT Payable'], $byEmployee,
                 ['Attendance rates use qualified opportunities. Overtime columns retain current DTR facts within recorded employment, including excluded schedule or ongoing days; review those dates before use. Approved means the stored decision, payable means the current capped amount.'], [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]),
-            self::section('Approved leave and official business', ['Recorded type', 'DTR day equivalents', 'Employees'], $leaveRows,
+            self::section('Approved Leave and Official Business', ['Recorded Type', 'DTR Day Equivalents', 'Employees'], $leaveRows,
                 ['Only approved facts recognized by the current DTR are counted; pending, rejected and withdrawn requests are not leave usage. Half-day leave is 0.5. Official business is separate credited work, not absence. These are not leave-credit balances.'], [1, 2]),
-            self::section('Coverage excluded from attendance rates', ['Reason', 'Employee-days', 'Employees'], $excludedRows,
+            self::section('Coverage Excluded from Attendance Rates', ['Reason', 'Employee-Days', 'Employees'], $excludedRows,
                 ['Each excluded employee-day has one primary reason in order: future, employment coverage, schedule evidence, rest day, holiday, ongoing day, official business, approved leave. Underlying reasons can overlap. All approved leave dates, including half days, are excluded from punch-based rates.'], [1, 2]),
-            self::section('Repeated lateness — at least '.$filters['threshold'].' qualifying days', ['Employee ID', 'Employee', 'Late days', 'Completed fixed-shift days', 'Late time', 'Contributing dates'], $repeat,
+            self::section('Repeated Lateness — At Least '.$filters['threshold'].' Qualifying Days', ['Employee ID', 'Employee', 'Late Days', 'Completed Fixed-Shift Days', 'Late Time', 'Contributing Dates'], $repeat,
                 ['This is a configurable occurrence threshold, not a disciplinary or legal classification. Only completed, recorded fixed-shift attendance days contribute.'], [2, 3, 4]),
-            self::section('Attendance exceptions to review', ['Date', 'Employee ID', 'Employee', 'Evidence to review', 'Qualified late', 'Qualified undertime', 'Rate treatment'], array_slice($exceptions, 0, self::EXCEPTION_LIMIT),
+            self::section('Attendance Exceptions to Review', ['Date', 'Employee ID', 'Employee', 'Evidence to Review', 'Qualified Late', 'Qualified Undertime', 'Rate Treatment'], array_slice($exceptions, 0, self::EXCEPTION_LIMIT),
                 ['Showing '.min(count($exceptions), self::EXCEPTION_LIMIT).' of '.count($exceptions).' employee-days with exceptions, in date order. All aggregates above remain complete.'.(count($exceptions) > self::EXCEPTION_LIMIT ? ' Narrow the period or selected employees to inspect the remaining dates.' : '')], [4, 5]),
         ];
         if ($filters['compare'] === 'previous') {
@@ -261,7 +264,7 @@ final class AttendanceAnalysis
                     self::rate($sum['late_days'], $sum['fixed_completed']), self::rate($prior['late_days'], $prior['fixed_completed']), self::delta($sum['late_days'], $sum['fixed_completed'], $prior['late_days'], $prior['fixed_completed']),
                     self::rate($sum['absences'], $sum['opportunities']), self::rate($prior['absences'], $prior['opportunities']), self::delta($sum['absences'], $sum['opportunities'], $prior['absences'], $prior['opportunities'])];
             }
-            $sections[] = self::section('Previous-period comparison', [self::groups()[$filters['groupBy']], 'Current opportunities', 'Previous opportunities', 'Current completion', 'Previous completion', 'Change (pp)', 'Current lateness', 'Previous lateness', 'Change (pp)', 'Current absence', 'Previous absence', 'Change (pp)'], $comparison,
+            $sections[] = self::section('Previous-Period Comparison', [$groupTitle, 'Current Opportunities', 'Previous Opportunities', 'Current Completion', 'Previous Completion', 'Change (pp)', 'Current Lateness', 'Previous Lateness', 'Change (pp)', 'Current Absence', 'Previous Absence', 'Change (pp)'], $comparison,
                 ['Current: '.$criteria->from.' through '.$criteria->to.'. Previous: '.$previousFrom.' through '.$previousTo.'. Same selected employees and equal calendar lengths; current grouping labels apply to both periods.',
                     'Rates use each period’s actual qualified denominator. Ongoing or excluded dates can make coverage unequal. Percentage-point changes are N/A when either denominator is zero; they do not establish a cause.'], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
         }
@@ -283,16 +286,16 @@ final class AttendanceAnalysis
             'A closed incomplete scheduled day counts as an absence; incomplete days and absences overlap. Rates are weighted from combined numerators and denominators. Regular, late and undertime figures here use qualified completed days; the comparison and individual sheets retain full DTR totals.',
             'Employment coverage uses the employee record’s saved hire and separation dates. Half-day leave has no reconstructed partial attendance obligation. The repeated-lateness threshold is descriptive and does not assert government compliance or disciplinary status.',
         ], $sections, [
-            ['label' => 'Selected employees', 'value' => (string) count($employees)],
-            ['label' => 'Qualified employee-days', 'value' => self::count($total['opportunities'])],
-            ['label' => 'Completion rate', 'value' => self::rate($total['completed'], $total['opportunities'])],
-            ['label' => 'Late occurrence rate', 'value' => self::rate($total['late_days'], $total['fixed_completed'])],
-            ['label' => 'Absence rate', 'value' => self::rate($total['absences'], $total['opportunities'])],
-            ['label' => 'Repeated lateness', 'value' => (string) count($repeat)],
-        ], ['All selected', ...self::metricCells($total)], numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], charts: [
-            ['title' => 'Daily qualified late minutes', 'unit' => 'minutes', 'kind' => 'line', 'points' => $dailyPoints,
+            ['label' => 'Selected Employees', 'value' => (string) count($employees)],
+            ['label' => 'Qualified Employee-Days', 'value' => self::count($total['opportunities'])],
+            ['label' => 'Completion Rate', 'value' => self::rate($total['completed'], $total['opportunities'])],
+            ['label' => 'Late Occurrence Rate', 'value' => self::rate($total['late_days'], $total['fixed_completed'])],
+            ['label' => 'Absence Rate', 'value' => self::rate($total['absences'], $total['opportunities'])],
+            ['label' => 'Repeated Lateness', 'value' => (string) count($repeat)],
+        ], ['All Selected', ...self::metricCells($total)], numericColumns: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], charts: [
+            ['title' => 'Daily Qualified Late Minutes', 'unit' => 'minutes', 'kind' => 'line', 'points' => $dailyPoints,
                 'note' => 'Completed fixed-shift attendance on qualified days only. Zero qualified minutes on a date without qualifying attendance does not establish punctuality; inspect the daily coverage and denominators.'],
-            ['title' => 'Absence days by '.strtolower(self::groups()[$filters['groupBy']]), 'unit' => 'days', 'points' => array_slice($absencePoints, 0, 10),
+            ['title' => 'Absence Days by '.$groupTitle, 'unit' => 'days', 'points' => array_slice($absencePoints, 0, 10),
                 'note' => 'Qualified closed absence days, including closed incomplete days. Showing '.min(count($absencePoints), 10).' of '.count($absencePoints).' groups, highest count first; group rates and full coverage are in the table.'],
         ]);
     }
@@ -321,7 +324,7 @@ final class AttendanceAnalysis
     /** @return list<string> */
     private static function metricColumns(): array
     {
-        return ['Qualified days', 'Completed days', 'Completion rate', 'Late days', 'Late rate', 'Late time', 'Undertime days', 'Undertime rate', 'Undertime', 'Absence days', 'Absence rate', 'Incomplete days'];
+        return ['Qualified Days', 'Completed Days', 'Completion Rate', 'Late Days', 'Late Rate', 'Late Time', 'Undertime Days', 'Undertime Rate', 'Undertime', 'Absence Days', 'Absence Rate', 'Incomplete Days'];
     }
 
     /** @param array<string, float> $sum

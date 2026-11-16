@@ -75,7 +75,7 @@ it('reconciles cross-tab counts and shares including unknowns from the same empl
     $actor = workforceAnalysisActor();
     $report = app(EmployeeReport::class)->generate($actor, $criteria);
 
-    expect($report->columns)->toBe(['Employment status', 'Employees', 'Share of cohort', 'Female', 'Male', 'Not recorded'])
+    expect($report->columns)->toBe(['Employment Status', 'Employees', 'Share of Cohort', 'Female', 'Male', 'Not recorded'])
         ->and($report->rows)->toBe([['Contractual', '1', '33.3%', '0', '0', '1'], ['Regular', '2', '66.7%', '1', '1', '0']])
         ->and($report->totals)->toBe(['Total', '3', '100.0%', '1', '1', '1'])
         ->and(array_column($report->summary, 'value', 'label')['Employees'])->toBe('3')
@@ -91,7 +91,7 @@ it('retains source authorization and own-row scope across every analysis panel',
     $report = $query->generate(workforceAnalysisActor(false, $own->id), workforceAnalysisCriteria('development'));
 
     expect(array_column($report->summary, 'value', 'label')['Employees'])->toBe('1')
-        ->and(array_column($report->summary, 'value', 'label')['Training records'])->toBe('0')
+        ->and(array_column($report->summary, 'value', 'label')['Training Records'])->toBe('0')
         ->and(json_encode($report))->not->toContain('FOREIGN', 'Secret status')
         ->and($query->generate(workforceAnalysisActor(false), workforceAnalysisCriteria())->rows)->toBe([]);
     try {
@@ -139,10 +139,10 @@ it('keeps age bands and numeric statistics explicit about unknown birth dates', 
     $summary = array_column($report->summary, 'value', 'label');
 
     expect($report->rows)->toBe([['25–34', '1', '33.3%'], ['35–44', '1', '33.3%'], ['Not recorded', '1', '33.3%']])
-        ->and($summary['Known ages'])->toBe('2')
-        ->and($summary['Age not recorded'])->toBe('1')
-        ->and($summary['Average age (years)'])->toBe('33.0')
-        ->and($summary['Median age (years)'])->toBe('33.0');
+        ->and($summary['Known Ages'])->toBe('2')
+        ->and($summary['Age Not Recorded'])->toBe('1')
+        ->and($summary['Average Age (years)'])->toBe('33.0')
+        ->and($summary['Median Age (years)'])->toBe('33.0');
 });
 
 it('uses the filtered cohort for education eligibility and completed training without exporting raw professional rows', function () {
@@ -161,12 +161,12 @@ it('uses the filtered cohort for education eligibility and completed training wi
     }
     $report = app(EmployeeReport::class)->generate(workforceAnalysisActor(), workforceAnalysisCriteria('development', ['active' => 'ACTIVE', 'crossTab' => 'none']));
     $summary = array_column($report->summary, 'value', 'label');
-    $training = collect($report->sections)->firstWhere('title', 'Training completed: 2026-09-01 to 2026-09-30');
-    $expiry = collect($report->sections)->firstWhere('title', 'Eligibility expiry as of 2026-10-09');
+    $training = collect($report->sections)->firstWhere('title', 'Training Completed: 2026-09-01 to 2026-09-30');
+    $expiry = collect($report->sections)->firstWhere('title', 'Eligibility Expiry as of 2026-10-09');
 
-    expect($summary['Employees'])->toBe('1')->and($summary['Training records'])->toBe('2')
-        ->and($summary['Training participants'])->toBe('1')->and($summary['Known training hours'])->toBe('8.00')
-        ->and($summary['Hours not recorded'])->toBe('1')->and($training['totals'] ?? [])->toBe(['Total', '2', '1', '8.00', '1'])
+    expect($summary['Employees'])->toBe('1')->and($summary['Training Records'])->toBe('2')
+        ->and($summary['Training Participants'])->toBe('1')->and($summary['Known Training Hours'])->toBe('8.00')
+        ->and($summary['Hours Not Recorded'])->toBe('1')->and($training['totals'] ?? [])->toBe(['Total', '2', '1', '8.00', '1'])
         ->and($expiry['rows'])->toBe([['Expired', '1'], ['Expires within 90 days', '1'], ['Later expiry', '0'], ['Expiry not recorded', '1']])
         ->and(json_encode($report))->not->toContain('PRIVATE-LICENSE', 'EXCLUDED', 'Recorded College', 'Legacy College');
 });
@@ -178,10 +178,10 @@ it('excludes future training end dates from completed records while retaining mi
     workforceAnalysisTraining($employee, ['date_from' => '2026-10-20', 'date_to' => '2026-10-20', 'hours' => 40]);
     $report = app(EmployeeReport::class)->generate(workforceAnalysisActor(), workforceAnalysisCriteria('development', ['crossTab' => 'none'], ['from' => '2026-10-01', 'to' => '2026-10-31']));
     $summary = array_column($report->summary, 'value', 'label');
-    $training = collect($report->sections)->firstWhere('title', 'Training completed: 2026-10-01 to 2026-10-31');
+    $training = collect($report->sections)->firstWhere('title', 'Training Completed: 2026-10-01 to 2026-10-31');
 
-    expect($summary['Training records'])->toBe('1')->and($summary['Training participants'])->toBe('1')
-        ->and($summary['Known training hours'])->toBe('0.00')->and($summary['Hours not recorded'])->toBe('1')
+    expect($summary['Training Records'])->toBe('1')->and($summary['Training Participants'])->toBe('1')
+        ->and($summary['Known Training Hours'])->toBe('0.00')->and($summary['Hours Not Recorded'])->toBe('1')
         ->and($training['totals'] ?? [])->toBe(['Total', '1', '1', '0.00', '1'])
         ->and(implode(' ', $training['notes'] ?? []))->toContain('Completion cutoff: 2026-10-09 (Manila)', 'future end dates are excluded')
         ->and(implode(' ', $report->notes))->toContain('recorded end date through 2026-10-09 (Manila)', 'Future end dates are excluded');
@@ -193,11 +193,11 @@ it('counts recorded joinings regularizations and resignations within partial mon
     workforceAnalysisEmployee('OUT', ['date_hired' => '2020-10-09', 'date_resigned' => '2026-09-18', 'is_active' => false]);
     workforceAnalysisEmployee('EARLY', ['date_hired' => '2026-09-01']);
     $report = app(EmployeeReport::class)->generate(workforceAnalysisActor(), workforceAnalysisCriteria('service', ['crossTab' => 'none'], ['from' => '2026-09-10', 'to' => '2026-09-25']));
-    $monthly = collect($report->sections)->firstWhere('title', 'Recorded movements by month');
+    $monthly = collect($report->sections)->firstWhere('title', 'Recorded Movements by Month');
     $summary = array_column($report->summary, 'value', 'label');
 
     expect($monthly['rows'])->toBe([['2026-09', '1', '1', '1']])
-        ->and($summary['Joined in period'])->toBe('1')->and($summary['Regularized in period'])->toBe('1')->and($summary['Resigned in period'])->toBe('1')
+        ->and($summary['Joined in Period'])->toBe('1')->and($summary['Regularized in Period'])->toBe('1')->and($summary['Resigned in Period'])->toBe('1')
         ->and(implode(' ', $report->notes))->toContain('do not reconstruct historical headcount', 'Rehires and breaks');
 });
 
@@ -205,9 +205,9 @@ it('separates missing information from record exceptions and does not require an
     $this->travelTo(new DateTimeImmutable('2026-10-09T09:00:00+08:00'));
     workforceAnalysisEmployee('REVIEW', ['employee_id_no' => '0', 'email' => 'invalid email', 'date_resigned' => '2019-01-01', 'is_active' => true]);
     $report = app(EmployeeReport::class)->generate(workforceAnalysisActor(), workforceAnalysisCriteria('quality', ['crossTab' => 'none']));
-    $completeness = collect($report->sections)->firstWhere('title', 'Field completeness');
-    $missing = collect($report->sections)->firstWhere('title', 'Employees with missing information');
-    $exceptions = collect($report->sections)->firstWhere('title', 'Record exceptions to review');
+    $completeness = collect($report->sections)->firstWhere('title', 'Field Completeness');
+    $missing = collect($report->sections)->firstWhere('title', 'Employees with Missing Information');
+    $exceptions = collect($report->sections)->firstWhere('title', 'Record Exceptions to Review');
 
     expect($completeness['rows'][0])->toBe(['Employee ID', '1', '0', '100.0%'])
         ->and(array_column($completeness['rows'], 0))->not->toContain('Unit')
@@ -222,10 +222,10 @@ it('shows assigned Employee IDs or an em dash across movement and record quality
     $query = app(EmployeeReport::class);
     $service = $query->generate($actor, workforceAnalysisCriteria('service', ['crossTab' => 'none']));
     $quality = $query->generate($actor, workforceAnalysisCriteria('quality', ['crossTab' => 'none']));
-    $movements = collect($service->sections)->firstWhere('title', 'Employees behind recorded movements');
-    $missing = collect($quality->sections)->firstWhere('title', 'Employees with missing information');
-    $exceptions = collect($quality->sections)->firstWhere('title', 'Record exceptions to review');
-    $completeness = collect($quality->sections)->firstWhere('title', 'Field completeness');
+    $movements = collect($service->sections)->firstWhere('title', 'Employees Behind Recorded Movements');
+    $missing = collect($quality->sections)->firstWhere('title', 'Employees with Missing Information');
+    $exceptions = collect($quality->sections)->firstWhere('title', 'Record Exceptions to Review');
+    $completeness = collect($quality->sections)->firstWhere('title', 'Field Completeness');
 
     foreach ([$movements, $missing, $exceptions] as $section) {
         expect(array_column($section['rows'], 0, 1))->toBe(['Ana Assigned' => 'HR-2042', 'Ana Missing' => '—']);

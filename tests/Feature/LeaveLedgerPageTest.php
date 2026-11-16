@@ -115,7 +115,7 @@ it('exports the same credit history and balance breakdown while preserving type 
 
 it('hides ledger data from unlinked viewers and refuses direct components without their module', function (): void {
     ledgerPageActor(['LEAVES'], false);
-    Livewire::test(LeaveLedger::class)->assertSee('No employee record linked.')->assertDontSee('Record credits')->assertDontSee('Export CSV');
+    Livewire::test(LeaveLedger::class)->assertSee('No employee record linked.')->assertDontSee('Record Credits')->assertDontSee('Export CSV');
     ledgerPageActor(['PORTAL'], false);
     Livewire::test(LeaveLedger::class)->assertForbidden();
     $this->get('/leaves/ledger/export')->assertRedirect();

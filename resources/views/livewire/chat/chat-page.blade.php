@@ -198,7 +198,7 @@
                         title="Details"
                     >
                         <flux:icon.information-circle class="size-5" />
-                        <span class="sr-only">Conversation details</span>
+                        <span class="sr-only">Conversation Details</span>
                     </button>
                 </header>
 
@@ -250,7 +250,7 @@
                     <div class="mx-auto max-w-3xl">
                         @if ($thread->more)
                             <div class="mb-2 flex justify-center">
-                                <flux:button size="sm" variant="ghost" wire:click="showEarlier" wire:loading.attr="disabled" wire:target="showEarlier">Load earlier messages</flux:button>
+                                <flux:button size="sm" variant="ghost" wire:click="showEarlier" wire:loading.attr="disabled" wire:target="showEarlier">Load Earlier Messages</flux:button>
                             </div>
                         @endif
 
@@ -284,7 +284,7 @@
                 <div class="flex flex-1 items-center justify-center">
                     <div class="text-center">
                         <x-kit.empty-state icon="chat-bubble-left-right" title="Pick a conversation." hint="Or start a new one." />
-                        <flux:button size="sm" icon="pencil-square" wire:click="openNewChat" class="-mt-6">New chat</flux:button>
+                        <flux:button size="sm" icon="pencil-square" wire:click="openNewChat" class="-mt-6">New Chat</flux:button>
                     </div>
                 </div>
             @endif

@@ -17,15 +17,15 @@
 @endphp
 <div class="@container rounded-lg border border-border p-4" data-settings-filing>
     <fieldset class="space-y-3">
-        <legend class="text-sm font-semibold">Leave filing <span class="ml-1 text-xs font-normal text-muted-foreground">Request settings</span></legend>
+        <legend class="text-sm font-semibold">Leave Filing <span class="ml-1 text-xs font-normal text-muted-foreground">Request Settings</span></legend>
         <p class="-mt-2 text-xs text-muted-foreground">How requests are paid, counted and described. The payment basis decides which settings follow.</p>
         <div class="grid gap-4 @lg:grid-cols-2 @4xl:grid-cols-3">
             <div class="space-y-2">
-                <x-kit.select label="Payment basis" wire:model.live="typeForm.filing" data-leave-filing>
+                <x-kit.select label="Payment Basis" wire:model.live="typeForm.filing" data-leave-filing>
                     @foreach (LeaveTypeCredits::FILING_LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
                 @if ($hasAllowance)
-                    <flux:input label="{{ $filing === LeaveTypeCredits::FILING_YEARLY ? 'Annual allowance (days)' : 'Allowance per request (days)' }}" type="number" min="0.5" step="0.0001" wire:model="typeForm.allowance_days" data-leave-allowance />
+                    <flux:input label="{{ $filing === LeaveTypeCredits::FILING_YEARLY ? 'Annual Allowance (days)' : 'Allowance per Request (days)' }}" type="number" min="0.5" step="0.0001" wire:model="typeForm.allowance_days" data-leave-allowance />
                 @endif
                 <p class="text-xs text-muted-foreground">
                     @switch ($filing)
@@ -51,7 +51,7 @@
             </div>
             @if ($detailsReady ?? false)
                 <div class="space-y-2">
-                    <x-kit.select label="Details of leave asked" wire:model="typeForm.leave_details" data-leave-details-setting>
+                    <x-kit.select label="Details of Leave Asked" wire:model="typeForm.leave_details" data-leave-details-setting>
                         @foreach (LeaveApplication::SECTION_LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                     </x-kit.select>
                     <p class="text-xs text-muted-foreground">The leave form's extra questions: where a vacation is spent, the illness (sick leave, special leave for women) or the study purpose. None asks nothing.</p>
@@ -67,11 +67,11 @@
             --}}
             <div class="space-y-3 border-t border-border pt-3" data-leave-eligibility-setting>
                 <div class="grid gap-4 @lg:grid-cols-2 @4xl:grid-cols-3">
-                    <x-kit.select label="Who may use it" wire:model.live="typeForm.status_mode" data-leave-status-mode>
+                    <x-kit.select label="Who May Use It" wire:model.live="typeForm.status_mode" data-leave-status-mode>
                         <flux:select.option value="{{ LeaveEligibility::STATUS_ALL }}">Every employment status</flux:select.option>
                         <flux:select.option value="{{ LeaveEligibility::STATUS_SOME }}">Only the chosen statuses</flux:select.option>
                     </x-kit.select>
-                    <x-kit.select label="Only for" wire:model.live="typeForm.sex" data-leave-sex>
+                    <x-kit.select label="Only For" wire:model.live="typeForm.sex" data-leave-sex>
                         <flux:select.option value="">Anyone</flux:select.option>
                         @foreach (LeaveEligibility::SEX_LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                     </x-kit.select>

@@ -11,7 +11,7 @@
                      granted nothing): pages with their own body — the account
                      settings pages, which no module gates — still render. --}}
                 <div class="hris-card p-10 text-center">
-                    <h1 class="text-lg font-semibold">No modules assigned</h1>
+                    <h1 class="text-lg font-semibold">No Modules Assigned</h1>
                     <p class="mt-2 text-sm text-muted-foreground">
                         Your role has no module grants yet. Please contact HR.
                     </p>

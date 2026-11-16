@@ -12,5 +12,5 @@
         target="_blank"
         rel="noopener noreferrer"
         class="font-medium underline-offset-4 transition-colors hover:text-foreground hover:underline"
-    >CyberOnions and Partners</a>
+    >CyberOnions and Partners Corporation</a>
 </footer>

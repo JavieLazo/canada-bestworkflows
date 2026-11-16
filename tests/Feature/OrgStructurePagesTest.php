@@ -154,7 +154,7 @@ it('draws each department with its units under it, the mockup columns and the ro
 
     expect($html)->toContain('Departments, and the units inside each one, in the order you set. Each position is placed in a department or in one of its units on the Position page.')
         ->toContain('placeholder="Search ID, name or description"')
-        ->toContain('Add department')
+        ->toContain('Add Department')
         ->not->toContain('Export CSV')
         ->not->toContain('Import CSV')
         ->toContain('departments and units');
@@ -164,11 +164,11 @@ it('draws each department with its units under it, the mockup columns and the ro
         ->and(orgpageAt($html, 'Software Development'))->toBeLessThan(orgpageAt($html, 'Quality'));
 
     expect(orgpageRow($html, 'node-'.$eng->id))->toContain('Engineering Department Builds the products.')
-        ->toContain('Add unit')
+        ->toContain('Add Unit')
         ->toContain('Delete · has 2 units, 2 positions')
         ->and(orgpageRow($html, 'node-'.$dev->id))->toContain('└ Software Development')
         ->toContain('Delete · has 3 positions')
-        ->not->toContain('Add unit')
+        ->not->toContain('Add Unit')
         ->and(orgpageRow($html, 'node-'.$qa->id))->toContain('Delete')
         ->not->toContain('Delete · has')
         ->and(orgpageRow($html, 'node-'.$pres->id))->not->toContain('Delete · has');
@@ -189,7 +189,7 @@ it('adds a department, adds a unit with its department preselected, and edits it
         ->call('openAddUnit', $hr->id)
         ->assertSet('formDepartmentId', $hr->id)
         ->assertSet('dialogKind', 'UNIT')
-        ->assertSee('Unit name')
+        ->assertSee('Unit Name')
         ->assertDontSee('Moving a unit to another department')
         ->set('formName', 'People Operations')
         ->call('save')
@@ -201,7 +201,7 @@ it('adds a department, adds a unit with its department preselected, and edits it
         ->assertSet('formName', 'People Operations')
         ->assertSee('Edit unit')
         ->assertSee('Moving a unit to another department takes its positions, and the people who hold them, along with it. Employment History is not changed.')
-        ->assertSee('Save changes');
+        ->assertSee('Save Changes');
 });
 
 it('requires a name inline and lets a RECORDS reader without all_data change nothing', function () {
@@ -254,9 +254,9 @@ it('draws the Position page columns, placements, holders and row menus', functio
 
     $html = Livewire::test(PositionsPage::class)->html();
 
-    expect($html)->toContain('Filter by department')
+    expect($html)->toContain('Filter by Department')
         ->toContain('All departments')
-        ->toContain('Add position')
+        ->toContain('Add Position')
         ->not->toContain('Export CSV')
         ->not->toContain('Import CSV');
     foreach (['<th>ID</th>', '<th>Position</th>', '<th>Department</th>', '<th>Description</th>', 'Action</th>'] as $header) {
@@ -270,12 +270,12 @@ it('draws the Position page columns, placements, holders and row menus', functio
     expect(orgpageRow($html, 'position-'.$officer->id))->toContain('Administrative Officer HR Department People Operations')
         ->not->toContain('inactive')
         ->toContain('Delete · held by 2')
-        ->toContain('Move up')
+        ->toContain('Move Up')
         ->and(orgpageRow($html, 'position-'.$head->id))->toContain('HR Head HR Department')
         ->not->toContain('Delete · held by')
         ->and(orgpageRow($html, 'position-'.$driver->id))->toContain('Not placed')
-        ->not->toContain('Move up')
-        ->not->toContain('Move down');
+        ->not->toContain('Move Up')
+        ->not->toContain('Move Down');
 });
 
 it('filters by department, its units included, by one unit, or by Not placed', function () {
@@ -309,7 +309,7 @@ it('edits a position with the holder sentence, places it in a unit, and drops a 
     $page = Livewire::test(PositionsPage::class)
         ->call('startEdit', $officer->id)
         ->assertSet('formDepartmentId', $hr->id)
-        ->assertSee('Edit position')
+        ->assertSee('Edit Position')
         ->assertSee('1 employee holds this position. A new name shows on their record at once; Employment History and posted payroll keep the old name. Moving it changes the department and unit its holder shows.')
         ->assertSee('No unit — in the department itself')
         ->assertSee('Only the units of the chosen department are listed.')
@@ -346,7 +346,7 @@ it('omits the holder sentence when nobody holds the position and adds one throug
         ->assertDontSee('holds this position')
         ->assertDontSee('hold this position')
         ->call('openAdd')
-        ->assertSee('Add position')
+        ->assertSee('Add Position')
         ->set('formName', 'Courier')
         ->call('save')
         ->assertSet('dialogOpen', false);

@@ -72,9 +72,9 @@ it('opens for RECORDS or LEAVES holders and turns everyone else away', function 
     $this->get('/records/leave-credits')->assertOk()->assertSee('Leave Settings')->assertSee('Your role can view these settings.');
 
     lcsActor(['RECORDS']);
-    $this->get('/records/leave-credits')->assertOk()->assertSee('Conversion table')->assertDontSee('Posting and charging')->assertSee('Leave types')->assertDontSee('Policy presets')
+    $this->get('/records/leave-credits')->assertOk()->assertSee('Conversion Table')->assertDontSee('Posting and charging')->assertSee('Leave Types')->assertDontSee('Policy presets')
         // A Records manager adds leave types here, with no CSV to export or import.
-        ->assertSee('Add leave type')->assertDontSee('Export CSV')->assertDontSee('Import CSV');
+        ->assertSee('Add Leave Type')->assertDontSee('Export CSV')->assertDontSee('Import CSV');
 });
 
 it('keeps the conversion table on a tab of its own, opened from the strip or the address', function () {

@@ -50,8 +50,8 @@
             </div>
             @endunless
             <div class="min-w-0 space-y-2">
-                <p class="text-sm font-medium">Changed field</p>
-                <x-kit.filter-select label="Changed field" all-value="" wire:model.live="field">
+                <p class="text-sm font-medium">Changed Field</p>
+                <x-kit.filter-select label="Changed Field" all-value="" wire:model.live="field">
                     <flux:select.option value="">All fields</flux:select.option>
                     @foreach ($fields as $key => $label)
                         <flux:select.option value="{{ $key }}">{{ $label }}</flux:select.option>
@@ -60,12 +60,12 @@
                 @error('field') <p class="text-xs text-danger" role="alert">{{ $message }}</p> @enderror
             </div>
             <div class="min-w-0 space-y-2">
-                <label for="history-from" class="text-sm font-medium">Changed from</label>
+                <label for="history-from" class="text-sm font-medium">Changed From</label>
                 <x-kit.date-field id="history-from" wire:model.live="from" aria-label="Changed from" />
                 @error('from') <p class="text-xs text-danger" role="alert">{{ $message }}</p> @enderror
             </div>
             <div class="min-w-0 space-y-2">
-                <label for="history-to" class="text-sm font-medium">Changed through</label>
+                <label for="history-to" class="text-sm font-medium">Changed Through</label>
                 <x-kit.date-field id="history-to" wire:model.live="to" aria-label="Changed through" />
                 @error('to') <p class="text-xs text-danger" role="alert">{{ $message }}</p> @enderror
             </div>
@@ -74,7 +74,7 @@
             <p class="text-xs text-muted-foreground">Starting records are not counted as updates and are not exported.</p>
             <div class="flex flex-wrap items-center gap-2">
                 @if ($employeeId !== '' || $from !== '' || $to !== '' || $field !== '')
-                    <flux:button variant="ghost" size="sm" wire:click="clearFilters">Clear filters</flux:button>
+                    <flux:button variant="ghost" size="sm" wire:click="clearFilters">Clear Filters</flux:button>
                 @endif
                 @if ($validFilters && ! $own)
                     <x-kit.export-button :href="route('employees.history.export', array_filter(['employee' => $employeeId, 'from' => $from, 'to' => $to, 'field' => $field]))" />
@@ -118,8 +118,8 @@
                 @if ($entries > 1)
                     {{-- Client-only: the folds keep their own state, so these two set it and nothing is stored. --}}
                     <div class="flex items-center gap-1">
-                        <flux:button type="button" variant="ghost" size="sm" x-on:click="$el.closest('section').querySelectorAll('details').forEach((fold) => fold.open = true)">Expand all</flux:button>
-                        <flux:button type="button" variant="ghost" size="sm" x-on:click="$el.closest('section').querySelectorAll('details').forEach((fold) => fold.open = false)">Collapse all</flux:button>
+                        <flux:button type="button" variant="ghost" size="sm" x-on:click="$el.closest('section').querySelectorAll('details').forEach((fold) => fold.open = true)">Expand All</flux:button>
+                        <flux:button type="button" variant="ghost" size="sm" x-on:click="$el.closest('section').querySelectorAll('details').forEach((fold) => fold.open = false)">Collapse All</flux:button>
                     </div>
                 @endif
             </header>

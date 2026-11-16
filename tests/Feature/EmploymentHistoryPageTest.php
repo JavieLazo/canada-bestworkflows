@@ -75,10 +75,10 @@ it('opens history separately and links the employee profile to its selected hist
 
     $this->get(route('employees.index'))->assertOk()->assertSeeHtml(route('employees.history'));
     $this->get(route('employees.history', ['employee' => $employee->id]))->assertOk()
-        ->assertSee('Previous value')->assertSee('New value')->assertSee('Senior');
+        ->assertSee('Previous Value')->assertSee('New Value')->assertSee('Senior');
     Livewire::test(Show::class, ['employee' => $employee->id])
         ->assertSeeHtml(route('employees.history', ['employee' => $employee->id]))
-        ->assertDontSee('Previous value')->assertDontSee('Starting record when history tracking began.');
+        ->assertDontSee('Previous Value')->assertDontSee('Starting record when history tracking began.');
 });
 
 it('groups changed fields under one edit and leaves unchanged facts out of it', function () {

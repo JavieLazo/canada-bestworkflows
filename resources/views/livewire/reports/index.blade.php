@@ -40,7 +40,7 @@
 
     @if (! $allowed)
         <section class="hris-card p-6 print:hidden">
-            <h2 class="font-semibold">Source access is required</h2>
+            <h2 class="font-semibold">Source Access Is Required</h2>
             <p class="mt-2 text-sm text-muted-foreground">Your role can open Reports. A source-module grant is also needed to open this report; ask your administrator to assign the appropriate access.</p>
         </section>
     @else
@@ -60,13 +60,13 @@
                 @endif
                 @if ($type !== 'audit-logs')
                     <flux:button type="button" icon="users" wire:click="chooseEmployees">
-                        {{ $chosen === 0 ? ($type === 'attendance-reports' ? 'Choose employees' : 'All employees') : $chosen.' '.($chosen === 1 ? 'employee' : 'employees') }}
+                        {{ $chosen === 0 ? ($type === 'attendance-reports' ? 'Choose Employees' : 'All Employees') : $chosen.' '.($chosen === 1 ? 'Employee' : 'Employees') }}
                     </flux:button>
                 @endif
                 @include('livewire.reports.partials.filters-primary')
                 <div class="ml-auto flex flex-wrap items-center gap-2">
                     @if ($document !== null && $type !== 'attendance-reports')
-                        <x-kit.export-button :href="route('reports.export', $generated)" :label="$analysis ? 'Export group summary CSV' : ($type === 'payslips' ? 'Export payslip summary CSV' : 'Export CSV')" />
+                        <x-kit.export-button :href="route('reports.export', $generated)" :label="$analysis ? 'Export Group Summary CSV' : ($type === 'payslips' ? 'Export Payslip Summary CSV' : 'Export CSV')" />
                     @endif
                     @if ($document !== null)
                         @if ($printOptions['parts'] === [] && $printOptions['tables'] === [])
@@ -94,7 +94,7 @@
                     <h2 class="text-base font-semibold">No records match this report.</h2>
                     @if (in_array($type, ReportCatalog::PAYROLL, true) && $latestPayroll !== null && $period !== 'latest')
                         <p class="max-w-lg text-sm text-muted-foreground">No payroll was posted with a period ending {{ \App\Support\HrisFormat::date($from) }} – {{ \App\Support\HrisFormat::date($to) }}. The latest posted payroll is {{ \App\Support\HrisFormat::date($latestPayroll['from']) }} – {{ \App\Support\HrisFormat::date($latestPayroll['to']) }}.</p>
-                        <flux:button type="button" class="mt-2" wire:click="setPeriod('latest')">Show the latest payroll</flux:button>
+                        <flux:button type="button" class="mt-2" wire:click="setPeriod('latest')">Show the Latest Payroll</flux:button>
                     @else
                         <p class="max-w-lg text-sm text-muted-foreground">Try a different period or a broader filter.</p>
                     @endif
@@ -117,11 +117,11 @@
     @elseif ($allowed)
         <section class="hris-card flex flex-col items-center gap-2 px-6 py-10 text-center print:hidden" aria-label="Report preview">
             @if ($type === 'attendance-reports' && $employeeIds === [])
-                <h2 class="text-base font-semibold">Choose employees to compare</h2>
+                <h2 class="text-base font-semibold">Choose Employees to Compare</h2>
                 <p class="max-w-lg text-sm text-muted-foreground">Attendance covers the employees you choose, for up to 31 days. Nothing is read until you choose.</p>
-                <flux:button type="button" variant="primary" icon="users" class="mt-2" wire:click="chooseEmployees">Choose employees</flux:button>
+                <flux:button type="button" variant="primary" icon="users" class="mt-2" wire:click="chooseEmployees">Choose Employees</flux:button>
             @elseif ($type === 'loan-summary' && $deductionCodes === [])
-                <h2 class="text-base font-semibold">Choose the loans to include</h2>
+                <h2 class="text-base font-semibold">Choose the Loans to Include</h2>
                 <p class="max-w-lg text-sm text-muted-foreground">Tick the deduction types above. The report shows what was deducted, not loan balances.</p>
             @elseif ($errors->any())
                 <h2 class="text-base font-semibold">This report could not be prepared</h2>
@@ -137,7 +137,7 @@
         <flux:modal name="report-employees" class="w-full max-w-2xl" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'report-employees-heading')">
             <div class="space-y-5">
                 <header>
-                    <h2 id="report-employees-heading" class="text-lg font-semibold">Choose employees</h2>
+                    <h2 id="report-employees-heading" class="text-lg font-semibold">Choose Employees</h2>
                     <p class="mt-1 text-sm text-muted-foreground">Filter the list, then select employees individually or select all matching your filters.</p>
                 </header>
                 <livewire:kit.employee-checklist wire:model.live="employeeIds" name="report-employees"
@@ -149,7 +149,7 @@
                     <div class="max-w-sm space-y-1 text-xs text-muted-foreground">
                         <p>{{ $type === 'attendance-reports' ? 'Choose at least one employee. For larger groups, use a shorter period to stay within 5,000 employee-days.' : 'An empty selection includes all permitted employees. The report filters still apply.' }}</p>
                         @if ($employeeIds !== [])
-                            <button type="button" wire:click="clearEmployees" class="font-medium text-primary hover:underline">{{ $type === 'attendance-reports' ? 'Clear employee selection' : 'Include all permitted employees' }}</button>
+                            <button type="button" wire:click="clearEmployees" class="font-medium text-primary hover:underline">{{ $type === 'attendance-reports' ? 'Clear Employee Selection' : 'Include All Permitted Employees' }}</button>
                         @endif
                     </div>
                     <flux:modal.close><flux:button variant="primary">Done</flux:button></flux:modal.close>

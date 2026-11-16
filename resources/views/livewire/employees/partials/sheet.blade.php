@@ -116,7 +116,7 @@
         <header class="sheet-header">
             <div>
                 <p class="brand">{{ config('copems.company_name') }}</p>
-                <h1 class="document-title">Employee 201 file</h1>
+                <h1 class="document-title">Employee 201 File</h1>
                 <p class="employee-name">{{ $name }}</p>
                 <p class="position">{{ Sheet::text($employee->position) }}</p>
             </div>
@@ -136,7 +136,7 @@
         </div>
 
         <div class="block">
-            <h2 class="block-title"><span class="block-number">01</span> Personal information</h2>
+            <h2 class="block-title"><span class="block-number">01</span> Personal Information</h2>
             <dl class="fields">
                 {!! $field('Birthdate', Sheet::date($employee->birth_date)) !!}
                 {!! $field('Age', Sheet::age($employee)) !!}
@@ -155,7 +155,7 @@
         </div>
 
         <div class="block">
-            <h2 class="block-title"><span class="block-number">02</span> Emergency contact</h2>
+            <h2 class="block-title"><span class="block-number">02</span> Emergency Contact</h2>
             <dl class="fields">
                 {!! $field('Name', Sheet::text($employee->emergency_name), 2) !!}
                 {!! $field('Relationship', Sheet::text($employee->emergency_relation)) !!}
@@ -165,7 +165,7 @@
         </div>
 
         <div class="block">
-            <h2 class="block-title"><span class="block-number">03</span> Family background</h2>
+            <h2 class="block-title"><span class="block-number">03</span> Family Background</h2>
             <dl class="fields">
                 {!! $field("Spouse's name", Sheet::spouseName($employee), 2) !!}
                 {!! $field('Employment', Sheet::spouseEmployment($employee)) !!}
@@ -181,7 +181,7 @@
         </div>
 
         <div class="block">
-            <h2 class="block-title"><span class="block-number">04</span> Educational background</h2>
+            <h2 class="block-title"><span class="block-number">04</span> Educational Background</h2>
             <dl class="fields">
                 {!! $field('College', Sheet::education($employee, 'COLLEGE')['school'], 2) !!}
                 {!! $field('Course', Sheet::education($employee, 'COLLEGE')['course']) !!}
@@ -193,7 +193,7 @@
         </div>
 
         <div class="block">
-            <h2 class="block-title"><span class="block-number">05</span> Statutory &amp; bank details</h2>
+            <h2 class="block-title"><span class="block-number">05</span> Statutory &amp; Bank Details</h2>
             <dl class="fields">
                 {!! $field('SSS / GSIS no', Sheet::text($employee->sss_no)) !!}
                 {!! $field('PhilHealth no', Sheet::text($employee->philhealth_no)) !!}

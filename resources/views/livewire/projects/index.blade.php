@@ -36,7 +36,7 @@
             <livewire:kit.csv-import table="projects" :template="route('projects.export', ['template' => 1])" key="import-projects" />
             <flux:button variant="primary" wire:click="$set('adding', true)">
                 <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                New project
+                New Project
             </flux:button>
         </div>
     </div>
@@ -53,7 +53,7 @@
             </span>
             <span>
                 <span class="num block text-xl font-bold">{{ $activeProjects }}</span>
-                <span class="text-xs text-muted-foreground">Active projects</span>
+                <span class="text-xs text-muted-foreground">Active Projects</span>
             </span>
         </button>
         <button
@@ -67,7 +67,7 @@
             </span>
             <span>
                 <span class="num block text-xl font-bold">{{ $reviewCount }}</span>
-                <span class="text-xs text-muted-foreground">Needs review</span>
+                <span class="text-xs text-muted-foreground">Needs Review</span>
             </span>
         </button>
         <button
@@ -81,7 +81,7 @@
             </span>
             <span>
                 <span class="num block text-xl font-bold">{{ $overdueCount }}</span>
-                <span class="text-xs text-muted-foreground">Overdue tasks</span>
+                <span class="text-xs text-muted-foreground">Overdue Tasks</span>
             </span>
         </button>
         <button
@@ -95,7 +95,7 @@
             </span>
             <span>
                 <span class="num block text-xl font-bold">{{ $dueSoonCount }}</span>
-                <span class="text-xs text-muted-foreground">Due soon</span>
+                <span class="text-xs text-muted-foreground">Due Soon</span>
             </span>
         </button>
         <button
@@ -109,7 +109,7 @@
             </span>
             <span>
                 <span class="num block text-xl font-bold">{{ $unassignedCount }}</span>
-                <span class="text-xs text-muted-foreground">Unassigned tasks</span>
+                <span class="text-xs text-muted-foreground">Unassigned Tasks</span>
             </span>
         </button>
     </section>
@@ -123,21 +123,21 @@
                 wire:model.live.debounce.250ms="search"
             />
 
-            <x-kit.filter-select label="Filter by status" class="w-[13rem]" wire:model.live="status">
+            <x-kit.filter-select label="Filter by Status" class="w-[13rem]" wire:model.live="status">
                 <flux:select.option value="ALL">All statuses</flux:select.option>
                 @foreach (ProjectPolicy::STATUSES as $value => $label)
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by site" class="w-[13rem]" wire:model.live="site">
+            <x-kit.filter-select label="Filter by Site" class="w-[13rem]" wire:model.live="site">
                 <flux:select.option value="ALL">All sites</flux:select.option>
                 @foreach ($sites as $siteRow)
                     <flux:select.option value="{{ $siteRow->id }}">{{ $siteRow->name }}</flux:select.option>
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by task leader" class="w-[13rem]" wire:model.live="manager">
+            <x-kit.filter-select label="Filter by Task Leader" class="w-[13rem]" wire:model.live="manager">
                 <flux:select.option value="ALL">All task leaders</flux:select.option>
                 @foreach ($accounts as $account)
                     @if ((bool) $account->getAttribute('is_active'))
@@ -146,7 +146,7 @@
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.filter-select label="Filter by queue" class="w-[13rem]" wire:model.live="queue">
+            <x-kit.filter-select label="Filter by Queue" class="w-[13rem]" wire:model.live="queue">
                 <flux:select.option value="ALL">All work</flux:select.option>
                 <flux:select.option value="REVIEW">Needs review</flux:select.option>
                 <flux:select.option value="OVERDUE">Overdue</flux:select.option>
@@ -240,7 +240,7 @@
     <flux:modal wire:model.self="adding" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
         <div class="space-y-4">
             <div>
-                <flux:heading size="lg">New project</flux:heading>
+                <flux:heading size="lg">New Project</flux:heading>
                 <flux:text class="mt-1">
                     The project is the container for its tasks. Its code is assigned automatically, and
                     tasks are handed out from the project itself.
@@ -289,7 +289,7 @@
                     </div>
 
                     <div class="space-y-2">
-                        <flux:label>Start date</flux:label>
+                        <flux:label>Start Date</flux:label>
                         <x-kit.date-field
                             required
                             class="num"
@@ -299,7 +299,7 @@
                     </div>
 
                     <div class="space-y-2">
-                        <flux:label>Due date</flux:label>
+                        <flux:label>Due Date</flux:label>
                         <x-kit.date-field
                             class="num"
                             wire:model="draftDueDate"
@@ -325,7 +325,7 @@
 
                 <flux:button type="submit" variant="primary">
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                    Create project
+                    Create Project
                 </flux:button>
             </form>
         </div>

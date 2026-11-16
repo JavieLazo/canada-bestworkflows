@@ -32,7 +32,7 @@
     <div class="flex gap-3">
         <x-social.avatar :name="$viewer->name" :photo="$viewer->photo" />
         <div class="relative min-w-0 flex-1" x-data="mentionPicker({ audience: () => $wire.audience })">
-            <label class="sr-only" for="community-box">Write a post</label>
+            <label class="sr-only" for="community-box">Write a Post</label>
             <textarea
                 id="community-box"
                 x-on:input="grow($el)"
@@ -72,12 +72,12 @@
                     <span class="truncate">{{ $picked->name }}</span>
                 @else
                     <flux:icon.tag class="size-3.5 shrink-0" />
-                    <span class="truncate">Add a tag</span>
+                    <span class="truncate">Add a Tag</span>
                 @endif
                 <flux:icon.chevron-down class="size-3 shrink-0 text-muted-foreground" />
             </button>
             <flux:menu class="max-h-72 overflow-y-auto">
-                <flux:menu.item wire:click="$set('tag', '')" icon="x-mark">No tag</flux:menu.item>
+                <flux:menu.item wire:click="$set('tag', '')" icon="x-mark">No Tag</flux:menu.item>
                 <flux:menu.separator />
                 @foreach ($tags as $t)
                     <flux:menu.item wire:click="$set('tag', '{{ $t->code }}')">
@@ -101,8 +101,8 @@
                 <flux:icon.chevron-down class="size-3 shrink-0 text-muted-foreground" />
             </button>
             <flux:menu class="max-h-72 max-w-72 overflow-y-auto">
-                <flux:menu.heading>Who can see this</flux:menu.heading>
-                <flux:menu.item wire:click="$set('audience', 'everyone')" icon="globe-asia-australia">Everyone at the company</flux:menu.item>
+                <flux:menu.heading>Who Can See This</flux:menu.heading>
+                <flux:menu.item wire:click="$set('audience', 'everyone')" icon="globe-asia-australia">Everyone at the Company</flux:menu.item>
                 @foreach ($joinedGroups as $group)
                     <flux:menu.item wire:click="$set('audience', '{{ $group->id }}')" icon="user-group">
                         <span class="truncate">{{ $group->name }}</span>

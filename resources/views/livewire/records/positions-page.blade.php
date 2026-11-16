@@ -17,7 +17,7 @@
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             <flux:input aria-label="Search positions" placeholder="Search ID, name or description" class="w-full min-w-[12rem] max-w-xs flex-1" wire:model.live.debounce.250ms="search" />
 
-            <x-kit.filter-select label="Filter by department" class="w-[16rem]" wire:model.live="department">
+            <x-kit.filter-select label="Filter by Department" class="w-[16rem]" wire:model.live="department">
                 <flux:select.option value="ALL">All departments</flux:select.option>
                 <flux:select.option value="NONE">Not placed</flux:select.option>
                 @foreach ($placeOptions as $opt)
@@ -26,7 +26,7 @@
             </x-kit.filter-select>
 
             <div class="ml-auto flex flex-wrap items-center gap-2">
-                <flux:button variant="primary" icon="plus" wire:click="openAdd">Add position</flux:button>
+                <flux:button variant="primary" icon="plus" wire:click="openAdd">Add Position</flux:button>
             </div>
         </header>
 
@@ -68,8 +68,8 @@
                                 <x-kit.row-actions :label="$p->name">
                                     <flux:menu.item icon="pencil" wire:click="startEdit('{{ $p->id }}')">Edit</flux:menu.item>
                                     @if ($p->department_name !== null)
-                                        <flux:menu.item icon="arrow-up" :disabled="$p->first" wire:click="move('{{ $p->id }}', 'up')">Move up</flux:menu.item>
-                                        <flux:menu.item icon="arrow-down" :disabled="$p->last" wire:click="move('{{ $p->id }}', 'down')">Move down</flux:menu.item>
+                                        <flux:menu.item icon="arrow-up" :disabled="$p->first" wire:click="move('{{ $p->id }}', 'up')">Move Up</flux:menu.item>
+                                        <flux:menu.item icon="arrow-down" :disabled="$p->last" wire:click="move('{{ $p->id }}', 'down')">Move Down</flux:menu.item>
                                     @endif
                                     <flux:menu.item
                                         icon="trash"
@@ -112,7 +112,7 @@
         <div class="space-y-4">
             <div class="space-y-2">
                 <flux:heading size="lg">
-                    {{ $editing !== null ? 'Edit position' : 'Add position' }}
+                    {{ $editing !== null ? 'Edit Position' : 'Add Position' }}
                     @if ($editing !== null)
                         <span class="num ml-2 text-sm font-normal text-muted-foreground">{{ $editing->code }}</span>
                     @endif
@@ -168,7 +168,7 @@
                 </div>
 
                 <flux:button type="submit" variant="primary" :icon="$editing !== null ? 'pencil' : 'plus'">
-                    {{ $editing !== null ? 'Save changes' : 'Add position' }}
+                    {{ $editing !== null ? 'Save Changes' : 'Add Position' }}
                 </flux:button>
             </form>
         </div>

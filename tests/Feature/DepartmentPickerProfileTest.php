@@ -224,7 +224,7 @@ it('shows no department select to a viewer who only sees their own record', func
     $html = Livewire::test(EdtrPage::class)->set('tab', 'dtr')->html();
 
     expect($html)->not->toContain('id="dtr-department"')
-        ->and($html)->not->toContain('Department or unit')
+        ->and($html)->not->toContain('Department or Unit')
         ->and($html)->toContain('sm:grid-cols-3');
 });
 

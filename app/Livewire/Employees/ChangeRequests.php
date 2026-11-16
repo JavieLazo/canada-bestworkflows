@@ -22,7 +22,7 @@ use Livewire\Component;
 use RuntimeException;
 
 /** Managers review proposals in one queue; My Profile shares the own-employee request history. */
-#[Title('Record change requests')]
+#[Title('Record Change Requests')]
 class ChangeRequests extends Component
 {
     use WithTableFilters;

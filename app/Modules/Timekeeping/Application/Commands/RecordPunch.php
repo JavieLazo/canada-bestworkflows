@@ -18,7 +18,9 @@ use App\Models\AttendanceLog;
 use App\Modules\Organization\Contracts\PunchSites;
 use App\Modules\Timekeeping\Application\PunchInput;
 use App\Modules\Timekeeping\Application\PunchPairing;
+use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Domain\Attendance\AttendancePolicy;
+use App\Modules\Timekeeping\Domain\Attendance\CorrectionWindow;
 use App\Modules\Timekeeping\Domain\Attendance\PunchWorkDate;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Timekeeping\Domain\Roster\ResolvedLocation;
@@ -68,6 +70,15 @@ use RuntimeException;
  * already refuses one with no open Time In: it can only close a Time In
  * recorded while a shift applied, which is never stranded. DELIBERATE
  * DIVERGENCE from punch/route.ts, which punched anyone against the default.
+ *
+ * A LATE DEVICE PUNCH NEVER LANDS ON A PAID DAY. A biometric device may send
+ * a punch days after capturing it. One that arrives on a later Manila day
+ * than it was captured is refused when a posted payslip already covers its
+ * work date: the payslip is what payroll paid, and nothing would ever settle
+ * the difference. The answer comes from PostedPayrollDates under payroll's
+ * membership lock, the guard a punch correction takes, so every device punch
+ * takes that lock FIRST, before any other read. A punch captured today is
+ * judged like the live station's, which asks no such question.
  */
 final class RecordPunch
 {
@@ -77,8 +88,8 @@ final class RecordPunch
     public function __construct(private readonly ShiftRoster $roster) {}
 
     /**
-     * `$at` is the instant a mobile kiosk captured on the device. The live
-     * station leaves it null and is judged at the server clock, as before.
+     * `$at` is the instant a biometric device captured on the device. The
+     * live station leaves it null and is judged at the server clock.
      * `$createdId` receives the new attendance row when one is written.
      */
     public function handle(Access $actor, PunchInput $input, string $logType, ?float $autoLat = null, ?float $autoLng = null, ?float $autoAccuracy = null, ?CarbonImmutable $at = null, ?string &$createdId = null): ?string
@@ -139,7 +150,7 @@ final class RecordPunch
         }
         // Bucket by the Manila day, not host-local dates mixed with UTC midnight.
         // Two previous dates distinguish an unfinished night's carried
-        // Time In from a following flexible day's own punches. A mobile
+        // Time In from a following flexible day's own punches. A device
         // punch is bucketed on the day it was captured, not the day the
         // device came back online.
         $now = ($at ?? CarbonImmutable::now())->setTimezone(ManilaClock::TZ);
@@ -147,9 +158,19 @@ final class RecordPunch
             throw new RuntimeException('That punch time is ahead of the server clock.');
         }
         $today = ManilaClock::dayKey($now);
+        // Captured on an earlier day than the server's today: the only device
+        // punch a posted payroll can already have paid.
+        $late = $at !== null && $today < ManilaClock::todayKey();
         $window = PayrollPeriod::attendanceInstants(PayrollPeriod::addCalendarDays($today, -2), $today);
-        [$created, $site, $distance, $inBounds] = DB::transaction(function () use ($actor, $input, $logType, $source, $employee, $la, $lo, $accuracy, $window, $today, $now, $at): array {
-            // The employee row FIRST, as every schedule change takes it: a
+        [$created, $site, $distance, $inBounds] = DB::transaction(function () use ($actor, $input, $logType, $source, $employee, $la, $lo, $accuracy, $window, $today, $now, $at, $late): array {
+            // A device punch takes payroll's membership lock before any other
+            // read, as PostedPayrollDates asks of a writer that may have to
+            // answer whether a day is paid. The live station never asks.
+            if ($at !== null) {
+                app(PostedPayrollDates::class)->lock();
+            }
+
+            // The employee row next, as every schedule change takes it: a
             // punch waits for a change being saved for the same employee and
             // is then judged by the schedule as committed. The punch window
             // alone cannot do that while it holds no row yet.
@@ -173,6 +194,9 @@ final class RecordPunch
             // morning's. A date location overrides the weekday's place;
             // with neither, use Employee Records' Assigned Worksite.
             $workDate = PunchWorkDate::forScheduledPunch(array_values($windowLogs), $logType, $now, $schedule);
+            if ($late && app(PostedPayrollDates::class)->lockAndCovers((string) $employee->id, $workDate)) {
+                throw new RuntimeException(CorrectionWindow::PAID_DAY);
+            }
             // Null on a date nobody rostered — never rostered, or the shift
             // cleared — so no punch window applies to it.
             $domainShift = $this->roster->rosteredShift((string) $employee->id, $workDate, $schedule);
@@ -249,7 +273,7 @@ final class RecordPunch
             ];
             // The live station keeps Eloquent's default of "now". A device
             // punch must keep the captured instant or an offline Time Out
-            // would land when the phone next saw a network.
+            // would land when the device next saw a network.
             if ($at !== null) {
                 $attributes['logged_at'] = $now->utc();
             }

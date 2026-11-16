@@ -120,16 +120,16 @@ final class TimekeepingReports
             ];
         }
 
-        return new ReportDocument('Leave Reports', ['Request', 'Employee ID', 'Employee', 'Type', 'Start date', 'End date', 'Day type', 'Days in period', 'Status', 'Pay', 'Cancelled dates'], $rows, [
+        return new ReportDocument('Leave Reports', ['Request', 'Employee ID', 'Employee', 'Type', 'Start Date', 'End Date', 'Day Type', 'Days in Period', 'Status', 'Pay', 'Cancelled Dates'], $rows, [
             'Requests overlapping the selected period, including Business Travel / OB. Days in period count remaining covered calendar days after cancellations, with half days counted as 0.5.',
             'Pending, disapproved, withdrawn and cancelled requests are shown as requests; they are not approved leave usage.',
             'The table total counts requested covered days across all statuses, including OB; the approved leave metric excludes OB. Neither figure is a leave-credit ledger balance.',
         ], [], [
             ['label' => 'Requests', 'value' => (string) $requests->count()],
             ['label' => 'Employees', 'value' => (string) $requests->pluck('employee_id')->unique()->count()],
-            ['label' => 'Approved leave days', 'value' => LeaveCreditPolicy::format($approvedLeaveDays)],
-            ['label' => 'Pending requests', 'value' => (string) $requests->where('status', 'PENDING')->count()],
-        ], ['Requested days', '', '', '', '', '', '', LeaveCreditPolicy::format($requestedDays), '', '', ''], [7]);
+            ['label' => 'Approved Leave Days', 'value' => LeaveCreditPolicy::format($approvedLeaveDays)],
+            ['label' => 'Pending Requests', 'value' => (string) $requests->where('status', 'PENDING')->count()],
+        ], ['Requested Days', '', '', '', '', '', '', LeaveCreditPolicy::format($requestedDays), '', '', ''], [7]);
     }
 
     /**
@@ -236,8 +236,8 @@ final class TimekeepingReports
             'Current attendance for '.$employees->count().' selected employee(s), with totals shown separately for each employee.',
         ], $sections, [
             ['label' => 'Employees', 'value' => (string) $employees->count()],
-            ['label' => 'Employee-days shown', 'value' => (string) count($rows)],
-            ['label' => 'Days in selected period', 'value' => (string) $dayCount],
+            ['label' => 'Employee-Days Shown', 'value' => (string) count($rows)],
+            ['label' => 'Days in Selected Period', 'value' => (string) $dayCount],
         ], [], range(8, 12));
     }
 
@@ -370,13 +370,13 @@ final class TimekeepingReports
             $notes[] = $unscheduled.' day(s) have no assigned schedule. Their figures use the default schedule and need review.';
         }
 
-        $document = new ReportDocument(EmployeeIdentity::option($employee, EmployeeName::display($employee)), ['Date', 'First in', 'Break out', 'Break in', 'Final out', 'Regular time', 'Late', 'Undertime', 'OT computed', 'OT approved', 'OT status', 'Status', 'Remarks'], $rows, $notes, [], [
-            ['label' => 'Regular time', 'value' => HrisFormat::duration($summary->regularMinutes())],
+        $document = new ReportDocument(EmployeeIdentity::option($employee, EmployeeName::display($employee)), ['Date', 'First In', 'Break Out', 'Break In', 'Final Out', 'Regular Time', 'Late', 'Undertime', 'OT Computed', 'OT Approved', 'OT Status', 'Status', 'Remarks'], $rows, $notes, [], [
+            ['label' => 'Regular Time', 'value' => HrisFormat::duration($summary->regularMinutes())],
             ['label' => 'Late', 'value' => HrisFormat::duration($summary->lateMinutes)],
             ['label' => 'Undertime', 'value' => HrisFormat::duration($summary->undertimeMinutes)],
-            ['label' => 'Computed overtime', 'value' => HrisFormat::duration($summary->overtimeMinutes)],
-            ['label' => 'Payable overtime', 'value' => HrisFormat::duration($payable)],
-            ['label' => 'Absence days', 'value' => (string) $absences],
+            ['label' => 'Computed Overtime', 'value' => HrisFormat::duration($summary->overtimeMinutes)],
+            ['label' => 'Payable Overtime', 'value' => HrisFormat::duration($payable)],
+            ['label' => 'Absence Days', 'value' => (string) $absences],
         ], ['Totals', '', '', '', '', HrisFormat::duration($summary->regularMinutes()), HrisFormat::duration($summary->lateMinutes), HrisFormat::duration($summary->undertimeMinutes), HrisFormat::duration($summary->overtimeMinutes), HrisFormat::duration($approved), '', '', ''], range(5, 9));
 
         return ['document' => $document, 'metrics' => $metrics];
@@ -487,8 +487,8 @@ final class TimekeepingReports
         }
 
         return new ReportDocument('Attendance Comparison', [
-            'Rank', 'Employee ID', 'Employee', 'Position', 'Late days', 'Late', 'Undertime days', 'Undertime',
-            'Absences', 'Incomplete days', 'Regular time', 'OT computed', 'OT approved', 'OT payable', 'Review',
+            'Rank', 'Employee ID', 'Employee', 'Position', 'Late Days', 'Late', 'Undertime Days', 'Undertime',
+            'Absences', 'Incomplete Days', 'Regular Time', 'OT Computed', 'OT Approved', 'OT Payable', 'Review',
         ], $rows, [
             'Compared '.$selected.' selected employee(s) over '.$dayCount.' calendar day(s). '.$matched.' match the filters; '.count($rows).' are shown. Totals cover the employees shown.',
             'Ordered by '.self::rankingSorts()[$filters['sort']].' ('.$filters['direction'].'). Minimum '.$filters['minimum'].' applies to that metric in minutes or days. Issue: '.$filters['issue'].($search !== '' ? '. Search: '.$filters['search'] : '').'.',
@@ -496,14 +496,14 @@ final class TimekeepingReports
             'Future dates are excluded. Ongoing days are provisional; their incomplete punches are shown but are not yet absences. No-schedule days use default hours and need review.',
             'OT computed is attendance time; OT approved is the stored decision. OT payable is capped by current computed time and the overtime formula; pending overtime pays nothing.',
         ], [], [
-            ['label' => 'Employees selected', 'value' => (string) $selected],
-            ['label' => 'Employees matching', 'value' => (string) $matched],
-            ['label' => 'Employees shown', 'value' => (string) count($rows)],
-            ['label' => 'Late — shown', 'value' => HrisFormat::duration($totals['late_minutes'])],
-            ['label' => 'Undertime — shown', 'value' => HrisFormat::duration($totals['undertime_minutes'])],
-            ['label' => 'Absences — shown', 'value' => (string) $totals['absences']],
+            ['label' => 'Employees Selected', 'value' => (string) $selected],
+            ['label' => 'Employees Matching', 'value' => (string) $matched],
+            ['label' => 'Employees Shown', 'value' => (string) count($rows)],
+            ['label' => 'Late — Shown', 'value' => HrisFormat::duration($totals['late_minutes'])],
+            ['label' => 'Undertime — Shown', 'value' => HrisFormat::duration($totals['undertime_minutes'])],
+            ['label' => 'Absences — Shown', 'value' => (string) $totals['absences']],
         ], [
-            'Totals shown', '', '', '', (string) $totals['late_days'], HrisFormat::duration($totals['late_minutes']),
+            'Totals Shown', '', '', '', (string) $totals['late_days'], HrisFormat::duration($totals['late_minutes']),
             (string) $totals['undertime_days'], HrisFormat::duration($totals['undertime_minutes']),
             (string) $totals['absences'], (string) $totals['incomplete_days'],
             HrisFormat::duration($totals['regular_minutes']), HrisFormat::duration($totals['overtime_minutes']),

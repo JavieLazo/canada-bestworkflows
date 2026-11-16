@@ -8,11 +8,11 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * A bearer credential for one kiosk device.
+ * A bearer credential for one biometric kiosk device.
  *
- * `token_hash` is SHA-256 of the secret the phone holds. The secret itself
- * is never stored. `ability` is `admin` (register faces) or `kiosk` (sync
- * punches after the administrator has signed out).
+ * `token_hash` is SHA-256 of the secret the device holds. The secret itself
+ * is never stored. `ability` is `admin` (register biometrics) or `kiosk`
+ * (sync punches after the administrator has signed out).
  *
  * @property string $id
  * @property int $user_id

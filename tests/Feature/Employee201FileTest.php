@@ -423,9 +423,9 @@ it('names the shape problem of a new line on its own step', function (string $ke
     'a spouse surname over its cap' => ['spouse_surname', str_repeat('x', 65), 4, 'Surname must be at most 64 characters.'],
     'a child with a birthdate and no name' => ['children', [['name' => '', 'birth_date' => '2020-01-01']], 4, "Each child's birthdate needs the child's name beside it."],
     'a child row left blank' => ['children', [['name' => '', 'birth_date' => '']], 4, null],
-    'a college school over its cap' => ['rows_education', [['level' => 'COLLEGE', 'school' => str_repeat('x', 151)]], 5, 'School 1: Name of school must be at most 150 characters.'],
+    'a college school over its cap' => ['rows_education', [['level' => 'COLLEGE', 'school' => str_repeat('x', 151)]], 5, 'School 1: Name of School must be at most 150 characters.'],
     'a year graduated left blank, which the sheet prints as N/A' => ['rows_education', [['level' => 'COLLEGE', 'school' => 'Colegio de la Ciudad de Tayabas', 'year_graduated' => '']], 5, null],
-    'a year graduated typed as words' => ['rows_education', [['level' => 'COLLEGE', 'school' => 'Colegio de la Ciudad de Tayabas', 'year_graduated' => 'N/A']], 5, 'School 1: Year graduated must be a four-digit year, like 2015.'],
+    'a year graduated typed as words' => ['rows_education', [['level' => 'COLLEGE', 'school' => 'Colegio de la Ciudad de Tayabas', 'year_graduated' => 'N/A']], 5, 'School 1: Year Graduated must be a four-digit year, like 2015.'],
     'a bank name over its cap' => ['bank_name', str_repeat('x', 151), 12, 'Bank and Branch must be at most 150 characters.'],
 ]);
 
@@ -624,10 +624,10 @@ it('prints an Employee Records view as the 201 sheet and omits it from My Profil
         ->toContain('162.5 cm')
         ->toContain('54 kg')
         ->toContain('O+')
-        ->toContain('Emergency contact')
+        ->toContain('Emergency Contact')
         ->toContain('Teacher, Tayabas West Central School')
-        ->toContain('Educational background')
-        ->toContain('Statutory &amp; bank details')
+        ->toContain('Educational Background')
+        ->toContain('Statutory &amp; Bank Details')
         ->toContain('GoTyme Bank Corporation - Digital / Online')
         ->toContain('TIN no')
         // The paper form's license and passport lines are left off: those
@@ -659,7 +659,7 @@ it('prints an Employee Records view as the 201 sheet and omits it from My Profil
         ->call('printPds')
         ->assertForbidden();
     Livewire::test(Show::class, ['employee' => $employee->id])
-        ->assertSee('Employee not found')
+        ->assertSee('Employee Not Found')
         ->assertDontSee('Villanueva')
         ->assertDontSee('sheet-201');
 
@@ -667,7 +667,7 @@ it('prints an Employee Records view as the 201 sheet and omits it from My Profil
     $this->actingAs(e201User(e201Role([ModuleCode::EMPLOYEES], false)));
     app()->forgetInstance(Access::class);
     Livewire::test(Show::class, ['employee' => $employee->id])
-        ->assertSee('Employee not found')
+        ->assertSee('Employee Not Found')
         ->assertDontSee('sheet-201');
 });
 

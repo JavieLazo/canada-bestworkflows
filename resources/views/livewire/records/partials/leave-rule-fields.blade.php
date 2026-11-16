@@ -25,14 +25,14 @@
 <div class="grid gap-4 lg:grid-cols-2 lg:items-start" data-rule-columns>
 <div @class(['rounded-lg border border-border', 'lg:col-span-2' => ! $ruleCredits]) data-rule-waiting>
     <div class="p-4">
-        <flux:switch wire:model.live="ruleForm.waiting" align="left" label="Waiting period" description="Acquired only after a waiting period. Off: the employee has this leave from the first day." />
+        <flux:switch wire:model.live="ruleForm.waiting" align="left" label="Waiting Period" description="Acquired only after a waiting period. Off: the employee has this leave from the first day." />
     </div>
     @if ($waits)
         <div class="space-y-3 border-t border-border p-4">
             <div class="grid gap-3 sm:grid-cols-2">
-                <flux:input label="Months after the date hired" type="number" min="1" max="600" step="1" wire:model="ruleForm.waiting_months" />
+                <flux:input label="Months After the Date Hired" type="number" min="1" max="600" step="1" wire:model="ruleForm.waiting_months" />
                 @if ($ruleCredits)
-                    <x-kit.select label="Credit grant on the day it is acquired" wire:model="ruleForm.on_acquire">
+                    <x-kit.select label="Credit Grant on the Day It Is Acquired" wire:model="ruleForm.on_acquire">
                         @foreach (LeaveTypeRule::ON_ACQUIRE_LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                     </x-kit.select>
                 @endif
@@ -51,17 +51,17 @@
     <div class="space-y-4">
         <div class="rounded-lg border border-border" data-rule-earning>
             <div class="p-4">
-                <flux:switch wire:model.live="ruleForm.earns" align="left" label="Monthly credit accrual" description="Credits are earned every month once the leave is acquired." />
+                <flux:switch wire:model.live="ruleForm.earns" align="left" label="Monthly Credit Accrual" description="Credits are earned every month once the leave is acquired." />
             </div>
             @if ($earns)
                 <div class="space-y-3 border-t border-border p-4">
                     <div class="grid gap-3 sm:grid-cols-2">
-                        <flux:input label="Monthly accrual" type="number" min="0" step="0.0001" wire:model="ruleForm.amount" />
-                        <flux:input label="Maximum balance" type="number" min="0" step="0.0001" wire:model="ruleForm.cap" placeholder="No maximum" />
-                        <x-kit.select label="Accrual method" wire:model.live="ruleForm.method">
+                        <flux:input label="Monthly Accrual" type="number" min="0" step="0.0001" wire:model="ruleForm.amount" />
+                        <flux:input label="Maximum Balance" type="number" min="0" step="0.0001" wire:model="ruleForm.cap" placeholder="No maximum" />
+                        <x-kit.select label="Accrual Method" wire:model.live="ruleForm.method">
                             @foreach (LeavePolicy::METHOD_LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                         </x-kit.select>
-                        <x-kit.select label="Partial month accrual" wire:model="ruleForm.partial">
+                        <x-kit.select label="Partial Month Accrual" wire:model="ruleForm.partial">
                             @foreach (LeavePolicy::PARTIAL_LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                         </x-kit.select>
                     </div>
@@ -69,13 +69,13 @@
                         {{-- The column names are drawn once; each row's inputs carry them, with the row number, as their names. --}}
                         <div class="space-y-2 rounded-md bg-muted/40 p-3" data-leave-rule-table>
                             <div>
-                                <p class="text-sm font-medium">Lookup table</p>
+                                <p class="text-sm font-medium">Lookup Table</p>
                                 <p class="text-xs text-muted-foreground">Each row: up to this many unpaid days in the month (approved unpaid leave and absences), this many credits are earned. Past the last row, none.</p>
                             </div>
                             @if (($ruleForm['table'] ?? []) !== [])
                                 <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
                                     <span class="self-end text-xs font-medium text-muted-foreground" aria-hidden="true">Up to (unpaid days)</span>
-                                    <span class="self-end text-xs font-medium text-muted-foreground" aria-hidden="true">Credits earned</span>
+                                    <span class="self-end text-xs font-medium text-muted-foreground" aria-hidden="true">Credits Earned</span>
                                     <span aria-hidden="true"></span>
                                     @foreach ($ruleForm['table'] as $index => $row)
                                         <div class="contents" wire:key="rule-row-{{ $index }}">
@@ -86,7 +86,7 @@
                                     @endforeach
                                 </div>
                             @endif
-                            <flux:button size="sm" variant="ghost" icon="plus" wire:click="addRuleRow">Add row</flux:button>
+                            <flux:button size="sm" variant="ghost" icon="plus" wire:click="addRuleRow">Add Row</flux:button>
                         </div>
                     @endif
                 </div>

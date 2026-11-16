@@ -106,7 +106,7 @@ it('keeps computed overtime approval on the OT row without a period bulk action'
     $row = Str::before(Str::after($html, 'wire:key="dtr-2026-09-08"'), '</tr>');
     $withoutOvertime = Str::before(Str::after($html, 'wire:key="dtr-2026-09-09"'), '</tr>');
 
-    expect($header)->toContain('>OT</th>')->not->toContain('OT approved')
+    expect($header)->toContain('>OT</th>')->not->toContain('OT Approved')
         ->and(substr_count($row, '<td'))->toBe(11)
         ->and($row)->toContain('2h 30m')->not->toContain('data-ot-status')
         ->toContain('wire:click="openOvertime(\'2026-09-08\')"')
@@ -152,7 +152,7 @@ it('approves a day from its dialog with the minutes the approver typed', functio
 
     $html = $page->html();
     expect(edtrotPanel($html))->toContain('data-ot-status="PARTIAL"')->toContain('Approved 1h 30m')
-        ->and($html)->not->toContain('data-pending-overtime')->not->toContain('OT approved');
+        ->and($html)->not->toContain('data-pending-overtime')->not->toContain('OT Approved');
 });
 
 it('rejects a day from its dialog', function () {
@@ -273,7 +273,7 @@ it('opens the overtime approval dialog directly with the day\'s evidence', funct
     $html = $page->html();
     $panel = edtrotPanel($html);
 
-    expect($html)->toContain('Overtime approval')
+    expect($html)->toContain('Overtime Approval')
         ->not->toContain('correction-tab-overtime')
         ->not->toContain('wire:submit="saveCorrection"')
         ->and($panel)->toContain('wire:click="approveOvertime"')

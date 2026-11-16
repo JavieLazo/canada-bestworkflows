@@ -184,7 +184,7 @@ it('lists a row with its kind label, Unread tag and the mark-all button count', 
         ->assertSee('Your payslip is ready')
         ->assertSee('Payslip posted')   // notificationKindLabel(PAYSLIP_POSTED)
         ->assertSee('Unread')
-        ->assertSee('Mark all read')
+        ->assertSee('Mark All Read')
         ->assertSee('(1)');
 });
 

@@ -189,12 +189,12 @@ it('allows the own Employee Records download and refuses a foreign or unlinked r
     Livewire::test(Show::class, ['employee' => $mine->id])
         ->call('printPds')->assertFileDownloaded();
     Livewire::test(Show::class, ['employee' => $theirs->id])
-        ->assertSee('Employee not found')
+        ->assertSee('Employee Not Found')
         ->call('printPds')->assertNoFileDownloaded()->assertForbidden();
 
     pdsprintActing($role);
     Livewire::test(Show::class, ['employee' => $mine->id])
-        ->assertSee('Employee not found')
+        ->assertSee('Employee Not Found')
         ->call('printPds')->assertNoFileDownloaded()->assertForbidden();
 });
 

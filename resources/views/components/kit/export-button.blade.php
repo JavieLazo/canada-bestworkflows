@@ -4,7 +4,7 @@
     controller), on every table that has a CSV.
 
     Usage:
-        <x-kit.export-button :href="route('records.sites.export', ['q' => $search, 'sort' => $sortKey, 'dir' => $sortDir])" />
+        <x-kit.export-button :href="route('records.holidays.export', ['q' => $search, 'sort' => $sortKey, 'dir' => $sortDir])" />
 
     Pass the table's CURRENT search, filters and sort in the link: the
     export reads through the same owner query as the table, so the file

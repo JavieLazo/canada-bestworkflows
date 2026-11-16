@@ -444,7 +444,7 @@ class ThirteenthMonthWorkspace extends Component
             'pickerRows' => $pickerRows,
             'pickerPositions' => $pickerPositions,
             'allShown' => $allShown,
-        ])->title($run !== null ? '13th Month Payroll' : 'Create 13th month payroll');
+        ])->title($run !== null ? '13th Month Payroll' : 'Create 13th Month Payroll');
     }
 
     /* ---- Internals ---- */

@@ -51,7 +51,7 @@
             <div class="ml-auto flex flex-wrap items-center gap-2">
                 <x-kit.export-button :href="route('payroll.adjustments.export', array_filter(['q' => $search, 'status' => $status]))" />
                 @if ($canManage && $ready)
-                    <flux:button variant="primary" icon="plus" wire:click="openAdd">Add adjustment</flux:button>
+                    <flux:button variant="primary" icon="plus" wire:click="openAdd">Add Adjustment</flux:button>
                 @endif
             </div>
         </header>
@@ -132,7 +132,7 @@
         x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'adjustment-heading')"
     >
         <form class="grid gap-4" wire:submit="save">
-            <flux:heading size="lg" id="adjustment-heading">{{ $editingId === null ? 'Add adjustment' : 'Correct adjustment' }}</flux:heading>
+            <flux:heading size="lg" id="adjustment-heading">{{ $editingId === null ? 'Add Adjustment' : 'Correct Adjustment' }}</flux:heading>
             <div class="space-y-2">
                 <flux:label id="adjustment-employee-label">Employee</flux:label>
                 @if ($editingId === null)
@@ -174,7 +174,7 @@
                 <flux:modal.close>
                     <flux:button variant="ghost">Cancel</flux:button>
                 </flux:modal.close>
-                <flux:button type="submit" variant="primary">{{ $editingId === null ? 'Prepare' : 'Save correction' }}</flux:button>
+                <flux:button type="submit" variant="primary">{{ $editingId === null ? 'Prepare' : 'Save Correction' }}</flux:button>
             </div>
         </form>
     </flux:modal>
@@ -185,17 +185,17 @@
         x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'adjustment-review-heading')"
     >
         <div class="grid gap-4">
-            <flux:heading size="lg" id="adjustment-review-heading">Review adjustment</flux:heading>
+            <flux:heading size="lg" id="adjustment-review-heading">Review Adjustment</flux:heading>
             @if ($reviewing !== null)
                 <dl class="grid gap-2 text-sm sm:grid-cols-2">
                     <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee</dt><dd>{{ $reviewing->employee_name }}</dd></div>
                     <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Category</dt><dd>{{ $reviewing->category_name }}</dd></div>
                     <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</dt><dd class="num">{{ $reviewing->kind === AdjustmentRule::KIND_DEDUCTION ? '−' : '' }}{{ Hris::peso($reviewing->amount) }}</dd></div>
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Prepared by</dt><dd>{{ $reviewing->prepared_by_name ?? 'an unnamed account' }}</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Prepared By</dt><dd>{{ $reviewing->prepared_by_name ?? 'an unnamed account' }}</dd></div>
                     <div class="sm:col-span-2"><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reason</dt><dd>{{ $reviewing->reason }}@if ($reviewing->reference) · Ref. {{ $reviewing->reference }}@endif</dd></div>
                 </dl>
             @endif
-            <x-kit.select label="Pay it on" wire:model="reviewTargetRunId">
+            <x-kit.select label="Pay It On" wire:model="reviewTargetRunId">
                 <flux:select.option value="">The next payroll with the employee on it</flux:select.option>
                 @foreach ($openRuns as $run)
                     <flux:select.option value="{{ $run['id'] }}">{{ $run['code'] }} · {{ $run['name'] }} ({{ $run['period'] }})</flux:select.option>

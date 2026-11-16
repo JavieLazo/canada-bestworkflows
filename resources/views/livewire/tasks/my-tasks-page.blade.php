@@ -37,11 +37,11 @@
     @else
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div class="hris-card p-4">
-                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">To do</p>
+                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">To Do</p>
                 <p class="num mt-1 text-2xl font-bold">{{ $counts['todo'] }}</p>
             </div>
             <div class="hris-card p-4">
-                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Awaiting review</p>
+                <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Awaiting Review</p>
                 <p class="num mt-1 text-2xl font-bold">{{ $counts['awaiting'] }}</p>
             </div>
             <div class="hris-card p-4">
@@ -64,14 +64,14 @@
                 />
 
                 <x-kit.filter-select
-                    label="Filter by status"
+                    label="Filter by Status"
                     class="w-[13rem]"
                     wire:model.live="status"
                     :options="['ALL' => 'All statuses'] + ProjectsData::myStatuses()"
                 />
 
                 <x-kit.filter-select
-                    label="Filter by project"
+                    label="Filter by Project"
                     class="w-[15rem]"
                     wire:model.live="projectId"
                     :options="['ALL' => 'All projects'] + $myProjects->pluck('name', 'id')->all()"

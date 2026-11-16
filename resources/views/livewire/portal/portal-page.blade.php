@@ -41,7 +41,7 @@
                 aria-selected="{{ $tab === 'punch' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'punch')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'punch' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
-            >Punch station</button>
+            >Punch Station</button>
             <button
                 type="button"
                 role="tab"
@@ -55,22 +55,22 @@
                 aria-selected="{{ $tab === 'schedule' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'schedule')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'schedule' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
-            >My schedule</button>
+            >My Schedule</button>
             <button
                 type="button"
                 role="tab"
                 aria-selected="{{ $tab === 'requests' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'requests')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'requests' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
-            >Leave &amp; travel</button>
+            >Leave &amp; Travel</button>
             <button
                 type="button"
                 role="tab"
                 aria-selected="{{ $tab === 'payslips' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'payslips')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'payslips' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
-            >My payslips</button>
-            <button type="button" role="tab" aria-selected="{{ $tab === 'inventory' ? 'true' : 'false' }}" wire:click="$set('tab', 'inventory')" class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'inventory' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">My issued items</button>
+            >My Payslips</button>
+            <button type="button" role="tab" aria-selected="{{ $tab === 'inventory' ? 'true' : 'false' }}" wire:click="$set('tab', 'inventory')" class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'inventory' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">My Issued Items</button>
         </div>
 
         @if ($tab === 'inventory')
@@ -120,10 +120,10 @@
                 @if ($hasEmployee)
                     <div class="hris-card flex flex-wrap items-center justify-between gap-3 px-5 py-4" data-apply-card>
                         <div class="min-w-0">
-                            <h2 class="text-base font-bold">File leave or business travel</h2>
+                            <h2 class="text-base font-bold">File Leave or Business Travel</h2>
                             <p class="text-sm text-muted-foreground">Complete the Application for Leave. Your name, office, position and salary come from your record. Official business is on the same form, under Others.</p>
                         </div>
-                        <flux:button variant="primary" icon="document-text" wire:click="$set('applyOpen', true)" data-apply-button>Apply for leave</flux:button>
+                        <flux:button variant="primary" icon="document-text" wire:click="$set('applyOpen', true)" data-apply-button>Apply for Leave</flux:button>
                     </div>
                 @endif
                 <div>
@@ -135,11 +135,11 @@
                     @if ($hasEmployee)
                         <div class="hris-card min-w-0 overflow-hidden" data-leave-credits>
                             <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-                                <h2 class="text-base font-bold">Leave credits · {{ $creditYear }}</h2>
+                                <h2 class="text-base font-bold">Leave Credits · {{ $creditYear }}</h2>
                                 <div class="flex flex-wrap items-center gap-3">
                                     <p class="text-xs text-muted-foreground">Credits used come from approved paid leave.</p>
                                     @if ($cashOutTypes !== [])
-                                        <flux:button size="sm" variant="outline" icon="banknotes" wire:click="$set('cashOutOpen', true)" data-cash-out-button>Convert credits to cash</flux:button>
+                                        <flux:button size="sm" variant="outline" icon="banknotes" wire:click="$set('cashOutOpen', true)" data-cash-out-button>Convert Credits to Cash</flux:button>
                                     @endif
                                 </div>
                             </div>
@@ -183,7 +183,7 @@
                             {{-- MY leave types with set days: what is left of a yearly one, what each filing of the other may take. --}}
                             @if ($allowances !== [])
                                 <div class="border-t border-border px-5 py-3" data-leave-allowances>
-                                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Leave with set days</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Leave with Set Days</p>
                                     <ul class="mt-2 space-y-1 text-sm">
                                         @foreach ($allowances as $a)
                                             <li wire:key="allowance-{{ $loop->index }}" class="flex flex-wrap justify-between gap-2">
@@ -202,7 +202,7 @@
                             {{-- MY cash-out requests (LeaveCashOutRecords::own): what was asked, decided and paid. --}}
                             @if ($cashOuts->isNotEmpty())
                                 <div class="border-t border-border px-5 py-3" data-cash-outs>
-                                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash conversion requests</p>
+                                    <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash Conversion Requests</p>
                                     <ul class="mt-2 space-y-1 text-sm">
                                         @foreach ($cashOuts as $c)
                                             <li class="flex flex-wrap items-center justify-between gap-2" wire:key="cash-out-{{ $c->id }}" data-cash-out="{{ $c->status }}">
@@ -221,10 +221,10 @@
                             @endif
                             <flux:modal wire:model.self="cashOutOpen" class="w-full max-w-md" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'cash-out-heading')">
                                 <div class="space-y-4" data-cash-out-dialog>
-                                    <flux:heading size="lg" id="cash-out-heading">Convert leave credits to cash</flux:heading>
+                                    <flux:heading size="lg" id="cash-out-heading">Convert Leave Credits to Cash</flux:heading>
                                     <flux:text class="text-sm text-muted-foreground">Convert part of your credits into cash, in whole or half days. A leave manager approves it, and it is paid on your next regular payroll.</flux:text>
                                     {{-- Live, so the picked type's limits show before the request is sent. --}}
-                                    <x-kit.select label="Leave type" wire:model.live="cashOutType" placeholder="Choose a leave type">
+                                    <x-kit.select label="Leave Type" wire:model.live="cashOutType" placeholder="Choose a leave type">
                                         @foreach ($cashOutTypes as $option)<flux:select.option value="{{ $option['value'] }}">{{ $option['label'] }}</flux:select.option>@endforeach
                                     </x-kit.select>
                                     @if ($cashOutTerms !== null && $cashOutTerms['lines'] !== [])
@@ -242,7 +242,7 @@
                                     </div>
                                     <div class="flex flex-wrap justify-end gap-2">
                                         <flux:button variant="ghost" wire:click="$set('cashOutOpen', false)">Cancel</flux:button>
-                                        <flux:button variant="primary" icon="check" wire:click="requestCashOut">Send request</flux:button>
+                                        <flux:button variant="primary" icon="check" wire:click="requestCashOut">Send Request</flux:button>
                                     </div>
                                 </div>
                             </flux:modal>
@@ -270,7 +270,7 @@
                                     >
                                         <span wire:loading wire:target="file" class="mr-2 inline-flex"><flux:icon.loading class="size-4" /></span>
                                         <span wire:loading.remove wire:target="file" class="mr-2 inline-flex"><flux:icon.paper-airplane class="size-4" /></span>
-                                        Submit application
+                                        Submit Application
                                     </flux:button>
                                 </div>
                             </form>
@@ -300,14 +300,14 @@
 
                 <div class="hris-card overflow-hidden">
                     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3">
-                        <h2 class="text-base font-bold">My requests</h2>
+                        <h2 class="text-base font-bold">My Requests</h2>
                     </div>
                     <div class="hris-table-wrap hris-table-scroll">
                         <table class="hris-table">
                             <thead>
                                 <tr>
                                     <th>Description</th>
-                                    <th>Day type</th>
+                                    <th>Day Type</th>
                                     <th>From</th>
                                     <th>To</th>
                                     <th>Status</th>
@@ -367,7 +367,7 @@
                                             @endif
                                         </td>
                                         <td class="whitespace-nowrap text-right">
-                                            <flux:button type="button" size="sm" variant="ghost" wire:click="viewFiled('{{ $r->id }}')" data-view-filed>View form</flux:button>
+                                            <flux:button type="button" size="sm" variant="ghost" wire:click="viewFiled('{{ $r->id }}')" data-view-filed>View Form</flux:button>
                                             @if ($r->status === 'PENDING')
                                                 {{--
                                                     Every Withdraw disables while one is in
@@ -400,7 +400,7 @@
                 <section class="hris-card overflow-hidden">
                     <header class="flex flex-wrap items-start justify-between gap-3 border-b border-border px-5 py-4">
                         <div>
-                            <h2 class="text-base font-bold">My payslips</h2>
+                            <h2 class="text-base font-bold">My Payslips</h2>
                             <p class="text-sm text-muted-foreground">
                                 Posted cut-offs only — select one to see the full breakdown or print it.
                             </p>

@@ -25,15 +25,15 @@ final class PrintOptions
         if ($sheets) {
             return [
                 'parts' => [
-                    ['key' => 'totals', 'label' => 'Totals for the period'],
-                    ['key' => 'notes', 'label' => 'Notes under the table'],
-                    ['key' => 'sign', 'label' => 'Signature lines'],
+                    ['key' => 'totals', 'label' => 'Totals for the Period'],
+                    ['key' => 'notes', 'label' => 'Notes Under the Table'],
+                    ['key' => 'sign', 'label' => 'Signature Lines'],
                 ],
-                'tables' => [['key' => 'main', 'label' => 'Columns of the daily table', 'columns' => $document->sections[0]['columns'] ?? []]],
+                'tables' => [['key' => 'main', 'label' => 'Columns of the Daily Table', 'columns' => $document->sections[0]['columns'] ?? []]],
             ];
         }
         $analysis = $view === 'analysis';
-        $parts = $document->summary === [] ? [] : [['key' => 'totals', 'label' => 'Totals at the top']];
+        $parts = $document->summary === [] ? [] : [['key' => 'totals', 'label' => 'Totals at the Top']];
         if ($analysis && $type === 'attendance-reports') {
             foreach ($document->charts as $index => $chart) {
                 $parts[] = ['key' => 'chart-'.$index, 'label' => $chart['title']];
@@ -50,12 +50,12 @@ final class PrintOptions
             return ['parts' => $parts, 'tables' => []];
         }
         if ($analysis) {
-            $parts[] = ['key' => 'main', 'label' => 'Group summary'];
+            $parts[] = ['key' => 'main', 'label' => 'Group Summary'];
             foreach ($document->sections as $index => $section) {
                 $parts[] = ['key' => 'section-'.$index, 'label' => $section['title']];
             }
         }
 
-        return ['parts' => $parts, 'tables' => [['key' => 'main', 'label' => $analysis ? 'Columns of the group summary' : 'Columns', 'columns' => $document->columns]]];
+        return ['parts' => $parts, 'tables' => [['key' => 'main', 'label' => $analysis ? 'Columns of the Group Summary' : 'Columns', 'columns' => $document->columns]]];
     }
 }

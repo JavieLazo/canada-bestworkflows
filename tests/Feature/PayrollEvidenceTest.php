@@ -220,7 +220,7 @@ it('requires a separate review action after a stale Livewire preview', function 
     $employee->update(['monthly_rate' => 45000]);
     $run->update(['name' => 'Another manager saved this name']);
     $screen->call('finalize')->assertSet('reviewRequired', true)
-        ->assertSet('name', 'Another manager saved this name')->assertSee('Review updated payroll');
+        ->assertSet('name', 'Another manager saved this name')->assertSee('Review Updated Payroll');
     $screen->call('finalize')->assertSet('reviewRequired', true);
     expect($run->fresh()->status)->toBe('DRAFT');
     $screen->call('reviewChanges')->assertSet('reviewRequired', false);

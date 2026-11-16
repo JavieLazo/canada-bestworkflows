@@ -107,7 +107,7 @@ it('files from the Leave Management dialog and a viewer without all data sees no
     $employee = hrlfEmployee();
     hrlfActor();
     $page = Livewire::test(Index::class)->assertSeeHtml('data-file-for-employee')
-        ->call('openFile')->assertSet('fileOpen', true)->assertSee('File for an employee')
+        ->call('openFile')->assertSet('fileOpen', true)->assertSee('File for an Employee')
         ->set('fileForm.type', 'VACATION_LEAVE')->set('fileForm.start', '2026-09-07')->set('fileForm.end', '2026-09-07')->set('fileForm.reason', 'Dialog')
         ->call('fileForEmployee')->assertSet('fileError', 'Choose the employee the request is for.');
     // The picker announces a pick as an event; the page must listen for it.

@@ -50,8 +50,8 @@
         {{-- Moderators only. The commands check again, whatever shows here. --}}
         @if ($canModerate)
             <div class="flex shrink-0 gap-2">
-                <flux:button size="sm" icon="user-group" wire:click="newGroup">New group</flux:button>
-                <flux:button size="sm" icon="tag" wire:click="openTags">Manage tags</flux:button>
+                <flux:button size="sm" icon="user-group" wire:click="newGroup">New Group</flux:button>
+                <flux:button size="sm" icon="tag" wire:click="openTags">Manage Tags</flux:button>
             </div>
         @endif
     </div>
@@ -61,9 +61,9 @@
             @if ($focusId !== null)
                 <section class="space-y-3" aria-labelledby="community-focus">
                     <div class="flex items-center justify-between gap-3">
-                        <h2 id="community-focus" class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">From your notifications</h2>
+                        <h2 id="community-focus" class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">From Your Notifications</h2>
                         <button type="button" wire:click="closeFocus" class="inline-flex cursor-pointer items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-                            Back to the feed
+                            Back to the Feed
                             @include('layouts.app.module-icon', ['icon' => 'chevron-right', 'class' => 'size-4'])
                         </button>
                     </div>
@@ -83,7 +83,7 @@
             <nav class="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 lg:hidden" aria-label="Groups and what's coming up">
                 <button type="button" wire:click="openGroups('yours')" class="{{ $mobileButton }}">
                     <flux:icon.user-group class="size-4 text-muted-foreground" />
-                    Your groups
+                    Your Groups
                     <span class="num text-muted-foreground">{{ count($joinedGroups) }}</span>
                 </button>
                 <button type="button" wire:click="openGroups('discover')" class="{{ $mobileButton }}">
@@ -93,7 +93,7 @@
                 @if ($celebrations !== [])
                     <button type="button" wire:click="$set('comingUpDialog', true)" class="{{ $mobileButton }}">
                         <flux:icon.cake class="size-4 text-muted-foreground" />
-                        Coming up
+                        Coming Up
                         <span class="num text-muted-foreground">{{ count($celebrations) }}</span>
                     </button>
                 @endif
@@ -152,7 +152,7 @@
 
                 @if ($page !== null && $page->more)
                     <div class="flex justify-center">
-                        <flux:button wire:click="showMore" wire:loading.attr="disabled" wire:target="showMore">Show more posts</flux:button>
+                        <flux:button wire:click="showMore" wire:loading.attr="disabled" wire:target="showMore">Show More Posts</flux:button>
                     </div>
                 @endif
             @endif

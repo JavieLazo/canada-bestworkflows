@@ -172,7 +172,7 @@ it('shows yearly pay and tax treatment without an attendance basis on every pays
 
     expect($html)->toContain('bestworkflows-wordmark.png')
         ->and($text)->toContain((string) config('copems.company_name'), 'For the year 2026', '13th month pay', '12,345.67', '345.67', '12,000.00')
-        ->not->toContain('Work days', 'Absences', 'Daily rate', 'Time and rate details');
+        ->not->toContain('Work days', 'Absences', 'Daily Rate', 'Time and rate details');
     // A 13th month slip stands alone: it is not a cut-off of any month.
     expect($html)->not->toContain('data-month-summary')
         ->and(substr_count($html, 'data-payslip-slip'))->toBe(1);

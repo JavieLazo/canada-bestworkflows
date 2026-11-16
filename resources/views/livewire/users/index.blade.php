@@ -50,7 +50,7 @@
                 aria-selected="{{ $tab === 'roles' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'roles')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'roles' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
-            >Roles &amp; permissions</button>
+            >Roles &amp; Permissions</button>
         </div>
 
         @if ($tab === 'accounts')
@@ -63,7 +63,7 @@
                         <div class="ml-auto flex flex-wrap items-center gap-2">
                             <x-kit.export-button :href="route('users.export')" />
                             <flux:button variant="primary" icon="user-plus" wire:click="openCreate">
-                                New account
+                                New Account
                             </flux:button>
                         </div>
                     </header>
@@ -74,7 +74,7 @@
                                     <th>Name</th>
                                     <th>Email</th>
                                     <th>Role</th>
-                                    <th>Linked employee</th>
+                                    <th>Linked Employee</th>
                                     <th class="text-right">Active</th>
                                     <th class="text-right">Actions</th>
                                 </tr>
@@ -129,7 +129,7 @@
                         <div class="ml-auto flex flex-wrap items-center gap-2">
                             <x-kit.export-button :href="route('users.roles.export')" />
                             <flux:button variant="primary" icon="plus" wire:click="openNewRole">
-                                New role
+                                New Role
                             </flux:button>
                         </div>
                     </header>
@@ -232,7 +232,7 @@
                     Cancel
                 </flux:button>
                 <flux:button type="button" variant="primary" icon="check" wire:click="confirmGrant">
-                    {{ $grantOn ? 'Give access' : 'Remove access' }}
+                    {{ $grantOn ? 'Give Access' : 'Remove Access' }}
                 </flux:button>
             </div>
         </div>
@@ -242,7 +242,7 @@
     <flux:modal wire:model.self="roleDialogOpen" class="w-full max-w-md">
         <div class="space-y-1.5">
             <h2 class="text-lg font-semibold leading-none tracking-tight">
-                {{ $roleId === null ? 'New role' : 'Edit role' }}
+                {{ $roleId === null ? 'New Role' : 'Edit Role' }}
             </h2>
             <p class="sr-only">
                 {{ $roleId === null ? 'Create a user-management role.' : 'Update this user-management role.' }}
@@ -250,12 +250,12 @@
         </div>
         <form class="mt-4 grid gap-4" wire:submit="saveRole">
             <div class="space-y-2">
-                <flux:label for="role-name">Role name</flux:label>
+                <flux:label for="role-name">Role Name</flux:label>
                 <flux:input id="role-name" required maxlength="80" wire:model="roleName" />
             </div>
             <div class="flex items-center justify-between gap-4 rounded-md border border-border p-4">
                 <div>
-                    <flux:label for="role-all-data">Employee-data scope</flux:label>
+                    <flux:label for="role-all-data">Employee-Data Scope</flux:label>
                     <p class="mt-1 text-sm text-muted-foreground">
                         {{ $roleAllData ? 'All employees' : 'Own records' }}
                     </p>
@@ -271,7 +271,7 @@
                     Cancel
                 </flux:button>
                 <flux:button type="submit" variant="primary" icon="pencil">
-                    {{ $roleId === null ? 'Create role' : 'Save role' }}
+                    {{ $roleId === null ? 'Create Role' : 'Save Role' }}
                 </flux:button>
             </div>
         </form>
@@ -280,7 +280,7 @@
     {{-- New account dialog (users-page.tsx:575-674). --}}
     <flux:modal wire:model.self="adding" class="w-full max-w-lg">
         <div class="space-y-1.5">
-            <h2 class="text-lg font-semibold leading-none tracking-tight">New account</h2>
+            <h2 class="text-lg font-semibold leading-none tracking-tight">New Account</h2>
             <p class="text-sm text-muted-foreground">
                 Create a sign-in and hand it a role &mdash; the role&rsquo;s grants decide which modules the
                 account can open. Personal information comes from the linked employee record.
@@ -313,7 +313,7 @@
                  below, fills the name above, and names the sign-ins that
                  employee already has. --}}
             <div class="sm:col-span-2">
-                <flux:label>Link to employee record (optional)</flux:label>
+                <flux:label>Link to Employee Record (optional)</flux:label>
                 <div class="mt-2" wire:key="create-employee-{{ $createEmployeeId === '' ? 'none' : $createEmployeeId }}">
                     {{--
                         The empty option is a real <option value="">, not Flux's
@@ -407,7 +407,7 @@
                  again for the next account. --}}
             <div class="space-y-2 sm:col-span-2">
                 <div wire:key="create-password-{{ $createOpened }}">
-                    <flux:input label="Temporary password" type="password" class="num" :minlength="PasswordPolicy::MIN_LENGTH" required wire:model="createPassword" autocomplete="new-password" viewable copyable />
+                    <flux:input label="Temporary Password" type="password" class="num" :minlength="PasswordPolicy::MIN_LENGTH" required wire:model="createPassword" autocomplete="new-password" viewable copyable />
                 </div>
                 <div class="flex flex-col gap-x-4 gap-y-1 sm:flex-row sm:justify-between">
                     <p class="min-w-0 flex-1 text-xs text-muted-foreground">
@@ -415,13 +415,13 @@
                         To type your own, use at least {{ PasswordPolicy::MIN_LENGTH }} characters, with uppercase and lowercase letters, a number and a symbol.
                     </p>
                     <flux:button type="button" size="xs" variant="ghost" icon="arrow-path" class="shrink-0 self-start" wire:click="generateCreatePassword">
-                        Generate another
+                        Generate Another
                     </flux:button>
                 </div>
             </div>
             <div class="sm:col-span-2">
                 <flux:button type="submit" variant="primary" icon="user-plus">
-                    Create account
+                    Create Account
                 </flux:button>
             </div>
         </form>
@@ -431,7 +431,7 @@
     <flux:modal wire:model.self="accountDialogOpen" @close="closeAccount" class="w-full max-w-2xl">
         <div class="space-y-1.5">
             <h2 class="text-lg font-semibold leading-none tracking-tight">
-                {{ $selectedAccountName !== null ? 'Edit '.$selectedAccountName : 'Edit account' }}
+                {{ $selectedAccountName !== null ? 'Edit '.$selectedAccountName : 'Edit Account' }}
             </h2>
             <p class="text-sm text-muted-foreground">Edit account details and access for this sign-in.</p>
         </div>
@@ -506,7 +506,7 @@
                         </div>
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="account-active">Account status</flux:label>
+                        <flux:label for="account-active">Account Status</flux:label>
                         <div class="flex h-9 items-center gap-3">
                             <flux:switch
                                 id="account-active"
@@ -520,7 +520,7 @@
                         </div>
                     </div>
                     <div class="space-y-2 sm:col-span-2">
-                        <flux:label for="account-employee">Linked employee</flux:label>
+                        <flux:label for="account-employee">Linked Employee</flux:label>
                         <div wire:key="account-employee-{{ $accountId }}-{{ $accountEmployeeId === '' ? 'none' : $accountEmployeeId }}">
                             <x-kit.select
                                 id="account-employee"
@@ -536,10 +536,10 @@
                     </div>
                     <div class="flex justify-end gap-2 sm:col-span-2" x-cloak x-show="hasChanges">
                         <flux:button type="button" variant="outline" wire:click="resetAccountChanges">
-                            Reset changes
+                            Reset Changes
                         </flux:button>
                         <flux:button type="submit" variant="primary" icon="check">
-                            Save account
+                            Save Account
                         </flux:button>
                     </div>
                 </form>
@@ -553,7 +553,7 @@
                             <h3 class="text-sm font-semibold">Password</h3>
                             <p class="mt-1 text-sm text-muted-foreground">Set a unique password for this account.</p>
                         </div>
-                        <flux:button variant="outline" wire:click="openPasswordReset">Reset password</flux:button>
+                        <flux:button variant="outline" wire:click="openPasswordReset">Reset Password</flux:button>
                     </div>
                     @if ($passwordReset)
                         <p class="text-sm text-success" role="status">
@@ -566,7 +566,7 @@
 
                 <div class="flex flex-col gap-3 border-t border-danger/30 pt-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                        <h3 class="text-sm font-semibold text-danger">Delete account</h3>
+                        <h3 class="text-sm font-semibold text-danger">Delete Account</h3>
                         <p class="mt-1 text-sm text-muted-foreground">
                             Only unused, deactivated test accounts can be deleted.
                         </p>
@@ -578,7 +578,7 @@
                         :disabled="$isOwnAccount"
                         wire:click="$set('deleteConfirmOpen', true)"
                     >
-                        Delete account
+                        Delete Account
                     </flux:button>
                 </div>
             </div>
@@ -611,7 +611,7 @@
                 x-init="$el.closest('dialog')?.setAttribute('aria-labelledby', 'reset-password-heading')"
             >
                 <div class="space-y-2">
-                    <flux:heading size="lg" id="reset-password-heading">Reset password</flux:heading>
+                    <flux:heading size="lg" id="reset-password-heading">Reset Password</flux:heading>
                     <p class="break-words text-sm font-medium">{{ $selectedAccountName }} · {{ $selectedAccountEmail }}</p>
                     <p class="text-sm text-muted-foreground">Choose a password never used for this account.</p>
                     <p class="text-sm text-muted-foreground">Try several unrelated words with a number and symbol.</p>
@@ -620,7 +620,7 @@
                 <div class="space-y-3">
                     <flux:input
                         id="reset-account-password"
-                        label="New password"
+                        label="New Password"
                         type="password"
                         autocomplete="new-password"
                         wire:model="resetPassword"
@@ -649,7 +649,7 @@
                 <div class="space-y-2">
                     <flux:input
                         id="reset-account-password-confirm"
-                        label="Confirm new password"
+                        label="Confirm New Password"
                         type="password"
                         autocomplete="new-password"
                         wire:model="resetPasswordConfirm"
@@ -668,8 +668,8 @@
                 <div class="flex flex-wrap justify-end gap-2">
                     <flux:button variant="outline" wire:click="cancelPasswordReset">Cancel</flux:button>
                     <flux:button type="submit" variant="primary" :loading="false" x-bind:disabled="!ready" wire:loading.attr="disabled" wire:target="resetAccountPassword">
-                        <span wire:loading.remove wire:target="resetAccountPassword">Reset password</span>
-                        <span wire:loading wire:target="resetAccountPassword">Resetting password…</span>
+                        <span wire:loading.remove wire:target="resetAccountPassword">Reset Password</span>
+                        <span wire:loading wire:target="resetAccountPassword">Resetting Password…</span>
                     </flux:button>
                 </div>
             </form>
@@ -693,7 +693,7 @@
                 Cancel
             </flux:button>
             <flux:button type="button" variant="danger" icon="trash" wire:click="deleteAccount">
-                Delete account
+                Delete Account
             </flux:button>
         </div>
     </flux:modal>

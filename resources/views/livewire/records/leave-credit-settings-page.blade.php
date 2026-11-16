@@ -35,7 +35,7 @@
                 wire:click="$set('tab', 'types')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'types' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
                 data-settings-tab="types"
-            >Leave types</button>
+            >Leave Types</button>
             <button
                 type="button"
                 role="tab"
@@ -43,7 +43,7 @@
                 wire:click="$set('tab', 'table')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'table' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
                 data-settings-tab="table"
-            >Conversion table</button>
+            >Conversion Table</button>
             <button
                 type="button"
                 role="tab"
@@ -59,7 +59,7 @@
     <section class="mt-4 hris-card overflow-hidden" aria-labelledby="types-heading" data-leave-rules data-leave-type-rules>
         <header class="flex items-center justify-between gap-3 border-b border-border px-5 py-4 max-sm:flex-col max-sm:items-start">
             <div class="min-w-0 flex-1">
-                <h2 id="types-heading" class="text-base font-bold">Leave types</h2>
+                <h2 id="types-heading" class="text-base font-bold">Leave Types</h2>
                 @unless ($rulesReady)
                     <p class="mt-2 text-sm text-muted-foreground">Leave rules can be set once this installation's upgrade finishes.</p>
                 @endunless
@@ -67,7 +67,7 @@
             {{-- Adding, renaming and deleting a leave type need Records access to all data, like every Records list. The leave types have no CSV. --}}
             @if ($canEditTypes)
                 <div class="flex shrink-0 flex-wrap items-center gap-2">
-                    <flux:button variant="primary" icon="plus" wire:click="openAdd" data-add-leave-type>Add leave type</flux:button>
+                    <flux:button variant="primary" icon="plus" wire:click="openAdd" data-add-leave-type>Add Leave Type</flux:button>
                 </div>
             @endif
         </header>
@@ -79,11 +79,11 @@
                 <thead>
                     <tr>
                         <th>Leave</th>
-                        <th>Payment basis</th>
-                        <th>Leave rule</th>
-                        <th>Credit deductions</th>
-                        <th>Cash conversion</th>
-                        <th>Year-end treatment</th>
+                        <th>Payment Basis</th>
+                        <th>Leave Rule</th>
+                        <th>Credit Deductions</th>
+                        <th>Cash Conversion</th>
+                        <th>Year-End Treatment</th>
                         <th class="text-right">Action</th>
                     </tr>
                 </thead>
@@ -166,10 +166,10 @@
                                 @if ($canManage)
                                     <x-kit.row-actions :label="$type->name">
                                         @if ($rulesReady)
-                                            <flux:menu.item icon="clock" wire:click="openRule('{{ $type->id }}')">Leave rule…</flux:menu.item>
+                                            <flux:menu.item icon="clock" wire:click="openRule('{{ $type->id }}')">Leave Rule…</flux:menu.item>
                                         @endif
                                         @if ($typesReady)
-                                            <flux:menu.item icon="adjustments-horizontal" wire:click="openType('{{ $type->id }}')">Filing and credit settings…</flux:menu.item>
+                                            <flux:menu.item icon="adjustments-horizontal" wire:click="openType('{{ $type->id }}')">Filing and Credit Settings…</flux:menu.item>
                                         @endif
                                         @if ($canEditTypes)
                                             <flux:menu.item icon="pencil-square" wire:click="openRename('{{ $type->id }}')">Rename…</flux:menu.item>
@@ -232,7 +232,7 @@
                                 <p class="text-xs text-muted-foreground" data-signatory-note>{{ $signatoryRow['note'] }}</p>
                             @endif
                             @if ($signatoryRow['clearable'])
-                                <button type="button" class="text-xs text-muted-foreground underline hover:text-foreground" wire:click="clearSignatory('{{ $signatory->slot }}')" data-signatory-clear>Leave blank</button>
+                                <button type="button" class="text-xs text-muted-foreground underline hover:text-foreground" wire:click="clearSignatory('{{ $signatory->slot }}')" data-signatory-clear>Leave Blank</button>
                             @endif
                         </div>
                         <div class="min-w-0 sm:pt-2">
@@ -295,7 +295,7 @@
     <flux:modal wire:model.self="ruleOpen" class="w-full max-w-6xl scroll-pb-32" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'leave-rule-heading')">
         <div class="space-y-4 bg-inherit" data-leave-rule-dialog>
             <div class="space-y-1 pr-8">
-                <flux:heading size="lg" id="leave-rule-heading">Leave rule · {{ $ruleName }}</flux:heading>
+                <flux:heading size="lg" id="leave-rule-heading">Leave Rule · {{ $ruleName }}</flux:heading>
                 <flux:text class="text-sm text-muted-foreground">When the leave is acquired and how its credits accrue, the same for every employee.</flux:text>
             </div>
             <div class="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground" data-leave-rule-applies>
@@ -326,7 +326,7 @@
          The rule applies from today; left as it starts, the type simply has none. The leave rule dialog's sticky footer. --}}
     <flux:modal wire:model.self="addOpen" class="w-full max-w-6xl scroll-pb-32" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'add-leave-type-heading')">
         <div class="space-y-5 bg-inherit" data-add-leave-type-dialog>
-            <flux:heading size="lg" id="add-leave-type-heading">Add leave type</flux:heading>
+            <flux:heading size="lg" id="add-leave-type-heading">Add Leave Type</flux:heading>
             <div class="grid gap-3 lg:grid-cols-2">
                 <flux:input label="Name" wire:model="newName" maxlength="160" placeholder="e.g. Special Privilege Leave" />
                 <flux:input label="Description" wire:model="newDescription" maxlength="2000" description="Optional. Shown to whoever files the leave." />
@@ -334,7 +334,7 @@
             @include('livewire.records.partials.leave-type-settings-fields', ['part' => 'filing'])
             <div class="space-y-3 border-t border-border pt-4">
                 <div>
-                    <h3 class="text-base font-semibold">Leave rule</h3>
+                    <h3 class="text-base font-semibold">Leave Rule</h3>
                     <p class="mt-1 text-xs text-muted-foreground">When the leave is acquired and how its credits accrue, the same for every employee, from today. Left as it is, the leave is available immediately and no credits are earned; you can change it later from the leave type's menu.</p>
                 </div>
                 @include('livewire.records.partials.leave-rule-fields')
@@ -342,7 +342,7 @@
             @if ($ruleCredits)
                 <div class="space-y-3 border-t border-border pt-4" data-add-credit-settings>
                     <div>
-                        <h3 class="text-base font-semibold">Credit settings</h3>
+                        <h3 class="text-base font-semibold">Credit Settings</h3>
                         <p class="mt-1 text-xs text-muted-foreground">How the credits are kept, what is deducted from them and whether they may be converted to cash. These apply as soon as the leave type is added.</p>
                     </div>
                     @include('livewire.records.partials.leave-type-settings-fields', ['part' => 'credits'])
@@ -363,7 +363,7 @@
     {{-- Rename a leave type --}}
     <flux:modal wire:model.self="renameOpen" class="w-full max-w-md" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'rename-leave-type-heading')">
         <div class="space-y-4" data-rename-leave-type-dialog>
-            <flux:heading size="lg" id="rename-leave-type-heading">Rename leave type</flux:heading>
+            <flux:heading size="lg" id="rename-leave-type-heading">Rename Leave Type</flux:heading>
             <flux:input label="Name" wire:model="newName" maxlength="160" />
             <flux:input label="Description" wire:model="newDescription" maxlength="2000" />
             @if ($addError !== null)
@@ -393,7 +393,7 @@
     <flux:modal wire:model.self="typeOpen" class="w-full max-w-7xl scroll-pb-32" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'type-rules-heading')">
         <div class="space-y-4 bg-inherit" data-type-rules-dialog>
             <div class="space-y-1 pr-8">
-                <flux:heading size="lg" id="type-rules-heading">Filing and credit settings · {{ $typeName }}</flux:heading>
+                <flux:heading size="lg" id="type-rules-heading">Filing and Credit Settings · {{ $typeName }}</flux:heading>
                 <flux:text class="text-sm text-muted-foreground">Saved settings apply to requests filed or approved from then on. When the leave is acquired and how credits accrue are set in its leave rule.</flux:text>
             </div>
             @include('livewire.records.partials.leave-type-settings-fields')

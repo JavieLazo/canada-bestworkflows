@@ -21,7 +21,7 @@
             <flux:input aria-label="Search departments and units" placeholder="Search ID, name or description" class="w-full min-w-[12rem] max-w-xs flex-1" wire:model.live.debounce.250ms="search" />
 
             <div class="ml-auto flex flex-wrap items-center gap-2">
-                <flux:button variant="primary" icon="plus" wire:click="openAddDepartment">Add department</flux:button>
+                <flux:button variant="primary" icon="plus" wire:click="openAddDepartment">Add Department</flux:button>
             </div>
         </header>
 
@@ -63,10 +63,10 @@
                                 <x-kit.row-actions :label="$r->name">
                                     <flux:menu.item icon="pencil" wire:click="startEdit('{{ $r->id }}')">Edit</flux:menu.item>
                                     @if (! $isUnit)
-                                        <flux:menu.item icon="plus" wire:click="openAddUnit('{{ $r->id }}')">Add unit</flux:menu.item>
+                                        <flux:menu.item icon="plus" wire:click="openAddUnit('{{ $r->id }}')">Add Unit</flux:menu.item>
                                     @endif
-                                    <flux:menu.item icon="arrow-up" :disabled="$r->first" wire:click="move('{{ $r->id }}', 'up')">Move up</flux:menu.item>
-                                    <flux:menu.item icon="arrow-down" :disabled="$r->last" wire:click="move('{{ $r->id }}', 'down')">Move down</flux:menu.item>
+                                    <flux:menu.item icon="arrow-up" :disabled="$r->first" wire:click="move('{{ $r->id }}', 'up')">Move Up</flux:menu.item>
+                                    <flux:menu.item icon="arrow-down" :disabled="$r->last" wire:click="move('{{ $r->id }}', 'down')">Move Down</flux:menu.item>
                                     <flux:menu.item
                                         icon="trash"
                                         :variant="$r->blocked_by !== '' ? 'default' : 'danger'"
@@ -121,7 +121,7 @@
 
             <form class="space-y-4" wire:submit="save">
                 <div class="space-y-2">
-                    <flux:label>{{ $unitDialog ? 'Unit name' : 'Department name' }}</flux:label>
+                    <flux:label>{{ $unitDialog ? 'Unit Name' : 'Department Name' }}</flux:label>
                     <flux:input
                         wire:model="formName"
                         :aria-label="$unitDialog ? 'Unit name' : 'Department name'"
@@ -152,7 +152,7 @@
                 @if ($headsReady)
                     <div class="space-y-2" data-office-head-fields>
                         <div class="grid gap-3 sm:grid-cols-2">
-                            <flux:input label="Head of office" wire:model="formHeadName" maxlength="200" placeholder="Leave blank for none" />
+                            <flux:input label="Head of Office" wire:model="formHeadName" maxlength="200" placeholder="Leave blank for none" />
                             <flux:input label="Designation" wire:model="formHeadDesignation" maxlength="200" />
                         </div>
                         <p class="text-xs text-muted-foreground">Named on the Application for Leave as the Authorized official/Head of office. {{ $unitDialog ? 'Left blank, the department\'s head is named instead.' : 'A unit may name its own.' }}</p>
@@ -160,7 +160,7 @@
                 @endif
 
                 <flux:button type="submit" variant="primary" :icon="$editing !== null ? 'pencil' : 'plus'">
-                    {{ $editing !== null ? 'Save changes' : ($unitDialog ? 'Add unit' : 'Add department') }}
+                    {{ $editing !== null ? 'Save Changes' : ($unitDialog ? 'Add Unit' : 'Add Department') }}
                 </flux:button>
             </form>
         </div>

@@ -8,7 +8,7 @@
     <dl class="hris-card flex flex-wrap items-stretch overflow-hidden print:hidden" aria-label="Report totals">
         @if ($pay)
             <div class="min-w-0 flex-1 basis-44 px-5 py-4">
-                <dt class="text-sm text-muted-foreground">Gross pay</dt>
+                <dt class="text-sm text-muted-foreground">Gross Pay</dt>
                 <dd class="num mt-1 text-xl font-semibold whitespace-nowrap">{{ $metrics['Gross pay']['value'] }}</dd>
             </div>
             <span class="self-center px-1 text-xl text-muted-foreground" aria-hidden="true">−</span>
@@ -18,7 +18,7 @@
             </div>
             <span class="self-center px-1 text-xl text-muted-foreground" aria-hidden="true">=</span>
             <div class="min-w-0 flex-1 basis-44 bg-primary-soft px-5 py-4">
-                <dt class="text-sm text-muted-foreground">Net pay</dt>
+                <dt class="text-sm text-muted-foreground">Net Pay</dt>
                 <dd class="num mt-1 text-xl font-semibold whitespace-nowrap">{{ $metrics['Net pay']['value'] }}</dd>
             </div>
             @foreach ($metrics->except(['Gross pay', 'Total deductions', 'Net pay']) as $metric)

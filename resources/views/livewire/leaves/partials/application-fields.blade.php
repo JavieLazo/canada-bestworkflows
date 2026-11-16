@@ -23,8 +23,8 @@
 @if ($choices !== [])
     <fieldset class="space-y-3" data-leave-details="{{ $section }}">
         <legend class="text-sm font-medium">
-            Details of leave
-            <span class="ml-1 text-xs font-normal text-muted-foreground">In case of {{ LeaveApplication::SECTION_LABELS[$section] }}</span>
+            Details of Leave
+            <span class="ml-1 text-xs font-normal text-muted-foreground">In Case of {{ LeaveApplication::SECTION_LABELS[$section] }}</span>
         </legend>
         @unless ($single)
             <flux:radio.group wire:model.live="{{ $detailModel }}" aria-label="Details of leave">

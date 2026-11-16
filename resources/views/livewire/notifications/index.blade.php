@@ -45,7 +45,7 @@
 
         @if ($unread > 0)
             <flux:button variant="outline" size="sm" wire:click="markAllRead">
-                Mark all read
+                Mark All Read
                 <span class="num ml-1 text-muted-foreground">({{ $unread }})</span>
             </flux:button>
         @endif
@@ -60,7 +60,7 @@
                 wire:model.live="search"
             />
 
-            <x-kit.filter-select label="Filter by status" class="w-[11rem]" wire:model.live="status">
+            <x-kit.filter-select label="Filter by Status" class="w-[11rem]" wire:model.live="status">
                 <flux:select.option value="ALL">All notifications</flux:select.option>
                 <flux:select.option value="UNREAD">Unread only</flux:select.option>
                 <flux:select.option value="READ">Read only</flux:select.option>

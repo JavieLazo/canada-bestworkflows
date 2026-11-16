@@ -229,8 +229,8 @@ it('prints the legacy values on the 201 sheet exactly where it printed them befo
         expect($sheet)->toContain('>'.e($value).'<');
     }
 
-    $family = substr($sheet, (int) strpos($sheet, 'Family background'), 2000);
-    $education = substr($sheet, (int) strpos($sheet, 'Educational background'));
+    $family = substr($sheet, (int) strpos($sheet, 'Family Background'), 2000);
+    $education = substr($sheet, (int) strpos($sheet, 'Educational Background'));
 
     expect(strpos($family, 'Maria S. Dela Cruz'))->toBeLessThan((int) strpos($family, 'Teacher, DepEd'))
         ->and(strpos($education, 'Colegio de la Ciudad de Tayabas'))->toBeLessThan((int) strpos($education, 'Manuel S. Enverga University'));

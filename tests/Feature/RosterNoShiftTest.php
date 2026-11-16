@@ -276,7 +276,7 @@ it('offers the custom hours’ break and grace in the side card', function () {
 
     Livewire::test(EmployeeSchedulePage::class, ['employee' => $employee->id])
         ->call('pick', '2026-11-18')->set('dayShift', 'CUSTOM')
-        ->assertSee('Break from')->assertSee('Break to')->assertSee('Grace (min)');
+        ->assertSee('Break From')->assertSee('Break To')->assertSee('Grace (min)');
 });
 
 /* |---| Saving over a change, and the undos |---| */

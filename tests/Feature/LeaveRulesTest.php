@@ -294,7 +294,7 @@ it('changes a rule from the Leave Settings page in one step, filled in with what
     lrulActor(['RECORDS'], allData: false);
     Livewire::test(LeaveCreditSettingsPage::class)
         ->assertSee('Acquired after 6 months')
-        ->assertDontSee('Leave rule…')
+        ->assertDontSee('Leave Rule…')
         ->call('openRule', $types['Sick Leave'])
         ->assertSet('ruleOpen', false)
         ->set('ruleForm.earns', true)
@@ -624,7 +624,7 @@ it('adds a leave type with its rule and settings from one dialog, and leaves not
     // A leave manager without Records access sees the types but cannot add, rename or delete them.
     $before = LeaveType::query()->count();
     lrulActor(['LEAVES']);
-    Livewire::test(LeaveCreditSettingsPage::class)->assertDontSee('Add leave type')
+    Livewire::test(LeaveCreditSettingsPage::class)->assertDontSee('Add Leave Type')
         ->call('openAdd')->assertSet('addOpen', false)
         ->set('newName', 'Sneaky Leave')->call('saveNewType')
         ->call('askDelete', $type->id)->assertSet('deleteOpen', false);

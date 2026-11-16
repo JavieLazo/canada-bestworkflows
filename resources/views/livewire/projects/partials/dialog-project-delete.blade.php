@@ -30,7 +30,7 @@
                 </flux:button>
                 <flux:button variant="danger" wire:click="deleteProject">
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'trash-2', 'class' => 'size-4'])</x-slot:icon>
-                    Delete project
+                    Delete Project
                 </flux:button>
             </div>
         </div>

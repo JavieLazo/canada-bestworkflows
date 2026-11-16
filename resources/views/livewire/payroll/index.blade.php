@@ -34,7 +34,7 @@
 
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
-            <h2 class="mr-auto text-base font-bold">Payroll list</h2>
+            <h2 class="mr-auto text-base font-bold">Payroll List</h2>
 
             <flux:input
                 aria-label="Search payroll"
@@ -43,7 +43,7 @@
                 wire:model.live="search"
             />
 
-            <x-kit.filter-select label="Filter by status" class="w-[11rem]" wire:model.live="status">
+            <x-kit.filter-select label="Filter by Status" class="w-[11rem]" wire:model.live="status">
                 <flux:select.option value="ALL">All statuses</flux:select.option>
                 @foreach (PayrollIndex::STATUSES as $value => $label)
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
@@ -62,10 +62,10 @@
                 <thead>
                     <tr>
                         <x-kit.sort-header field="id" label="ID" />
-                        <x-kit.sort-header field="name" label="Payroll name" />
-                        <x-kit.sort-header field="from" label="Period from" />
-                        <x-kit.sort-header field="to" label="Period to" />
-                        <x-kit.sort-header field="employees" label="No. of employees" />
+                        <x-kit.sort-header field="name" label="Payroll Name" />
+                        <x-kit.sort-header field="from" label="Period From" />
+                        <x-kit.sort-header field="to" label="Period To" />
+                        <x-kit.sort-header field="employees" label="No. of Employees" />
                         <x-kit.sort-header field="status" label="Status" />
                         <th class="text-right">Action</th>
                     </tr>

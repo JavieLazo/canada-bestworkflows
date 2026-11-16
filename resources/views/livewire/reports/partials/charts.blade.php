@@ -30,7 +30,7 @@
                     <text x="40" y="195" class="fill-muted-foreground text-xs">{{ $chart['points'][0]['label'] }}</text>
                     <text x="580" y="195" text-anchor="end" class="fill-muted-foreground text-xs">{{ $chart['points'][array_key_last($chart['points'])]['label'] }}</text>
                 </svg>
-                <details class="mt-3 print:hidden"><summary class="cursor-pointer text-xs font-medium">Exact chart values</summary><dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">@foreach ($chart['points'] as $point)<div class="flex justify-between gap-2"><dt>{{ $point['label'] }}</dt><dd class="num">{{ number_format($point['value'], fmod((float) $point['value'], 1.0) === 0.0 ? 0 : 1) }}</dd></div>@endforeach</dl></details>
+                <details class="mt-3 print:hidden"><summary class="cursor-pointer text-xs font-medium">Exact Chart Values</summary><dl class="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-3">@foreach ($chart['points'] as $point)<div class="flex justify-between gap-2"><dt>{{ $point['label'] }}</dt><dd class="num">{{ number_format($point['value'], fmod((float) $point['value'], 1.0) === 0.0 ? 0 : 1) }}</dd></div>@endforeach</dl></details>
             @else
             <ol class="mt-4 space-y-3" aria-label="{{ $chart['title'] }} values">
                 @forelse ($chart['points'] as $point)

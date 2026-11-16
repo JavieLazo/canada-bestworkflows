@@ -202,8 +202,8 @@
                 @if ($comment->canDelete)
                     @php
                         $askDelete = $comment->mine
-                            ? ['title' => 'Delete this comment?', 'body' => $hasReplies ? 'Its replies go with it.' : '', 'confirm' => 'Delete comment']
-                            : ['title' => 'Remove this comment for everyone?', 'body' => ($hasReplies ? 'Its replies go with it. ' : '').'This is recorded in the audit trail.', 'confirm' => 'Remove comment'];
+                            ? ['title' => 'Delete this comment?', 'body' => $hasReplies ? 'Its replies go with it.' : '', 'confirm' => 'Delete Comment']
+                            : ['title' => 'Remove this comment for everyone?', 'body' => ($hasReplies ? 'Its replies go with it. ' : '').'This is recorded in the audit trail.', 'confirm' => 'Remove Comment'];
                         $askDelete += ['danger' => true, 'call' => ['deleteComment', $comment->id]];
                     @endphp
                     <flux:dropdown position="bottom" align="start">
@@ -230,11 +230,11 @@
                                         })
                                     "
                                 >
-                                    Edit comment
+                                    Edit Comment
                                 </flux:menu.item>
                             @endif
                             <flux:menu.item icon="trash" variant="danger" x-on:click="$dispatch('social-confirm', @js($askDelete))">
-                                Delete comment
+                                Delete Comment
                             </flux:menu.item>
                         </flux:menu>
                     </flux:dropdown>

@@ -206,13 +206,13 @@ function rlocpageDialogHtml(string $html, EmployeeProfile $employee): string
     $needle = 'wire:key="default-schedule-'.$employee->getKey().'"';
     expect($html)->toContain($needle);
 
-    return Str::before(Str::after($html, $needle), 'Save default schedule');
+    return Str::before(Str::after($html, $needle), 'Save Default Schedule');
 }
 
 /** The correction dialog from its heading to the recorded-punches fold — the header (status, Shift, Break, Location), the tab strip, the notices, the slots and the remark — without the punch rows that follow. */
 function rlocpageFactsHtml(string $html): string
 {
-    return Str::before(Str::after($html, 'correction-heading'), 'Recorded punches');
+    return Str::before(Str::after($html, 'correction-heading'), 'Recorded Punches');
 }
 
 /** Freezes the clock at a Manila wall-clock instant. */
@@ -432,7 +432,7 @@ it('gives a viewer without all_data a month that changes nothing, and an all_dat
     rlocpageMonth($own)
         ->assertSee('Ana Reyes')
         ->assertDontSeeHtml($open)
-        ->assertDontSee('Default schedule')
+        ->assertDontSee('Default Schedule')
         ->call('pick', '2026-09-03')
         ->assertSet('picked', [])
         ->assertDontSeeHtml('data-picked-card');
@@ -445,7 +445,7 @@ it('gives a viewer without all_data a month that changes nothing, and an all_dat
     expect(rlocpageMonth($own)->html())->not->toMatch($disabled);
     rlocpageMonth($own)
         ->assertSeeHtml($open)
-        ->assertSee('Default schedule')
+        ->assertSee('Default Schedule')
         ->call('pick', '2026-09-03')
         ->assertSet('picked', ['2026-09-03'])
         ->assertSeeHtml('data-picked-card');
@@ -569,7 +569,7 @@ it('shows the Location line in the eDTR correction dialog for a work-from-home d
         ->assertSet('correctionOpen', true);
 
     expect(rlocpageFactsHtml($page->html()))
-        ->toContain('Assigned location')
+        ->toContain('Assigned Location')
         ->toContain('Work from home')
         ->not->toContain('Assigned worksite')
         ->not->toContain('Makati Head Office');
@@ -580,7 +580,7 @@ it('shows the Location line in the eDTR correction dialog for a work-from-home d
     // The fallback is named by its site, untagged; the view still says
     // where it came from.
     expect(rlocpageFactsHtml($page->html()))
-        ->toContain('Assigned location')
+        ->toContain('Assigned Location')
         ->toContain('Makati Head Office')
         ->not->toContain('Assigned worksite')
         ->not->toContain('Work from home')

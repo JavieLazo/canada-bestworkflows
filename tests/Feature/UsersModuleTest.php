@@ -95,7 +95,7 @@ it('renders for a USERS holder — the page gate is the module alone', function 
     $this->get('/users')
         ->assertOk()
         ->assertSee('User Management')
-        ->assertSee('New account');
+        ->assertSee('New Account');
 });
 
 /*

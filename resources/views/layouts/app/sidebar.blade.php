@@ -227,7 +227,7 @@
                     <flux:modal.trigger name="confirm-sign-out">
                         <button type="button" title="Sign out" class="{{ $itemClasses }} cursor-pointer" data-test="logout-button">
                             @include('layouts.app.module-icon', ['icon' => 'log-out', 'class' => 'size-4 shrink-0'])
-                            <span class="min-w-0 flex-1 truncate {{ $hideCollapsed }}">Sign out</span>
+                            <span class="min-w-0 flex-1 truncate {{ $hideCollapsed }}">Sign Out</span>
                         </button>
                     </flux:modal.trigger>
 
@@ -246,7 +246,7 @@
                                 <flux:modal.close>
                                     <flux:button variant="outline">Cancel</flux:button>
                                 </flux:modal.close>
-                                <flux:button type="submit" variant="primary" data-test="confirm-logout-button">Sign out</flux:button>
+                                <flux:button type="submit" variant="primary" data-test="confirm-logout-button">Sign Out</flux:button>
                             </div>
                         </form>
                     </flux:modal>
@@ -274,6 +274,24 @@
                 {{ $currentLabel ?? 'BestWorkflows Management Information System' }}
             </span>
             <div class="ml-auto flex items-center gap-1">
+                {{-- The eDTR mobile app. Drawn only where the installation
+                     says where its app file is — a link to nothing is worse
+                     than no link. --}}
+                @if (filled(config('copems.mobile_app_url')))
+                    <a
+                        href="{{ config('copems.mobile_app_url') }}"
+                        data-mobile-app-link
+                        class="inline-flex h-9 items-center gap-1.5 rounded-md px-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                        aria-label="Download the eDTR mobile app"
+                    >
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M12 15V3"></path>
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <path d="m7 10 5 5 5-5"></path>
+                        </svg>
+                        <span class="hidden sm:inline">App</span>
+                    </a>
+                @endif
                 {{--
                     Light/dark toggle. Rides Flux's appearance store ($flux.appearance,
                     persisted in localStorage and applied as the `.dark` class on <html>),

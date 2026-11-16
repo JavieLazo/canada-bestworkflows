@@ -86,10 +86,10 @@ it('lists the catalog and offers edits only to an all-data holder', function () 
     Livewire::test(IncentiveTypesPage::class)
         ->assertSee('Christmas Bonus')
         ->assertSee('Tax-exempt')
-        ->assertDontSee('Add incentive type');
+        ->assertDontSee('Add Incentive Type');
 
     inctypeActor(['PAYROLL']);
-    Livewire::test(IncentiveTypesPage::class)->assertSee('Add incentive type');
+    Livewire::test(IncentiveTypesPage::class)->assertSee('Add Incentive Type');
     expect($actor->userId)->not->toBeNull();
 });
 

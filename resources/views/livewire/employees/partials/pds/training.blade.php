@@ -17,7 +17,7 @@
         <th>To</th>
         <th class="text-right">Hours</th>
         <th>Type of L&amp;D</th>
-        <th>Conducted / sponsored by</th>
+        <th>Conducted / Sponsored By</th>
         <th></th>
     </tr>
 </thead>

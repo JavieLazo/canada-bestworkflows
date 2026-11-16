@@ -24,10 +24,10 @@ use Livewire\WithFileUploads;
  * ── API ─────────────────────────────────────────────────────────────────────
  *
  *     <livewire:kit.csv-import
- *         table="records.sites"                          a TableTransfers import key
- *         :template="route('records.sites.export', ['template' => 1])"
+ *         table="records.holidays"                         a TableTransfers import key
+ *         :template="route('records.holidays.export', ['template' => 1])"
  *         :context="$project->id"                         optional: the owning record
- *         :key="'import-sites'"
+ *         :key="'import-holidays'"
  *     />
  *
  * Picking a file runs the preview at once: every row through the owner's

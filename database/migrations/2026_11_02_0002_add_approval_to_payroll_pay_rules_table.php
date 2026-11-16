@@ -86,9 +86,10 @@ return new class extends Migration
                 }
             }
         }
-        // By column, not by name: SQLite drops a foreign key only through a table rebuild keyed on its columns.
+        // MySQL/MariaDB drop the key by its name; sqlite drops one only through a table rebuild keyed on its columns.
         if (Schema::hasForeignKey('payroll_pay_rules', ['approved_by'])) {
-            Schema::table('payroll_pay_rules', static fn (Blueprint $t) => $t->dropForeign(['approved_by']));
+            $mysql = $this->isMySql();
+            Schema::table('payroll_pay_rules', static fn (Blueprint $t) => $t->dropForeign($mysql ? 'ppr_approved_by_fk' : ['approved_by']));
         }
         if (Schema::hasIndex('payroll_pay_rules', 'ppr_status_idx')) {
             Schema::table('payroll_pay_rules', static fn (Blueprint $t) => $t->dropIndex('ppr_status_idx'));

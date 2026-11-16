@@ -120,7 +120,7 @@ it('renders every screen for a RECORDS holder', function () {
     $this->get('/records/departments')->assertOk()->assertSee('Departments &amp; Units', false);
     // The leave types' own list page leads to the one Leave Settings page.
     $this->get('/records/leave-types')->assertRedirect('/records/leave-credits');
-    $this->get('/records/leave-credits')->assertOk()->assertSee('Leave Settings')->assertSee('Add leave type');
+    $this->get('/records/leave-credits')->assertOk()->assertSee('Leave Settings')->assertSee('Add Leave Type');
     $this->get('/records/holidays')->assertOk()->assertSee('Holiday Settings');
     $this->get('/records/shifts')->assertOk()->assertSee('Shifting Settings');
     $this->get('/records/sites')->assertOk()->assertSee('Site Settings');
@@ -349,6 +349,22 @@ it('adds a site, validates its geofence, and blocks deleting a used one', functi
         ->call('deleteConfirmed');
 
     expect(WorkSite::query()->whereKey($site->id)->exists())->toBeTrue();
+});
+
+it('shows no Punches column on Site Settings, and never sorts by punches', function () {
+    recordsActor(['RECORDS'], true);
+    $site = new WorkSite;
+    $site->forceFill(['name' => 'Makati Head Office', 'latitude' => 14.5547, 'longitude' => 121.0244, 'radius_meters' => 100, 'geofence_exempt' => false])->save();
+
+    $page = Livewire::test(SitesPage::class);
+    $head = Str::between($page->html(), '<thead>', '</thead>');
+
+    // Site, Coordinates, Radius, Geofence, Status, Action — and the Action heading sits over its right-aligned menu.
+    expect(substr_count($head, '<th'))->toBe(6)
+        ->and($head)->not->toContain('Punches')
+        ->and($head)->toContain('<th class="!text-right">Action</th>');
+
+    $page->call('sortBy', 'punches')->assertSet('sortKey', 'name');
 });
 
 /*
@@ -662,5 +678,5 @@ it('shows the linked count on the Shifting Settings row and the edit dialog for 
     Livewire::test(ShiftTypesPage::class)
         ->assertSee('in use by 2')
         ->call('startEdit', $p->id)
-        ->assertSeeHtmlInOrder(['Saving changes the hours of the', '2', 'employees', 'rostered on this pattern from the effective date', 'Effective from']);
+        ->assertSeeHtmlInOrder(['Saving changes the hours of the', '2', 'employees', 'rostered on this pattern from the effective date', 'Effective From']);
 });

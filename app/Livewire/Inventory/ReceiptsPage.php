@@ -16,7 +16,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Issued receipts remain discoverable after return, transfer or correction. */
-#[Title('Memorandum receipts')]
+#[Title('Memorandum Receipts')]
 class ReceiptsPage extends Component
 {
     use WithChangeStamp;

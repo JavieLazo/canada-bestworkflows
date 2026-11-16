@@ -45,11 +45,11 @@ final class EmployeeReport
     {
         return [
             'employee_code' => 'ID', 'employee_id' => 'Employee ID', 'employee' => 'Employee',
-            'position' => 'Position', 'employment' => 'Employment status', 'active' => 'Active status',
-            'date_hired' => 'Date hired', 'worksite' => 'Worksite', 'department' => 'Department', 'unit' => 'Unit',
-            'email' => 'Email', 'mobile' => 'Mobile number', 'birth_date' => 'Birth date', 'age' => 'Age (years)',
-            'sex' => 'Sex', 'civil_status' => 'Civil status', 'tenure' => 'Tenure (years)',
-            'education' => 'Highest recorded education', 'missing' => 'Missing information',
+            'position' => 'Position', 'employment' => 'Employment Status', 'active' => 'Active Status',
+            'date_hired' => 'Date Hired', 'worksite' => 'Worksite', 'department' => 'Department', 'unit' => 'Unit',
+            'email' => 'Email', 'mobile' => 'Mobile Number', 'birth_date' => 'Birth Date', 'age' => 'Age (years)',
+            'sex' => 'Sex', 'civil_status' => 'Civil Status', 'tenure' => 'Tenure (years)',
+            'education' => 'Highest Recorded Education', 'missing' => 'Missing Information',
         ];
     }
 
@@ -231,7 +231,7 @@ final class EmployeeReport
             ['label' => 'Employees', 'value' => (string) count($facts)],
             ['label' => 'Active', 'value' => (string) count(array_filter($facts, static fn (array $fact): bool => $fact['active'] === 'Active'))],
             ['label' => 'Inactive', 'value' => (string) count(array_filter($facts, static fn (array $fact): bool => $fact['active'] === 'Inactive'))],
-            ['label' => 'Positions represented', 'value' => (string) count(array_unique(array_filter(array_column($facts, 'position'))))],
+            ['label' => 'Positions Represented', 'value' => (string) count(array_unique(array_filter(array_column($facts, 'position'))))],
         ], [], $numeric, $keys);
     }
 

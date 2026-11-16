@@ -25,7 +25,7 @@
     <section class="hris-card overflow-hidden" data-benefit-ceiling>
         <header class="flex flex-wrap items-center gap-3 px-5 py-4">
             <div class="min-w-0 flex-1">
-                <h2 class="text-base font-bold">Tax-exempt ceiling</h2>
+                <h2 class="text-base font-bold">Tax-Exempt Ceiling</h2>
                 <p class="mt-1 text-sm text-muted-foreground">How much of an employee's tax-exempt incentives stays untaxed in a year. Anything above it is taxed with the pay.</p>
             </div>
             @unless ($ceilingReady)
@@ -58,7 +58,7 @@
                 <livewire:kit.csv-import table="records.incentive-types" :template="route('records.incentive-types.export', ['template' => 1])" key="import-incentive-types" />
                 @if ($canEdit)
                     <flux:button variant="primary" icon="plus" wire:click="openAdd">
-                        Add incentive type
+                        Add Incentive Type
                     </flux:button>
                 @endif
             </div>
@@ -71,9 +71,9 @@
                         <x-kit.sort-header field="id" label="ID" />
                         <x-kit.sort-header field="name" label="Name" />
                         <th>Amount</th>
-                        <th>How often</th>
+                        <th>How Often</th>
                         <x-kit.sort-header field="taxable" label="Tax" />
-                        <th>Who qualifies</th>
+                        <th>Who Qualifies</th>
                         @if ($canEdit)
                             <th class="text-right">Action</th>
                         @endif
@@ -132,9 +132,9 @@
     @if ($canEdit)
     <flux:modal wire:model.self="ceilingOpen" class="w-full max-w-md" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'ceiling-heading')">
         <form wire:submit="saveCeiling" class="space-y-4">
-            <flux:heading size="lg" level="2" id="ceiling-heading">Tax-exempt ceiling</flux:heading>
+            <flux:heading size="lg" level="2" id="ceiling-heading">Tax-Exempt Ceiling</flux:heading>
             <div class="space-y-2">
-                <flux:label for="ceiling-amount">Ceiling for the year</flux:label>
+                <flux:label for="ceiling-amount">Ceiling for the Year</flux:label>
                 <x-kit.money-input id="ceiling-amount" wire:model="ceilingForm.amount" aria-label="Ceiling for the year" />
                 @include('livewire.payroll.partials.settings-applies-note')
             </div>
@@ -178,7 +178,7 @@
         <form class="space-y-4 bg-inherit" wire:submit="save">
             <div class="space-y-2">
                 <flux:heading size="lg" id="incentive-type-heading">
-                    {{ $editing !== null ? 'Edit incentive type' : 'Add incentive type' }}
+                    {{ $editing !== null ? 'Edit Incentive Type' : 'Add Incentive Type' }}
                     @if ($editing !== null)
                         <span class="num ml-2 text-sm font-normal text-muted-foreground">{{ $editing->code }}</span>
                     @endif
@@ -209,14 +209,14 @@
 
                     @if ($rulesReady)
                         <div class="grid gap-4 sm:grid-cols-2">
-                            <x-kit.select label="Amount type" wire:model.live="formAmountType">
+                            <x-kit.select label="Amount Type" wire:model.live="formAmountType">
                                 @foreach (BenefitText::AMOUNT_TYPES as $value => $label)
                                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                                 @endforeach
                             </x-kit.select>
                             <div class="space-y-2">
                                 @if (! in_array($formAmountType, [BenefitRule::AMOUNT_TYPED, BenefitRule::AMOUNT_MONTH], true))
-                                    <flux:label for="benefit-amount">{{ $formAmountType === BenefitRule::AMOUNT_PERCENT ? 'Percent of the monthly salary' : ($formAmountType === BenefitRule::AMOUNT_DAILY ? 'Amount per day' : 'Amount') }}</flux:label>
+                                    <flux:label for="benefit-amount">{{ $formAmountType === BenefitRule::AMOUNT_PERCENT ? 'Percent of the Monthly Salary' : ($formAmountType === BenefitRule::AMOUNT_DAILY ? 'Amount per Day' : 'Amount') }}</flux:label>
                                     @if ($formAmountType === BenefitRule::AMOUNT_PERCENT)
                                         <flux:input id="benefit-amount" type="number" min="0" max="1000" step="0.01" class:input="num" wire:model.live.debounce.400ms="formAmount" aria-label="Percent of the monthly salary" aria-invalid="{{ $errorAt('amount') !== null ? 'true' : 'false' }}" />
                                     @else
@@ -235,10 +235,10 @@
                             <div class="space-y-2">
                                 {{-- A typed amount has no schedule, so its frequency reads as the list words it. --}}
                                 @if ($formAmountType === BenefitRule::AMOUNT_TYPED)
-                                    <flux:label>How often</flux:label>
+                                    <flux:label>How Often</flux:label>
                                     <p class="rounded-md border border-dashed border-border px-3 py-2 text-sm text-muted-foreground">When typed</p>
                                 @else
-                                    <x-kit.select label="How often" wire:model.live="formFrequency">
+                                    <x-kit.select label="How Often" wire:model.live="formFrequency">
                                         @foreach (BenefitText::FREQUENCIES as $value => $label)
                                             <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                                         @endforeach
@@ -269,14 +269,14 @@
                         @endif
 
                         <div class="rounded-md border border-border bg-muted/40 p-4">
-                            <flux:label>Who qualifies</flux:label>
+                            <flux:label>Who Qualifies</flux:label>
                             <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                                <x-kit.select label="Employment status" wire:model.live="formStatusMode">
+                                <x-kit.select label="Employment Status" wire:model.live="formStatusMode">
                                     <flux:select.option value="ALL">All employees</flux:select.option>
                                     <flux:select.option value="SOME">Only these statuses</flux:select.option>
                                 </x-kit.select>
                                 <div class="space-y-2">
-                                    <flux:label for="benefit-service">Minimum months of service</flux:label>
+                                    <flux:label for="benefit-service">Minimum Months of Service</flux:label>
                                     <flux:input id="benefit-service" type="number" min="0" max="600" step="1" class:input="num" wire:model.live.debounce.400ms="formMinServiceMonths" aria-label="Minimum months of service" aria-invalid="{{ $errorAt('service') !== null ? 'true' : 'false' }}" />
                                     @if ($errorAt('service') !== null)
                                         <p class="text-xs text-danger">{{ $errorAt('service') }}</p>
@@ -321,7 +321,7 @@
                                 </x-kit.select>
                                 <div class="space-y-2">
                                     @if ($formTax === BenefitRule::TAX_DE_MINIMIS)
-                                        <flux:label for="benefit-cap">Tax-exempt up to</flux:label>
+                                        <flux:label for="benefit-cap">Tax-Exempt Up To</flux:label>
                                         <x-kit.money-input id="benefit-cap" wire:model.live="formCap" aria-label="Tax-exempt up to" :aria-invalid="$errorAt('cap') !== null" />
                                         @if ($errorAt('cap') !== null)
                                             <p class="text-xs text-danger">{{ $errorAt('cap') }}</p>
@@ -337,7 +337,7 @@
                             } }}</p>
                         </div>
                         <div class="space-y-2">
-                            <flux:label for="benefit-reference">Approval reference (optional)</flux:label>
+                            <flux:label for="benefit-reference">Approval Reference (optional)</flux:label>
                             <flux:input id="benefit-reference" wire:model="formApprovalReference" maxlength="160" placeholder="The resolution or memo it rests on" />
                             @if ($errorAt('reference') !== null)
                                 <p class="text-xs text-danger">{{ $errorAt('reference') }}</p>
@@ -364,7 +364,7 @@
                                 {{-- What one converted day pays; terminal leave is priced the same way from the highest salary on record. --}}
                                 @if ($formPaysLeaveCashOut && \App\Modules\Payroll\Application\PayrollData::cashOutValueReady())
                                     <div class="grid gap-3 sm:grid-cols-2" data-cash-out-value>
-                                        <x-kit.select label="Value of a converted day" wire:model.live="formCashOutDayValue">
+                                        <x-kit.select label="Value of a Converted Day" wire:model.live="formCashOutDayValue">
                                             @foreach (\App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue::LABELS as $value => $label)<flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>@endforeach
                                         </x-kit.select>
                                         @if ($formCashOutDayValue === \App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue::FACTOR)
@@ -404,7 +404,7 @@
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="outline" wire:click="$set('dialogOpen', false)">Cancel</flux:button>
                     <flux:button type="submit" variant="primary" :icon="$editing !== null ? 'pencil' : 'plus'">
-                        {{ $editing !== null ? 'Save changes' : 'Add incentive type' }}
+                        {{ $editing !== null ? 'Save Changes' : 'Add Incentive Type' }}
                     </flux:button>
                 </div>
             </div>

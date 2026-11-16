@@ -113,7 +113,7 @@ it('keeps one tax-free ceiling on the Incentives page: Change replaces it at onc
     Livewire::test(IncentiveTypesPage::class)
         ->assertSeeHtml('data-benefit-ceiling')
         ->assertSee('₱90,000.00')
-        ->assertDontSee('In force')->assertDontSee('Upcoming')->assertDontSee('Takes effect')
+        ->assertDontSee('In force')->assertDontSee('Upcoming')->assertDontSee('Takes Effect')
         ->call('openCeiling')
         ->assertSet('ceilingForm', ['amount' => '90000'])
         ->set('ceilingForm.amount', '100,000')

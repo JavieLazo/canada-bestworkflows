@@ -72,11 +72,11 @@ it('shows an unlinked account no personal information or independent name editor
     profileEmployee();
     $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE])));
     Livewire::test(ProfilePage::class)
-        ->assertSee('Employee record not linked')
+        ->assertSee('Employee Record Not Linked')
         ->assertDontSee('Reyes')
         ->assertDontSeeHtml('wire:model="fullName"')
         ->set('tab', 'account')
-        ->assertSee('Sign-in email')
+        ->assertSee('Sign-In Email')
         ->assertDontSeeHtml('wire:model="fullName"');
     expect(EmployeeRecordChangeRequest::query()->count())->toBe(0);
 });
@@ -89,12 +89,12 @@ it('shows the complete linked record through My Profile and offers approved corr
         ->assertSee('Government IDs')
         ->assertSee('Education')
         ->assertSee('Declarations')
-        ->assertDontSee('Delete employee')
+        ->assertDontSee('Delete Employee')
         ->assertDontSeeHtml('wire:model="fullName"');
     Livewire::test(Show::class, ['own' => true])
         ->call('startEdit', 'personal')
-        ->assertDontSee('Reason for change')
-        ->assertSee('Submit for approval');
+        ->assertDontSee('Reason for Change')
+        ->assertSee('Submit for Approval');
 });
 
 it('refuses invalid personal and emergency fields before creating a proposal', function () {
@@ -215,7 +215,7 @@ it('refuses forged My Profile employment saves and print actions', function (str
 it('shows own change requests without a pending counter', function () {
     $this->actingAs(profileUser(profileRole([ModuleCode::PROFILE]), profileEmployee()));
     Livewire::test(ChangeRequests::class, ['own' => true])
-        ->assertSee('My change requests')->assertDontSee('0 pending');
+        ->assertSee('My Change Requests')->assertDontSee('0 pending');
 });
 
 it('changes the password only when the current one is correct', function () {

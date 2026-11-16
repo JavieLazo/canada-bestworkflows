@@ -300,7 +300,7 @@ it('changes the salary on the employee pay page, in effect at once, with no date
     $employee = salrEmployee();
     $actor = salrActor(name: 'Preparer');
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('Change salary')
+        ->assertSee('Change Salary')
         ->assertDontSee('Record salary change')
         ->assertSeeHtml('data-salary-rates')
         ->call('openSalaryChange')

@@ -23,7 +23,7 @@
             @endunless
             <h2 class="mr-auto text-base font-bold">Categories</h2>
             @if ($canEdit && $ready)
-                <flux:button variant="primary" icon="plus" wire:click="openAdd">Add category</flux:button>
+                <flux:button variant="primary" icon="plus" wire:click="openAdd">Add Category</flux:button>
             @endif
         </header>
         <div class="hris-table-wrap hris-table-scroll">
@@ -72,7 +72,7 @@
         x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'category-heading')"
     >
         <form class="grid gap-4" wire:submit="save">
-            <flux:heading size="lg" id="category-heading">{{ $editingId === null ? 'Add category' : 'Edit category' }}</flux:heading>
+            <flux:heading size="lg" id="category-heading">{{ $editingId === null ? 'Add Category' : 'Edit Category' }}</flux:heading>
             <div class="space-y-2">
                 <flux:label for="category-name">Name</flux:label>
                 <flux:input id="category-name" wire:model="formName" maxlength="120" placeholder="e.g. Correction of salary" />
@@ -94,7 +94,7 @@
                 <flux:modal.close>
                     <flux:button variant="ghost">Cancel</flux:button>
                 </flux:modal.close>
-                <flux:button type="submit" variant="primary">{{ $editingId === null ? 'Add' : 'Save changes' }}</flux:button>
+                <flux:button type="submit" variant="primary">{{ $editingId === null ? 'Add' : 'Save Changes' }}</flux:button>
             </div>
         </form>
     </flux:modal>

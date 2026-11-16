@@ -172,13 +172,13 @@ new #[Title('Security settings')] class extends Component {
 <section class="w-full">
     @include('partials.settings-heading')
 
-    <flux:heading level="2" class="sr-only">{{ __('Security settings') }}</flux:heading>
+    <flux:heading level="2" class="sr-only">{{ __('Security Settings') }}</flux:heading>
 
-    <x-pages::settings.layout :heading="__('Update password')" :subheading="__('Ensure your account is using a long, random password to stay secure')">
+    <x-pages::settings.layout :heading="__('Update Password')" :subheading="__('Ensure your account is using a long, random password to stay secure')">
         <form method="POST" wire:submit="updatePassword" class="mt-6 space-y-6">
             <flux:input
                 wire:model="current_password"
-                :label="__('Current password')"
+                :label="__('Current Password')"
                 type="password"
                 required
                 autocomplete="current-password"
@@ -186,7 +186,7 @@ new #[Title('Security settings')] class extends Component {
             />
             <flux:input
                 wire:model="password"
-                :label="__('New password')"
+                :label="__('New Password')"
                 :description="__('Use at least :min characters, with uppercase and lowercase letters, a number and a symbol. Choose a password never used for this account.', ['min' => \App\Modules\IdentityAccess\Application\PasswordPolicy::MIN_LENGTH])"
                 type="password"
                 required
@@ -196,7 +196,7 @@ new #[Title('Security settings')] class extends Component {
             />
             <flux:input
                 wire:model="password_confirmation"
-                :label="__('Confirm password')"
+                :label="__('Confirm Password')"
                 type="password"
                 required
                 autocomplete="new-password"
@@ -213,7 +213,7 @@ new #[Title('Security settings')] class extends Component {
 
         @if ($canManageTwoFactor)
             <section class="mt-12">
-                <flux:heading>{{ __('Two-factor authentication') }}</flux:heading>
+                <flux:heading>{{ __('Two-Factor Authentication') }}</flux:heading>
                 <flux:subheading>{{ __('Manage your two-factor authentication settings') }}</flux:subheading>
 
                 <div class="flex flex-col w-full mx-auto space-y-6 text-sm" wire:cloak>
@@ -320,7 +320,7 @@ new #[Title('Security settings')] class extends Component {
     >
         <div class="space-y-6">
             <div class="space-y-2">
-                <flux:heading size="lg">{{ __('Remove passkey') }}</flux:heading>
+                <flux:heading size="lg">{{ __('Remove Passkey') }}</flux:heading>
                 <flux:text>
                     {{ __('Are you sure you want to remove the passkey ":name"? You will no longer be able to use it to sign in.', ['name' => $deletingPasskeyName]) }}
                 </flux:text>
@@ -337,7 +337,7 @@ new #[Title('Security settings')] class extends Component {
                     variant="danger"
                     wire:click="deletePasskey"
                 >
-                    {{ __('Remove passkey') }}
+                    {{ __('Remove Passkey') }}
                 </flux:button>
             </div>
         </div>

@@ -256,14 +256,14 @@ it('hides Accept and Return from an assignee-reviewer and says why, keeping Canc
 
     Livewire::test(Show::class, ['project' => $submitted->project_id])
         ->call('openTask', $submitted->id)
-        ->assertDontSee('Accept task')
-        ->assertDontSee('Return for rework')
-        ->assertDontSee('Review remark')
+        ->assertDontSee('Accept Task')
+        ->assertDontSee('Return for Rework')
+        ->assertDontSee('Review Remark')
         ->assertSee($callout, false);
 
     Livewire::test(Show::class, ['project' => $active->project_id])
         ->call('openTask', $active->id)
-        ->assertSee('Cancel task')
+        ->assertSee('Cancel Task')
         ->assertSee($callout, false);
 });
 
@@ -275,8 +275,8 @@ it('offers Accept and Return, without the callout, to a reviewer off the crew', 
 
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
-        ->assertSee('Accept task')
-        ->assertSee('Return for rework')
+        ->assertSee('Accept Task')
+        ->assertSee('Return for Rework')
         ->assertDontSee('so another reviewer has to decide it');
 });
 
@@ -288,10 +288,10 @@ it('shows no decision buttons to a viewer without all-data PROJECTS', function (
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
         ->assertSet('openTaskId', $task->id)
-        ->assertDontSee('Accept task')
-        ->assertDontSee('Return for rework')
-        ->assertDontSee('Cancel task')
-        ->assertDontSee('Review remark')
+        ->assertDontSee('Accept Task')
+        ->assertDontSee('Return for Rework')
+        ->assertDontSee('Cancel Task')
+        ->assertDontSee('Review Remark')
         ->assertDontSee('so another reviewer has to decide it');
 })->with(['submitted' => 'SUBMITTED', 'in progress' => 'IN_PROGRESS']);
 
@@ -364,11 +364,11 @@ it('hides Complete and every response decision from an assignee-reviewer of an i
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
         ->call('selectResponse', $ben->id)
-        ->assertDontSee('Complete task')
-        ->assertDontSee('Accept task')
-        ->assertDontSee('Approve response')
-        ->assertDontSee('Return for rework')
-        ->assertSee('Cancel task')
+        ->assertDontSee('Complete Task')
+        ->assertDontSee('Accept Task')
+        ->assertDontSee('Approve Response')
+        ->assertDontSee('Return for Rework')
+        ->assertSee('Cancel Task')
         ->assertSee("You're one of this task's assignees, so another reviewer has to decide it.", false);
 });
 
@@ -382,9 +382,9 @@ it('shows no decision on an individual task to a viewer without all-data PROJECT
         ->call('openTask', $task->id)
         ->assertSet('openTaskId', $task->id)
         ->call('selectResponse', $ana->id)
-        ->assertDontSee('Complete task')
-        ->assertDontSee('Approve response')
-        ->assertDontSee('Return for rework')
-        ->assertDontSee('Cancel task')
+        ->assertDontSee('Complete Task')
+        ->assertDontSee('Approve Response')
+        ->assertDontSee('Return for Rework')
+        ->assertDontSee('Cancel Task')
         ->assertDontSee('so another reviewer has to decide it');
 });

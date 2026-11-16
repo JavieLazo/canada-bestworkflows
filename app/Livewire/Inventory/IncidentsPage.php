@@ -22,7 +22,7 @@ use Livewire\Component;
 
 /** Condition reports and independent reviews preserve each item's custody evidence. */
 #[Layout('layouts.app')]
-#[Title('Inventory condition and loss')]
+#[Title('Inventory Condition and Loss')]
 class IncidentsPage extends Component
 {
     use WithTableFilters;

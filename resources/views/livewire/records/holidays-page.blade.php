@@ -25,7 +25,7 @@
                 class="w-full min-w-[12rem] max-w-xs flex-1"
                 wire:model.live.debounce.250ms="search"
             />
-            <x-kit.filter-select label="Filter by type" class="w-[17rem]" wire:model.live="type">
+            <x-kit.filter-select label="Filter by Type" class="w-[17rem]" wire:model.live="type">
                 <flux:select.option value="ALL">All types</flux:select.option>
                 @foreach (HolidaysPage::TYPES as $value => $label)
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
@@ -35,7 +35,7 @@
                 <x-kit.export-button :href="route('records.holidays.export', array_filter(['q' => $search, 'type' => $type, 'sort' => $sortKey, 'dir' => $sortDir]))" />
                 <livewire:kit.csv-import table="records.holidays" :template="route('records.holidays.export', ['template' => 1])" key="import-holidays" />
                 <flux:button variant="primary" icon="plus" wire:click="openAdd">
-                    Add holiday
+                    Add Holiday
                 </flux:button>
             </div>
         </header>
@@ -120,7 +120,7 @@
         <div class="space-y-4">
             <div class="space-y-2">
                 <flux:heading size="lg">
-                    {{ $editing !== null ? 'Edit holiday' : 'Add holiday' }}
+                    {{ $editing !== null ? 'Edit Holiday' : 'Add Holiday' }}
                     @if ($editing !== null)
                         <span class="num ml-2 text-sm font-normal text-muted-foreground">{{ $editing->code }}</span>
                     @endif
@@ -184,7 +184,7 @@
                         variant="primary"
                         :icon="$editing !== null ? 'pencil' : 'plus'"
                     >
-                        {{ $editing !== null ? 'Save changes' : 'Add holiday' }}
+                        {{ $editing !== null ? 'Save Changes' : 'Add Holiday' }}
                     </flux:button>
                 </div>
             </form>

@@ -16,12 +16,12 @@
 <thead>
     <tr>
         <th>Level</th>
-        <th>Name of school</th>
-        <th>Degree / course</th>
+        <th>Name of School</th>
+        <th>Degree / Course</th>
         <th>From</th>
         <th>To</th>
-        <th>Units earned</th>
-        <th>Year graduated</th>
+        <th>Units Earned</th>
+        <th>Year Graduated</th>
         <th>Honors</th>
         <th></th>
     </tr>
@@ -97,7 +97,7 @@
                 <td class="text-right">
                     @if ($canEdit)
                         <x-kit.row-actions :label="$short.' schools'">
-                            <flux:menu.item icon="plus" wire:click="openAdd('{{ $row->level }}')">Add school</flux:menu.item>
+                            <flux:menu.item icon="plus" wire:click="openAdd('{{ $row->level }}')">Add School</flux:menu.item>
                         </x-kit.row-actions>
                     @endif
                 </td>

@@ -12,7 +12,7 @@
 <div class="space-y-4">
     <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-            <h1 class="text-2xl font-bold tracking-tight">{{ $own ? 'My change requests' : 'Record change requests' }}</h1>
+            <h1 class="text-2xl font-bold tracking-tight">{{ $own ? 'My Change Requests' : 'Record Change Requests' }}</h1>
             <p class="text-sm text-muted-foreground">{{ $own ? 'Track your proposed changes and the decisions made on them.' : 'Review employee corrections before they become part of the official record.' }}</p>
         </div>
     </div>
@@ -21,7 +21,7 @@
     @endif
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
-            <x-kit.filter-select label="Filter by status" class="w-[13rem]" wire:model.live="status">
+            <x-kit.filter-select label="Filter by Status" class="w-[13rem]" wire:model.live="status">
                 @foreach (['ALL' => 'All requests', 'PENDING' => 'Pending', 'APPROVED' => 'Approved', 'REJECTED' => 'Rejected', 'WITHDRAWN' => 'Withdrawn'] as $value => $label)
                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                 @endforeach
@@ -61,13 +61,13 @@
                     <p class="text-sm text-muted-foreground">Submitted by {{ $open->requested_by_name }} · {{ $open->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') }}</p>
                 </div>
                 @if (trim((string) $open->reason) !== '')
-                    <div><h3 class="text-sm font-semibold">Reason for change</h3><p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $open->reason }}</p></div>
+                    <div><h3 class="text-sm font-semibold">Reason for Change</h3><p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $open->reason }}</p></div>
                 @endif
                 <div class="space-y-3">
                     @foreach ($open->changes as $change)
                         <div class="grid gap-3 rounded-lg border border-border p-3 sm:grid-cols-2" wire:key="request-field-{{ $open->id }}-{{ $loop->index }}">
                             <h3 class="text-sm font-semibold sm:col-span-2">{{ $change['label'] }}</h3>
-                            <div><p class="text-xs font-medium text-muted-foreground">When submitted</p><p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $change['before'] ?? 'Not recorded' }}</p></div>
+                            <div><p class="text-xs font-medium text-muted-foreground">When Submitted</p><p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $change['before'] ?? 'Not recorded' }}</p></div>
                             <div><p class="text-xs font-medium text-muted-foreground">Requested</p><p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $change['after'] ?? 'Not recorded' }}</p></div>
                         </div>
                     @endforeach
@@ -75,10 +75,10 @@
                 @if ($open->has_before_evidence || $open->has_after_evidence)
                     <div class="flex flex-wrap gap-2">
                         @if ($open->has_before_evidence)
-                            <flux:button size="sm" variant="outline" icon="arrow-down-tray" :href="route('record-changes.evidence', ['request' => $open->id, 'which' => 'before'])">Previous file</flux:button>
+                            <flux:button size="sm" variant="outline" icon="arrow-down-tray" :href="route('record-changes.evidence', ['request' => $open->id, 'which' => 'before'])">Previous File</flux:button>
                         @endif
                         @if ($open->has_after_evidence)
-                            <flux:button size="sm" variant="outline" icon="arrow-down-tray" :href="route('record-changes.evidence', ['request' => $open->id, 'which' => 'after'])">Proposed file</flux:button>
+                            <flux:button size="sm" variant="outline" icon="arrow-down-tray" :href="route('record-changes.evidence', ['request' => $open->id, 'which' => 'after'])">Proposed File</flux:button>
                         @endif
                     </div>
                 @endif
@@ -89,14 +89,14 @@
                     </div>
                 @endif
                 @if (! $own && $open->can_review)
-                    <flux:textarea wire:model="reviewNote" label="Review note" description="A reason is required when rejecting a request." maxlength="1000" rows="3" />
+                    <flux:textarea wire:model="reviewNote" label="Review Note" description="A reason is required when rejecting a request." maxlength="1000" rows="3" />
                     <p class="text-xs text-muted-foreground">Approval applies this request and records the change in Employment History. If its original values have changed, a fresh request is required.</p>
                     <div class="flex flex-wrap justify-end gap-2">
                         <flux:button variant="outline" wire:click="review(false)">Reject</flux:button>
-                        <flux:button variant="primary" wire:click="review(true)">Approve changes</flux:button>
+                        <flux:button variant="primary" wire:click="review(true)">Approve Changes</flux:button>
                     </div>
                 @elseif ($own && $open->can_withdraw)
-                    <div class="flex justify-end"><flux:button variant="outline" wire:click="withdraw">Withdraw request</flux:button></div>
+                    <div class="flex justify-end"><flux:button variant="outline" wire:click="withdraw">Withdraw Request</flux:button></div>
                 @endif
                 <div class="flex justify-end"><flux:modal.close><flux:button variant="ghost">Close</flux:button></flux:modal.close></div>
             </div>

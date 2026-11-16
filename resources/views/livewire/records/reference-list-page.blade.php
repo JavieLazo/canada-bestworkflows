@@ -62,7 +62,7 @@
                 @endif
                 @if ($canManage)
                 <flux:button variant="primary" icon="plus" wire:click="openAdd">
-                    Add {{ $config['noun'] }}
+                    Add {{ ucwords($config['noun']) }}
                 </flux:button>
                 @endif
             </div>
@@ -205,7 +205,7 @@
         <div class="space-y-4 bg-inherit">
             <div class="space-y-2">
                 <flux:heading size="lg">
-                    {{ $editing !== null ? "Edit {$config['noun']}" : "Add {$config['noun']}" }}
+                    {{ $editing !== null ? 'Edit '.ucwords($config['noun']) : 'Add '.ucwords($config['noun']) }}
                     @if ($editing !== null)
                         <span class="num ml-2 text-sm font-normal text-muted-foreground">{{ $editing->code }}</span>
                     @endif
@@ -249,33 +249,33 @@
                         @if ($formComputation === 'PERCENT')
                             <div class="grid gap-4 sm:grid-cols-2">
                                 <div class="space-y-2">
-                                    <flux:label for="deduction-employee">Employee share (%)</flux:label>
+                                    <flux:label for="deduction-employee">Employee Share (%)</flux:label>
                                     <flux:input id="deduction-employee" type="number" min="0" max="100" step="0.01" class:input="num" wire:model.live.debounce.400ms="formPercentEmployee" aria-label="Employee share" aria-invalid="{{ $ruleError !== null ? 'true' : 'false' }}" />
                                 </div>
                                 <div class="space-y-2">
-                                    <flux:label for="deduction-employer">Employer share (%)</flux:label>
+                                    <flux:label for="deduction-employer">Employer Share (%)</flux:label>
                                     <flux:input id="deduction-employer" type="number" min="0" max="100" step="0.01" class:input="num" wire:model.live.debounce.400ms="formPercentEmployer" aria-label="Employer share" aria-invalid="{{ $ruleError !== null ? 'true' : 'false' }}" />
                                     <p class="text-xs text-muted-foreground">Reported on the payslip; never deducted from the employee's pay.</p>
                                 </div>
-                                <x-kit.select label="Based on" wire:model.live="formBase">
+                                <x-kit.select label="Based On" wire:model.live="formBase">
                                     @foreach (\App\Livewire\Records\Support\DeductionText::BASES as $value => $label)
                                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                                     @endforeach
                                 </x-kit.select>
-                                <x-kit.select label="How often" wire:model.live="formFrequency">
+                                <x-kit.select label="How Often" wire:model.live="formFrequency">
                                     @foreach (\App\Livewire\Records\Support\DeductionText::FREQUENCIES as $value => $label)
                                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                                     @endforeach
                                 </x-kit.select>
                             </div>
                             <div class="space-y-2">
-                                <flux:label for="deduction-cap">Monthly cap per share (optional)</flux:label>
+                                <flux:label for="deduction-cap">Monthly Cap per Share (optional)</flux:label>
                                 <x-kit.money-input id="deduction-cap" wire:model.live="formCap" aria-label="Monthly cap per share" />
                             </div>
                             <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-4">
                                 <flux:switch id="deduction-pretax" wire:model.live="formBeforeTax" />
                                 <div>
-                                    <flux:label for="deduction-pretax">Deducted before tax</flux:label>
+                                    <flux:label for="deduction-pretax">Deducted Before Tax</flux:label>
                                     <p class="text-xs text-muted-foreground">Turn on when the amount is not part of taxable compensation.</p>
                                 </div>
                             </div>
@@ -297,7 +297,7 @@
                         variant="primary"
                         :icon="$editing !== null ? 'pencil' : 'plus'"
                     >
-                        {{ $editing !== null ? 'Save changes' : "Add {$config['noun']}" }}
+                        {{ $editing !== null ? 'Save Changes' : 'Add '.ucwords($config['noun']) }}
                     </flux:button>
                 </div>
             </form>

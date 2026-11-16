@@ -166,7 +166,7 @@ it('shows the Manila day and time each request was filed and sorts by it', funct
 
     $page = Livewire::test(Index::class)
         ->assertDontSee('Aug 03, 2026');
-    $page->assertSeeInOrder(['Date filed', 'Leave period']);
+    $page->assertSeeInOrder(['Date Filed', 'Leave Period']);
     $page->assertSeeInOrder(['LR-001', 'Aug 04, 2026', '1:00 AM', 'LR-002', 'Aug 01, 2026', '10:00 AM']);
 
     $page->call('sortBy', 'filed');

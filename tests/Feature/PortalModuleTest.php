@@ -589,7 +589,7 @@ it('shows the payslip alone in My Portal, without the additional payroll details
     // The same for someone who also runs payroll: My Portal is their own copy.
     Livewire::test(PortalPage::class)->set('tab', 'payslips')->call('viewPayslip', $own->getKey())
         ->assertSet('payslipOpen', true)
-        ->assertSee('Net pay')
+        ->assertSee('Net Pay')
         ->assertDontSee('Additional payroll details')
         ->assertDontSee('Employer contributions')
         ->assertDontSee('1,515.15')
@@ -725,7 +725,7 @@ it("keeps an all_data holder's leave credits card to their own rows", function (
     portalCreditFrozen(function (): void {
         $page = Livewire::test(PortalPage::class)
             ->set('tab', 'requests')
-            ->assertSee('Leave credits · 2026')
+            ->assertSee('Leave Credits · 2026')
             ->assertDontSee('42.5')
             ->assertDontSee('39.5');
 
@@ -753,7 +753,7 @@ it('shows an employee-less actor no credits card, only the link notice', functio
             ->set('tab', 'requests')
             ->assertSee('Ask HR to link your account.')
             ->assertDontSeeHtml('data-leave-credits')
-            ->assertDontSee('Leave credits · 2026')
+            ->assertDontSee('Leave Credits · 2026')
             ->assertDontSee('42.5')
             ->assertDontSeeHtml('data-credit-hint');
     });
@@ -801,7 +801,7 @@ it('renders the punch station without the credits card or a credits read', funct
         try {
             Livewire::test(PortalPage::class)
                 ->assertSet('tab', 'punch')
-                ->assertDontSee('Leave credits ·')
+                ->assertDontSee('Leave Credits ·')
                 ->assertDontSeeHtml('data-leave-credits');
 
             $queries = collect(DB::getQueryLog())->pluck('query');

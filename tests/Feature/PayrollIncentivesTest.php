@@ -345,7 +345,7 @@ it('edits a member\'s incentives in the dialog and saves them with the draft', f
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('openIncentives', $id);
     expect($page->get('incentiveForm'))->toBe([$commission->id => '', $christmas->id => ''])
-        ->and($page->html())->toContain('data-incentives-dialog')->toContain('Tax-exempt')->toContain('Manage incentive types');
+        ->and($page->html())->toContain('data-incentives-dialog')->toContain('Tax-exempt')->toContain('Manage Incentive Types');
 
     $page->set("incentiveForm.{$commission->id}", '1,250.00')
         ->set("incentiveForm.{$christmas->id}", '0')

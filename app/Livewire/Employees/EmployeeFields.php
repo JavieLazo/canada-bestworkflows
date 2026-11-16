@@ -77,7 +77,7 @@ final class EmployeeFields
     /** A declaration's answer: Not answered, Yes or No. */
     public const array ANSWERS = \App\Modules\Workforce\Application\EmployeeFields::ANSWERS;
 
-    /** A previous job's "Gov't service": unanswered, Y or N. */
+    /** A previous job's "Gov't Service": unanswered, Y or N. */
     public const array GOV_SERVICE = \App\Modules\Workforce\Application\EmployeeFields::GOV_SERVICE;
 
     /** The two stems printed above their declarations, keyed by the first question under each. */

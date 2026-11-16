@@ -34,7 +34,7 @@ it('keeps the no-modules shell for accounts without grants', function () {
     app()->forgetInstance(Access::class);
 
     $this->get(route('home'))->assertOk()
-        ->assertSee('No modules assigned')
+        ->assertSee('No Modules Assigned')
         ->assertSee('BestWorkflows')
         ->assertDontSee('Schedule an Executive Systems Consultation');
 });

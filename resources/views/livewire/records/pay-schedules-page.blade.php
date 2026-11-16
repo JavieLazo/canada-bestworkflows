@@ -36,7 +36,7 @@
             <div class="ml-auto flex flex-wrap items-center gap-2">
                 <x-kit.export-button :href="route('records.pay-schedules.export', array_filter(['q' => $search]))" />
                 @if ($canEdit && $ready)
-                    <flux:button variant="primary" icon="plus" wire:click="openAdd">Add pay schedule</flux:button>
+                    <flux:button variant="primary" icon="plus" wire:click="openAdd">Add Pay Schedule</flux:button>
                 @endif
             </div>
         </header>
@@ -46,9 +46,9 @@
                 <thead>
                     <tr>
                         <th>Name</th>
-                        <th>Salary periods</th>
-                        <th>Pay days</th>
-                        <th>Weekend or holiday</th>
+                        <th>Salary Periods</th>
+                        <th>Pay Days</th>
+                        <th>Weekend or Holiday</th>
                         <th>Deadlines</th>
                         <th>Payrolls</th>
                         <th class="text-right">Action</th>
@@ -86,7 +86,7 @@
                                     <x-kit.row-actions :label="$row->name">
                                         <flux:menu.item icon="pencil-square" wire:click="startEdit('{{ $row->id }}')">Edit</flux:menu.item>
                                         @unless ($row->is_default)
-                                            <flux:menu.item icon="star" wire:click="makeDefault('{{ $row->id }}')">Make the default</flux:menu.item>
+                                            <flux:menu.item icon="star" wire:click="makeDefault('{{ $row->id }}')">Make the Default</flux:menu.item>
                                             <flux:menu.item icon="trash" variant="danger" wire:click="confirmDelete('{{ $row->id }}')" :disabled="$row->runs_count > 0">
                                                 {{ $row->runs_count > 0 ? 'Delete · used by '.$row->runs_count.' '.($row->runs_count === 1 ? 'payroll' : 'payrolls') : 'Delete' }}
                                             </flux:menu.item>
@@ -107,27 +107,27 @@
         x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'schedule-heading')"
     >
         <form class="grid gap-5" wire:submit="save">
-            <flux:heading size="lg" id="schedule-heading">{{ $editingId === null ? 'Add pay schedule' : 'Edit pay schedule' }}</flux:heading>
+            <flux:heading size="lg" id="schedule-heading">{{ $editingId === null ? 'Add Pay Schedule' : 'Edit Pay Schedule' }}</flux:heading>
 
             <div class="grid gap-4 sm:grid-cols-2">
                 <div class="space-y-2">
                     <flux:label for="schedule-name">Name</flux:label>
                     <flux:input id="schedule-name" wire:model="formName" maxlength="120" placeholder="e.g. Semi-monthly, paid on the 15th and 30th" />
                 </div>
-                <x-kit.select label="Salary periods" wire:model.live="formPeriods">
+                <x-kit.select label="Salary Periods" wire:model.live="formPeriods">
                     <flux:select.option value="{{ PaySchedulesPage::PERIODS_SEMI_MONTHLY }}">Semi-monthly: 1st–15th and 16th–end</flux:select.option>
                     <flux:select.option value="{{ PaySchedulesPage::PERIODS_MONTHLY }}">Monthly: 1st–end</flux:select.option>
                 </x-kit.select>
             </div>
 
             <fieldset class="rounded-md border border-border p-4">
-                <legend class="px-1 text-sm font-semibold">Pay days</legend>
+                <legend class="px-1 text-sm font-semibold">Pay Days</legend>
                 <div class="grid gap-3">
                     @foreach ($formPayDays as $index => $payDay)
                         @php $label = $formPeriods === PaySchedulesPage::PERIODS_MONTHLY ? 'The month' : ($index === 0 ? 'The 1st–15th' : 'The 16th–end'); @endphp
                         <div class="grid gap-3 sm:grid-cols-[10rem_1fr_7rem_1fr] sm:items-end" wire:key="pay-day-{{ $index }}">
                             <p class="text-sm font-medium sm:pb-2">{{ $label }}</p>
-                            <x-kit.select label="Paid on" wire:model.live="formPayDays.{{ $index }}.kind">
+                            <x-kit.select label="Paid On" wire:model.live="formPayDays.{{ $index }}.kind">
                                 <flux:select.option value="{{ PaySchedule::PAY_PERIOD_END }}">The period's last day</flux:select.option>
                                 <flux:select.option value="{{ PaySchedule::PAY_DAY }}">A day of the month</flux:select.option>
                             </x-kit.select>
@@ -158,17 +158,17 @@
             </div>
 
             <fieldset class="rounded-md border border-border p-4">
-                <legend class="px-1 text-sm font-semibold">Deadlines before the pay date</legend>
+                <legend class="px-1 text-sm font-semibold">Deadlines Before the Pay Date</legend>
                 <p class="text-xs text-muted-foreground">Each one reminds payroll officers ahead of the pay date while no finalized payroll covers the period.</p>
                 <div class="mt-3 grid gap-3">
                     @foreach ($formDeadlines as $index => $deadline)
                         <div class="grid gap-3 sm:grid-cols-[1fr_9rem_auto] sm:items-end" wire:key="deadline-{{ $index }}">
                             <div class="space-y-2">
-                                <flux:label for="deadline-label-{{ $index }}">What is due</flux:label>
+                                <flux:label for="deadline-label-{{ $index }}">What Is Due</flux:label>
                                 <flux:input id="deadline-label-{{ $index }}" wire:model="formDeadlines.{{ $index }}.label" maxlength="60" placeholder="e.g. Draft complete" />
                             </div>
                             <div class="space-y-2">
-                                <flux:label for="deadline-days-{{ $index }}">Days before</flux:label>
+                                <flux:label for="deadline-days-{{ $index }}">Days Before</flux:label>
                                 <flux:input id="deadline-days-{{ $index }}" type="number" min="0" max="60" step="1" class:input="num" wire:model="formDeadlines.{{ $index }}.days" aria-label="Days before the pay date" />
                             </div>
                             <flux:button variant="ghost" icon="x-mark" wire:click="removeDeadline({{ $index }})" aria-label="Remove deadline" />
@@ -176,7 +176,7 @@
                     @endforeach
                 </div>
                 @if (count($formDeadlines) < PaySchedule::MAX_DEADLINES)
-                    <flux:button variant="outline" icon="plus" size="sm" class="mt-3" wire:click="addDeadline">Add deadline</flux:button>
+                    <flux:button variant="outline" icon="plus" size="sm" class="mt-3" wire:click="addDeadline">Add Deadline</flux:button>
                 @endif
             </fieldset>
 
@@ -194,7 +194,7 @@
 
             @if ($preview !== [])
                 <div class="rounded-md border border-border bg-muted px-4 py-3 text-sm" data-schedule-preview>
-                    <p class="font-medium">The coming pay dates</p>
+                    <p class="font-medium">The Coming Pay Dates</p>
                     <ul class="mt-1 space-y-1 text-xs text-muted-foreground">
                         @foreach ($preview as $period)
                             <li wire:key="preview-{{ $period['start'] }}">
@@ -217,7 +217,7 @@
                 <flux:modal.close>
                     <flux:button variant="ghost">Cancel</flux:button>
                 </flux:modal.close>
-                <flux:button type="submit" variant="primary">{{ $editingId === null ? 'Add' : 'Save changes' }}</flux:button>
+                <flux:button type="submit" variant="primary">{{ $editingId === null ? 'Add' : 'Save Changes' }}</flux:button>
             </div>
         </form>
     </flux:modal>

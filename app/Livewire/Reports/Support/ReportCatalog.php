@@ -31,7 +31,7 @@ final class ReportCatalog
             'payslips' => ['title' => 'Payslips', 'lead' => 'Each employee\'s payslip, ready to print.', 'description' => 'Individual statements with stored earnings and deductions.', 'module' => ModuleCode::PAYROLL, 'source' => 'Payroll', 'category' => 'Payroll', 'icon' => 'document-text', 'period' => 'Posted payroll period end'],
             'employee-list' => ['title' => 'Employee List', 'lead' => 'Your employees, as their records stand today.', 'description' => 'Explore workforce composition, demographics, development, service and record quality, or build a detailed employee list.', 'module' => ModuleCode::EMPLOYEES, 'source' => 'Employee Records', 'category' => 'Workforce', 'icon' => 'users', 'period' => 'Current employee records'],
             'leave-reports' => ['title' => 'Leave Requests', 'lead' => 'Leave and business travel in the period.', 'description' => 'Requests overlapping the period and their approval status.', 'module' => ModuleCode::LEAVES, 'source' => 'Leave Management', 'category' => 'Leave', 'icon' => 'calendar-days', 'period' => 'Leave dates overlapping the period'],
-            'attendance-reports' => ['title' => 'Attendance', 'lead' => 'Who was late, absent or on overtime.', 'description' => 'Analyze daily trends, group rates and exceptions, compare employees, or review individual daily sheets.', 'module' => ModuleCode::EDTR, 'source' => 'eDTR & Attendance', 'category' => 'Time & attendance', 'icon' => 'clock', 'period' => 'Attendance dates · up to 31 days'],
+            'attendance-reports' => ['title' => 'Attendance', 'lead' => 'Who was late, absent or on overtime.', 'description' => 'Analyze daily trends, group rates and exceptions, compare employees, or review individual daily sheets.', 'module' => ModuleCode::EDTR, 'source' => 'eDTR & Attendance', 'category' => 'Time & Attendance', 'icon' => 'clock', 'period' => 'Attendance dates · up to 31 days'],
             'government-contributions' => ['title' => 'Government Contributions', 'lead' => 'What was deducted for SSS, PhilHealth, Pag-IBIG and tax, and what the company adds.', 'description' => 'Recorded SSS, PhilHealth, Pag-IBIG and withholding tax.', 'module' => ModuleCode::PAYROLL, 'source' => 'Payroll', 'category' => 'Payroll', 'icon' => 'building-library', 'period' => 'Posted payroll period end'],
             'payroll-summary' => ['title' => 'Payroll Summary', 'lead' => 'What each payroll paid in total.', 'description' => 'Gross pay, deductions and net pay summarized by run.', 'module' => ModuleCode::PAYROLL, 'source' => 'Payroll', 'category' => 'Payroll', 'icon' => 'chart-bar', 'period' => 'Posted payroll period end'],
             'loan-summary' => ['title' => 'Loan Summary', 'lead' => 'Loan repayments deducted from pay. Shows deductions, not balances.', 'description' => 'Recorded repayments for the deduction types you select.', 'module' => ModuleCode::PAYROLL, 'source' => 'Payroll', 'category' => 'Payroll', 'icon' => 'banknotes', 'period' => 'Posted payroll period end'],
@@ -57,7 +57,7 @@ final class ReportCatalog
                 $link('government-contributions'), $link('loan-summary'),
             ]]],
             [
-                ['heading' => 'Time & attendance', 'links' => [$link('attendance-reports')]],
+                ['heading' => 'Time & Attendance', 'links' => [$link('attendance-reports')]],
                 ['heading' => 'Leave', 'links' => [$link('leave-reports')]],
             ],
             [
@@ -76,7 +76,7 @@ final class ReportCatalog
     {
         $links = match (true) {
             $type === 'attendance-reports' => [
-                ['attendance-reports', 'summary', 'By employee'], ['attendance-reports', 'details', 'Daily sheets'],
+                ['attendance-reports', 'summary', 'By Employee'], ['attendance-reports', 'details', 'Daily Sheets'],
                 ['attendance-reports', 'analysis', 'Analysis'],
             ],
             $type === 'employee-list' => [['employee-list', 'summary', 'Employee List'], ['employee-list', 'analysis', 'Workforce Analysis']],

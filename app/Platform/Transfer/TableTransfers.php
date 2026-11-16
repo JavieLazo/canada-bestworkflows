@@ -7,7 +7,7 @@ namespace App\Platform\Transfer;
 use Closure;
 
 /**
- * Every table that can be exported or imported, by key ("records.sites").
+ * Every table that can be exported or imported, by key ("records.holidays").
  *
  * The composition root (ModulesServiceProvider) supplies both closed lists;
  * a key arrives as a route default or a locked Livewire property and only

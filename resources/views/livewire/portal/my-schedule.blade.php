@@ -23,7 +23,7 @@
 <section class="hris-card overflow-hidden" data-my-schedule>
     <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
         <div class="min-w-0">
-            <h2 class="text-base font-bold">My schedule</h2>
+            <h2 class="text-base font-bold">My Schedule</h2>
             <p class="text-sm text-muted-foreground" data-my-usual-week>
                 @if ($linked && $usualWeek !== '')
                     Usual week: {{ $usualWeek }}. HR sets it in Shift Roster, and you are told when it changes.
@@ -37,7 +37,7 @@
             <strong class="num min-w-[9.5rem] text-center text-sm" data-month-label>{{ RosterDayText::monthLabel($first) }}</strong>
             <flux:button size="sm" variant="outline" icon="chevron-right" wire:click="nextMonth" aria-label="Next month" />
             @if (substr($today, 0, 7) !== substr($first, 0, 7))
-                <flux:button size="sm" variant="ghost" wire:click="thisMonth">This month</flux:button>
+                <flux:button size="sm" variant="ghost" wire:click="thisMonth">This Month</flux:button>
             @endif
         </div>
     </header>

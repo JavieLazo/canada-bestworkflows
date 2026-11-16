@@ -92,7 +92,7 @@
             <button type="button" role="tab" aria-selected="{{ $tab === 'cashouts' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'cashouts')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'cashouts' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}">
-                Cash conversions
+                Cash Conversions
             </button>
         </div>
 
@@ -100,7 +100,7 @@
             <section class="mt-4 hris-card overflow-hidden">
                 <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
                     @if ($canFile)
-                        <flux:button variant="primary" icon="plus" wire:click="openFile" data-file-for-employee>File for an employee</flux:button>
+                        <flux:button variant="primary" icon="plus" wire:click="openFile" data-file-for-employee>File for an Employee</flux:button>
                     @endif
                     <flux:input
                         aria-label="Search requests"
@@ -109,21 +109,21 @@
                         wire:model.live="search"
                     />
 
-                    <x-kit.filter-select label="Filter by status" class="w-[11rem]" wire:model.live="status">
+                    <x-kit.filter-select label="Filter by Status" class="w-[11rem]" wire:model.live="status">
                         <flux:select.option value="ALL">All statuses</flux:select.option>
                         @foreach (LeavesIndex::STATUSES as $value => $label)
                             <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                         @endforeach
                     </x-kit.filter-select>
 
-                    <x-kit.filter-select label="Filter by description" class="w-[14rem]" wire:model.live="description">
+                    <x-kit.filter-select label="Filter by Description" class="w-[14rem]" wire:model.live="description">
                         <flux:select.option value="ALL">All descriptions</flux:select.option>
                         @foreach ($descriptions as $name)
                             <flux:select.option value="{{ $name }}">{{ $name }}</flux:select.option>
                         @endforeach
                     </x-kit.filter-select>
 
-                    <x-kit.filter-select label="Filter by day type" class="w-[11rem]" wire:model.live="dayType">
+                    <x-kit.filter-select label="Filter by Day Type" class="w-[11rem]" wire:model.live="dayType">
                         <flux:select.option value="ALL">All day types</flux:select.option>
                         @foreach (LeaveLabels::DAY_TYPES as $value => $label)
                             <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
@@ -141,10 +141,10 @@
                             <tr>
                                 <x-kit.sort-header field="id" label="ID" />
                                 <x-kit.sort-header field="employee" label="Employee" />
-                                <x-kit.sort-header field="filed" label="Date filed" />
-                                <x-kit.sort-header field="date" label="Leave period" />
+                                <x-kit.sort-header field="filed" label="Date Filed" />
+                                <x-kit.sort-header field="date" label="Leave Period" />
                                 <x-kit.sort-header field="description" label="Description" />
-                                <x-kit.sort-header field="dayType" label="Day type" />
+                                <x-kit.sort-header field="dayType" label="Day Type" />
                                 <th>Status</th>
                             </tr>
                         </thead>
@@ -301,33 +301,33 @@
                         @if ($reviewerName)
                             <p class="text-sm text-muted-foreground">Reviewed by <span class="text-foreground">{{ $reviewerName }}</span></p>
                         @endif
-                        <flux:button type="button" size="sm" variant="outline" icon="document-text" wire:click="viewApplication" data-view-application>View application form</flux:button>
+                        <flux:button type="button" size="sm" variant="outline" icon="document-text" wire:click="viewApplication" data-view-application>View Application Form</flux:button>
                     </div>
                 </div>
 
                 <dl class="{{ $band }} grid grid-cols-2 gap-x-6 gap-y-5 sm:grid-cols-3">
                     <div class="min-w-0">
-                        <dt class="{{ $fieldLabel }}">{{ $openIsOb ? 'Request type' : 'Leave type' }}</dt>
+                        <dt class="{{ $fieldLabel }}">{{ $openIsOb ? 'Request Type' : 'Leave Type' }}</dt>
                         <dd class="mt-1 break-words font-semibold">{{ $openDescription }}</dd>
                     </div>
                     <div class="min-w-0">
-                        <dt class="{{ $fieldLabel }}">Day type</dt>
+                        <dt class="{{ $fieldLabel }}">Day Type</dt>
                         <dd class="mt-1 break-words font-semibold">{{ LeaveLabels::dayTypeLabel($open->day_type, $open->half ?? null) }}</dd>
                     </div>
                     <div class="min-w-0">
-                        <dt class="{{ $fieldLabel }}">{{ $openIsOb ? 'Period' : 'Leave period' }}</dt>
+                        <dt class="{{ $fieldLabel }}">{{ $openIsOb ? 'Period' : 'Leave Period' }}</dt>
                         <dd class="num mt-1 font-semibold">{{ $days }} {{ $days === 1 ? 'day' : 'days' }}{{ $open->day_type === 'HALF_DAY' && $days === 1 ? ' (half)' : '' }}</dd>
                     </div>
                     <div class="min-w-0">
-                        <dt class="{{ $fieldLabel }}">Start date</dt>
+                        <dt class="{{ $fieldLabel }}">Start Date</dt>
                         <dd class="num mt-1 font-semibold">{{ $fmtDate($open->start_date) }}</dd>
                     </div>
                     <div class="min-w-0">
-                        <dt class="{{ $fieldLabel }}">End date</dt>
+                        <dt class="{{ $fieldLabel }}">End Date</dt>
                         <dd class="num mt-1 font-semibold">{{ $fmtDate($open->end_date) }}</dd>
                     </div>
                     <div class="min-w-0">
-                        <dt class="{{ $fieldLabel }}">Filed on</dt>
+                        <dt class="{{ $fieldLabel }}">Filed On</dt>
                         <dd class="num mt-1 font-semibold">{{ $open->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y · g:i A') }}</dd>
                     </div>
                     {{-- The application's details of leave and commutation, as filed; a request filed before they were kept has neither. --}}
@@ -337,7 +337,7 @@
                     @endphp
                     @if ($openDetail !== null)
                         <div class="col-span-2 min-w-0">
-                            <dt class="{{ $fieldLabel }}">Details of leave</dt>
+                            <dt class="{{ $fieldLabel }}">Details of Leave</dt>
                             <dd class="mt-1 break-words font-semibold" data-leave-detail>{{ $openDetail }}</dd>
                         </div>
                     @endif
@@ -351,12 +351,12 @@
 
                 <div class="{{ $band }} grid gap-6 sm:grid-cols-2">
                     <section class="min-w-0 space-y-3">
-                        <h3 class="text-sm font-semibold">{{ $openIsOb ? 'Reason' : 'Reason for leave' }}</h3>
+                        <h3 class="text-sm font-semibold">{{ $openIsOb ? 'Reason' : 'Reason for Leave' }}</h3>
                         {{-- As the employee typed it: line breaks and spacing kept, so the text sits on one line inside the element. --}}
                         <p class="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 text-sm" data-leave-reason>{{ trim($open->reason ?? '') !== '' ? trim($open->reason) : 'No reason given.' }}</p>
                     </section>
                     <section class="min-w-0 space-y-3">
-                        <h3 class="text-sm font-semibold">Approval information</h3>
+                        <h3 class="text-sm font-semibold">Approval Information</h3>
                         <div class="space-y-2 rounded-md bg-muted/40 p-3">
                             <div class="flex items-start justify-between gap-3">
                                 <p class="font-semibold" data-decision>{{ $decision }}</p>
@@ -395,7 +395,7 @@
                             @if ($open->status === 'REJECTED')
                                 @php $openReason = trim((string) ($open->disapproval_reason ?? '')); @endphp
                                 <div class="space-y-1 border-t border-border pt-2">
-                                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Disapproved due to</p>
+                                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Disapproved Due To</p>
                                     @if ($openReason !== '')
                                         <p class="whitespace-pre-wrap break-words text-sm" data-disapproval-reason>{{ $openReason }}</p>
                                     @else
@@ -445,7 +445,7 @@
                     @endphp
                     <section class="{{ $band }} space-y-4" data-credits-line>
                         <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                            <h3 class="text-sm font-semibold">{{ $openBalance->label }} credits · {{ $openBalance->year }}</h3>
+                            <h3 class="text-sm font-semibold">{{ $openBalance->label }} Credits · {{ $openBalance->year }}</h3>
                             @if ($pending)
                                 <span @class(['num text-sm', 'pill pill-caution' => $exceeds])>This request needs {{ $needs }}</span>
                             @else
@@ -455,7 +455,7 @@
                         @if ($openBalance->entered())
                             <dl class="grid grid-cols-3 gap-x-6 gap-y-4">
                                 <div class="flex min-w-0 flex-col-reverse gap-1">
-                                    <dt class="text-xs text-muted-foreground">Total credited</dt>
+                                    <dt class="text-xs text-muted-foreground">Total Credited</dt>
                                     <dd class="num text-xl font-semibold">{{ LeaveQuantity::credits($credited) }}</dd>
                                 </div>
                                 <div class="flex min-w-0 flex-col-reverse gap-1">
@@ -463,7 +463,7 @@
                                     <dd class="num text-xl font-semibold">{{ LeaveQuantity::credits($openBalance->used) }}</dd>
                                 </div>
                                 <div class="flex min-w-0 flex-col-reverse gap-1">
-                                    <dt class="text-xs text-muted-foreground">Available balance</dt>
+                                    <dt class="text-xs text-muted-foreground">Available Balance</dt>
                                     <dd @class(['num text-xl font-semibold', 'text-success' => $remaining > 0, 'text-danger' => $remaining < 0])>{{ LeaveQuantity::credits($remaining) }}</dd>
                                 </div>
                             </dl>
@@ -491,7 +491,7 @@
 
                 @if ($open->cancellations !== [])
                     <section class="{{ $band }} space-y-2" aria-label="Cancelled leave dates">
-                        <h3 class="text-sm font-semibold">Cancelled dates</h3>
+                        <h3 class="text-sm font-semibold">Cancelled Dates</h3>
                         <p class="text-xs text-muted-foreground">The original approval above is retained. Only these dates were cancelled.</p>
                         <ul class="space-y-2">
                             @foreach ($open->cancellations as $cancellation)
@@ -507,10 +507,10 @@
 
                 @if ($open->cancellable_dates !== [])
                     <form wire:submit="cancelSelectedDates" class="{{ $band }} space-y-3" aria-label="Cancel future leave dates">
-                        <h3 class="text-sm font-semibold">Cancel future dates</h3>
+                        <h3 class="text-sm font-semibold">Cancel Future Dates</h3>
                         <p class="text-xs text-muted-foreground">Select the dates to cancel. Today, past dates and dates already in finalized payroll cannot be cancelled.</p>
                         <fieldset class="max-h-48 overflow-y-auto rounded-md border border-border p-3" wire:key="cancel-options-{{ $open->id }}-{{ count($open->cancelled_dates) }}">
-                            <legend class="px-1 text-xs text-muted-foreground">Dates to cancel</legend>
+                            <legend class="px-1 text-xs text-muted-foreground">Dates to Cancel</legend>
                             <div class="grid gap-3 sm:grid-cols-2">
                                 @foreach ($open->cancellable_dates as $date)
                                     <div wire:key="cancel-date-{{ $open->id }}-{{ $date }}">
@@ -519,7 +519,7 @@
                                 @endforeach
                             </div>
                         </fieldset>
-                        <flux:textarea label="Cancellation reason" wire:model="cancelReason" rows="2" maxlength="1000" required />
+                        <flux:textarea label="Cancellation Reason" wire:model="cancelReason" rows="2" maxlength="1000" required />
                         @php
                             $selectedDates = array_values(array_intersect($open->cancellable_dates, $cancelDates));
                             $selected = count($selectedDates);
@@ -535,7 +535,7 @@
                             <p role="alert" class="text-sm text-danger">{{ $cancelError }}</p>
                         @endif
                         <div class="flex justify-end">
-                            <flux:button type="submit" variant="primary" :disabled="$selected === 0" wire:loading.attr="disabled" wire:target="cancelSelectedDates" wire:key="cancel-submit-{{ $open->id }}-{{ $selected === 0 ? 'empty' : 'selected' }}">Cancel selected dates</flux:button>
+                            <flux:button type="submit" variant="primary" :disabled="$selected === 0" wire:loading.attr="disabled" wire:target="cancelSelectedDates" wire:key="cancel-submit-{{ $open->id }}-{{ $selected === 0 ? 'empty' : 'selected' }}">Cancel Selected Dates</flux:button>
                         </div>
                     </form>
                 @elseif ($cancelError !== '')
@@ -581,7 +581,7 @@
                         @if ($recommendation === LeaveRecommendation::FOR_DISAPPROVAL)
                             <div class="space-y-2">
                                 <flux:label>
-                                    For disapproval due to
+                                    For Disapproval Due To
                                     <span aria-hidden="true" class="ml-0.5 text-danger">*</span>
                                     <span class="sr-only">(required)</span>
                                 </flux:label>
@@ -601,7 +601,7 @@
                         @endif
                         <div class="flex flex-wrap justify-end gap-2">
                             <flux:button type="button" variant="outline" wire:click="$set('recommending', false)">Back</flux:button>
-                            <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="recommend">Save recommendation</flux:button>
+                            <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="recommend">Save Recommendation</flux:button>
                         </div>
                     </form>
                 {{-- Disapproving asks why first: the reason is what the employee reads in My Portal, and the command requires it. --}}
@@ -609,7 +609,7 @@
                     <form wire:submit="review('REJECTED')" class="{{ $band }} space-y-3" data-disapproval-form>
                         <div class="space-y-2">
                             <flux:label>
-                                Disapproved due to
+                                Disapproved Due To
                                 <span aria-hidden="true" class="ml-0.5 text-danger" data-required-mark>*</span>
                                 <span class="sr-only">(required)</span>
                             </flux:label>
@@ -647,7 +647,7 @@
                                 wire:click="$set('recommending', true)"
                                 data-recommend
                             >
-                                {{ ($open->recommendation ?? null) === null ? 'Recommend…' : 'Change recommendation…' }}
+                                {{ ($open->recommendation ?? null) === null ? 'Recommend…' : 'Change Recommendation…' }}
                             </flux:button>
                         @endif
                         <flux:button
@@ -669,7 +669,7 @@
                                 :disabled="$openNoShift !== null"
                                 :title="$openNoShift"
                             >
-                                Approve official business
+                                Approve Official Business
                             </flux:button>
                         @elseif ($openUnpaidType)
                             {{-- A leave type filed without pay is approved without pay; there is nothing else to choose. --}}
@@ -682,7 +682,7 @@
                                 :disabled="$openNoShift !== null"
                                 :title="$openNoShift"
                             >
-                                Approve as unpaid leave
+                                Approve as Unpaid Leave
                             </flux:button>
                         @else
                             <flux:button
@@ -694,7 +694,7 @@
                                 :disabled="$openNoShift !== null"
                                 :title="$openNoShift"
                             >
-                                Approve as unpaid leave
+                                Approve as Unpaid Leave
                             </flux:button>
                             {{-- Pays as far as the credits or set days reach when it is clicked; the rest is without pay. --}}
                             <flux:button
@@ -707,7 +707,7 @@
                                 :title="$openNoShift"
                                 data-approve-paid
                             >
-                                {{ $openPayNotice === null ? 'Approve as paid leave' : 'Approve' }}
+                                {{ $openPayNotice === null ? 'Approve as Paid Leave' : 'Approve' }}
                             </flux:button>
                         @endif
                     </div>
@@ -730,7 +730,7 @@
                 ])
 
                 <div class="sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex flex-wrap justify-end gap-2 border-t border-border bg-inherit px-6 py-3">
-                    <flux:button type="button" variant="ghost" wire:click="$set('formOpen', false)">Back to the review</flux:button>
+                    <flux:button type="button" variant="ghost" wire:click="$set('formOpen', false)">Back to the Review</flux:button>
                 </div>
             </div>
         @endif
@@ -741,27 +741,27 @@
     <flux:modal wire:model.self="fileOpen" class="w-full max-w-lg" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'file-for-heading')">
         @if ($fileOpen)
         <form wire:submit="fileForEmployee" class="space-y-4" data-file-for-dialog>
-            <flux:heading size="lg" level="2" id="file-for-heading">File for an employee</flux:heading>
+            <flux:heading size="lg" level="2" id="file-for-heading">File for an Employee</flux:heading>
             <p class="text-sm text-muted-foreground">The request is filed in the employee's name and waits for approval like any other. Dates already past may be filed: a request brought in on paper is recorded as it was.</p>
             <div class="space-y-2">
                 <p id="file-employee-label" class="text-sm font-medium">Employee</p>
                 <livewire:kit.employee-picker name="file-employee" :value="$fileEmployeeId ?? ''" labelled-by="file-employee-label" wire:key="file-employee-{{ $fileEmployeeId ?? 'none' }}" />
             </div>
             <div class="grid gap-3 sm:grid-cols-2">
-                <x-kit.select label="Request type" wire:model.live="fileForm.type">
+                <x-kit.select label="Request Type" wire:model.live="fileForm.type">
                     <flux:select.option value="">Choose a type</flux:select.option>
                     @foreach ($requestOptions as $option)
                         <flux:select.option value="{{ $option['value'] }}">{{ $option['label'] }}</flux:select.option>
                     @endforeach
                 </x-kit.select>
-                <x-kit.select label="Day type" wire:model.live="fileForm.day_type">
+                <x-kit.select label="Day Type" wire:model.live="fileForm.day_type">
                     @foreach (LeaveLabels::DAY_TYPES as $value => $label)
                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                     @endforeach
                 </x-kit.select>
             </div>
             @if (($fileForm['day_type'] ?? '') === 'HALF_DAY' && $halvesReady)
-                <x-kit.select label="Which half" wire:model="fileForm.half">
+                <x-kit.select label="Which Half" wire:model="fileForm.half">
                     <flux:select.option value="">Either half</flux:select.option>
                     @foreach (\App\Modules\Timekeeping\Application\LeaveHalves::HALVES as $value => $label)
                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
@@ -798,7 +798,7 @@
             @endif
             <div class="flex justify-end gap-2">
                 <flux:button type="button" variant="outline" wire:click="$set('fileOpen', false)">Cancel</flux:button>
-                <flux:button type="submit" variant="primary">File request</flux:button>
+                <flux:button type="submit" variant="primary">File Request</flux:button>
             </div>
         </form>
         @endif

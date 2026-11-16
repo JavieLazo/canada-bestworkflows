@@ -64,7 +64,7 @@ final class HomeCharts
             ];
         }
 
-        return ['title' => 'Net pay by payroll', 'unit' => 'PHP, last '.self::PAYROLLS.' posted payrolls', 'kind' => 'columns',
+        return ['title' => 'Net Pay by Payroll', 'unit' => 'PHP, last '.self::PAYROLLS.' posted payrolls', 'kind' => 'columns',
             'href' => route('reports.show', ['report' => 'payroll-summary']), 'points' => $points];
     }
 
@@ -85,7 +85,7 @@ final class HomeCharts
             $points[] = ['label' => $row['label'], 'value' => $row['value'], 'display' => rtrim(rtrim(number_format($row['value'], 1, '.', ','), '0'), '.')];
         }
 
-        return ['title' => 'Approved leave this month', 'unit' => 'Days, '.HrisFormat::date($from).' – '.HrisFormat::date($today), 'kind' => 'bars',
+        return ['title' => 'Approved Leave This Month', 'unit' => 'Days, '.HrisFormat::date($from).' – '.HrisFormat::date($today), 'kind' => 'bars',
             'href' => route('reports.show', ['report' => 'leave-reports']), 'points' => $points];
     }
 
@@ -108,7 +108,7 @@ final class HomeCharts
             $points[] = ['label' => $point['label'], 'value' => (float) $point['value'], 'display' => number_format((float) $point['value'])];
         }
 
-        return ['title' => 'Employees by department', 'unit' => 'Active employees, largest '.self::BARS.' groups', 'kind' => 'bars',
+        return ['title' => 'Employees by Department', 'unit' => 'Active employees, largest '.self::BARS.' groups', 'kind' => 'bars',
             'href' => route('reports.show', ['report' => 'employee-list', 'view' => 'analysis']), 'points' => $points];
     }
 

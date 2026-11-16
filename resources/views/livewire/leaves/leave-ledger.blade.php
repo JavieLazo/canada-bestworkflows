@@ -19,18 +19,18 @@
                 </div>
             @else
                 <div class="w-full min-w-0 sm:w-auto sm:flex-1">
-                    <h2 class="text-base font-bold">Leave ledger</h2>
+                    <h2 class="text-base font-bold">Leave Ledger</h2>
                     <p class="break-words text-sm text-muted-foreground">{{ $employee ? EmployeeName::display($employee) : 'No employee record linked.' }}</p>
                 </div>
             @endif
             <div class="w-28">
-                <flux:input label="Calendar year" type="number" min="2000" max="2100" wire:model.live.debounce.500ms="year" />
+                <flux:input label="Calendar Year" type="number" min="2000" max="2100" wire:model.live.debounce.500ms="year" />
             </div>
             @if ($employee)
                 <div class="ml-auto flex flex-wrap gap-2">
                     <x-kit.export-button :href="route('leaves.ledger.export', [...$exportQuery, 'section' => 'balances'])" />
                     @if ($canEdit)
-                        <flux:button variant="primary" icon="plus" wire:click="openEntry">Record credits</flux:button>
+                        <flux:button variant="primary" icon="plus" wire:click="openEntry">Record Credits</flux:button>
                     @endif
                 </div>
             @endif
@@ -53,17 +53,17 @@
                         </div>
                     </div>
                     <dl class="mt-4 grid grid-cols-2 gap-4 text-sm">
-                        <div><dt class="text-muted-foreground">Opening balance</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->opening) }}</dd></div>
-                        <div><dt class="text-muted-foreground">Manual accrual</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->accrued) }}</dd></div>
-                        <div><dt class="text-muted-foreground">Credits used</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->paid_taken) }}</dd></div>
-                        <div><dt class="text-muted-foreground">Closing balance</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->closing) }}</dd></div>
+                        <div><dt class="text-muted-foreground">Opening Balance</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->opening) }}</dd></div>
+                        <div><dt class="text-muted-foreground">Manual Accrual</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->accrued) }}</dd></div>
+                        <div><dt class="text-muted-foreground">Credits Used</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->paid_taken) }}</dd></div>
+                        <div><dt class="text-muted-foreground">Closing Balance</dt><dd class="num mt-1 font-medium">{{ $fmt($balance->closing) }}</dd></div>
                     </dl>
                     <dl class="mt-4 space-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
-                        <div class="flex justify-between gap-3"><dt>Carried forward</dt><dd class="num">{{ $fmt($balance->carried) }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt>Carried Forward</dt><dd class="num">{{ $fmt($balance->carried) }}</dd></div>
                         <div class="flex justify-between gap-3"><dt>Adjustments</dt><dd class="num">{{ $fmt($balance->adjustments) }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt>Unpaid leave days</dt><dd class="num">{{ $fmt($balance->unpaid_taken) }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt>Booked paid leave</dt><dd class="num">{{ $fmt($balance->booked_paid) }}</dd></div>
-                        <div class="flex justify-between gap-3"><dt>Booked unpaid leave</dt><dd class="num">{{ $fmt($balance->booked_unpaid) }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt>Unpaid Leave Days</dt><dd class="num">{{ $fmt($balance->unpaid_taken) }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt>Booked Paid Leave</dt><dd class="num">{{ $fmt($balance->booked_paid) }}</dd></div>
+                        <div class="flex justify-between gap-3"><dt>Booked Unpaid Leave</dt><dd class="num">{{ $fmt($balance->booked_unpaid) }}</dd></div>
                     </dl>
                 </section>
             @empty
@@ -79,10 +79,10 @@
         <section class="hris-card overflow-hidden">
             <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
                 <div class="min-w-0 flex-1">
-                    <h2 class="text-base font-bold">Credit history</h2>
+                    <h2 class="text-base font-bold">Credit History</h2>
                     <p class="text-xs text-muted-foreground">Recorded entries for {{ $year }}. Existing credit grants have no earlier movement history.</p>
                 </div>
-                <x-kit.filter-select label="History leave type" class="w-full sm:w-52" wire:model.live="type">
+                <x-kit.filter-select label="History Leave Type" class="w-full sm:w-52" wire:model.live="type">
                     <flux:select.option value="ALL">All leave types</flux:select.option>
                     @foreach ($historyTypes as $key => $label)
                         <flux:select.option value="{{ $key }}">{{ $label }}</flux:select.option>
@@ -92,7 +92,7 @@
             </header>
             <div class="hris-table-wrap hris-table-scroll">
                 <table class="hris-table">
-                    <thead><tr><th>Recorded</th><th>Leave type</th><th>Entry</th><th class="text-right">Credits</th><th>Note</th></tr></thead>
+                    <thead><tr><th>Recorded</th><th>Leave Type</th><th>Entry</th><th class="text-right">Credits</th><th>Note</th></tr></thead>
                     <tbody>
                         @forelse ($rows as $row)
                             <tr wire:key="ledger-entry-{{ $row->id }}">
@@ -126,13 +126,13 @@
             x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'ledger-entry-heading')">
             <form class="space-y-4" wire:submit="saveEntry">
                 <div>
-                    <h2 id="ledger-entry-heading" class="text-lg font-semibold">Record leave credits · {{ $entryYear }}</h2>
+                    <h2 id="ledger-entry-heading" class="text-lg font-semibold">Record Leave Credits · {{ $entryYear }}</h2>
                     <p class="text-sm text-muted-foreground">{{ $employee ? EmployeeName::display($employee) : '' }}</p>
                 </div>
-                <x-kit.select label="Leave type" wire:model="entryType">
+                <x-kit.select label="Leave Type" wire:model="entryType">
                     @foreach ($types as $key => $label)<flux:select.option value="{{ $key }}">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
-                <x-kit.select label="Entry type" wire:model.live="kind">
+                <x-kit.select label="Entry Type" wire:model.live="kind">
                     @foreach (RecordLeaveCredit::KINDS as $key => $label)<flux:select.option value="{{ $key }}">{{ $label }}</flux:select.option>@endforeach
                 </x-kit.select>
                 @if ($kind === 'CARRY_FORWARD')
@@ -146,7 +146,7 @@
                 <flux:textarea label="Note" placeholder="Reason or reference for this entry" wire:model="note" maxlength="500" rows="3" required />
                 <div class="flex flex-wrap justify-end gap-2">
                     <flux:button variant="outline" type="button" wire:click="$set('entryOpen', false)">Cancel</flux:button>
-                    <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveEntry">Record credits</flux:button>
+                    <flux:button variant="primary" type="submit" wire:loading.attr="disabled" wire:target="saveEntry">Record Credits</flux:button>
                 </div>
             </form>
         </flux:modal>

@@ -68,12 +68,12 @@ it('shows the rates at a glance with where each comes from, and edits the hourly
     $employee = eppEmployee(['hourly_rate' => 210]);
 
     $page = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('Pay at a glance')
+        ->assertSee('Pay at a Glance')
         ->assertSee('₱32,000.00')
         ->assertSee('Changes each month')
         ->assertSee('₱210.00 an hour')
         ->assertSee('The company rule')
-        ->assertSee('Contributions &amp; tax', false)
+        ->assertSee('Contributions &amp; Tax', false)
         ->assertSee('Allowances &amp; incentives', false)
         ->assertSee('Loans &amp; other deductions', false);
 
@@ -141,7 +141,7 @@ it('draws company benefits, assigned incentives and own allowances in one table,
         ->and($card)->toContain('Rice Allowance')
         ->and($card)->toContain('Board memo')
         ->and($card)->toContain('Field assignment')
-        ->and($card)->toContain('<th>Set by</th>')
+        ->and($card)->toContain('<th>Set By</th>')
         ->and($card)->toContain('<th>Status</th>')
         // "From" is only ever a date on this page: no column is headed with it.
         ->and($html)->not->toContain('<th>From</th>');
@@ -165,7 +165,7 @@ it('keeps the salary in Pay at a glance, shows no start date for the rules, and 
     $employee = eppEmployee();
 
     $html = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('Change salary')
+        ->assertSee('Change Salary')
         ->assertDontSee('Since ')
         ->assertDontSee('Rate Per Month on Employee Details')
         ->assertSeeHtml('data-salary-rates')

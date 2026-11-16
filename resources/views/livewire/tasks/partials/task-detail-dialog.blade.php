@@ -60,14 +60,14 @@
                  right under the task summary. --}}
             @if ($returned)
                 <div class="space-y-1 rounded-md border border-danger/40 bg-danger/5 p-4">
-                    <p class="text-xs font-semibold uppercase tracking-wide text-danger">Returned for rework</p>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-danger">Returned for Rework</p>
                     <p class="text-sm">
                         {{ trim((string) $reviewNote) !== '' ? $reviewNote : 'No remarks were left with the return.' }}
                     </p>
                 </div>
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'BRIEF',
-                    'label' => 'Brief from management',
+                    'label' => 'Brief from Management',
                     'files' => $openFiles->where('kind', 'BRIEF')->values(),
                     'canUpload' => false,
                     'canDelete' => false,
@@ -100,7 +100,7 @@
             @unless ($returned)
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'BRIEF',
-                    'label' => 'Brief from management',
+                    'label' => 'Brief from Management',
                     'files' => $openFiles->where('kind', 'BRIEF')->values(),
                     'canUpload' => false,
                     'canDelete' => false,
@@ -134,7 +134,7 @@
                     </div>
                 </div>
                 <div class="min-w-0 space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned by</p>
+                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Assigned By</p>
                     <div class="break-words text-sm font-medium">{{ $assignedBy ?? '—' }}</div>
                 </div>
                 <div class="min-w-0 space-y-1">
@@ -181,7 +181,7 @@
                  employee is working against until they resubmit. --}}
             @if (! $returned && trim((string) $reviewNote) !== '')
                 <div class="space-y-1">
-                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Review remarks</p>
+                    <p class="text-xs uppercase tracking-wide text-muted-foreground">Review Remarks</p>
                     <p class="rounded-md border border-border bg-muted/30 p-3 text-sm">{{ $reviewNote }}</p>
                 </div>
             @endif
@@ -191,7 +191,7 @@
             @if ($canSubmit)
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'SUBMISSION',
-                    'label' => 'Submission files',
+                    'label' => 'Submission Files',
                     'files' => $openFiles->where('kind', 'SUBMISSION')->values(),
                     'canUpload' => $canAttach,
                     'canDelete' => $canAttach,
@@ -231,7 +231,7 @@
             @unless ($canSubmit)
                 @include('livewire.tasks.partials.task-attachments', [
                     'kind' => 'SUBMISSION',
-                    'label' => 'Submission files',
+                    'label' => 'Submission Files',
                     'files' => $openFiles->where('kind', 'SUBMISSION')->values(),
                     'canUpload' => $canAttach,
                     'canDelete' => $canAttach,
@@ -254,12 +254,12 @@
                 <flux:button variant="ghost" wire:click="closeDialog">Close</flux:button>
                 @if ($canStart)
                     <flux:button variant="primary" icon="play" wire:click="startTask">
-                        {{ $open->status === 'RETURNED' ? 'Resume task' : 'Start task' }}
+                        {{ $open->status === 'RETURNED' ? 'Resume Task' : 'Start Task' }}
                     </flux:button>
                 @endif
                 @if ($canSubmit)
                     <flux:button variant="primary" icon="paper-airplane" wire:click="submitTask">
-                        {{ $individual ? 'Submit my response' : 'Submit for review' }}
+                        {{ $individual ? 'Submit My Response' : 'Submit for Review' }}
                     </flux:button>
                 @endif
             </div>

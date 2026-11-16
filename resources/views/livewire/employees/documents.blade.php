@@ -20,14 +20,14 @@
                 <x-kit.export-button :href="route('employees.documents.export', ['employee' => $employeeId, 'category' => $category])" />
                 @if ($canEdit)
                 <flux:button variant="primary" icon="plus" wire:click="$set('adding', true)">
-                    Add document
+                    Add Document
                 </flux:button>
                 @endif
             </div>
         </header>
 
         <div class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-3">
-            <x-kit.filter-select wire:model.live="category" label="Filter by category" all-value="" class="w-full sm:w-64">
+            <x-kit.filter-select wire:model.live="category" label="Filter by Category" all-value="" class="w-full sm:w-64">
                 <flux:select.option value="" :selected="$category === ''">All categories</flux:select.option>
                 @foreach ($filterCategories as $filterCategory)
                     <flux:select.option value="{{ $filterCategory }}" :selected="$category === $filterCategory">{{ $filterCategory }}</flux:select.option>
@@ -119,7 +119,7 @@
         <flux:modal wire:model.self="adding" class="w-full max-w-lg" aria-label="Add document">
             <div class="space-y-4">
                 <div>
-                    <flux:heading size="lg">Add document</flux:heading>
+                    <flux:heading size="lg">Add Document</flux:heading>
                     <flux:text class="mt-1">
                         Attach a file to {{ EmployeeFields::employeeName($employee) }} and describe what it is.
                     </flux:text>
@@ -137,7 +137,7 @@
                                 x-data
                                 x-on:click="document.getElementById('employee-document-input').click()"
                             >
-                                {{ $upload ? 'Change file' : 'Choose file' }}
+                                {{ $upload ? 'Change File' : 'Choose File' }}
                             </flux:button>
                             <p class="min-w-0 truncate text-sm text-muted-foreground">
                                 @if ($upload)
@@ -183,7 +183,7 @@
 
                     <div class="sm:col-span-2">
                         <flux:button type="submit" variant="primary" icon="plus">
-                            Add document
+                            Add Document
                         </flux:button>
                     </div>
                 </form>

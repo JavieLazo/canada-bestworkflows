@@ -31,7 +31,7 @@
     <flux:modal wire:model.self="open" class="w-full max-w-2xl" aria-label="Add employee">
         <div class="max-h-[80vh] space-y-4 overflow-y-auto">
             <div>
-                <flux:heading size="lg">Add employee</flux:heading>
+                <flux:heading size="lg">Add Employee</flux:heading>
                 <flux:text class="mt-1">Step {{ $step + 1 }} of {{ count($steps) }}</flux:text>
             </div>
 
@@ -181,7 +181,7 @@
                     </flux:button>
                     @if ($isLast)
                         <flux:button variant="primary" icon="check" wire:click="create">
-                            Create employee
+                            Create Employee
                         </flux:button>
                     @else
                         <flux:button variant="primary" icon:trailing="arrow-right" wire:click="goNext">

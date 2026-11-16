@@ -753,7 +753,7 @@ it('blocks deleting a project for a PROJECTS holder without all_data, even one w
 
     Livewire::test(Show::class, ['project' => $project->id])
         ->assertSee('Must Survive')
-        ->assertDontSee('Delete project') // the control is not even offered
+        ->assertDontSee('Delete Project') // the control is not even offered
         ->call('deleteProject')
         ->assertNoRedirect()
         ->assertSet('deleteConfirmOpen', false)
@@ -791,7 +791,7 @@ it('deletes a project with its tasks, files and comments, then returns to the li
     projActor(['PROJECTS'], allData: true);
 
     Livewire::test(Show::class, ['project' => $project->id])
-        ->assertSee('Delete project') // a manager is offered the control
+        ->assertSee('Delete Project') // a manager is offered the control
         ->call('deleteProject')
         ->assertRedirect(route('projects.index'));
 

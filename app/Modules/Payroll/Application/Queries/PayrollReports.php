@@ -207,9 +207,9 @@ final class PayrollReports
         }
         $sections = [];
         foreach ([
-            'Payroll overview' => ['gross_pay', 'total_deductions', 'net_pay'],
-            'Earnings detail' => ['basic_pay', 'allowances', 'overtime_pay', 'night_differential', 'leave_pay', 'other_earnings', 'bonus', 'thirteenth_month', 'exempt_benefits'],
-            'Deductions detail' => ['sss', 'philhealth', 'pagibig', 'withholding_tax', 'late_deduction', 'undertime_deduction', 'other_deductions', 'custom_deductions', 'late_undertime_deduction', 'absence_deduction', 'unpaid_leave_deduction', 'total_deductions'],
+            'Payroll Overview' => ['gross_pay', 'total_deductions', 'net_pay'],
+            'Earnings Detail' => ['basic_pay', 'allowances', 'overtime_pay', 'night_differential', 'leave_pay', 'other_earnings', 'bonus', 'thirteenth_month', 'exempt_benefits'],
+            'Deductions Detail' => ['sss', 'philhealth', 'pagibig', 'withholding_tax', 'late_deduction', 'undertime_deduction', 'other_deductions', 'custom_deductions', 'late_undertime_deduction', 'absence_deduction', 'unpaid_leave_deduction', 'total_deductions'],
         ] as $title => $fields) {
             $fields = array_values(array_filter($fields, static fn (string $key): bool => isset($amounts[$key])));
             $columns = ['Employee ID', 'Employee', 'Payroll / period'];
@@ -239,7 +239,7 @@ final class PayrollReports
             $sections[] = [
                 'title' => $title, 'kind' => 'table', 'columns' => $columns, 'rows' => $rows,
                 'totals' => $totals, 'numericColumns' => $numericColumns,
-                'notes' => $title === 'Earnings detail' ? ['Component and tax-treatment columns can overlap. Gross pay in the overview is the stored payroll total.'] : [],
+                'notes' => $title === 'Earnings Detail' ? ['Component and tax-treatment columns can overlap. Gross pay in the overview is the stored payroll total.'] : [],
             ];
         }
 
@@ -342,15 +342,15 @@ final class PayrollReports
             $deducted += $group['amount'];
         }
 
-        return new ReportDocument('Loan Summary', ['Employee ID', 'Employee', 'Deduction code', 'Posted deduction name', 'Payslips', 'Amount deducted'], $rows, [
+        return new ReportDocument('Loan Summary', ['Employee ID', 'Employee', 'Deduction Code', 'Posted Deduction Name', 'Payslips', 'Amount Deducted'], $rows, [
             ...$notes, 'Includes only the selected deduction codes: '.implode(', ', $criteria->deductionCodes).'.',
             'These are payroll repayments only; this report infers no remaining balance. A loan set up as a recurring line with a total shows its paid and remaining balance under Records › Payroll Settings › Employee Pay Settings.',
             'The total payslip count is distinct across selected deductions; a payslip with several selected loan deductions is counted once.',
         ], [], [
-            ['label' => 'Employees with deductions', 'value' => (string) count($matchedEmployees)],
-            ['label' => 'Payslips with deductions', 'value' => (string) count($matchedPayslips)],
-            ['label' => 'Selected deduction types', 'value' => (string) count($criteria->deductionCodes)],
-            ['label' => 'Amount deducted', 'value' => self::currency($deducted)],
+            ['label' => 'Employees with Deductions', 'value' => (string) count($matchedEmployees)],
+            ['label' => 'Payslips with Deductions', 'value' => (string) count($matchedPayslips)],
+            ['label' => 'Selected Deduction Types', 'value' => (string) count($criteria->deductionCodes)],
+            ['label' => 'Amount Deducted', 'value' => self::currency($deducted)],
         ], ['Totals', '', '', '', (string) count($matchedPayslips), self::money($deducted)], [4, 5]);
     }
 

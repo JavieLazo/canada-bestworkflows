@@ -26,8 +26,6 @@ use App\Livewire\Records\ReferenceListPage;
 use App\Livewire\Records\Support\HolidaysExport;
 use App\Livewire\Records\Support\IncentiveTypesExport;
 use App\Livewire\Records\Support\PaySchedulesExport;
-use App\Livewire\Records\Support\ShiftTypesExport;
-use App\Livewire\Records\Support\SitesExport;
 use App\Livewire\Reports\Support\ReportsExport;
 use App\Livewire\Tasks\Support\MyTasksExport;
 use App\Livewire\Users\Support\AccountsExport;
@@ -44,7 +42,6 @@ use App\Modules\IdentityAccess\Infrastructure\NotificationRecipientQuery;
 use App\Modules\IdentityAccess\Infrastructure\ProjectAccountQuery;
 use App\Modules\Inventory\Application\Commands\ImportItems;
 use App\Modules\Organization\Application\Commands\ImportHolidays;
-use App\Modules\Organization\Application\Commands\ImportSites;
 use App\Modules\Organization\Application\PositionRenames;
 use App\Modules\Organization\Application\PositionRetention;
 use App\Modules\Organization\Application\SiteRetention;
@@ -62,7 +59,6 @@ use App\Modules\Payroll\Infrastructure\OpenPayrollDraftQuery;
 use App\Modules\Payroll\Infrastructure\OpenPunchLimitQuery;
 use App\Modules\Payroll\Infrastructure\PostedPayrollDateQuery;
 use App\Modules\Timekeeping\Application\Catalogs\LeaveTypes;
-use App\Modules\Timekeeping\Application\Commands\ImportShiftTypes;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Contracts\LeaveCashOutPoster;
 use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
@@ -201,7 +197,9 @@ final class ModulesServiceProvider extends ServiceProvider
      * CSV exports. These other tables have
      * no CSV at all: the Shift Roster (no export, import or Scheduled
      * changes file); the Daily Time Record, whose computed days are read on
-     * the tab and corrected in its dialog, never downloaded; and the
+     * the tab and corrected in its dialog, never downloaded; Shifting
+     * Settings' shift patterns and Site Settings' sites (no export or
+     * import); and the
      * General Records lists — Position and Departments & Units, which have
      * pages of their own, and Document and Employment — and the leave types
      * on Leave Settings, the three {@see ReferenceListPage::csvLists()}
@@ -225,9 +223,7 @@ final class ModulesServiceProvider extends ServiceProvider
             'inventory.counts' => static fn (): TableExport => new CountsExport,
             'employees.inventory' => static fn (): TableExport => new EmployeeItemsExport,
             'reports' => static fn (): TableExport => new ReportsExport,
-            'records.sites' => static fn (): TableExport => new SitesExport,
             'records.holidays' => static fn (): TableExport => new HolidaysExport,
-            'records.shifts' => static fn (): TableExport => new ShiftTypesExport,
             'records.incentive-types' => static fn (): TableExport => new IncentiveTypesExport,
             'records.pay-schedules' => static fn (): TableExport => new PaySchedulesExport,
             'employees' => static fn (): TableExport => new EmployeesExport,
@@ -248,9 +244,9 @@ final class ModulesServiceProvider extends ServiceProvider
 
     /**
      * The tables that take a CSV import: the Records settings (payroll
-     * deductions, sites, holidays, shift patterns, incentive types),
-     * projects and tasks. Audit, payroll evidence, punches, employees, the
-     * roster, leave credits, the leave types, self-service rows and the
+     * deductions, holidays, incentive types), projects and tasks.
+     * Audit, payroll evidence, punches, employees, the roster, the shift
+     * patterns, the sites, leave credits, the leave types, self-service rows and the
      * General Records lists (Position, Departments & Units, Document,
      * Employment) have no import.
      *
@@ -265,9 +261,7 @@ final class ModulesServiceProvider extends ServiceProvider
 
         return $imports + [
             'inventory.items' => static fn (): TableImport => new ImportItems,
-            'records.sites' => static fn (): TableImport => new ImportSites,
             'records.holidays' => static fn (): TableImport => new ImportHolidays,
-            'records.shifts' => static fn (): TableImport => new ImportShiftTypes,
             'records.incentive-types' => static fn (): TableImport => new ImportIncentiveTypes,
             // Both read back WorkExports' existing CSVs (projects.export, projects.tasks.export).
             'projects' => static fn (): TableImport => new ImportProjects,

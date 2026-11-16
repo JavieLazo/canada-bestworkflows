@@ -9,6 +9,7 @@ use App\Http\Middleware\AuthenticateEdtrMobile;
 use App\Modules\IdentityAccess\Application\MobileEdtrDevice;
 use App\Modules\IdentityAccess\Application\MobileEdtrSession;
 use App\Modules\IdentityAccess\Application\MobileEdtrSignInRefused;
+use App\Modules\Organization\Application\Queries\KioskSites;
 use App\Modules\Timekeeping\Application\Commands\SyncMobilePunches;
 use App\Modules\Workforce\Application\Queries\KioskEmployees;
 use App\Support\Access;
@@ -17,9 +18,10 @@ use Illuminate\Http\Request;
 use RuntimeException;
 
 /**
- * The biometric kiosk. A System Admin can register any staff member. Anyone
- * else can register only the employee linked to their own account, then sign
- * out so the next person can. Punches sync with the eDTR station rules.
+ * The biometric kiosk. A System Admin can register any staff member and pick
+ * the site the device stands at. Anyone else can register only the employee
+ * linked to their own account, then sign out so the next person can. Punches
+ * sync with the eDTR station rules.
  */
 final class EdtrKioskController extends Controller
 {
@@ -80,6 +82,17 @@ final class EdtrKioskController extends Controller
         return response()->json(['employees' => $employees->search($actor, $request->string('q')->toString())]);
     }
 
+    /**
+     * The sites a device can be set up at. Choosing where a device stands is
+     * the System Admin's, like connecting it: a staff sign-in gets no list.
+     */
+    public function sites(Request $request, MobileEdtrSession $sessions, KioskSites $sites): JsonResponse
+    {
+        $actor = Access::forActor($this->device($request, 'Sign in to register biometrics.')->user);
+
+        return response()->json(['sites' => $sessions->isSystemAdmin($actor) ? $sites->all($actor) : []]);
+    }
+
     public function punches(Request $request, SyncMobilePunches $sync): JsonResponse
     {
         $data = $request->validate([
@@ -88,6 +101,8 @@ final class EdtrKioskController extends Controller
             'punches.*.employee_id' => ['required', 'string', 'max:26'],
             'punches.*.log_type' => ['required', 'in:TIME_IN,TIME_OUT'],
             'punches.*.logged_at' => ['required', 'string', 'max:40'],
+            // The site the device stands at, when it was set up at one.
+            'punches.*.site_id' => ['nullable', 'string', 'max:26'],
             'punches.*.latitude' => ['nullable', 'numeric'],
             'punches.*.longitude' => ['nullable', 'numeric'],
             'punches.*.accuracy' => ['nullable', 'numeric'],

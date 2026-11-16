@@ -20,7 +20,13 @@ use App\Support\EmployeeName;
  */
 final class KioskEmployees
 {
-    private const int LIMIT = 40;
+    /**
+     * The most staff one answer holds. A DEVICE'S LIST HAS NO NEXT PAGE: what
+     * is cut off here is simply missing on the device, with nothing to say
+     * so, and can only be found by typing a name. So the cap sits above the
+     * whole roster and exists only to bound the answer.
+     */
+    private const int LIMIT = 100;
 
     private const int MAX_TERM = 80;
 

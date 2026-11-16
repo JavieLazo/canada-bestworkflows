@@ -1,12 +1,12 @@
 {{-- Receipt contents and frozen employee context make each issue recognizable in the register. --}}
 @php use App\Support\HrisFormat; @endphp
 <div class="space-y-6" wire:poll.60s="pollForChanges">
-    <div><h1 class="text-2xl font-bold tracking-tight">Memorandum receipts</h1><p class="text-sm text-muted-foreground">Items issued together to an employee, with their original receipt and history.</p></div>
+    <div><h1 class="text-2xl font-bold tracking-tight">Memorandum Receipts</h1><p class="text-sm text-muted-foreground">Items issued together to an employee, with their original receipt and history.</p></div>
     @include('livewire.inventory.partials.tabs', ['activeInventoryTab' => 'receipts'])
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             <flux:input aria-label="Search memorandum receipts" placeholder="Search MR No. or employee" class="w-full min-w-[12rem] max-w-xs flex-1" wire:model.live.debounce.250ms="search" />
-            <x-kit.filter-select label="Filter by status" class="w-[12rem]" wire:model.live="status"><flux:select.option value="ALL">All statuses</flux:select.option><flux:select.option value="OPEN">Open</flux:select.option><flux:select.option value="CLOSED">Closed</flux:select.option><flux:select.option value="SUPERSEDED">Superseded</flux:select.option></x-kit.filter-select>
+            <x-kit.filter-select label="Filter by Status" class="w-[12rem]" wire:model.live="status"><flux:select.option value="ALL">All statuses</flux:select.option><flux:select.option value="OPEN">Open</flux:select.option><flux:select.option value="CLOSED">Closed</flux:select.option><flux:select.option value="SUPERSEDED">Superseded</flux:select.option></x-kit.filter-select>
             <div class="ml-auto flex flex-wrap items-center gap-2">
                 <x-kit.export-button :href="route('inventory.receipts.export', array_filter(['q' => $search, 'status' => $status, 'sort' => $sortKey, 'dir' => $sortDir]))" />
                 @if ($canManage)<livewire:inventory.issue-receipt />@endif
@@ -14,7 +14,7 @@
         </header>
         <div class="hris-table-wrap hris-table-scroll">
             <table class="hris-table">
-                <thead><tr><x-kit.sort-header field="mr_number" label="MR No." /><x-kit.sort-header field="issued_on" label="Date issued" /><th>Received by</th><th>Original items</th><x-kit.sort-header field="status" label="Status" /><th class="text-right">Action</th></tr></thead>
+                <thead><tr><x-kit.sort-header field="mr_number" label="MR No." /><x-kit.sort-header field="issued_on" label="Date Issued" /><th>Received By</th><th>Original Items</th><x-kit.sort-header field="status" label="Status" /><th class="text-right">Action</th></tr></thead>
                 <tbody>
                     @forelse ($rows as $row)
                         <tr wire:key="receipt-{{ $row->id }}">

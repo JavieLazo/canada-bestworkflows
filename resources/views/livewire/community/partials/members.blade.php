@@ -21,7 +21,7 @@
     @if ($group->canManage && $requests !== [])
         <section class="hris-card" aria-labelledby="group-requests">
             <header class="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
-                <h3 id="group-requests" class="text-sm font-semibold">Waiting to join <span class="num font-normal text-muted-foreground">{{ count($requests) }}</span></h3>
+                <h3 id="group-requests" class="text-sm font-semibold">Waiting to Join <span class="num font-normal text-muted-foreground">{{ count($requests) }}</span></h3>
                 <p class="text-xs text-muted-foreground">Whoever you let in is told.</p>
             </header>
             <ul class="divide-y divide-border">
@@ -40,7 +40,7 @@
                             </span>
                         </span>
                         <div class="flex gap-2">
-                            <flux:button size="sm" variant="primary" wire:click="decideRequest({{ $request->person->id }}, true)">Let in</flux:button>
+                            <flux:button size="sm" variant="primary" wire:click="decideRequest({{ $request->person->id }}, true)">Let In</flux:button>
                             <flux:button size="sm" variant="ghost" wire:click="decideRequest({{ $request->person->id }}, false)">Decline</flux:button>
                         </div>
                     </li>
@@ -53,7 +53,7 @@
         <header class="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
             <h3 id="group-members" class="text-sm font-semibold">Members <span class="num font-normal text-muted-foreground">{{ count($members) }}</span></h3>
             @if ($group->joined())
-                <flux:button size="sm" variant="ghost" icon="user-plus" wire:click="openPeople">Add people</flux:button>
+                <flux:button size="sm" variant="ghost" icon="user-plus" wire:click="openPeople">Add People</flux:button>
             @endif
         </header>
         <ul class="divide-y divide-border">
@@ -65,7 +65,7 @@
                     $askOwner = [
                         'title' => 'Make '.$member->person->name.' the owner of '.$group->name.'?',
                         'body' => "You'll stay on as a moderator.",
-                        'confirm' => 'Make the owner',
+                        'confirm' => 'Make the Owner',
                         'call' => ['setRole', $member->person->id, 'OWNER'],
                     ];
                     $askRemove = [
@@ -95,17 +95,17 @@
                     @if ($canRemove || $canPromote)
                         <x-kit.row-actions :label="$member->person->name">
                             @if ($canPromote && ! $member->isModerator())
-                                <flux:menu.item icon="shield-check" wire:click="setRole({{ $member->person->id }}, 'MODERATOR')">Make a moderator</flux:menu.item>
+                                <flux:menu.item icon="shield-check" wire:click="setRole({{ $member->person->id }}, 'MODERATOR')">Make a Moderator</flux:menu.item>
                             @endif
                             @if ($canPromote && $member->isModerator())
-                                <flux:menu.item icon="shield-exclamation" wire:click="setRole({{ $member->person->id }}, 'MEMBER')">Remove as moderator</flux:menu.item>
+                                <flux:menu.item icon="shield-exclamation" wire:click="setRole({{ $member->person->id }}, 'MEMBER')">Remove as Moderator</flux:menu.item>
                             @endif
                             @if ($canPromote)
-                                <flux:menu.item icon="key" x-on:click="$dispatch('social-confirm', @js($askOwner))">Make the owner</flux:menu.item>
+                                <flux:menu.item icon="key" x-on:click="$dispatch('social-confirm', @js($askOwner))">Make the Owner</flux:menu.item>
                             @endif
                             @if ($canRemove)
                                 <flux:menu.separator />
-                                <flux:menu.item icon="user-minus" variant="danger" x-on:click="$dispatch('social-confirm', @js($askRemove))">Remove from group</flux:menu.item>
+                                <flux:menu.item icon="user-minus" variant="danger" x-on:click="$dispatch('social-confirm', @js($askRemove))">Remove from Group</flux:menu.item>
                             @endif
                         </x-kit.row-actions>
                     @endif

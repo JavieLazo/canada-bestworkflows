@@ -33,18 +33,18 @@
         <div class="grid min-w-0 gap-3 sm:grid-cols-2" aria-label="Employee filters">
             <div class="min-w-0 space-y-1.5">
                 <span class="block text-xs font-medium text-muted-foreground">Position</span>
-                <x-kit.filter-select label="Position filter" wire:model.live="position" :options="$positionOptions" />
+                <x-kit.filter-select label="Position Filter" wire:model.live="position" :options="$positionOptions" />
             </div>
             <div class="min-w-0 space-y-1.5">
-                <span class="block text-xs font-medium text-muted-foreground">Active status</span>
-                <x-kit.filter-select label="Active status filter" wire:model.live="active" :options="['ALL' => 'Active and inactive', 'ACTIVE' => 'Active employees', 'INACTIVE' => 'Inactive employees']" />
+                <span class="block text-xs font-medium text-muted-foreground">Active Status</span>
+                <x-kit.filter-select label="Active Status Filter" wire:model.live="active" :options="['ALL' => 'Active and inactive', 'ACTIVE' => 'Active employees', 'INACTIVE' => 'Inactive employees']" />
             </div>
             <div class="min-w-0 space-y-1.5">
-                <span class="block text-xs font-medium text-muted-foreground">Employment type</span>
-                <x-kit.filter-select label="Employment type filter" wire:model.live="employmentStatus" :options="$employmentOptions" />
+                <span class="block text-xs font-medium text-muted-foreground">Employment Type</span>
+                <x-kit.filter-select label="Employment Type Filter" wire:model.live="employmentStatus" :options="$employmentOptions" />
             </div>
             <div class="min-w-0 space-y-1.5">
-                <span class="block text-xs font-medium text-muted-foreground">Sort by</span>
+                <span class="block text-xs font-medium text-muted-foreground">Sort By</span>
                 <x-kit.select aria-label="Sort employees" wire:model.live="sort">
                     <option value="name-asc">Name: A–Z</option>
                     <option value="name-desc">Name: Z–A</option>
@@ -59,13 +59,13 @@
             <div class="flex flex-wrap items-center justify-between gap-2 text-xs" aria-live="polite" data-kit-checklist-summary>
                 <p class="text-muted-foreground"><span class="num font-semibold text-foreground">{{ number_format($matchingCount) }}</span> matching · <span class="num font-semibold text-foreground">{{ number_format(count($selectedIds)) }}</span> selected</p>
                 @if ($search !== '' || $position !== 'ALL' || $active !== 'ALL' || $employmentStatus !== 'ALL' || $sort !== 'name-asc')
-                    <button type="button" wire:click="resetFilters" @disabled($disabled) class="font-medium text-primary hover:underline disabled:opacity-50">Reset filters</button>
+                    <button type="button" wire:click="resetFilters" @disabled($disabled) class="font-medium text-primary hover:underline disabled:opacity-50">Reset Filters</button>
                 @endif
             </div>
             <div class="flex flex-wrap gap-2" aria-label="Employee selection actions">
-                <flux:button type="button" size="sm" wire:click="selectAll" wire:loading.attr="disabled" wire:target="selectAll,deselectAll,deselectMatching" :disabled="$disabled || $matchingCount === 0 || $matchedSelectedCount === $matchingCount" class="grow sm:grow-0">{{ $search !== '' || $position !== 'ALL' || $active !== 'ALL' || $employmentStatus !== 'ALL' ? 'Select all matching' : 'Select all' }}</flux:button>
-                <flux:button type="button" size="sm" wire:click="deselectMatching" wire:loading.attr="disabled" wire:target="selectAll,deselectAll,deselectMatching" :disabled="$disabled || $matchedSelectedCount === 0" class="grow sm:grow-0">Deselect matching</flux:button>
-                <flux:button type="button" size="sm" wire:click="deselectAll" wire:loading.attr="disabled" wire:target="selectAll,deselectAll,deselectMatching" :disabled="$disabled || $selectedIds === []" class="grow sm:grow-0">Deselect all</flux:button>
+                <flux:button type="button" size="sm" wire:click="selectAll" wire:loading.attr="disabled" wire:target="selectAll,deselectAll,deselectMatching" :disabled="$disabled || $matchingCount === 0 || $matchedSelectedCount === $matchingCount" class="grow sm:grow-0">{{ $search !== '' || $position !== 'ALL' || $active !== 'ALL' || $employmentStatus !== 'ALL' ? 'Select All Matching' : 'Select All' }}</flux:button>
+                <flux:button type="button" size="sm" wire:click="deselectMatching" wire:loading.attr="disabled" wire:target="selectAll,deselectAll,deselectMatching" :disabled="$disabled || $matchedSelectedCount === 0" class="grow sm:grow-0">Deselect Matching</flux:button>
+                <flux:button type="button" size="sm" wire:click="deselectAll" wire:loading.attr="disabled" wire:target="selectAll,deselectAll,deselectMatching" :disabled="$disabled || $selectedIds === []" class="grow sm:grow-0">Deselect All</flux:button>
             </div>
             <p class="text-xs leading-relaxed text-muted-foreground">Filters change the list below. Your selection stays the same until you select or deselect employees.@if ($selectionLimit !== null) Choose up to {{ number_format($selectionLimit) }} employees.@endif</p>
             @error('value') <p class="text-xs text-danger" role="alert">{{ $message }}</p> @enderror

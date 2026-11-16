@@ -292,7 +292,7 @@ it('gives a viewer without all-data ROSTER a read-only month', function () {
     rwkActor(['ROSTER'], allData: false, employeeId: $employee->id);
     $page = Livewire::test(EmployeeSchedulePage::class, ['employee' => $employee->id]);
 
-    expect($page->html())->not->toContain('Default schedule');
+    expect($page->html())->not->toContain('Default Schedule');
     $page->call('pick', '2026-11-18')->call('openDefaultSchedule');
     expect($page->get('picked'))->toBe([])->and($page->get('shiftDays'))->toBe([]);
 

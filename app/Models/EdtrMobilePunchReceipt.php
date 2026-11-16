@@ -7,11 +7,11 @@ namespace App\Models;
 use Carbon\CarbonImmutable;
 
 /**
- * Remembers a punch the phone already sent, keyed by the phone's own id.
+ * Remembers a punch a device already sent, keyed by the device's own id.
  *
  * A retried sync reads this row and does not insert a second attendance log.
  * If a later DTR correction removes that log, the receipt remains so the
- * phone does not recreate the original punch.
+ * device does not recreate the original punch.
  *
  * @property string $id
  * @property string $client_id

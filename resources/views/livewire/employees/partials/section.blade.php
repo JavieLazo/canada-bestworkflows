@@ -45,7 +45,7 @@
                 @endforeach
             </ul>
             <flux:checkbox wire:model="acknowledgeObligations" label="I acknowledge that these items remain outstanding and require follow-up." />
-            <flux:textarea wire:model="obligationReason" label="Reason for continuing" rows="2" maxlength="1000" />
+            <flux:textarea wire:model="obligationReason" label="Reason for Continuing" rows="2" maxlength="1000" />
         </section>
     @endif
 

@@ -105,7 +105,7 @@ it('limits employee reports to current employment fields and the actors own reco
     expect($document->rows)->toHaveCount(1)
         ->and($document->rows[0])->toBe(['EMP-OWN', 'Ana OWN Jr.', 'Engineer', 'Regular', 'Active', '2024-01-01', ''])
         ->and($document->columns)->not->toContain('Salary', 'SSS number')
-        ->and(array_column($document->summary, 'value', 'label'))->toBe(['Employees' => '1', 'Active' => '1', 'Inactive' => '0', 'Positions represented' => '1'])
+        ->and(array_column($document->summary, 'value', 'label'))->toBe(['Employees' => '1', 'Active' => '1', 'Inactive' => '0', 'Positions Represented' => '1'])
         ->and(app(EmployeeReport::class)->generate($actor, peopleReportsCriteria('employee-list', ['employeeId' => $other->id]))->rows)->toBe([]);
 });
 
@@ -207,7 +207,7 @@ it('distinguishes approved unpaid leave and official business from pending reque
     $document = app(TimekeepingReports::class)->generate($actor, peopleReportsCriteria('leave-reports'));
 
     expect(array_column($document->rows, 9))->toBe(['Unpaid', 'Not applicable', 'Not decided'])
-        ->and(array_column($document->summary, 'value', 'label'))->toBe(['Requests' => '3', 'Employees' => '1', 'Approved leave days' => '2', 'Pending requests' => '1'])
+        ->and(array_column($document->summary, 'value', 'label'))->toBe(['Requests' => '3', 'Employees' => '1', 'Approved Leave Days' => '2', 'Pending Requests' => '1'])
         ->and($document->totals[7])->toBe('6');
 });
 
@@ -257,7 +257,7 @@ it('reports canonical attendance with separate computed and approved overtime', 
         ->and($document->sections)->toHaveCount(1)
         ->and($document->sections[0]['rows'][0])->toBe(['2026-09-28', '8:00 AM', '12:00 PM', '1:00 PM', '6:00 PM', '8h', '0m', '0m', '1h', '45m', 'PARTIAL', 'PRESENT', 'Verified punches'])
         ->and(array_column($document->sections[0]['highlights'] ?? [], 'value', 'label'))->toBe([
-            'Regular time' => '8h', 'Late' => '0m', 'Undertime' => '0m', 'Computed overtime' => '1h', 'Payable overtime' => '45m', 'Absence days' => '1',
+            'Regular Time' => '8h', 'Late' => '0m', 'Undertime' => '0m', 'Computed Overtime' => '1h', 'Payable Overtime' => '45m', 'Absence Days' => '1',
         ])
         ->and($document->sections[0]['totals'] ?? [])->toBe(['Totals', '', '', '', '', '8h', '0m', '0m', '1h', '45m', '', '', ''])
         ->and(implode(' ', $document->sections[0]['notes'] ?? []))->toContain('absences 1.', 'Current payable OT is 45m');
@@ -289,7 +289,7 @@ it('prints separate attendance tables and totals for every selected employee', f
         ->and(array_column($document->sections, 'title'))->toBe(['ID-1 — Ana SELECTED-1', 'ID-2 — Ana SELECTED-2'])
         ->and($document->sections[0]['rows'])->toHaveCount(2)
         ->and($document->sections[1]['rows'])->toHaveCount(2)
-        ->and(array_column($document->summary, 'value', 'label'))->toBe(['Employees' => '2', 'Employee-days shown' => '4', 'Days in selected period' => '2'])
+        ->and(array_column($document->summary, 'value', 'label'))->toBe(['Employees' => '2', 'Employee-Days Shown' => '4', 'Days in Selected Period' => '2'])
         ->and(implode(' ', $document->sections[0]['notes'] ?? []))->toContain('Position: Engineer.', 'absences 0.')
         ->and(implode(' ', $document->sections[1]['notes'] ?? []))->toContain('Position: Analyst.', 'absences 2.');
 });

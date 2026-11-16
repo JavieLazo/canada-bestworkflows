@@ -1,6 +1,6 @@
-<x-layouts::auth :title="__('Set up BestWorkflows')">
+<x-layouts::auth :title="__('Set Up BestWorkflows')">
     <div class="hris-card flex flex-col gap-6 p-6 sm:p-8">
-        <x-auth-header :title="__('Set up BestWorkflows')" :description="__('Create the first administrator account. Additional accounts are managed in User Management.')" />
+        <x-auth-header :title="__('Set Up BestWorkflows')" :description="__('Create the first administrator account. Additional accounts are managed in User Management.')" />
 
         {{-- Session status --}}
         <x-auth-session-status class="text-center" :status="session('status')" />
@@ -10,7 +10,7 @@
             {{-- Login credentials only; personal names belong to employee records. --}}
             <flux:input
                 name="email"
-                :label="__('Email address')"
+                :label="__('Email Address')"
                 :value="old('email')"
                 type="email"
                 required
@@ -34,7 +34,7 @@
             {{-- Confirm password --}}
             <flux:input
                 name="password_confirmation"
-                :label="__('Confirm password')"
+                :label="__('Confirm Password')"
                 type="password"
                 required
                 autocomplete="new-password"
@@ -45,7 +45,7 @@
 
             <div class="flex items-center justify-end">
                 <flux:button type="submit" variant="primary" class="w-full" data-test="register-user-button">
-                    {{ __('Create first administrator') }}
+                    {{ __('Create First Administrator') }}
                 </flux:button>
             </div>
         </form>

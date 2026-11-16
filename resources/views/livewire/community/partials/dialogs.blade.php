@@ -44,7 +44,7 @@
     <flux:modal wire:model.self="groupDialog" class="w-full max-w-lg">
         <form wire:submit="saveGroup" class="space-y-5">
             <div class="space-y-1.5">
-                <h2 class="text-lg font-semibold leading-none tracking-tight">{{ $editingGroupId === null ? 'New group' : 'Edit group' }}</h2>
+                <h2 class="text-lg font-semibold leading-none tracking-tight">{{ $editingGroupId === null ? 'New Group' : 'Edit Group' }}</h2>
                 <p class="text-sm text-muted-foreground">
                     {{ $editingGroupId === null ? 'You will be its owner and its first member.' : 'Changes show for everyone straight away.' }}
                 </p>
@@ -60,7 +60,7 @@
                 <input x-ref="photo" type="file" accept="image/*" class="sr-only" tabindex="-1" aria-hidden="true" x-on:change="pick($event)" />
                 <div class="flex flex-wrap gap-2">
                     <flux:button type="button" size="sm" icon="camera" x-on:click="$refs.photo.click()" x-bind:disabled="busy">
-                        <span x-show="! busy">{{ $avatarPreview !== null || ($currentPhoto !== null && ! $photoRemoved) ? 'Change photo' : 'Add a photo' }}</span>
+                        <span x-show="! busy">{{ $avatarPreview !== null || ($currentPhoto !== null && ! $photoRemoved) ? 'Change Photo' : 'Add a Photo' }}</span>
                         <span x-show="busy" x-cloak>Uploading…</span>
                     </flux:button>
                     @if ($avatarPreview !== null)
@@ -83,7 +83,7 @@
 
             <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
-                    <flux:label for="group-private">Private group</flux:label>
+                    <flux:label for="group-private">Private Group</flux:label>
                     <p class="mt-1 text-sm text-muted-foreground">Only members see its posts, members and files, and joining takes a yes from its owner or a moderator. Making it public again lets in everyone who's waiting.</p>
                 </div>
                 <flux:switch id="group-private" wire:model="groupForm.private" aria-label="Private group" />
@@ -92,9 +92,9 @@
             @if ($editingGroupId === null)
                 {{-- Folded until wanted, so the form stays short. Anyone can be added later too. --}}
                 <div class="space-y-2" x-data="{ adding: @js($pickedPeople !== []) }">
-                    <flux:button type="button" size="sm" variant="ghost" icon="user-plus" x-show="! adding" x-on:click="adding = true">Add people now</flux:button>
+                    <flux:button type="button" size="sm" variant="ghost" icon="user-plus" x-show="! adding" x-on:click="adding = true">Add People Now</flux:button>
                     <div x-show="adding" x-cloak class="space-y-2">
-                        <flux:label>People to start with <span class="ml-1 font-normal text-muted-foreground">(optional)</span></flux:label>
+                        <flux:label>People to Start With <span class="ml-1 font-normal text-muted-foreground">(optional)</span></flux:label>
                         @include('livewire.community.partials.people-picker')
                     </div>
                 </div>
@@ -102,7 +102,7 @@
 
             <div class="flex justify-end gap-2">
                 <flux:button type="button" variant="outline" x-on:click="$wire.groupDialog = false">Cancel</flux:button>
-                <flux:button type="submit" variant="primary">{{ $editingGroupId === null ? 'Create group' : 'Save group' }}</flux:button>
+                <flux:button type="submit" variant="primary">{{ $editingGroupId === null ? 'Create Group' : 'Save Group' }}</flux:button>
             </div>
         </form>
     </flux:modal>
@@ -112,7 +112,7 @@
     <flux:modal wire:model.self="peopleDialog" class="w-full max-w-md">
         <div class="space-y-4">
             <div class="space-y-1.5">
-                <h2 class="text-lg font-semibold leading-none tracking-tight">Add people to {{ $activeGroup->name }}</h2>
+                <h2 class="text-lg font-semibold leading-none tracking-tight">Add People to {{ $activeGroup->name }}</h2>
                 <p class="text-sm text-muted-foreground">
                     @if ($activeGroup->private && ! $activeGroup->canManage)
                         It's a private group, so the owner or a moderator will let them in.
@@ -141,7 +141,7 @@
         <h2 class="text-lg font-semibold leading-none tracking-tight">Groups</h2>
 
         <div class="inline-flex h-9 w-full items-center rounded-lg bg-muted p-1 text-muted-foreground" role="tablist">
-            @foreach (['yours' => 'Your groups ('.count($joinedGroups).')', 'discover' => 'Discover ('.count($otherGroups).')'] as $key => $label)
+            @foreach (['yours' => 'Your Groups ('.count($joinedGroups).')', 'discover' => 'Discover ('.count($otherGroups).')'] as $key => $label)
                 <button
                     type="button"
                     role="tab"
@@ -165,7 +165,7 @@
                         <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                             @include('layouts.app.module-icon', ['icon' => 'newspaper', 'class' => 'size-4'])
                         </span>
-                        <span class="min-w-0 flex-1 truncate font-medium">All posts</span>
+                        <span class="min-w-0 flex-1 truncate font-medium">All Posts</span>
                     </button>
                 </li>
             @endif
@@ -183,7 +183,7 @@
 @if ($celebrations !== [])
     <flux:modal wire:model.self="comingUpDialog" class="w-full max-w-md">
         <div class="space-y-2">
-            <h2 class="text-lg font-semibold leading-none tracking-tight">Coming up</h2>
+            <h2 class="text-lg font-semibold leading-none tracking-tight">Coming Up</h2>
             <p class="text-sm text-muted-foreground">The next 30 days, for people who chose to share it.</p>
             @include('livewire.community.partials.celebrations')
         </div>
@@ -196,10 +196,10 @@
             <form wire:submit="saveTag" class="space-y-5">
                 <button type="button" wire:click="backToTags" class="inline-flex cursor-pointer items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
                     <flux:icon.arrow-left class="size-4" />
-                    All tags
+                    All Tags
                 </button>
 
-                <h2 class="text-lg font-semibold leading-none tracking-tight">{{ $editingTag !== null ? 'Edit '.$editingTag->name : 'New tag' }}</h2>
+                <h2 class="text-lg font-semibold leading-none tracking-tight">{{ $editingTag !== null ? 'Edit '.$editingTag->name : 'New Tag' }}</h2>
 
                 <div class="space-y-2">
                     <flux:label for="tag-name">Name</flux:label>
@@ -238,7 +238,7 @@
                                     1 => 'The one post that carries it stays, untagged.',
                                     default => 'The '.$editingTag->posts.' posts that carry it stay, untagged.',
                                 },
-                                'confirm' => 'Remove tag',
+                                'confirm' => 'Remove Tag',
                                 'danger' => true,
                                 'call' => ['deleteTag', $editingTag->id],
                             ];
@@ -250,13 +250,13 @@
                             icon="trash"
                             class="text-danger!"
                             x-on:click="$dispatch('social-confirm', @js($askRemoveTag))"
-                        >Remove tag</flux:button>
+                        >Remove Tag</flux:button>
                     @else
                         <span></span>
                     @endif
                     <div class="flex gap-2">
                         <flux:button type="button" variant="outline" wire:click="backToTags">Cancel</flux:button>
-                        <flux:button type="submit" variant="primary">{{ $editingTag !== null ? 'Save' : 'Add tag' }}</flux:button>
+                        <flux:button type="submit" variant="primary">{{ $editingTag !== null ? 'Save' : 'Add Tag' }}</flux:button>
                     </div>
                 </div>
             </form>
@@ -267,7 +267,7 @@
                         <h2 class="text-lg font-semibold leading-none tracking-tight">Tags</h2>
                         <p class="text-sm text-muted-foreground">Tags help people find posts. A change shows on every post that has the tag.</p>
                     </div>
-                    <flux:button size="sm" variant="primary" icon="plus" wire:click="newTag">New tag</flux:button>
+                    <flux:button size="sm" variant="primary" icon="plus" wire:click="newTag">New Tag</flux:button>
                 </div>
 
                 <ul class="-mx-2 max-h-96 divide-y divide-border overflow-y-auto">
@@ -293,7 +293,7 @@
 --}}
 <flux:modal wire:model.self="historyDialog" class="w-full max-w-2xl">
     <div class="space-y-4">
-        <h2 class="text-lg font-semibold leading-none tracking-tight">Edit history</h2>
+        <h2 class="text-lg font-semibold leading-none tracking-tight">Edit History</h2>
         @if ($history !== null)
             <ol class="max-h-[70vh] space-y-3 overflow-y-auto">
                 @foreach ($history['versions'] as $i => $version)

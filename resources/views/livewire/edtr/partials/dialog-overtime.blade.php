@@ -23,7 +23,7 @@
             data-ot-status="{{ $ot->status }}"
         >
             <div class="space-y-2 border-b border-border pb-4">
-                <flux:heading size="lg" level="2" id="overtime-heading" class="pe-8">Overtime approval</flux:heading>
+                <flux:heading size="lg" level="2" id="overtime-heading" class="pe-8">Overtime Approval</flux:heading>
                 <p class="font-medium">{{ $overtimeReview->employee_name }}</p>
                 <div class="flex flex-wrap items-center gap-2 text-sm">
                     <span class="text-muted-foreground">{{ HrisFormat::weekday(CalendarDays::dayOfWeek($overtimeDate)) }}, {{ Hris::fmtDate($overtimeDate) }}</span>
@@ -52,7 +52,7 @@
                         type="button"
                         class="inline-flex min-h-6 items-center text-sm font-medium text-primary hover:underline"
                         wire:click="openCorrection('{{ $overtimeDate }}')"
-                    >Correct the punches</button>
+                    >Correct the Punches</button>
                 </dd>
 
                 {{-- A seaport day has no cap: its ceiling is the whole computed day. --}}
@@ -103,7 +103,7 @@
                             max="{{ $limit }}"
                             step="1"
                             inputmode="numeric"
-                            label="Minutes to approve"
+                            label="Minutes to Approve"
                             aria-describedby="overtime-ceiling"
                             wire:model="overtimeForm.minutes"
                         />
@@ -114,7 +114,7 @@
                     <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-3">
                         <flux:switch id="overtime-seaport" wire:model.live="overtimeForm.seaport" />
                         <div>
-                            <flux:label for="overtime-seaport">Seaport overtime</flux:label>
+                            <flux:label for="overtime-seaport">Seaport Overtime</flux:label>
                             <p class="text-xs text-muted-foreground">Paid at the seaport overtime rate in Pay Basis &amp; Rates, with no daily cap.</p>
                         </div>
                     </div>
@@ -127,7 +127,7 @@
                                 max="{{ $limit }}"
                                 step="1"
                                 inputmode="numeric"
-                                label="Minutes credited as Compensatory Leave"
+                                label="Minutes Credited as Compensatory Leave"
                                 aria-describedby="overtime-credit-hint"
                                 wire:model="overtimeForm.credited"
                             />
@@ -152,14 +152,14 @@
                             wire:click="rejectOvertime"
                             wire:loading.attr="disabled"
                             wire:target="approveOvertime,rejectOvertime"
-                        >Reject<span class="max-sm:sr-only"> overtime</span></flux:button>
+                        >Reject<span class="max-sm:sr-only"> Overtime</span></flux:button>
                         <flux:button
                             type="button"
                             variant="primary"
                             wire:click="approveOvertime"
                             wire:loading.attr="disabled"
                             wire:target="approveOvertime,rejectOvertime"
-                        >Approve<span class="max-sm:sr-only"> overtime</span></flux:button>
+                        >Approve<span class="max-sm:sr-only"> Overtime</span></flux:button>
                     @else
                         <flux:button type="button" variant="outline" wire:click="$set('overtimeOpen', false)">Close</flux:button>
                     @endif

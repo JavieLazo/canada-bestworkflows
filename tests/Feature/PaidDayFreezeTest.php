@@ -158,12 +158,12 @@ it('shows a paid day in the correction dialog without a Save', function () {
         ->assertSet('correctionOpen', true)
         ->assertSee(CorrectionWindow::PAID_DAY)
         ->assertSeeHtml('data-correction-paid')
-        ->assertDontSee('Save punches');
+        ->assertDontSee('Save Punches');
 
     $page->set('correctionOpen', false)
         ->call('openCorrection', '2026-09-16')
         ->assertDontSeeHtml('data-correction-paid')
-        ->assertSee('Save punches');
+        ->assertSee('Save Punches');
 });
 
 /* ── leave and official business approvals ──────────────────────────────── */

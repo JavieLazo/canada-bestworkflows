@@ -1,12 +1,12 @@
 {{-- Catalog labels are live reference data; issued receipts keep their captured labels. --}}
 <div class="space-y-6" wire:poll.60s="pollForChanges">
-    <div><h1 class="text-2xl font-bold tracking-tight">Categories & locations</h1></div>
+    <div><h1 class="text-2xl font-bold tracking-tight">Categories & Locations</h1></div>
     @include('livewire.inventory.partials.tabs', ['activeInventoryTab' => 'catalogs'])
     @include('livewire.inventory.partials.errors')
     <div class="grid gap-6 lg:grid-cols-2">
         @foreach (['category' => ['Categories', $categories], 'location' => ['Locations', $locations]] as $catalogKind => [$heading, $catalogRows])
             <section class="hris-card overflow-hidden"><header class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4"><h2 class="font-semibold">{{ $heading }}</h2>@if ($canManage)<flux:button size="sm" icon="plus" variant="primary" wire:click="openCatalog('{{ $catalogKind }}')">Add {{ $catalogKind }}</flux:button>@endif</header><div class="hris-table-wrap hris-table-scroll"><table class="hris-table"><thead><tr><th>Name</th><th class="text-right">Items</th><th class="text-right">Action</th></tr></thead><tbody>
-                @forelse ($catalogRows as $row)<tr wire:key="catalog-{{ $catalogKind }}-{{ $row->id }}"><td class="font-medium">{{ $row->name }}</td><td class="num text-right">{{ $row->item_count }}</td><td class="text-right">@if ($canManage)<x-kit.row-actions :label="$row->name"><flux:menu.item icon="pencil" wire:click="openCatalog('{{ $catalogKind }}', '{{ $row->id }}')">Rename</flux:menu.item><flux:menu.item icon="trash" variant="danger" wire:click="confirmDelete('{{ $catalogKind }}', '{{ $row->id }}')">Delete unused {{ $catalogKind }}</flux:menu.item></x-kit.row-actions>@else — @endif</td></tr>@empty<tr wire:key="empty-{{ $catalogKind }}"><x-kit.empty-state :colspan="3" :title="'No '.strtolower($heading).' yet.'" /></tr>@endforelse
+                @forelse ($catalogRows as $row)<tr wire:key="catalog-{{ $catalogKind }}-{{ $row->id }}"><td class="font-medium">{{ $row->name }}</td><td class="num text-right">{{ $row->item_count }}</td><td class="text-right">@if ($canManage)<x-kit.row-actions :label="$row->name"><flux:menu.item icon="pencil" wire:click="openCatalog('{{ $catalogKind }}', '{{ $row->id }}')">Rename</flux:menu.item><flux:menu.item icon="trash" variant="danger" wire:click="confirmDelete('{{ $catalogKind }}', '{{ $row->id }}')">Delete Unused {{ $catalogKind }}</flux:menu.item></x-kit.row-actions>@else — @endif</td></tr>@empty<tr wire:key="empty-{{ $catalogKind }}"><x-kit.empty-state :colspan="3" :title="'No '.strtolower($heading).' yet.'" /></tr>@endforelse
             </tbody></table></div></section>
         @endforeach
     </div>

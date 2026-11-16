@@ -253,7 +253,7 @@ it('renders the feed, pins first, for a COMMUNITY holder', function () {
     $this->get('/community')
         ->assertOk()
         ->assertSeeInOrder(['Pinned', 'Welcome to Community', 'Latest', 'Lunch is on me today'])
-        ->assertSee('Your groups');
+        ->assertSee('Your Groups');
 });
 
 it('shows Community in the sidebar only to a role that holds it', function () {
@@ -749,8 +749,8 @@ it('refuses an edit from an author who is no longer in a public group, offers th
     Livewire::test(CommunityPage::class)
         ->call('openGroup', (string) $club->getKey())
         ->assertSee('Lunch at noon')
-        ->assertDontSee('Edit post')
-        ->assertDontSee('Edit comment')
+        ->assertDontSee('Edit Post')
+        ->assertDontSee('Edit Comment')
         ->set('edits.'.$post->getKey(), 'Lunch at one')
         ->call('saveEdit', (string) $post->getKey(), '')
         ->set('edits.'.$comment, 'Bring drinks')
@@ -843,7 +843,7 @@ it('opens the post a notification links to above the feed', function () {
 
     $this->get('/community?post='.$post->getKey())
         ->assertOk()
-        ->assertSeeInOrder(['Back to the feed', 'The linked post']);
+        ->assertSeeInOrder(['Back to the Feed', 'The linked post']);
 });
 
 it('finds posts by their text, their author, or a person they mention', function () {
@@ -898,10 +898,10 @@ it('pages ten posts at a time, and sorts by the most discussed', function () {
         ->assertSee('Post number 12.')
         ->assertSee('Post number 3.')
         ->assertDontSee('Post number 2.')
-        ->assertSee('Show more posts')
+        ->assertSee('Show More Posts')
         ->call('showMore')
         ->assertSee('Post number 1.')
-        ->assertDontSee('Show more posts');
+        ->assertDontSee('Show More Posts');
 
     Livewire::test(CommunityPage::class)
         ->set('sort', 'discussed')
@@ -1237,21 +1237,21 @@ it('draws Delete post on the viewer\'s own post only, so a moderator sees the pi
     $moderator = commActor(['COMMUNITY', 'USERS']);
 
     Livewire::test(CommunityPage::class)
-        ->assertSee('Pin to the top of the feed')
-        ->assertDontSee('Delete post')
+        ->assertSee('Pin to the Top of the Feed')
+        ->assertDontSee('Delete Post')
         ->assertDontSee('Remove this post for everyone?');
 
     // Both items on the moderator's own card, and still only the pin on Maria's.
     commPost($moderator, 'From the moderator');
     $html = Livewire::test(CommunityPage::class)->html();
-    expect(substr_count($html, 'Pin to the top of the feed'))->toBe(2)
+    expect(substr_count($html, 'Pin to the Top of the Feed'))->toBe(2)
         ->and(substr_count($html, 'Delete this post?'))->toBe(1);
 
     commSignIn($maria);
 
     Livewire::test(CommunityPage::class)
-        ->assertSee('Delete post')
-        ->assertDontSee('Pin to the top of the feed');
+        ->assertSee('Delete Post')
+        ->assertDontSee('Pin to the Top of the Feed');
 });
 
 it('lets an author delete their own comment with every reply under it and their files, unaudited', function () {
@@ -1416,7 +1416,7 @@ it('lists work anniversaries in the next 30 days and drafts a greeting that ment
     commActor();
 
     $page = Livewire::test(CommunityPage::class)
-        ->assertSee('Coming up')
+        ->assertSee('Coming Up')
         ->assertSee('3 years with us')
         ->assertDontSee('Paolo Bautista')
         ->call('greet', 0)
@@ -1646,7 +1646,7 @@ it('lets each person keep their own answer, and refuses one to a role without ei
         ->toThrow(RuntimeException::class);
 
     // And the card itself draws nothing for them.
-    Livewire::test(PrivacyCard::class)->assertDontSee('Show my job title');
+    Livewire::test(PrivacyCard::class)->assertDontSee('Show My Job Title');
 });
 
 it('lists leftover Community and Chat photos and files in the file check, and leaves the ones in use alone', function () {
@@ -1690,7 +1690,7 @@ it('lets a moderator create and delete groups, owning the ones they make, and no
     $moderator = commActor(['COMMUNITY', 'USERS'], 'Maria Santos');
 
     Livewire::test(CommunityPage::class)
-        ->assertSee('New group')
+        ->assertSee('New Group')
         ->call('newGroup')
         ->set('groupForm', ['name' => 'Safety Committee', 'about' => 'Drills and reminders', 'private' => true])
         ->call('saveGroup')
@@ -1731,7 +1731,7 @@ it('lets a moderator create and delete groups, owning the ones they make, and no
     Storage::disk('local')->assertMissing('community-photos/drill.jpg');
 
     $someone = commActor(name: 'Paolo Bautista');
-    Livewire::test(CommunityPage::class)->assertDontSee('New group')->assertDontSee('Manage tags');
+    Livewire::test(CommunityPage::class)->assertDontSee('New Group')->assertDontSee('Manage Tags');
     expect(fn () => app(CreateGroup::class)->handle(commAccess($someone), 'My own group', '', false))
         ->toThrow(RuntimeException::class, 'Only moderators can create groups.');
 });
@@ -1747,7 +1747,7 @@ it('lets a group\'s owner and moderators answer join requests, and nobody else',
         ->call('openGroup', (string) $club->getKey())
         ->assertSeeText('2 waiting to join')
         ->call('showTab', 'members')
-        ->assertSee('Waiting to join')
+        ->assertSee('Waiting to Join')
         ->assertSee('Grace Mendoza')
         ->call('decideRequest', (int) $grace->getKey(), true)
         ->call('decideRequest', (int) $ramon->getKey(), false);
@@ -1780,7 +1780,7 @@ it('lets a group\'s owner and moderators answer join requests, and nobody else',
     Livewire::test(CommunityPage::class)
         ->call('openGroup', (string) $club->getKey())
         ->assertDontSeeText('waiting to join')
-        ->assertSee('Delete group');
+        ->assertSee('Delete Group');
 });
 
 it('lets a moderator add, rename, recolour and remove tags', function () {
@@ -1821,7 +1821,7 @@ it('lets a moderator add, rename, recolour and remove tags', function () {
     // The manager is a list with an Edit button each, and a page for one tag.
     Livewire::test(CommunityPage::class)
         ->call('openTags')
-        ->assertSee('New tag')
+        ->assertSee('New Tag')
         ->call('editTag', (string) $kudos->getKey())
         ->assertSet('tagPage', 'form')
         ->assertSet('tagForm.name', 'Shout-outs')
@@ -2184,7 +2184,7 @@ it('keeps work anniversaries out of Coming up until their owner switches them on
 
     Livewire::test(PrivacyCard::class)
         ->assertSet('showAnniversary', false)
-        ->assertSee('Show my work anniversary')
+        ->assertSee('Show My Work Anniversary')
         ->set('showAnniversary', true)
         ->call('save');
 

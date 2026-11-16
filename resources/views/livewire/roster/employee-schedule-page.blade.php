@@ -48,7 +48,7 @@
     <section class="hris-card overflow-hidden">
         <header class="flex flex-wrap items-center gap-3 border-b border-border px-5 py-4">
             @if ($canEdit)
-                <flux:button variant="outline" wire:click="openDefaultSchedule">Default schedule</flux:button>
+                <flux:button variant="outline" wire:click="openDefaultSchedule">Default Schedule</flux:button>
             @endif
             <div class="ml-auto flex items-center gap-1">
                 <flux:button size="sm" variant="outline" icon="chevron-left" wire:click="previousMonth" aria-label="Previous month" />
@@ -65,7 +65,7 @@
                     <li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5" wire:key="upcoming-{{ $changeId }}">
                         <span class="pill pill-caution">From {{ HrisFormat::date($change['from']) }}</span>
                         <span class="min-w-0 flex-1 text-muted-foreground">Default schedule saved, not yet in effect{{ $change['sets'] !== [] ? ': '.implode(' · ', $change['sets']) : '' }}</span>
-                        <flux:button size="sm" variant="outline" wire:click="cancelChange(@js($changeId))" wire:loading.attr="disabled" wire:target="cancelChange">Cancel this change</flux:button>
+                        <flux:button size="sm" variant="outline" wire:click="cancelChange(@js($changeId))" wire:loading.attr="disabled" wire:target="cancelChange">Cancel This Change</flux:button>
                     </li>
                 @endforeach
             </ul>
@@ -279,11 +279,11 @@
                         </div>
                         {{-- The same fields as the Default schedule's custom hours. --}}
                         <div class="space-y-1">
-                            <label for="day-custom-break-start" class="text-sm font-medium">Break from</label>
+                            <label for="day-custom-break-start" class="text-sm font-medium">Break From</label>
                             <x-kit.time-field id="day-custom-break-start" wire:model="dayCustom.break_start" aria-label="Custom hours break from" />
                         </div>
                         <div class="space-y-1">
-                            <label for="day-custom-break-end" class="text-sm font-medium">Break to</label>
+                            <label for="day-custom-break-end" class="text-sm font-medium">Break To</label>
                             <x-kit.time-field id="day-custom-break-end" wire:model="dayCustom.break_end" aria-label="Custom hours break to" />
                         </div>
                         <flux:input type="number" size="sm" min="0" max="600" label="Grace (min)" wire:model="dayCustom.grace" aria-label="Custom hours grace minutes" />
@@ -325,7 +325,7 @@
                             Part of a temporary schedule, <span class="num" x-text="one() && one().temporary ? one().temporary.span : ''">{{ $oneTemporary['span'] ?? '' }}</span>.
                             Removing it puts its dates back on the usual schedule; dates already past keep theirs.
                         </p>
-                        <flux:button size="sm" variant="outline" x-on:click="$wire.removeTemporary(one().temporary.id)" wire:loading.attr="disabled" wire:target="removeTemporary">Remove the whole temporary schedule</flux:button>
+                        <flux:button size="sm" variant="outline" x-on:click="$wire.removeTemporary(one().temporary.id)" wire:loading.attr="disabled" wire:target="removeTemporary">Remove the Whole Temporary Schedule</flux:button>
                     </div>
                 </aside>
             @endif
@@ -406,7 +406,7 @@
                 },
             }"
         >
-            <flux:heading size="lg" id="default-schedule-heading">Default schedule</flux:heading>
+            <flux:heading size="lg" id="default-schedule-heading">Default Schedule</flux:heading>
 
             <div class="grid gap-4 sm:grid-cols-2">
                 @include('livewire.roster.partials.effective-from', ['model' => 'weekFrom', 'fieldId' => 'week-from', 'hint' => false])
@@ -488,8 +488,8 @@
                  every day above, like a pattern. --}}
             <section class="space-y-2" data-custom-hours>
                 <div class="flex flex-wrap items-center justify-between gap-2">
-                    <p class="text-sm font-medium">Custom hours</p>
-                    <flux:button size="sm" variant="outline" icon="plus" x-on:click="addSet()" x-bind:disabled="inUse.length >= max">Add hours</flux:button>
+                    <p class="text-sm font-medium">Custom Hours</p>
+                    <flux:button size="sm" variant="outline" icon="plus" x-on:click="addSet()" x-bind:disabled="inUse.length >= max">Add Hours</flux:button>
                 </div>
                 <div class="space-y-2" x-show="inUse.length > 0" @style(['display: none' => $customSlots === []])>
                     <div class="hris-table-wrap rounded-lg border border-border">
@@ -498,8 +498,8 @@
                                 <tr>
                                     <th>Start</th>
                                     <th>End</th>
-                                    <th>Break from</th>
-                                    <th>Break to</th>
+                                    <th>Break From</th>
+                                    <th>Break To</th>
                                     <th>Grace (min)</th>
                                     <th class="w-10"><span class="sr-only">Remove</span></th>
                                 </tr>
@@ -528,7 +528,7 @@
                     <flux:button variant="outline">Cancel</flux:button>
                 </flux:modal.close>
                 <flux:button variant="primary" wire:click="saveDefaultSchedule" wire:loading.attr="disabled" wire:target="saveDefaultSchedule">
-                    Save default schedule
+                    Save Default Schedule
                 </flux:button>
             </div>
         </div>

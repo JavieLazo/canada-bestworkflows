@@ -95,7 +95,7 @@
                         <div class="space-y-3 border-t border-border bg-muted/20 px-3 py-3">
                             <div class="space-y-1">
                                 <p class="text-xs uppercase tracking-wide text-muted-foreground">
-                                    {{ $response->is_self ? 'Your note' : 'Their note' }}
+                                    {{ $response->is_self ? 'Your Note' : 'Their Note' }}
                                 </p>
                                 <p class="whitespace-pre-wrap break-words rounded-md border border-border bg-card p-3 text-sm">{{ $note }}</p>
                             </div>
@@ -162,7 +162,7 @@
                                                 wire:loading.attr="disabled"
                                             >
                                                 <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'undo-2', 'class' => 'size-4'])</x-slot:icon>
-                                                Return for rework
+                                                Return for Rework
                                             </flux:button>
                                         @endif
                                         @if (in_array('APPROVED', $moves, true))
@@ -174,7 +174,7 @@
                                                 wire:loading.attr="disabled"
                                             >
                                                 <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'check', 'class' => 'size-4'])</x-slot:icon>
-                                                Approve response
+                                                Approve Response
                                             </flux:button>
                                         @endif
                                     </div>

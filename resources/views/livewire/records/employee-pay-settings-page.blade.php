@@ -47,7 +47,7 @@
             />
             <x-payroll.settings.stat
                 data-stat="gov"
-                label="Contributions & tax"
+                label="Contributions & Tax"
                 :value="number_format($summary['gov'])"
                 note="With a setting of their own"
             />
@@ -59,7 +59,7 @@
             />
             <x-payroll.settings.stat
                 data-stat="recurring"
-                label="Loans & allowances"
+                label="Loans & Allowances"
                 :value="number_format($summary['recurring'])"
                 note="With a line that repeats"
             />
@@ -82,9 +82,9 @@
                 <div class="ml-auto flex flex-wrap items-center gap-4">
                     <div class="inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground" role="group" aria-label="Which employees to list">
                         <button type="button" wire:click="$set('onlyCustomized', false)" aria-pressed="{{ $onlyCustomized ? 'false' : 'true' }}" class="{{ $segment(! $onlyCustomized) }}">All</button>
-                        <button type="button" wire:click="$set('onlyCustomized', true)" aria-pressed="{{ $onlyCustomized ? 'true' : 'false' }}" class="{{ $segment($onlyCustomized) }}">Only customized</button>
+                        <button type="button" wire:click="$set('onlyCustomized', true)" aria-pressed="{{ $onlyCustomized ? 'true' : 'false' }}" class="{{ $segment($onlyCustomized) }}">Only Customized</button>
                     </div>
-                    <flux:checkbox wire:model.live="activeOnly" label="Active only" />
+                    <flux:checkbox wire:model.live="activeOnly" label="Active Only" />
                 </div>
             </header>
 
@@ -93,11 +93,11 @@
                     <thead>
                         <tr>
                             <x-kit.sort-header field="name" label="Employee" />
-                            <x-kit.sort-header field="status" label="Employment status" />
-                            <th>Contributions &amp; tax</th>
-                            <th>Hourly rate</th>
+                            <x-kit.sort-header field="status" label="Employment Status" />
+                            <th>Contributions &amp; Tax</th>
+                            <th>Hourly Rate</th>
                             <th>Pay Basis &amp; Rates</th>
-                            <th>Loans &amp; allowances</th>
+                            <th>Loans &amp; Allowances</th>
                         </tr>
                     </thead>
                     <tbody>

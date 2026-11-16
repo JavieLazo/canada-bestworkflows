@@ -17,14 +17,14 @@
 @endphp
 <thead>
     <tr>
-        <th>Position title</th>
-        <th>Company / agency</th>
+        <th>Position Title</th>
+        <th>Company / Agency</th>
         <th>From</th>
         <th>To</th>
-        <th class="text-right">Monthly salary</th>
-        <th>Pay grade</th>
-        <th>Appointment status</th>
-        <th>Gov't service</th>
+        <th class="text-right">Monthly Salary</th>
+        <th>Pay Grade</th>
+        <th>Appointment Status</th>
+        <th>Gov't Service</th>
         <th class="w-10"><span class="sr-only">Actions</span></th>
     </tr>
 </thead>

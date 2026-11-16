@@ -40,7 +40,7 @@
                         @if ($latest)
                             <span class="pill pill-primary">Latest</span>
                         @endif
-                        <span class="pill pill-info">{{ $baseline ? 'Starting record' : 'Record created' }}</span>
+                        <span class="pill pill-info">{{ $baseline ? 'Starting Record' : 'Record Created' }}</span>
                     </span>
                     <span class="mt-1 block break-words font-medium">{{ $baseline ? 'Details on file when tracking began' : 'Employee record created' }}</span>
                     <span class="mt-0.5 block break-words text-xs text-muted-foreground">

@@ -53,7 +53,7 @@
         <x-kit.row-actions :label="$line->type_name">
             <flux:menu.item icon="pencil" wire:click="editLine('{{ $line->id }}')">Edit</flux:menu.item>
             @if (! $withTax && $line->total !== null && ($entriesReady ?? false))
-                <flux:menu.item icon="banknotes" wire:click="openEntry('{{ $line->id }}')">Record payment or adjustment</flux:menu.item>
+                <flux:menu.item icon="banknotes" wire:click="openEntry('{{ $line->id }}')">Record Payment or Adjustment</flux:menu.item>
             @endif
             @if ($line->status !== RecurringLineRecords::ENDED)
                 <flux:menu.item icon="stop-circle" wire:click="startEnd('{{ $line->id }}')">End</flux:menu.item>

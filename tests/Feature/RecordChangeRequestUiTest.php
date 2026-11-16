@@ -81,8 +81,8 @@ it('stages a school correction without changing an existing official school', fu
     recuiSignIn(recuiActor($employee));
     Livewire::test(PdsList::class, ['own' => true, 'employeeId' => $employee->id, 'list' => 'education'])
         ->call('startEdit', $school->id)
-        ->assertSee('Submit for approval')
-        ->assertDontSee('Reason for change')
+        ->assertSee('Submit for Approval')
+        ->assertDontSee('Reason for Change')
         ->set('form.school', 'Correct school')
         ->call('save')
         ->assertSet('dialogOpen', false)
@@ -116,7 +116,7 @@ it('stages a portrait until submission and leaves the official portrait unchange
     $page = Livewire::test(Show::class, ['own' => true])
         ->set('photo', UploadedFile::fake()->image('portrait.jpg', 300, 300))
         ->assertSet('portraitOpen', true)
-        ->assertDontSee('Reason for change');
+        ->assertDontSee('Reason for Change');
     expect(EmployeeRecordChangeRequest::query()->count())->toBe(0)->and($employee->fresh()->photo_path)->toBeNull();
     $page->call('submitPortrait')->assertSet('portraitOpen', false);
     expect(EmployeeRecordChangeRequest::query()->value('kind'))->toBe('PORTRAIT')
@@ -133,7 +133,7 @@ it('saves a managers own list rows and portrait directly through Employee Record
 
     $list = Livewire::test(PdsList::class, ['employeeId' => $employee->id, 'list' => 'education'])
         ->call('startEdit', $school->id)
-        ->assertDontSee('Submit for approval')
+        ->assertDontSee('Submit for Approval')
         ->set('form.school', 'Correct school')
         ->call('save')
         ->assertSet('dialogOpen', false)
@@ -159,7 +159,7 @@ it('refuses management-view section and portrait writes without all-data access 
     $employee = recuiEmployee();
     recuiSignIn(recuiActor($employee, false, [ModuleCode::EMPLOYEES]));
     $page = Livewire::test(Show::class, ['employee' => $employee->id])
-        ->assertDontSee('Submit for approval')
+        ->assertDontSee('Submit for Approval')
         ->assertDontSeeHtml('wire:click="startEdit(\'personal\')"')
         ->assertDontSeeHtml('value="documents"');
     if ($action === 'section') {
@@ -185,17 +185,17 @@ it('shows managers a pending comparison and preserves only supplied reasons thro
     $employee = recuiEmployee();
     $request = recuiRequest(recuiActor($employee), $reason);
     recuiSignIn(recuiActor(null, true, [ModuleCode::EMPLOYEES]));
-    $this->get('/employees/change-requests')->assertOk()->assertSee('Record change requests');
+    $this->get('/employees/change-requests')->assertOk()->assertSee('Record Change Requests');
     $page = Livewire::test(ChangeRequests::class)
         ->assertDontSee('1 pending')
         ->call('show', $request)
-        ->assertSee('When submitted')
+        ->assertSee('When Submitted')
         ->assertSee('New contact')
-        ->assertSee('Approve changes');
+        ->assertSee('Approve Changes');
     if ($reason === '') {
-        $page->assertDontSee('Reason for change');
+        $page->assertDontSee('Reason for Change');
     } else {
-        $page->assertSee('Reason for change')->assertSee($reason);
+        $page->assertSee('Reason for Change')->assertSee($reason);
     }
     $page->call('review', true);
     expect($employee->refresh()->emergency_name)->toBe('New contact')
@@ -227,7 +227,7 @@ it('lets another account of the same employee approve from the queue', function 
     recuiSignIn(recuiActor($employee, true, [ModuleCode::EMPLOYEES, ModuleCode::PROFILE]));
     Livewire::test(ChangeRequests::class)
         ->call('show', $request)
-        ->assertSee('Approve changes')
+        ->assertSee('Approve Changes')
         ->call('review', true);
     expect(EmployeeRecordChangeRequest::query()->findOrFail($request)->status)->toBe('APPROVED')
         ->and($employee->fresh()->emergency_name)->not->toBeNull();
@@ -244,7 +244,7 @@ it('shows only own requests and withdraws without editing the official record', 
         ->call('show', $other)
         ->assertSet('openId', null)
         ->call('show', $request)
-        ->assertSee('Withdraw request')
+        ->assertSee('Withdraw Request')
         ->call('withdraw');
     expect(EmployeeRecordChangeRequest::query()->findOrFail($request)->status)->toBe('WITHDRAWN')
         ->and($employee->fresh()->emergency_name)->toBeNull();
@@ -255,6 +255,6 @@ it('opens the own request route for an EMPLOYEES-only account without reviewer a
     $user = recuiActor($employee, false, [ModuleCode::EMPLOYEES]);
     recuiRequest($user);
     recuiSignIn($user);
-    $this->get('/my-record/requests')->assertOk()->assertSee('My change requests')->assertDontSee('Approve changes');
+    $this->get('/my-record/requests')->assertOk()->assertSee('My Change Requests')->assertDontSee('Approve Changes');
     $this->get('/employees/change-requests')->assertForbidden();
 });

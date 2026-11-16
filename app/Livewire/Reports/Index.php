@@ -228,7 +228,7 @@ class Index extends Component
     {
         return match (true) {
             $this->type === 'payroll-register' => ['summary' => 'Summary', 'earnings' => 'Earnings', 'deductions' => 'Deductions', 'all' => 'Everything'],
-            $this->type === 'attendance-reports' && $this->view === 'summary' => ['summary' => 'Summary', 'all' => 'All columns'],
+            $this->type === 'attendance-reports' && $this->view === 'summary' => ['summary' => 'Summary', 'all' => 'All Columns'],
             default => [],
         };
     }

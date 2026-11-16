@@ -157,7 +157,7 @@ it('records entries from the employee pay page, in effect at once, and a viewer 
     $loan = lneLoan($preparer, $employee->id, PayrollDeduction::create(['code' => '7', 'name' => 'SSS Loan'])->id);
 
     Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertSee('Record payment or adjustment')
+        ->assertSee('Record Payment or Adjustment')
         ->call('openEntry', $loan->id)->assertSet('entryOpen', true)->assertSet('entryLineId', $loan->id)
         ->set('entryForm.amount', '250')->set('entryForm.reason', 'Paid at the branch')
         ->call('saveEntry')->assertSet('entryOpen', false)->assertSet('entryError', null)

@@ -40,7 +40,7 @@ class SecurityTest extends TestCase
 
         $response->assertSee('Passkeys');
         $response->assertSee('No passkeys yet');
-        $response->assertSee('Two-factor authentication');
+        $response->assertSee('Two-Factor Authentication');
         $response->assertSee('Enable 2FA');
     }
 
@@ -64,10 +64,10 @@ class SecurityTest extends TestCase
             ->withSession(['auth.password_confirmed_at' => time()])
             ->get(route('security.edit'))
             ->assertOk()
-            ->assertSee('Update password')
+            ->assertSee('Update Password')
             ->assertDontSee('Manage your passkeys for passwordless sign-in')
             ->assertDontSee('Add a passkey to sign in without a password')
-            ->assertDontSee('Two-factor authentication');
+            ->assertDontSee('Two-Factor Authentication');
     }
 
     public function test_two_factor_authentication_disabled_when_confirmation_abandoned_between_requests(): void

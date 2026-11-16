@@ -77,11 +77,11 @@
         <nav aria-label="Sections of this page" class="sticky top-14 z-10 -mx-4 bg-background/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 print:hidden" data-pay-sections>
             <div class="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 text-sm text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 @foreach ([
-                    'pay-glance' => 'Pay at a glance',
-                    'pay-contributions' => 'Contributions & tax',
-                    'pay-allowances' => 'Allowances & incentives',
-                    'pay-recurring' => 'Loans & other deductions',
-                    'pay-tax-year' => 'Tax year',
+                    'pay-glance' => 'Pay at a Glance',
+                    'pay-contributions' => 'Contributions & Tax',
+                    'pay-allowances' => 'Allowances & Incentives',
+                    'pay-recurring' => 'Loans & Other Deductions',
+                    'pay-tax-year' => 'Tax Year',
                 ] as $anchor => $anchorLabel)
                     <a href="#{{ $anchor }}" class="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 font-medium transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">{{ $anchorLabel }}</a>
                 @endforeach
@@ -104,10 +104,10 @@
                     </span>
                 </x-slot:note>
                 @unless ($hourlyEditing)
-                    <flux:button variant="outline" icon="pencil" wire:click="startEditHourly">Edit hourly rate</flux:button>
+                    <flux:button variant="outline" icon="pencil" wire:click="startEditHourly">Edit Hourly Rate</flux:button>
                 @endunless
                 @if ($salaryReady)
-                    <flux:button variant="outline" icon="pencil" wire:click="openSalaryChange">Change salary</flux:button>
+                    <flux:button variant="outline" icon="pencil" wire:click="openSalaryChange">Change Salary</flux:button>
                 @endif
             </x-payroll.settings.head>
             @unless ($salaryReady)
@@ -115,7 +115,7 @@
             @endunless
             <dl class="grid gap-x-6 gap-y-4 p-5 sm:grid-cols-2 xl:grid-cols-4" data-salary-rates>
                 <div class="min-w-0">
-                    <dt class="{{ $dt }}">Monthly rate</dt>
+                    <dt class="{{ $dt }}">Monthly Rate</dt>
                     <dd class="mt-1">
                         <span class="num text-lg font-semibold">{{ $glance['monthly'] === null ? 'Not set' : Hris::peso($glance['monthly']) }}</span>
                         @unless ($salaryReady)
@@ -128,7 +128,7 @@
                     </dd>
                 </div>
                 <div class="min-w-0">
-                    <dt class="{{ $dt }}">Daily rate</dt>
+                    <dt class="{{ $dt }}">Daily Rate</dt>
                     <dd class="mt-1">
                         <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span @class(['text-lg font-semibold', 'num' => str_starts_with($glance['daily']['text'], '₱')])>{{ $glance['daily']['text'] }}</span>
@@ -138,7 +138,7 @@
                     </dd>
                 </div>
                 <div class="min-w-0">
-                    <dt class="{{ $dt }}">Hourly rate</dt>
+                    <dt class="{{ $dt }}">Hourly Rate</dt>
                     <dd class="mt-1">
                         <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span @class(['text-lg font-semibold', 'num' => str_starts_with($glance['hourly']['text'], '₱')])>{{ $glance['hourly']['text'] }}</span>
@@ -148,7 +148,7 @@
                     </dd>
                 </div>
                 <div class="min-w-0">
-                    <dt class="{{ $dt }}">Days, overtime and night hours</dt>
+                    <dt class="{{ $dt }}">Days, Overtime and Night Hours</dt>
                     <dd class="mt-1">
                         <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
                             <span class="text-lg font-semibold">
@@ -171,7 +171,7 @@
                         @endif
                         @if ($ratesReady)
                             <flux:link :href="route('records.pay-rates', ['for' => $settings->id])" wire:navigate class="mt-1 inline-block text-xs font-medium">
-                                {{ $ownRates ? 'Open own rates' : 'Set own rates' }}
+                                {{ $ownRates ? 'Open Own Rates' : 'Set Own Rates' }}
                             </flux:link>
                         @endif
                     </dd>
@@ -181,7 +181,7 @@
             @if ($hourlyEditing)
                 <form class="grid gap-3 border-t border-border p-5 sm:grid-cols-2" wire:submit="saveHourly">
                     <div class="space-y-2">
-                        <flux:label for="pay-hourly">Hourly rate override</flux:label>
+                        <flux:label for="pay-hourly">Hourly Rate Override</flux:label>
                         <x-kit.money-input id="pay-hourly" wire:model="hourlyRate" aria-label="Hourly rate override" />
                         <p class="text-xs text-muted-foreground">Prices overtime, lateness and undertime. Leave it blank to derive it from the daily rate and the shift.</p>
                     </div>
@@ -202,7 +202,7 @@
 
         <flux:modal wire:model.self="salaryOpen" class="w-full max-w-lg" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'salary-change-heading')">
             <form wire:submit="saveSalaryChange" class="space-y-4">
-                <flux:heading size="lg" level="2" id="salary-change-heading">Change salary</flux:heading>
+                <flux:heading size="lg" level="2" id="salary-change-heading">Change Salary</flux:heading>
                 @include('livewire.payroll.partials.settings-applies-note', ['class' => 'text-sm text-muted-foreground'])
                 <div class="grid gap-3 sm:grid-cols-2">
                     <div class="space-y-2">
@@ -259,7 +259,7 @@
                 </p>
                 <div class="hris-table-wrap">
                     <table class="hris-table">
-                        <thead><tr><th>Deduction</th><th>How it is deducted</th><th>Set by</th></tr></thead>
+                        <thead><tr><th>Deduction</th><th>How It Is Deducted</th><th>Set By</th></tr></thead>
                         <tbody>
                             @foreach (GovSettings::CONTRIBUTIONS as $key => $name)
                                 <tr wire:key="read-{{ $key }}">
@@ -269,7 +269,7 @@
                                 </tr>
                             @endforeach
                             <tr wire:key="read-withholding">
-                                <td class="font-medium">Withholding tax</td>
+                                <td class="font-medium">Withholding Tax</td>
                                 <td>{{ PaySettingsText::withholding($gov) }}</td>
                                 <td>@include('livewire.records.partials.pay-source', ['from' => $differs(PaySettingsText::withholdingKeys()) ? 'own' : 'company', 'status' => $status])</td>
                             </tr>
@@ -308,11 +308,11 @@
                             </div>
                             <div class="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
                                 <div class="space-y-2">
-                                    <flux:label for="pay-{{ $key }}-ee">Fixed employee share</flux:label>
+                                    <flux:label for="pay-{{ $key }}-ee">Fixed Employee Share</flux:label>
                                     <x-kit.money-input id="pay-{{ $key }}-ee" wire:model="form.{{ $key }}_fixed_ee" aria-label="Fixed {{ $name }} employee share" placeholder="From the table" :disabled="! $on" />
                                 </div>
                                 <div class="space-y-2">
-                                    <flux:label for="pay-{{ $key }}-er">Fixed employer share</flux:label>
+                                    <flux:label for="pay-{{ $key }}-er">Fixed Employer Share</flux:label>
                                     <x-kit.money-input id="pay-{{ $key }}-er" wire:model="form.{{ $key }}_fixed_er" aria-label="Fixed {{ $name }} employer share" placeholder="From the table" :disabled="! $on" />
                                 </div>
                                 <x-kit.select label="Deducted" wire:model="form.{{ $key }}_mode" :disabled="! $on">
@@ -331,26 +331,26 @@
                     @endphp
                     <div class="grid gap-5 xl:grid-cols-2 xl:items-start">
                     <fieldset class="min-w-0 rounded-md border border-border p-4">
-                        <legend class="px-1 text-sm font-semibold">Withholding tax</legend>
+                        <legend class="px-1 text-sm font-semibold">Withholding Tax</legend>
                         <div class="flex items-center gap-3">
                             <flux:switch id="pay-tax-deduct" wire:model.live="form.tax_deduct" />
-                            <flux:label for="pay-tax-deduct">Deduct withholding tax</flux:label>
+                            <flux:label for="pay-tax-deduct">Deduct Withholding Tax</flux:label>
                         </div>
                         <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                            <x-kit.select label="Tax method" wire:model.live="form.tax_method" :disabled="! $taxOn">
+                            <x-kit.select label="Tax Method" wire:model.live="form.tax_method" :disabled="! $taxOn">
                                 @foreach (GovInput::METHODS as $value => $label)
                                     <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                                 @endforeach
                             </x-kit.select>
                             <div class="space-y-2">
                                 @if ($method === GovInput::METHOD_FIXED)
-                                    <flux:label for="pay-tax-amount">Tax per payslip</flux:label>
+                                    <flux:label for="pay-tax-amount">Tax per Payslip</flux:label>
                                     <x-kit.money-input id="pay-tax-amount" wire:model="form.tax_amount" aria-label="Tax per payslip" :disabled="! $taxOn" />
                                 @elseif ($method === GovInput::METHOD_PERCENT)
-                                    <flux:label for="pay-tax-amount">Percent of taxable compensation</flux:label>
+                                    <flux:label for="pay-tax-amount">Percent of Taxable Compensation</flux:label>
                                     <flux:input id="pay-tax-amount" type="number" min="0" max="100" step="0.01" class:input="num" wire:model="form.tax_amount" aria-label="Percent of taxable compensation" :disabled="! $taxOn" />
                                 @elseif ($method === GovInput::METHOD_WHOLE_YEAR)
-                                    <x-kit.select label="Remaining tax spread" wire:model="form.tax_spread" :disabled="! $taxOn">
+                                    <x-kit.select label="Remaining Tax Spread" wire:model="form.tax_spread" :disabled="! $taxOn">
                                         @foreach (GovInput::SPREADS as $value => $label)
                                             <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
                                         @endforeach
@@ -363,7 +363,7 @@
 
                     @if ($percentRows !== [])
                         <fieldset class="min-w-0 rounded-md border border-border p-4">
-                            <legend class="px-1 text-sm font-semibold">Percentage deductions</legend>
+                            <legend class="px-1 text-sm font-semibold">Percentage Deductions</legend>
                             <p class="text-xs text-muted-foreground">A rate replaces the employee share only. Blank uses the listed rate. 0 means not a member, so neither share is taken.</p>
                             <div class="mt-3 grid gap-3 sm:grid-cols-2">
                                 @foreach ($percentRows as $rowId => $row)
@@ -385,7 +385,7 @@
                     @endif
 
                     <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-                        <flux:button variant="outline" icon="arrow-uturn-left" wire:click="useStandard">Reset to standard</flux:button>
+                        <flux:button variant="outline" icon="arrow-uturn-left" wire:click="useStandard">Reset to Standard</flux:button>
                         <div class="flex gap-2">
                             <flux:button variant="ghost" icon="x-mark" wire:click="cancelEdit">Cancel</flux:button>
                             <flux:button type="submit" variant="primary">Save</flux:button>
@@ -409,10 +409,10 @@
                 description="What payroll adds to their pay on its own."
             >
                 @if ($assignReady && $assignableTypes !== [])
-                    <flux:button variant="outline" icon="plus" wire:click="openAssign">Assign incentive</flux:button>
+                    <flux:button variant="outline" icon="plus" wire:click="openAssign">Assign Incentive</flux:button>
                 @endif
                 @if ($recurringReady)
-                    <flux:button variant="outline" icon="plus" wire:click="addLine('INCENTIVE')">Add allowance</flux:button>
+                    <flux:button variant="outline" icon="plus" wire:click="addLine('INCENTIVE')">Add Allowance</flux:button>
                 @endif
             </x-payroll.settings.head>
             <div class="hris-table-wrap">
@@ -423,7 +423,7 @@
                             <th class="text-right">Amount</th>
                             <th>Runs</th>
                             <th>Tax</th>
-                            <th>Set by</th>
+                            <th>Set By</th>
                             <th>Status</th>
                             <th class="text-right">Action</th>
                         </tr>
@@ -447,7 +447,7 @@
                                     @endif
                                 </td>
                                 <td class="text-right">
-                                    <flux:link :href="route('records.incentive-types')" wire:navigate class="text-sm font-medium">Open catalog</flux:link>
+                                    <flux:link :href="route('records.incentive-types')" wire:navigate class="text-sm font-medium">Open Catalog</flux:link>
                                 </td>
                             </tr>
                         @endforeach
@@ -503,7 +503,7 @@
                                         @if ($row->status === 'DRAFT')
                                             <x-kit.row-actions :label="$row->type_name.' assignment'">
                                                 <flux:menu.item icon="check" wire:click="approveAssignment('{{ $row->id }}')">Approve</flux:menu.item>
-                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardAssignment('{{ $row->id }}')">Discard draft</flux:menu.item>
+                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardAssignment('{{ $row->id }}')">Discard Draft</flux:menu.item>
                                             </x-kit.row-actions>
                                         @endif
                                     </td>
@@ -539,7 +539,7 @@
             {{-- The form, with every scheduled type, renders only while the dialog is open. --}}
             @if ($assignOpen)
             <form wire:submit="saveAssignment" class="space-y-4">
-                <flux:heading size="lg" level="2" id="assign-benefit-heading">Assign incentive</flux:heading>
+                <flux:heading size="lg" level="2" id="assign-benefit-heading">Assign Incentive</flux:heading>
                 <x-kit.select label="Incentive" wire:model="assignForm.type_id">
                     <flux:select.option value="">Choose an incentive</flux:select.option>
                     @foreach ($assignableTypes as $typeId => $typeName)
@@ -588,7 +588,7 @@
                 description="Loans and other amounts taken from their pay. A loan stops once it is paid off."
             >
                 @if ($recurringReady)
-                    <flux:button variant="outline" icon="plus" wire:click="addLine('DEDUCTION')">Add loan or deduction</flux:button>
+                    <flux:button variant="outline" icon="plus" wire:click="addLine('DEDUCTION')">Add Loan or Deduction</flux:button>
                 @endif
             </x-payroll.settings.head>
             @unless ($recurringReady)
@@ -599,10 +599,10 @@
                         <thead>
                             <tr>
                                 <th>Line</th>
-                                <th class="text-right">Per payroll</th>
+                                <th class="text-right">Per Payroll</th>
                                 <th class="text-right">Balance</th>
                                 <th>Runs</th>
-                                <th>Set by</th>
+                                <th>Set By</th>
                                 <th>Status</th>
                                 <th class="text-right">Action</th>
                             </tr>
@@ -622,7 +622,7 @@
             @endunless
             @if ($entriesReady && $entries->isNotEmpty())
                 <div class="border-t border-border px-5 pt-4 pb-2">
-                    <h3 class="text-sm font-semibold">Payments &amp; adjustments outside payroll</h3>
+                    <h3 class="text-sm font-semibold">Payments &amp; Adjustments Outside Payroll</h3>
                     <p class="text-xs text-muted-foreground">A payment made straight to the lender lowers what is left; a balance adjustment from the lender's statement raises or lowers it.</p>
                 </div>
                 <div class="hris-table-wrap" data-loan-entries>
@@ -633,7 +633,7 @@
                                 <th>Entry</th>
                                 <th class="text-right">Amount</th>
                                 <th>Date</th>
-                                <th>Recorded by</th>
+                                <th>Recorded By</th>
                                 <th>Status</th>
                                 <th class="text-right">Action</th>
                             </tr>
@@ -670,7 +670,7 @@
                                         @if ($entry->status === 'DRAFT')
                                             <x-kit.row-actions :label="$entry->line_name.' entry'">
                                                 <flux:menu.item icon="check" wire:click="approveEntry('{{ $entry->id }}')">Approve</flux:menu.item>
-                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardEntry('{{ $entry->id }}')">Discard draft</flux:menu.item>
+                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardEntry('{{ $entry->id }}')">Discard Draft</flux:menu.item>
                                             </x-kit.row-actions>
                                         @endif
                                     </td>
@@ -685,7 +685,7 @@
         <flux:modal wire:model.self="entryOpen" class="w-full max-w-lg" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'loan-entry-heading')">
             @if ($entryOpen)
             <form wire:submit="saveEntry" class="space-y-4">
-                <flux:heading size="lg" level="2" id="loan-entry-heading">Record payment or adjustment</flux:heading>
+                <flux:heading size="lg" level="2" id="loan-entry-heading">Record Payment or Adjustment</flux:heading>
                 <x-kit.select label="Entry" wire:model.live="entryForm.kind">
                     @foreach (\App\Modules\Payroll\Application\Queries\RecurringLineEntryRecords::KINDS as $value => $label)
                         <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
@@ -728,16 +728,16 @@
                 description="Year-to-date taxable compensation and tax withheld."
             >
                 @if ($balancesReady)
-                    <flux:button variant="outline" icon="plus" wire:click="openBalance">Record balance</flux:button>
+                    <flux:button variant="outline" icon="plus" wire:click="openBalance">Record Balance</flux:button>
                 @endif
             </x-payroll.settings.head>
             <dl class="grid gap-4 px-5 py-4 sm:grid-cols-2">
                 <div class="min-w-0">
-                    <dt class="{{ $dt }}">Taxable compensation (YTD)</dt>
+                    <dt class="{{ $dt }}">Taxable Compensation (YTD)</dt>
                     <dd class="num mt-1 text-lg font-semibold" data-tax-year-taxable>{{ Hris::peso($taxYear['taxable']) }}</dd>
                 </div>
                 <div class="min-w-0">
-                    <dt class="{{ $dt }}">Tax withheld (YTD)</dt>
+                    <dt class="{{ $dt }}">Tax Withheld (YTD)</dt>
                     <dd class="num mt-1 text-lg font-semibold" data-tax-year-withheld>{{ Hris::peso($taxYear['withheld']) }}</dd>
                 </div>
             </dl>
@@ -751,9 +751,9 @@
                             <tr>
                                 <th>Year</th>
                                 <th>Kind</th>
-                                <th class="text-right">Taxable compensation</th>
-                                <th class="text-right">Tax withheld</th>
-                                <th>Recorded by</th>
+                                <th class="text-right">Taxable Compensation</th>
+                                <th class="text-right">Tax Withheld</th>
+                                <th>Recorded By</th>
                                 <th>Status</th>
                                 <th class="text-right">Action</th>
                             </tr>
@@ -788,9 +788,9 @@
                                     </td>
                                     <td class="text-right">
                                         @if ($balance->status === 'DRAFT')
-                                            <x-kit.row-actions :label="'Tax balance for '.$balance->tax_year">
+                                            <x-kit.row-actions :label="'Tax Balance for '.$balance->tax_year">
                                                 <flux:menu.item icon="check" wire:click="approveBalance('{{ $balance->id }}')">Approve</flux:menu.item>
-                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardBalance('{{ $balance->id }}')">Discard draft</flux:menu.item>
+                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardBalance('{{ $balance->id }}')">Discard Draft</flux:menu.item>
                                             </x-kit.row-actions>
                                         @endif
                                     </td>
@@ -806,10 +806,10 @@
             {{-- The form, with both kinds, renders only while the dialog is open. --}}
             @if ($balanceOpen)
             <form wire:submit="saveBalance" class="space-y-4">
-                <flux:heading size="lg" level="2" id="tax-balance-heading">Record tax balance</flux:heading>
+                <flux:heading size="lg" level="2" id="tax-balance-heading">Record Tax Balance</flux:heading>
                 <div class="grid gap-3 sm:grid-cols-2">
                     <div class="space-y-2">
-                        <flux:label for="balance-year">Tax year</flux:label>
+                        <flux:label for="balance-year">Tax Year</flux:label>
                         <flux:input id="balance-year" type="number" min="2000" max="2100" step="1" class:input="num" wire:model="balanceForm.tax_year" aria-label="Tax year" />
                     </div>
                     <x-kit.select label="Kind" wire:model="balanceForm.kind">
@@ -820,11 +820,11 @@
                 </div>
                 <div class="grid gap-3 sm:grid-cols-2">
                     <div class="space-y-2">
-                        <flux:label for="balance-taxable">Taxable compensation</flux:label>
+                        <flux:label for="balance-taxable">Taxable Compensation</flux:label>
                         <x-kit.money-input id="balance-taxable" wire:model="balanceForm.taxable_income" aria-label="Taxable compensation" />
                     </div>
                     <div class="space-y-2">
-                        <flux:label for="balance-withheld">Tax withheld</flux:label>
+                        <flux:label for="balance-withheld">Tax Withheld</flux:label>
                         <x-kit.money-input id="balance-withheld" wire:model="balanceForm.tax_withheld" aria-label="Tax withheld" />
                     </div>
                 </div>
@@ -884,7 +884,7 @@
                     @endif
                     <div class="grid gap-4 sm:grid-cols-2">
                         <div class="space-y-2">
-                            <flux:label for="line-amount">Amount per payroll</flux:label>
+                            <flux:label for="line-amount">Amount per Payroll</flux:label>
                             <x-kit.money-input id="line-amount" wire:model.live="lineAmount" aria-label="Amount per payroll" />
                         </div>
                         <x-kit.select label="On" wire:model.live="lineFrequency">
@@ -895,19 +895,19 @@
                     </div>
                     @if ($lineKind === RecurringLine::KIND_DEDUCTION)
                         <div class="space-y-2">
-                            <flux:label for="line-total">Total loan payable (optional)</flux:label>
+                            <flux:label for="line-total">Total Loan Payable (optional)</flux:label>
                             <x-kit.money-input id="line-total" wire:model.live="lineTotal" aria-label="Total loan payable" />
                             <p class="text-xs text-muted-foreground">Deductions stop once this is paid. Leave blank if there's no balance.</p>
                         </div>
                     @endif
                     <div class="grid gap-4 sm:grid-cols-2">
                         <div class="space-y-2">
-                            <flux:label for="line-from">Starts on</flux:label>
+                            <flux:label for="line-from">Starts On</flux:label>
                             <x-kit.date-field id="line-from" wire:model.live="lineStartsOn" aria-label="Starts on" />
                             <p class="text-xs text-muted-foreground">The 1st or the 16th: the first payroll it is on.</p>
                         </div>
                         <div class="space-y-2">
-                            <flux:label for="line-until">Last period starting on (optional)</flux:label>
+                            <flux:label for="line-until">Last Period Starting on (optional)</flux:label>
                             <x-kit.date-field id="line-until" wire:model="lineEndsOn" aria-label="Last period starting on" />
                         </div>
                     </div>
@@ -930,7 +930,7 @@
                         <flux:modal.close>
                             <flux:button variant="ghost">Cancel</flux:button>
                         </flux:modal.close>
-                        <flux:button type="submit" variant="primary">{{ $lineId === null ? 'Add' : 'Save changes' }}</flux:button>
+                        <flux:button type="submit" variant="primary">{{ $lineId === null ? 'Add' : 'Save Changes' }}</flux:button>
                     </div>
                 </form>
             </flux:modal>
@@ -941,10 +941,10 @@
                 x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'line-end-heading')"
             >
                 <form class="grid gap-4" wire:submit="endLine">
-                    <flux:heading size="lg" id="line-end-heading">End this loan or allowance</flux:heading>
+                    <flux:heading size="lg" id="line-end-heading">End This Loan or Allowance</flux:heading>
                     <flux:text class="text-sm text-muted-foreground">No payroll period starting after this date proposes it again. What it paid stays on record.</flux:text>
                     <div class="space-y-2">
-                        <flux:label for="line-end-day">Last period starting on</flux:label>
+                        <flux:label for="line-end-day">Last Period Starting On</flux:label>
                         <x-kit.date-field id="line-end-day" wire:model="endLastDay" aria-label="Last period starting on" />
                     </div>
                     <div class="space-y-2">
@@ -958,7 +958,7 @@
                         <flux:modal.close>
                             <flux:button variant="ghost">Cancel</flux:button>
                         </flux:modal.close>
-                        <flux:button type="submit" variant="primary">End line</flux:button>
+                        <flux:button type="submit" variant="primary">End Line</flux:button>
                     </div>
                 </form>
             </flux:modal>

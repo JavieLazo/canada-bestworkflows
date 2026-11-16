@@ -38,7 +38,7 @@
                 aria-selected="{{ $tab === 'punch' ? 'true' : 'false' }}"
                 wire:click="$set('tab', 'punch')"
                 class="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium transition-all {{ $tab === 'punch' ? 'bg-card text-foreground shadow-sm' : 'hover:text-foreground' }}"
-            >Punch station</button>
+            >Punch Station</button>
             <button
                 type="button"
                 role="tab"
@@ -69,7 +69,7 @@
                     @unless ($selfOnly)
                         <div class="space-y-2">
                             <div class="flex min-h-5 items-center">
-                                <flux:label id="dtr-department-label" for="dtr-department">Department or unit</flux:label>
+                                <flux:label id="dtr-department-label" for="dtr-department">Department or Unit</flux:label>
                             </div>
                             <x-kit.select id="dtr-department" wire:model.live="department" aria-label="Department or unit">
                                 @foreach ($departments as $value => $label)
@@ -98,18 +98,18 @@
                     </div>
                     <div class="space-y-2">
                         <div class="flex min-h-5 items-center justify-between gap-2">
-                            <flux:label>Period start</flux:label>
+                            <flux:label>Period Start</flux:label>
                             <button
                                 type="button"
                                 wire:click="thisCutoff"
                                 class="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-                            >This cut-off</button>
+                            >This Cut-Off</button>
                         </div>
                         <x-kit.date-field wire:model.live="start" aria-label="Period start" />
                     </div>
                     <div class="space-y-2">
                         <div class="flex min-h-5 items-center">
-                            <flux:label>Period end</flux:label>
+                            <flux:label>Period End</flux:label>
                         </div>
                         <x-kit.date-field wire:model.live="end" aria-label="Period end" />
                     </div>
@@ -153,7 +153,7 @@
                             </div>
 
                             <div class="text-sm text-muted-foreground">
-                                <p class="text-xs font-medium uppercase tracking-wide">Default shift</p>
+                                <p class="text-xs font-medium uppercase tracking-wide">Default Shift</p>
                                 <p class="num text-foreground">{{ $shiftLabel }}</p>
                             </div>
                         </section>
@@ -606,7 +606,7 @@
                         {{-- ASSIGNED, not captured: where the roster expects the
                              employee on this date. Where each punch was really taken
                              is under Recorded punches, per punch. --}}
-                        <dt class="text-muted-foreground">Assigned location</dt>
+                        <dt class="text-muted-foreground">Assigned Location</dt>
                         <dd class="min-w-0">
                             @if ($correction->location->kind !== LocationKind::WFH && $correction->location->site_id === null)
                                 <span class="text-muted-foreground">No worksite</span>
@@ -706,7 +706,7 @@
                                                     wire:model="correctionNextDay.{{ $slotKey }}"
                                                     class="size-4 rounded border-border accent-[var(--color-primary)]"
                                                 />
-                                                Next day<span class="sr-only"> for {{ $slotLabel }}</span>
+                                                Next Day<span class="sr-only"> for {{ $slotLabel }}</span>
                                             </label>
                                         @endif
                                     </div>
@@ -729,7 +729,7 @@
                                     icon="plus"
                                     x-show="! middle"
                                     x-on:click="middle = true; $nextTick(() => document.getElementById('correct-break_out-time')?.focus())"
-                                >Add break punches</flux:button>
+                                >Add Break Punches</flux:button>
                             @endunless
                             @if (! $correction->next_day_allowed && ! $correctionStaleTick)
                                 <flux:button
@@ -743,7 +743,7 @@
                                 >Time after midnight?</flux:button>
                             @endif
                             <flux:button type="button" variant="subtle" size="sm" icon="backspace" class="ms-auto" wire:click="clearAllSlots">
-                                Clear all
+                                Clear All
                             </flux:button>
                         </div>
                         @if (! $correction->next_day_allowed && ! $correctionStaleTick)
@@ -765,7 +765,7 @@
                         <div class="border-t border-border pt-3">
                             @if ($correction->punches === [])
                                 <p class="text-sm">
-                                    <span class="font-medium">Recorded punches</span>
+                                    <span class="font-medium">Recorded Punches</span>
                                     <span class="text-muted-foreground">· none on this day's record.</span>
                                 </p>
                             @else
@@ -780,7 +780,7 @@
                                     <span class="inline-flex text-muted-foreground motion-safe:transition-transform" x-bind:class="evidence ? 'rotate-90' : ''">
                                         <flux:icon.chevron-right variant="micro" class="size-4" />
                                     </span>
-                                    Recorded punches
+                                    Recorded Punches
                                     <span class="num font-normal text-muted-foreground">{{ count($correction->punches) }}</span>
                                     @if ($offSlot !== [])
                                         <span class="pill pill-caution">{{ count($offSlot) }} not in a slot</span>
@@ -791,7 +791,7 @@
                                         <thead>
                                             <tr>
                                                 <th>Time</th>
-                                                <th>Captured location</th>
+                                                <th>Captured Location</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -886,7 +886,7 @@
                                         <span wire:loading wire:target="saveCorrection" class="mr-2 inline-flex">
                                             <flux:icon.loading class="size-4" />
                                         </span>
-                                        Save punches
+                                        Save Punches
                                     </flux:button>
                                 @endunless
                             </div>

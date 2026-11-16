@@ -13,11 +13,11 @@
 @endphp
 <thead>
     <tr>
-        <th>Organization and address</th>
+        <th>Organization and Address</th>
         <th>From</th>
         <th>To</th>
         <th class="text-right">Hours</th>
-        <th>Position / nature of work</th>
+        <th>Position / Nature of Work</th>
         <th></th>
     </tr>
 </thead>

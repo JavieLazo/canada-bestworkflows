@@ -54,10 +54,10 @@ final class PdsLists
                 'table' => 'employee_education',
                 'title' => 'Educational Background',
                 'subtitle' => 'Schools attended by {name}, from elementary to graduate studies.',
-                'add' => 'Add school',
+                'add' => 'Add School',
                 'noun' => 'schools',
                 'one' => 'school',
-                'dialog' => ['add' => 'Add school', 'edit' => 'Edit school', 'text' => 'A level with no school prints as N/A on the PDS.'],
+                'dialog' => ['add' => 'Add School', 'edit' => 'Edit School', 'text' => 'A level with no school prints as N/A on the PDS.'],
                 'audit' => 'educational background',
             ],
             'eligibility' => [
@@ -65,10 +65,10 @@ final class PdsLists
                 'table' => 'employee_eligibilities',
                 'title' => 'Civil Service Eligibility',
                 'subtitle' => 'Career service, board and bar eligibilities and licences held by {name}.',
-                'add' => 'Add eligibility',
+                'add' => 'Add Eligibility',
                 'noun' => 'eligibilities',
                 'one' => 'eligibility',
-                'dialog' => ['add' => 'Add eligibility', 'edit' => 'Edit eligibility', 'text' => 'Leave Rating, License no. and Valid until blank when they do not apply.'],
+                'dialog' => ['add' => 'Add Eligibility', 'edit' => 'Edit Eligibility', 'text' => 'Leave Rating, License no. and Valid until blank when they do not apply.'],
                 'audit' => 'civil service eligibility',
             ],
             'experience' => [
@@ -76,10 +76,10 @@ final class PdsLists
                 'table' => 'employee_work_experiences',
                 'title' => 'Work Experience',
                 'subtitle' => 'Most recent first. The first row comes from Employee Details.',
-                'add' => 'Add previous job',
+                'add' => 'Add Previous Job',
                 'noun' => 'jobs',
                 'one' => 'previous job',
-                'dialog' => ['add' => 'Add previous job', 'edit' => 'Edit previous job', 'text' => 'A job before this one. The current job comes from Employee Details.'],
+                'dialog' => ['add' => 'Add Previous Job', 'edit' => 'Edit Previous Job', 'text' => 'A job before this one. The current job comes from Employee Details.'],
                 'audit' => 'work experience',
             ],
             'training' => [
@@ -87,10 +87,10 @@ final class PdsLists
                 'table' => 'employee_trainings',
                 'title' => 'Learning and Development',
                 'subtitle' => 'Learning and development interventions and training programs attended, latest first.',
-                'add' => 'Add training',
+                'add' => 'Add Training',
                 'noun' => 'trainings',
                 'one' => 'training',
-                'dialog' => ['add' => 'Add training', 'edit' => 'Edit training', 'text' => 'Write the title and the sponsor in full.'],
+                'dialog' => ['add' => 'Add Training', 'edit' => 'Edit Training', 'text' => 'Write the title and the sponsor in full.'],
                 'audit' => 'learning and development',
             ],
             'voluntary' => [
@@ -98,10 +98,10 @@ final class PdsLists
                 'table' => 'employee_voluntary_works',
                 'title' => 'Voluntary Work',
                 'subtitle' => 'Voluntary work or involvement in civic, non-government, people and voluntary organizations.',
-                'add' => 'Add voluntary work',
+                'add' => 'Add Voluntary Work',
                 'noun' => 'entries',
                 'one' => 'voluntary work',
-                'dialog' => ['add' => 'Add voluntary work', 'edit' => 'Edit voluntary work', 'text' => "Write the organization's name and address in full."],
+                'dialog' => ['add' => 'Add Voluntary Work', 'edit' => 'Edit Voluntary Work', 'text' => "Write the organization's name and address in full."],
                 'audit' => 'voluntary work',
             ],
             default => throw new InvalidArgumentException("Unknown Personal Data Sheet list [{$list}]."),
@@ -123,31 +123,31 @@ final class PdsLists
         $fields = match ($list) {
             'education' => [
                 ['key' => 'level', 'label' => 'Level', 'type' => 'select', 'span' => 2, 'required' => true, 'options' => self::options(EmployeeFields::EDUCATION_LEVELS)],
-                ['key' => 'school', 'label' => 'Name of school', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full, as on the diploma or transcript.'],
-                ['key' => 'course', 'label' => 'Basic education / degree / course', 'span' => 2, 'cap' => 150, 'hint' => 'Write in full — no abbreviations.'],
-                ['key' => 'attended_from', 'label' => 'Attended from', 'type' => 'year'],
-                ['key' => 'attended_to', 'label' => 'Attended to', 'type' => 'year'],
-                ['key' => 'units_earned', 'label' => 'Highest level / units earned', 'cap' => 60, 'hint' => 'Only if not graduated.'],
-                ['key' => 'year_graduated', 'label' => 'Year graduated', 'type' => 'year'],
-                ['key' => 'honors', 'label' => 'Scholarship / academic honors received', 'span' => 2, 'cap' => 150],
+                ['key' => 'school', 'label' => 'Name of School', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full, as on the diploma or transcript.'],
+                ['key' => 'course', 'label' => 'Basic Education / Degree / Course', 'span' => 2, 'cap' => 150, 'hint' => 'Write in full — no abbreviations.'],
+                ['key' => 'attended_from', 'label' => 'Attended From', 'type' => 'year'],
+                ['key' => 'attended_to', 'label' => 'Attended To', 'type' => 'year'],
+                ['key' => 'units_earned', 'label' => 'Highest Level / Units Earned', 'cap' => 60, 'hint' => 'Only if not graduated.'],
+                ['key' => 'year_graduated', 'label' => 'Year Graduated', 'type' => 'year'],
+                ['key' => 'honors', 'label' => 'Scholarship / Academic Honors Received', 'span' => 2, 'cap' => 150],
             ],
             'eligibility' => [
                 ['key' => 'name', 'label' => 'Eligibility', 'span' => 2, 'required' => true, 'cap' => 255, 'hint' => "Career service, RA 1080 (board or bar), under special laws, CES, CSEE, barangay eligibility or driver's license — write in full."],
                 ['key' => 'rating', 'label' => 'Rating', 'cap' => 20, 'hint' => 'If applicable.'],
-                ['key' => 'exam_date', 'label' => 'Date of exam / conferment', 'type' => 'date'],
-                ['key' => 'exam_place', 'label' => 'Place of exam / conferment', 'span' => 2, 'cap' => 150],
-                ['key' => 'license_no', 'label' => 'License no.', 'cap' => 40, 'hint' => 'If applicable.'],
-                ['key' => 'license_valid_until', 'label' => 'Valid until', 'type' => 'date'],
+                ['key' => 'exam_date', 'label' => 'Date of Exam / Conferment', 'type' => 'date'],
+                ['key' => 'exam_place', 'label' => 'Place of Exam / Conferment', 'span' => 2, 'cap' => 150],
+                ['key' => 'license_no', 'label' => 'License No.', 'cap' => 40, 'hint' => 'If applicable.'],
+                ['key' => 'license_valid_until', 'label' => 'Valid Until', 'type' => 'date'],
             ],
             'experience' => [
-                ['key' => 'position_title', 'label' => 'Position title', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full — no abbreviations.'],
-                ['key' => 'company', 'label' => 'Department / agency / office / company', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full — no abbreviations.'],
+                ['key' => 'position_title', 'label' => 'Position Title', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full — no abbreviations.'],
+                ['key' => 'company', 'label' => 'Department / Agency / Office / Company', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full — no abbreviations.'],
                 ['key' => 'date_from', 'label' => 'From', 'type' => 'date', 'required' => true],
                 ['key' => 'date_to', 'label' => 'To', 'type' => 'date', 'required' => true],
-                ['key' => 'monthly_salary', 'label' => 'Monthly salary', 'type' => 'money'],
-                ['key' => 'pay_grade', 'label' => 'Pay grade', 'cap' => 20, 'hint' => 'Salary, job or pay grade and step, like "11-2", if applicable.'],
-                ['key' => 'appointment_status', 'label' => 'Appointment status', 'cap' => 60],
-                ['key' => 'government_service', 'label' => "Gov't service", 'type' => 'select', 'options' => EmployeeFields::GOV_SERVICE],
+                ['key' => 'monthly_salary', 'label' => 'Monthly Salary', 'type' => 'money'],
+                ['key' => 'pay_grade', 'label' => 'Pay Grade', 'cap' => 20, 'hint' => 'Salary, job or pay grade and step, like "11-2", if applicable.'],
+                ['key' => 'appointment_status', 'label' => 'Appointment Status', 'cap' => 60],
+                ['key' => 'government_service', 'label' => "Gov't Service", 'type' => 'select', 'options' => EmployeeFields::GOV_SERVICE],
             ],
             'training' => [
                 ['key' => 'title', 'label' => 'Title', 'span' => 2, 'required' => true, 'cap' => 255, 'hint' => 'Write in full.'],
@@ -155,7 +155,7 @@ final class PdsLists
                 ['key' => 'date_to', 'label' => 'To', 'type' => 'date', 'required' => true],
                 ['key' => 'hours', 'label' => 'Hours', 'type' => 'number'],
                 ['key' => 'ld_type', 'label' => 'Type of L&D', 'cap' => 60, 'hint' => 'Managerial, supervisory, technical, foundation …'],
-                ['key' => 'sponsor', 'label' => 'Conducted / sponsored by', 'span' => 2, 'cap' => 255, 'hint' => 'Write in full.'],
+                ['key' => 'sponsor', 'label' => 'Conducted / Sponsored By', 'span' => 2, 'cap' => 255, 'hint' => 'Write in full.'],
             ],
             'voluntary' => [
                 ['key' => 'organization', 'label' => 'Organization', 'span' => 2, 'required' => true, 'cap' => 150, 'hint' => 'Write in full.'],
@@ -163,7 +163,7 @@ final class PdsLists
                 ['key' => 'date_from', 'label' => 'From', 'type' => 'date'],
                 ['key' => 'date_to', 'label' => 'To', 'type' => 'date'],
                 ['key' => 'hours', 'label' => 'Hours', 'type' => 'number'],
-                ['key' => 'position', 'label' => 'Position / nature of work', 'cap' => 150],
+                ['key' => 'position', 'label' => 'Position / Nature of Work', 'cap' => 150],
             ],
             default => throw new InvalidArgumentException("Unknown Personal Data Sheet list [{$list}]."),
         };
@@ -219,8 +219,8 @@ final class PdsLists
      * through EmployeeInput::fieldError(), the record's own rules. Text
      * NEVER does: its caps come from this registry alone, because the list
      * keys `position`, `name`, `title` and `level` collide with
-     * EmployeeFields::TEXT_CAPS keys, and routing Voluntary work's "Position
-     * / nature of work" there would cap it at the profile's 120 instead of
+     * EmployeeFields::TEXT_CAPS keys, and routing Voluntary Work's "Position
+     * / Nature of Work" there would cap it at the profile's 120 instead of
      * its column's 150. The cross-field date rules follow, for fields that
      * passed on their own.
      *
@@ -313,7 +313,7 @@ final class PdsLists
 
     /**
      * The first problem among a hire's rows of one list, named by the row's
-     * place in the wizard ("School 2: Name of school is required." for the
+     * place in the wizard ("School 2: Name of School is required." for the
      * second row drawn, even when the first was left blank), or the cap.
      * Rows left entirely blank are not rows (rows() drops them) and are
      * neither checked nor counted.

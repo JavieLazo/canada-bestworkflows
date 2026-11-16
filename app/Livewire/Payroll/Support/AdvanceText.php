@@ -85,7 +85,7 @@ final class AdvanceText
             $steps[] = ['label' => 'Nothing to adjust', 'detail' => 'No earlier payslip of theirs has days paid as scheduled that are not yet adjusted.', 'state' => 'unused'];
         }
 
-        return ['title' => 'Prior cut-off adjustment · '.$employeeName, 'amount' => $amount, 'steps' => $steps];
+        return ['title' => 'Prior Cut-Off Adjustment · '.$employeeName, 'amount' => $amount, 'steps' => $steps];
     }
 
     /**

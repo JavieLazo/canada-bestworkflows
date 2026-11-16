@@ -7,7 +7,7 @@
 <flux:modal wire:model.self="adding" class="max-h-[90vh] w-full max-w-lg overflow-y-auto">
     <div class="space-y-4">
         <div>
-            <flux:heading size="lg">Add task</flux:heading>
+            <flux:heading size="lg">Add Task</flux:heading>
             <flux:text class="mt-1">
                 Hand out a unit of work on {{ $project->name }}. It stays pending until an assignee picks it
                 up from My Tasks; a start date only plans when that should be, and never stops anyone starting
@@ -88,12 +88,12 @@
             {{-- The planned start (optional): CreateTask keeps it inside the
                  project's dates and on or before the due date. --}}
             <div class="space-y-2">
-                <flux:label for="task-start">Start date</flux:label>
+                <flux:label for="task-start">Start Date</flux:label>
                 <x-kit.date-field id="task-start" aria-label="Start date" wire:model="taskStartDate" />
             </div>
 
             <div class="space-y-2">
-                <flux:label for="task-due">Due date</flux:label>
+                <flux:label for="task-due">Due Date</flux:label>
                 <x-kit.date-field id="task-due" aria-label="Due date" wire:model="taskDueDate" />
             </div>
 
@@ -161,7 +161,7 @@
                     :disabled="trim($taskTitle) === '' || count($taskAssigneeIds) === 0"
                 >
                     <x-slot:icon>@include('livewire.projects.partials.icon', ['icon' => 'plus', 'class' => 'size-4'])</x-slot:icon>
-                    Add task
+                    Add Task
                 </flux:button>
             </div>
         </div>

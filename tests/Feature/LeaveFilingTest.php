@@ -422,7 +422,7 @@ it('shows the reviewer what approving would leave without pay, and offers only a
         ->assertSeeHtml('data-approve-paid');
 
     Livewire::test(Index::class)->call('show', $unpaid->id)
-        ->assertSee('Approve as unpaid leave')
+        ->assertSee('Approve as Unpaid Leave')
         ->assertDontSeeHtml('data-approve-paid');
 });
 

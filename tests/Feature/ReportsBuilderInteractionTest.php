@@ -103,7 +103,7 @@ it('invalidates changed employee filters and columns before generating only the 
         ->assertViewHas('document', fn (ReportDocument $report): bool => $report->rows === [['Inactive', 'Builder Inactive', 'Inactive']])
         ->set('columns', ['employee', 'active'])->assertSet('generated', [])->assertViewHas('document', null)
         ->call('generate')->assertHasNoErrors()
-        ->assertViewHas('document', fn (ReportDocument $report): bool => $report->columns === ['Employee', 'Active status']);
+        ->assertViewHas('document', fn (ReportDocument $report): bool => $report->columns === ['Employee', 'Active Status']);
     $screen->set('columns', [])->call('generate')->assertHasErrors('columns')->assertSet('generated', [])->assertViewHas('document', null);
 });
 
@@ -123,7 +123,7 @@ it('regenerates a sorted report and exports its full generated query through the
     expect($query)->not->toHaveKeys(['f_search', 'f_ageMin', 'employees']);
     $response = $this->get(route('reports.export', $query))->assertOk()->assertDownload();
     expect(reportsBuilderCsv($response->streamedContent()))->toBe([
-        ['ID', 'Employee', 'Active status'],
+        ['ID', 'Employee', 'Active Status'],
         ['Zebra', 'Builder Zebra', 'Active'],
         ['Alpha', 'Builder Alpha', 'Active'],
     ]);
@@ -219,7 +219,7 @@ it('builds workforce analysis with the same cohort filters and exports the compl
         ->set('analysisFilters.crossTab', 'none')->set('columns', [])
         ->set('from', '2026-01-01')->set('to', '2026-09-30')
         ->call('generate')->assertHasNoErrors()
-        ->assertSee('Supporting analysis')->assertSee('Export group summary CSV')
+        ->assertSee('Supporting analysis')->assertSee('Export Group Summary CSV')
         ->assertViewHas('document', fn (ReportDocument $report): bool => count($report->rows) === 2 && $report->sections !== [] && $report->charts !== []);
     $criteria = ReportCriteria::from($screen->get('generated'));
     expect($criteria->from)->toBe('2026-01-01')->and($criteria->columns)->toBe([])

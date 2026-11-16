@@ -12,12 +12,13 @@ use App\Support\Access;
 /**
  * The Site Settings rows, filtered and sorted in PHP exactly as the source's
  * memo does (sites-page.tsx:96-116): filter, comparator by key, then reverse
- * the whole list for descending order. One copy, because the table and its
- * CSV export must show the same sites in the same order.
+ * the whole list for descending order.
  *
  * Punch counts are the `stats` memo (sites-page.tsx:80-91) over
  * `useAttendance(1000)`: the most recent 1000 logs, scoped as GET
- * /api/attendance scopes them (EDTR, PAYROLL).
+ * /api/attendance scopes them (EDTR, PAYROLL). DELIBERATE DIVERGENCE: the
+ * list is never sorted by them — the table shows no Punches column, and the
+ * counts only tell the row menu why a site in use cannot be deleted.
  */
 final class SiteRows
 {
@@ -50,12 +51,9 @@ final class SiteRows
             ->values()
             ->all();
 
-        $punchesAt = static fn (WorkSite $s): int => $counts[(string) $s->getKey()] ?? 0;
-
-        usort($sites, static function (WorkSite $a, WorkSite $b) use ($punchesAt, $sortKey): int {
+        usort($sites, static function (WorkSite $a, WorkSite $b) use ($sortKey): int {
             return match ($sortKey) {
                 'radius' => ($a->radius_meters <=> $b->radius_meters) ?: Hris::compareText($a->name, $b->name),
-                'punches' => ($punchesAt($b) <=> $punchesAt($a)) ?: Hris::compareText($a->name, $b->name),
                 default => Hris::compareText($a->name, $b->name),
             };
         });

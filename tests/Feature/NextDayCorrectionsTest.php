@@ -572,7 +572,7 @@ it('tags an owned punch that no DTR slot shows', function () {
     ]);
 
     $tag = 'not in a DTR slot — a save removes it unless entered';
-    $dialog = Str::after($page->html(), 'Recorded punches');
+    $dialog = Str::after($page->html(), 'Recorded Punches');
     expect(substr_count($dialog, $tag))->toBe(1)
         ->and(Str::before(Str::after($dialog, 'wire:key="correct-punch-'.$double->getKey().'"'), '</tr>'))->toContain($tag);
 });
@@ -595,7 +595,7 @@ it('lists only the row\'s own punches and points at the night before for the res
         ->and($correction->previous_day_punches)->toBe(1);
 
     $html = $page->html();
-    $dialog = Str::after($html, 'Recorded punches');
+    $dialog = Str::after($html, 'Recorded Punches');
     expect($dialog)->not->toContain('wire:key="correct-punch-'.$previousOut->getKey().'"')
         ->and($dialog)->toContain('data-previous-day-punches')
         ->and(ndcSquish($dialog))->toContain('1 punch on this date belongs to the Sep 23, 2026 record. Open that day to change it.');
@@ -817,9 +817,9 @@ it('names an unslotted punch above the boxes and keeps the anchor before the row
 
     $html = ndcPage($employee)->call('openCorrection', '2026-09-24')->html();
 
-    expect(ndcSquish(Str::before($html, 'Recorded punches')))
+    expect(ndcSquish(Str::before($html, 'Recorded Punches')))
         ->toContain('1 recorded punch (8:00 AM) is in none of the slots below.')
-        ->and(substr_count($html, 'Recorded punches'))->toBe(1)
+        ->and(substr_count($html, 'Recorded Punches'))->toBe(1)
         // The list opens by itself when a punch sits in no slot.
         ->and($html)->toContain('data-off-slot="1"');
 });
@@ -834,7 +834,7 @@ it('keeps the anchor on a day with no punches of its own', function () {
 
     $html = ndcPage($employee)->call('openCorrection', '2026-09-25')->html();
 
-    expect(substr_count($html, 'Recorded punches'))->toBe(1)
-        ->and(Str::after($html, 'Recorded punches'))->toContain('data-previous-day-punches')
-        ->and(Str::before($html, 'Recorded punches'))->toContain('it is left out of the boxes below');
+    expect(substr_count($html, 'Recorded Punches'))->toBe(1)
+        ->and(Str::after($html, 'Recorded Punches'))->toContain('data-previous-day-punches')
+        ->and(Str::before($html, 'Recorded Punches'))->toContain('it is left out of the boxes below');
 });

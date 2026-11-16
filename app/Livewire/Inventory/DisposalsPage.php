@@ -26,7 +26,7 @@ use Livewire\WithFileUploads;
 
 /** Records office-authorized disposal only after custody and condition safeguards pass. */
 #[Layout('layouts.app')]
-#[Title('Inventory disposals')]
+#[Title('Inventory Disposals')]
 class DisposalsPage extends Component
 {
     use WithFileUploads;

@@ -111,7 +111,7 @@
                                      grant and re-resolves the id, and the command gates again. --}}
                                 <td class="text-right">
                                     <x-kit.row-actions :label="EmployeeName::display($employee)">
-                                        <flux:menu.item icon="pencil-square" wire:click="openCredits('{{ $employee->id }}')">Set credits…</flux:menu.item>
+                                        <flux:menu.item icon="pencil-square" wire:click="openCredits('{{ $employee->id }}')">Set Credits…</flux:menu.item>
                                     </x-kit.row-actions>
                                 </td>
                             @endif
@@ -142,7 +142,7 @@
         <div class="space-y-4">
             <div>
                 <flux:heading size="lg" id="leave-credits-heading">
-                    Leave credits{{ $dialogEmployee !== null ? ' · '.EmployeeName::display($dialogEmployee) : '' }} · {{ $year }}
+                    Leave Credits{{ $dialogEmployee !== null ? ' · '.EmployeeName::display($dialogEmployee) : '' }} · {{ $year }}
                 </flux:heading>
             </div>
 
@@ -181,7 +181,7 @@
                     wire:loading.attr="disabled"
                     wire:target="saveCredits"
                 >
-                    Save credits
+                    Save Credits
                 </flux:button>
             </div>
         </div>

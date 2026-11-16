@@ -60,14 +60,14 @@ new #[Title('Profile settings')] class extends Component {
 <section class="w-full">
     @include('partials.settings-heading')
 
-    <flux:heading level="2" class="sr-only">{{ __('Profile settings') }}</flux:heading>
+    <flux:heading level="2" class="sr-only">{{ __('Profile Settings') }}</flux:heading>
 
     <x-pages::settings.layout :heading="__('Profile')" :subheading="__('Update your login email address')">
         <form wire:submit="updateProfileInformation" class="my-6 w-full space-y-6">
             <flux:text>{{ __('Personal information comes from your linked employee record. Submit personal changes through My Profile for management approval.') }}</flux:text>
 
             <div>
-                <flux:input wire:model="email" :label="__('Login email')" type="email" required autocomplete="email" />
+                <flux:input wire:model="email" :label="__('Login Email')" type="email" required autocomplete="email" />
 
                 @if ($this->hasUnverifiedEmail)
                     <div>

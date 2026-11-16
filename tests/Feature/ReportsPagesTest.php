@@ -65,12 +65,12 @@ it('draws a home graph only from a source the role holds', function () {
     rpageEmployee('A');
     rpageActor([ModuleCode::REPORTS, ModuleCode::EMPLOYEES]);
     Livewire::test(Home::class)
-        ->assertSee('Employees by department')
-        ->assertDontSee('Net pay by payroll')->assertDontSee('Approved leave this month')
+        ->assertSee('Employees by Department')
+        ->assertDontSee('Net Pay by Payroll')->assertDontSee('Approved Leave This Month')
         ->assertViewHas('charts', fn (array $charts): bool => count($charts) === 1 && $charts[0]['kind'] === 'bars');
 
     rpageActor([ModuleCode::REPORTS]);
-    Livewire::test(Home::class)->assertViewHas('charts', [])->assertDontSee('Employees by department');
+    Livewire::test(Home::class)->assertViewHas('charts', [])->assertDontSee('Employees by Department');
 });
 
 /*
@@ -120,7 +120,7 @@ it('asks for the new document when a filter changes and for none it cannot produ
 
     // Attendance covers chosen employees only: with none there is nothing to ask for.
     $attendance = Livewire::test(Index::class, ['report' => 'attendance-reports'])
-        ->assertSee('Choose employees to compare')->set('from', '2026-09-01');
+        ->assertSee('Choose Employees to Compare')->set('from', '2026-09-01');
     expect(json_encode($attendance->effects ?? []))->not->toContain('$wire.generate()');
 });
 
@@ -158,14 +158,14 @@ it('offers each part and column of the sheet to leave off the paper', function (
     Livewire::test(Index::class, ['report' => 'employee-list'])->call('generate')
         ->assertViewHas('printOptions', fn (array $options): bool => array_column($options['parts'], 'key') === ['totals']
             && $options['tables'][0]['key'] === 'main'
-            && $options['tables'][0]['columns'] === ['Employee ID', 'Employee', 'Department', 'Unit', 'Position', 'Employment status', 'Active status', 'Worksite'])
-        ->assertSee('Print options')->assertSee('data-print-part="totals"', false)->assertSee('data-print-table="main"', false)
+            && $options['tables'][0]['columns'] === ['Employee ID', 'Employee', 'Department', 'Unit', 'Position', 'Employment Status', 'Active Status', 'Worksite'])
+        ->assertSee('Print Options')->assertSee('data-print-part="totals"', false)->assertSee('data-print-table="main"', false)
         ->assertSee("columns['main'][7]", false);
 
     // An analysis offers its graphs, its summary and each supporting table; nothing is offered before a document exists.
     Livewire::withQueryParams(['view' => 'analysis']);
     $analysis = Livewire::test(Index::class, ['report' => 'employee-list']);
-    $analysis->assertDontSee('Print options')->assertViewHas('printOptions', ['parts' => [], 'tables' => []]);
+    $analysis->assertDontSee('Print Options')->assertViewHas('printOptions', ['parts' => [], 'tables' => []]);
     $analysis->call('generate')
         ->assertViewHas('printOptions', fn (array $options): bool => in_array('charts', array_column($options['parts'], 'key'), true)
             && in_array('main', array_column($options['parts'], 'key'), true)

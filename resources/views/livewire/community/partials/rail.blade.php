@@ -15,8 +15,8 @@
 
 <section class="hris-card p-4" aria-labelledby="rail-groups">
     <div class="flex items-center justify-between gap-2 px-2">
-        <h2 id="rail-groups" class="text-sm font-semibold">Your groups</h2>
-        <button type="button" wire:click="openGroups('yours')" class="{{ $seeAll }}">See all</button>
+        <h2 id="rail-groups" class="text-sm font-semibold">Your Groups</h2>
+        <button type="button" wire:click="openGroups('yours')" class="{{ $seeAll }}">See All</button>
     </div>
     <ul class="mt-2 space-y-0.5">
         <li>
@@ -24,7 +24,7 @@
                 <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                     @include('layouts.app.module-icon', ['icon' => 'newspaper', 'class' => 'size-4'])
                 </span>
-                <span class="min-w-0 flex-1 truncate">All posts</span>
+                <span class="min-w-0 flex-1 truncate">All Posts</span>
             </button>
         </li>
         @forelse (array_slice($joinedGroups, 0, 5) as $g)
@@ -34,15 +34,15 @@
         @endforelse
     </ul>
     @if (count($joinedGroups) > 5)
-        <button type="button" wire:click="openGroups('yours')" class="{{ $seeAll }} mt-1 px-2">And {{ count($joinedGroups) - 5 }} more</button>
+        <button type="button" wire:click="openGroups('yours')" class="{{ $seeAll }} mt-1 px-2">And {{ count($joinedGroups) - 5 }} More</button>
     @endif
 </section>
 
 @if ($otherGroups !== [])
     <section class="hris-card p-4" aria-labelledby="rail-discover">
         <div class="flex items-center justify-between gap-2 px-2">
-            <h2 id="rail-discover" class="text-sm font-semibold">Discover groups</h2>
-            <button type="button" wire:click="openGroups('discover')" class="{{ $seeAll }}">See all</button>
+            <h2 id="rail-discover" class="text-sm font-semibold">Discover Groups</h2>
+            <button type="button" wire:click="openGroups('discover')" class="{{ $seeAll }}">See All</button>
         </div>
         <ul class="mt-2 space-y-0.5">
             @foreach (array_slice($otherGroups, 0, 5) as $g)
@@ -50,14 +50,14 @@
             @endforeach
         </ul>
         @if (count($otherGroups) > 5)
-            <button type="button" wire:click="openGroups('discover')" class="{{ $seeAll }} mt-1 px-2">And {{ count($otherGroups) - 5 }} more</button>
+            <button type="button" wire:click="openGroups('discover')" class="{{ $seeAll }} mt-1 px-2">And {{ count($otherGroups) - 5 }} More</button>
         @endif
     </section>
 @endif
 
 @if ($celebrations !== [])
     <section class="hris-card p-4" aria-labelledby="rail-week">
-        <h2 id="rail-week" class="px-2 text-sm font-semibold">Coming up</h2>
+        <h2 id="rail-week" class="px-2 text-sm font-semibold">Coming Up</h2>
         @include('livewire.community.partials.celebrations')
     </section>
 @endif

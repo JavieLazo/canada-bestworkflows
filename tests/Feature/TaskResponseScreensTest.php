@@ -408,12 +408,12 @@ it('shows the reviewer every member\'s state, the progress line and a disabled C
 
     $component = Livewire::test(Show::class, ['project' => $f['task']->project_id])
         ->call('openTask', $f['task']->id);
-    $component->assertSee('Individual responses')
+    $component->assertSee('Individual Responses')
         ->assertSee('1 of 4 approved · 1 awaiting review · 1 returned · 1 not submitted')
-        ->assertSee('Complete task')
-        ->assertDontSee('Accept task')
+        ->assertSee('Complete Task')
+        ->assertDontSee('Accept Task')
         ->assertSee('Waiting on: Ben Reyes (Returned), Cara Santos (Not submitted), Dan Villa (Submitted).')
-        ->assertSee('Cancel task');
+        ->assertSee('Cancel Task');
 
     // Each member's own row carries their state.
     $html = $component->html();
@@ -431,8 +431,8 @@ it('shows the reviewer every member\'s state, the progress line and a disabled C
         ->assertSet('expandedMemberId', $f['dan']->id)
         ->assertSee('Dan checked the valves')
         ->assertSee('dan-valves.pdf')
-        ->assertSee('Approve response')
-        ->assertSee('Return for rework');
+        ->assertSee('Approve Response')
+        ->assertSee('Return for Rework');
 });
 
 it('enables Complete task once every current assignee\'s response is approved', function () {
@@ -513,10 +513,10 @@ it('shows a member on the project screen only their own response and no decision
         ->assertDontSee('ben-hours.pdf')
         ->assertDontSee('Dan checked the valves')
         ->assertDontSee('dan-valves.pdf')
-        ->assertDontSee('Complete task')
-        ->assertDontSee('Approve response')
-        ->assertDontSee('Return for rework')
-        ->assertDontSee('Cancel task');
+        ->assertDontSee('Complete Task')
+        ->assertDontSee('Approve Response')
+        ->assertDontSee('Return for Rework')
+        ->assertDontSee('Cancel Task');
 
     // And the action refuses them outright.
     $component->set('responseRemark', 'Looks fine')
@@ -552,11 +552,11 @@ it('shows a returned member their own response, the review of it and the form to
         ->call('openTask', $f['task']->id)
         ->assertSee('Your response: Returned')
         ->assertSee('Management sent your response back — update it and resubmit.')
-        ->assertSee('Returned for rework')
+        ->assertSee('Returned for Rework')
         ->assertSee('Ben please add the meter photo')
         ->assertSee('Ben logged the pump hours')
         ->assertSee('ben-hours.pdf')
-        ->assertSee('Submit my response')
+        ->assertSee('Submit My Response')
         ->assertSee('Only you and the reviewers see this.')
         ->assertDontSee('Management cancelled')
         ->assertDontSee('This task is closed')
@@ -574,7 +574,7 @@ it('tells an approved member they are waiting on the rest of the team', function
         ->assertSee("Your response was approved. The task completes once everyone's response is approved.")
         ->assertSee('Approved — waiting for the rest of the team.')
         ->assertSee('Ana review looks complete')
-        ->assertDontSee('Submit my response')
+        ->assertDontSee('Submit My Response')
         ->assertDontSee('Management cancelled');
 });
 
@@ -586,8 +586,8 @@ it('gives a member with no response the submit form and never a closed-task sent
         ->call('openTask', $f['task']->id)
         ->assertSee('Your response: Not submitted')
         ->assertSee('Submit your response once your part is done.')
-        ->assertSee('Submit my response')
-        ->assertDontSee('Submit for review')
+        ->assertSee('Submit My Response')
+        ->assertDontSee('Submit for Review')
         ->assertDontSee('Management cancelled')
         ->assertDontSee('This task is closed')
         ->set('remarks', 'Cara walked the outflow')
@@ -622,9 +622,9 @@ it('renders the group dialogs with the texts they had before', function () {
         ->assertSee('Ben Reyes')
         ->assertDontSee('Ben Reyes (')
         ->assertSee('The reviewer reads this alongside the task.')
-        ->assertSee('Submit for review')
+        ->assertSee('Submit for Review')
         ->assertDontSee('Your response')
-        ->assertDontSee('Submit my response');
+        ->assertDontSee('Submit My Response');
 
     Livewire::test(MyTasksPage::class)
         ->call('openTask', $submitted->id)
@@ -641,10 +641,10 @@ it('renders the group dialogs with the texts they had before', function () {
     tuiLogin(tuiUser(['PROJECTS'], true));
     Livewire::test(Show::class, ['project' => $project->id])
         ->call('openTask', $submitted->id)
-        ->assertSee('Team response')
-        ->assertSee('Submitted files')
-        ->assertSee('Accept task')
-        ->assertSee('Return for rework')
-        ->assertDontSee('Complete task')
-        ->assertDontSee('Individual responses');
+        ->assertSee('Team Response')
+        ->assertSee('Submitted Files')
+        ->assertSee('Accept Task')
+        ->assertSee('Return for Rework')
+        ->assertDontSee('Complete Task')
+        ->assertDontSee('Individual Responses');
 });

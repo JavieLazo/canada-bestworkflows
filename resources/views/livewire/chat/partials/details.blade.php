@@ -34,8 +34,8 @@
         }
     }
     $heading = 'text-xs font-semibold uppercase tracking-wide text-muted-foreground';
-    $askRemovePhoto = ['title' => 'Remove the group photo?', 'body' => 'The chat goes back to its group icon, for everyone in it.', 'confirm' => 'Remove photo', 'danger' => true, 'call' => ['removeConversationPhoto']];
-    $askLeave = ['title' => 'Leave '.$active->title.'?', 'body' => "You'll stop getting its messages, and only someone still in it can add you back.", 'confirm' => 'Leave group', 'danger' => true, 'call' => ['leaveConversation']];
+    $askRemovePhoto = ['title' => 'Remove the group photo?', 'body' => 'The chat goes back to its group icon, for everyone in it.', 'confirm' => 'Remove Photo', 'danger' => true, 'call' => ['removeConversationPhoto']];
+    $askLeave = ['title' => 'Leave '.$active->title.'?', 'body' => "You'll stop getting its messages, and only someone still in it can add you back.", 'confirm' => 'Leave Group', 'danger' => true, 'call' => ['leaveConversation']];
 @endphp
 <aside class="absolute inset-0 z-10 flex flex-col bg-card md:left-auto md:w-96 md:border-l md:border-border md:shadow-lift 2xl:static 2xl:inset-auto 2xl:w-80 2xl:shrink-0 2xl:shadow-none" aria-label="Conversation details">
     <header class="flex h-16 shrink-0 items-center gap-2 border-b border-border px-4">
@@ -63,11 +63,11 @@
                 </div>
                 @if ($stagingUrl !== null)
                     <div class="mt-3 flex gap-2">
-                        <flux:button size="xs" variant="primary" wire:click="saveConversationPhoto">Use this photo</flux:button>
+                        <flux:button size="xs" variant="primary" wire:click="saveConversationPhoto">Use This Photo</flux:button>
                         <flux:button size="xs" variant="ghost" wire:click="unstage('avatar', 0)">Cancel</flux:button>
                     </div>
                 @elseif ($active->photo !== null)
-                    <button type="button" x-on:click="$dispatch('social-confirm', @js($askRemovePhoto))" class="mt-2 cursor-pointer text-xs text-muted-foreground hover:text-foreground hover:underline">Remove photo</button>
+                    <button type="button" x-on:click="$dispatch('social-confirm', @js($askRemovePhoto))" class="mt-2 cursor-pointer text-xs text-muted-foreground hover:text-foreground hover:underline">Remove Photo</button>
                 @endif
             @endif
 
@@ -116,7 +116,7 @@
 
         @if ($active->muted)
             <div class="space-y-1.5" wire:key="details-muted-{{ $active->id }}">
-                <flux:button class="w-full" icon="bell" wire:click="unmute">Unmute conversation</flux:button>
+                <flux:button class="w-full" icon="bell" wire:click="unmute">Unmute Conversation</flux:button>
                 <p class="text-center text-xs text-muted-foreground">
                     {{ $active->allowMentions ? 'Muted, except when someone mentions you.' : 'Muted. Nothing from it notifies you.' }}
                     @if ($active->isGroup())
@@ -125,9 +125,9 @@
                 </p>
             </div>
         @elseif ($active->isGroup())
-            <flux:button class="w-full" icon="bell-slash" x-on:click="$wire.muteDialog = true" wire:key="details-unmuted-{{ $active->id }}">Mute conversation</flux:button>
+            <flux:button class="w-full" icon="bell-slash" x-on:click="$wire.muteDialog = true" wire:key="details-unmuted-{{ $active->id }}">Mute Conversation</flux:button>
         @else
-            <flux:button class="w-full" icon="bell-slash" wire:click="mute('ALL')" wire:key="details-unmuted-{{ $active->id }}">Mute conversation</flux:button>
+            <flux:button class="w-full" icon="bell-slash" wire:click="mute('ALL')" wire:key="details-unmuted-{{ $active->id }}">Mute Conversation</flux:button>
         @endif
 
         @if ($active->isGroup())
@@ -136,7 +136,7 @@
                     <h3 id="chat-members" class="{{ $heading }}">Members</h3>
                     <button type="button" wire:click="openAddPeople" class="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-primary hover:underline">
                         <flux:icon.user-plus class="size-3.5" />
-                        Add people
+                        Add People
                     </button>
                 </div>
                 <ul class="mt-2 space-y-1">
@@ -174,13 +174,13 @@
                             @if ($active->admin)
                                 <x-kit.row-actions :label="$member->name">
                                     @if ($isAdmin($member->id))
-                                        <flux:menu.item icon="shield-exclamation" wire:click="setAdmin({{ $member->id }}, false)">Remove as admin</flux:menu.item>
+                                        <flux:menu.item icon="shield-exclamation" wire:click="setAdmin({{ $member->id }}, false)">Remove as Admin</flux:menu.item>
                                     @else
-                                        <flux:menu.item icon="shield-check" wire:click="setAdmin({{ $member->id }}, true)">Make an admin</flux:menu.item>
+                                        <flux:menu.item icon="shield-check" wire:click="setAdmin({{ $member->id }}, true)">Make an Admin</flux:menu.item>
                                     @endif
                                     <flux:menu.separator />
                                     @php($askRemove = ['title' => 'Remove '.$member->name.' from '.$active->title.'?', 'body' => 'What they wrote stays.', 'confirm' => 'Remove', 'danger' => true, 'call' => ['removeMember', $member->id]])
-                                    <flux:menu.item icon="user-minus" variant="danger" x-on:click="$dispatch('social-confirm', @js($askRemove))">Remove from chat</flux:menu.item>
+                                    <flux:menu.item icon="user-minus" variant="danger" x-on:click="$dispatch('social-confirm', @js($askRemove))">Remove from Chat</flux:menu.item>
                                 </x-kit.row-actions>
                             @endif
                         </li>
@@ -225,7 +225,7 @@
                 icon="arrow-right-start-on-rectangle"
                 x-on:click="$dispatch('social-confirm', @js($askLeave))"
             >
-                Leave group
+                Leave Group
             </flux:button>
         @endif
     </div>

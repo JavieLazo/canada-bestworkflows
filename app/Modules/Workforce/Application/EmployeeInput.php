@@ -88,7 +88,7 @@ final class EmployeeInput
      * One message per offending field on a wizard step (EmployeeFields::
      * wizard()), keyed by field. A list step (`lists`) may be left empty; a
      * row it does carry is checked through PdsLists, which reports the first
-     * problem under `rows_<list>` ("School 2: Name of school is required.")
+     * problem under `rows_<list>` ("School 2: Name of School is required.")
      * and each row's own problems under `rows_<list>.<row>.<field>`, the
      * path the wizard binds that input to.
      *

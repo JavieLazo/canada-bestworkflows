@@ -184,7 +184,7 @@ it('charges absences and lateness to credits on the draft, posts them at finaliz
         ->assertSeeHtml('data-leave-charged="'.$employee->id.'"')
         ->assertSee('Credits Deducted')
         ->call('openWhy', $employee->id, 'leave')
-        ->assertSee('Leave credits deducted · Nina Charged')
+        ->assertSee('Leave Credits Deducted · Nina Charged')
         ->assertSee('Sep 03, 2026 · absence')
         ->assertSee('Deducted from Vacation Leave 1 credit')
         ->assertSee('Lateness and undertime of 60 min, 0.125 credits by the conversion table');

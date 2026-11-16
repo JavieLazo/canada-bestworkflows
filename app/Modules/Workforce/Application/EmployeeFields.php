@@ -219,7 +219,7 @@ final class EmployeeFields
     ];
 
     /**
-     * A previous job's "Gov't service": unanswered, Y or N.
+     * A previous job's "Gov't Service": unanswered, Y or N.
      *
      * @var list<array{value: string, label: string}>
      */
@@ -599,7 +599,7 @@ final class EmployeeFields
                     // path to deactivate an employee — the reference ships no
                     // dedicated deactivate action, and its add dialog hardcodes
                     // is_active=true. Kept faithful rather than adding one.
-                    ['key' => 'is_active', 'label' => 'Active employee', 'type' => 'switch'],
+                    ['key' => 'is_active', 'label' => 'Active Employee', 'type' => 'switch'],
                     ['key' => 'monthly_rate', 'label' => 'Rate Per Month', 'type' => 'money'],
                     // DELIBERATE DIVERGENCE — the reference derives every
                     // day's pay from Rate Per Month. When above zero this IS

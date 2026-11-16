@@ -107,7 +107,7 @@ it('opens for PAYROLL holders under Payroll Settings and shows the settings only
 
     epsActor(['PAYROLL']);
     $this->get('/records/payroll-settings/employees')->assertOk()->assertSee('Gated');
-    $this->get($show)->assertOk()->assertSee('Gated')->assertSee('Contributions &amp; tax', false);
+    $this->get($show)->assertOk()->assertSee('Gated')->assertSee('Contributions &amp; Tax', false);
     $this->get('/records/payroll-settings/employees/'.Str::ulid())->assertNotFound();
 });
 
@@ -252,13 +252,13 @@ it('reads contributions and tax in one cell: Standard, or only what differs, nam
     epsActor(['PAYROLL']);
 
     $page = Livewire::test(EmployeePaySettingsPage::class)
-        ->assertSee('Contributions &amp; tax', false)
+        ->assertSee('Contributions &amp; Tax', false)
         ->assertSee('Standard')
         ->assertSee('SSS: Off · Withholding tax: 5% of taxable compensation');
     $html = $page->html();
 
     expect($html)->not->toContain('<th>SSS</th>')
-        ->and($html)->not->toContain('<th>Withholding tax</th>')
+        ->and($html)->not->toContain('<th>Withholding Tax</th>')
         ->and($html)->not->toContain('PhilHealth: Table');
 });
 

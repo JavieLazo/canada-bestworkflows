@@ -38,11 +38,11 @@
 @if (! $editing)
     <dl class="mt-4 grid gap-4 sm:grid-cols-2">
         <div class="min-w-0 sm:col-span-2">
-            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Residential address</dt>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Residential Address</dt>
             <dd class="mt-1 break-words text-sm">{{ $addressText['residential'] }}</dd>
         </div>
         <div class="min-w-0 sm:col-span-2">
-            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Permanent address</dt>
+            <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Permanent Address</dt>
             <dd class="mt-1 break-words text-sm">{{ $addressText['permanent'] }}</dd>
         </div>
     </dl>
@@ -53,7 +53,7 @@
     <div class="mt-4 space-y-5">
         <section class="space-y-3">
             <{{ $headingTag }} class="text-sm font-semibold">
-                Residential address
+                Residential Address
                 @if ($groupRequired)
                     <span aria-hidden="true" class="ml-0.5 text-danger">*</span>
                     <span class="sr-only">(required)</span>
@@ -85,7 +85,7 @@
         </section>
 
         <section class="space-y-3">
-            <{{ $headingTag }} class="text-sm font-semibold">Permanent address</{{ $headingTag }}>
+            <{{ $headingTag }} class="text-sm font-semibold">Permanent Address</{{ $headingTag }}>
             <div class="grid gap-4 sm:grid-cols-2">
                 @if ($same !== null)
                     <div wire:key="addr-{{ $same['key'] }}" class="contents">

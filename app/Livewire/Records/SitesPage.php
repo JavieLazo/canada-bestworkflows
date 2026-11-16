@@ -28,8 +28,9 @@ use Livewire\Component;
  * Geofence administration: site coordinates, radius and exemptions that every
  * punch is validated against. Punch counts per site come from the same read
  * the source made (`useAttendance(1000)` — the most recent 1000 logs, scoped
- * as GET /api/attendance scopes them), so a radius change can be judged
- * against real traffic.
+ * as GET /api/attendance scopes them). DELIBERATE DIVERGENCE: the table has
+ * no Punches column and no sort by it — the count only tells the row menu
+ * why a site in use cannot be deleted. SITE SETTINGS HAS NO CSV.
  *
  * Permissions, exactly as the reference:
  *  - the PAGE needs RECORDS — route middleware;
@@ -100,7 +101,7 @@ class SitesPage extends Component
     /** @return list<string> */
     protected function sortableKeys(): array
     {
-        return ['name', 'radius', 'punches'];
+        return ['name', 'radius'];
     }
 
     /** The FilterSelect resets the page on change (sites-page.tsx:214-219). */
@@ -241,7 +242,7 @@ class SitesPage extends Component
 
     public function render(): View
     {
-        // Punch counts, filter and sort: one copy shared with the CSV export.
+        // The filtered, sorted sites, and the punch counts the row menu reads.
         ['sites' => $sites, 'counts' => $counts] = SiteRows::list(app(Access::class), $this->search, $this->geofence, $this->sortKey, $this->sortDir, $this->status);
 
         $rows = $this->paginateClamped($sites);

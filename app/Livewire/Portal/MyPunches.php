@@ -16,13 +16,13 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 
 /**
- * "My punches" — the portal's compact instance of LiveFeed
+ * "My Punches" — the portal's compact instance of LiveFeed
  * (portal-page.tsx:226: `<LiveFeed logs={myLogs} title="My punches" compact />`).
  *
  * A separate component rather than a reuse of the eDTR feed because the parent
  * there filtered the rows to the CALLER'S OWN before handing them over
  * (`myLogs`, portal-page.tsx:90-93) — the eDTR feed's scope alone would show
- * an all_data holder everyone's punches under a card titled "My punches".
+ * an all_data holder everyone's punches under a card titled "My Punches".
  * The scope still runs first (an employee-less account yields zero rows, never
  * IS NULL rows), and the own-row filter only ever narrows it.
  *
@@ -44,7 +44,7 @@ class MyPunches extends Component
     use WithTableFilters;
 
     #[Locked]
-    public string $title = 'My punches';
+    public string $title = 'My Punches';
 
     /** The newest-N window the portal read (useAttendance's 500). */
     #[Locked]

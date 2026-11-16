@@ -367,7 +367,7 @@ it('lists each kind under its own sidebar entry and opens each run in its own wo
     $this->get('/payroll/thirteenth-month')->assertOk()->assertSee('Run PR-Y')->assertDontSee('Run PR-R');
     $this->get('/payroll/'.$yearly->id)->assertRedirect(route('payroll.thirteenth.show', ['id' => $yearly->id]));
     $this->get('/payroll/thirteenth-month/'.$regular->id)->assertRedirect(route('payroll.show', ['id' => $regular->id]));
-    $this->get('/payroll/thirteenth-month/new')->assertOk()->assertSee('Create 13th month payroll')->assertDontSee('13th Month Payroll - Yearly');
+    $this->get('/payroll/thirteenth-month/new')->assertOk()->assertSee('Create 13th Month Payroll')->assertDontSee('13th Month Payroll - Yearly');
     $this->get('/payroll/thirteenth-month/missing')->assertOk()->assertSee('That payroll no longer exists.')
         ->assertSee('Back to 13th Month Payroll')->assertDontSee('13th Month Payroll - Yearly');
 });

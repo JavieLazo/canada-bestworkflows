@@ -141,20 +141,20 @@ it('draws each list card with its title, subtitle, Add button and columns pinned
         ->and(preg_match_all('/<th[ >]/', $head[1] ?? ''))->toBe(count($headers))
         ->and($html)->not->toMatch('/\d{4}-\d{2}-\d{2}( 00:00:00)?</');
 })->with([
-    'education' => ['education', 'Educational Background', 'Schools attended by Rosa Villanueva, from elementary to graduate studies.', 'Add school',
-        ['<th>Level</th>', '<th>Name of school</th>', '<th>Degree / course</th>', '<th>From</th>', '<th>To</th>', '<th>Units earned</th>', '<th>Year graduated</th>', '<th>Honors</th>', '<th></th>'],
+    'education' => ['education', 'Educational Background', 'Schools attended by Rosa Villanueva, from elementary to graduate studies.', 'Add School',
+        ['<th>Level</th>', '<th>Name of School</th>', '<th>Degree / Course</th>', '<th>From</th>', '<th>To</th>', '<th>Units Earned</th>', '<th>Year Graduated</th>', '<th>Honors</th>', '<th></th>'],
         'Colegio de la Ciudad de Tayabas', '2008'],
-    'eligibility' => ['eligibility', 'Civil Service Eligibility', 'Career service, board and bar eligibilities and licences held by Rosa Villanueva.', 'Add eligibility',
-        ['<th>Eligibility</th>', '<th class="text-right">Rating</th>', '<th>Date of exam</th>', '<th>Place of exam</th>', '<th>License no.</th>', '<th>Valid until</th>', '<th class="w-10"><span class="sr-only">Actions</span></th>'],
+    'eligibility' => ['eligibility', 'Civil Service Eligibility', 'Career service, board and bar eligibilities and licences held by Rosa Villanueva.', 'Add Eligibility',
+        ['<th>Eligibility</th>', '<th class="text-right">Rating</th>', '<th>Date of Exam</th>', '<th>Place of Exam</th>', '<th>License No.</th>', '<th>Valid Until</th>', '<th class="w-10"><span class="sr-only">Actions</span></th>'],
         'Career Service Professional', '04 Aug 2013'],
-    'experience' => ['experience', 'Work Experience', 'Most recent first. The first row comes from Employee Details.', 'Add previous job',
-        ['<th>Position title</th>', '<th>Company / agency</th>', '<th>From</th>', '<th>To</th>', '<th class="text-right">Monthly salary</th>', '<th>Pay grade</th>', '<th>Appointment status</th>', '<th>Gov&#039;t service</th>', '<th class="w-10"><span class="sr-only">Actions</span></th>'],
+    'experience' => ['experience', 'Work Experience', 'Most recent first. The first row comes from Employee Details.', 'Add Previous Job',
+        ['<th>Position Title</th>', '<th>Company / Agency</th>', '<th>From</th>', '<th>To</th>', '<th class="text-right">Monthly Salary</th>', '<th>Pay Grade</th>', '<th>Appointment Status</th>', '<th>Gov&#039;t Service</th>', '<th class="w-10"><span class="sr-only">Actions</span></th>'],
         'Junior Accountant, ABC Trading Corporation', '07 Jan 2013'],
-    'training' => ['training', 'Learning and Development', 'Learning and development interventions and training programs attended, latest first.', 'Add training',
-        ['<th class="min-w-[14rem]">Title</th>', '<th>From</th>', '<th>To</th>', '<th class="text-right">Hours</th>', '<th>Type of L&amp;D</th>', '<th>Conducted / sponsored by</th>', '<th></th>'],
+    'training' => ['training', 'Learning and Development', 'Learning and development interventions and training programs attended, latest first.', 'Add Training',
+        ['<th class="min-w-[14rem]">Title</th>', '<th>From</th>', '<th>To</th>', '<th class="text-right">Hours</th>', '<th>Type of L&amp;D</th>', '<th>Conducted / Sponsored By</th>', '<th></th>'],
         'Basic Tax Compliance for Payroll Officers', '06 Mar 2023'],
-    'voluntary' => ['voluntary', 'Voluntary Work', 'Voluntary work or involvement in civic, non-government, people and voluntary organizations.', 'Add voluntary work',
-        ['<th>Organization and address</th>', '<th>From</th>', '<th>To</th>', '<th class="text-right">Hours</th>', '<th>Position / nature of work</th>', '<th></th>'],
+    'voluntary' => ['voluntary', 'Voluntary Work', 'Voluntary work or involvement in civic, non-government, people and voluntary organizations.', 'Add Voluntary Work',
+        ['<th>Organization and Address</th>', '<th>From</th>', '<th>To</th>', '<th class="text-right">Hours</th>', '<th>Position / Nature of Work</th>', '<th></th>'],
         'Philippine Red Cross, Tayabas Chapter', '01 Jun 2015'],
 ]);
 
@@ -205,10 +205,10 @@ it('adds a school through the dialog and keeps the level for Save & add another'
         ->assertSet('editingId', null)
         ->assertSet('form.level', 'GRADUATE')
         ->assertSee('A level with no school prints as N/A on the PDS.')
-        ->assertSeeHtml('aria-label="Name of school"')
+        ->assertSeeHtml('aria-label="Name of School"')
         ->assertSee('Write in full, as on the diploma or transcript.')
         ->assertSeeHtml('placeholder="yyyy"')
-        ->assertSee('Save & add another')
+        ->assertSee('Save & Add Another')
         ->set('form.school', 'University of the Philippines Los Baños')
         ->set('form.course', 'Master in Business Administration')
         ->set('form.attended_from', '2021')
@@ -250,7 +250,7 @@ it('edits a row from its menu and from a click on an education row', function ()
         ->assertSet('form.attended_from', '2008')
         ->assertSet('form.year_graduated', '2012')
         ->assertSet('form.units_earned', '')
-        ->assertSee('Edit school')
+        ->assertSee('Edit School')
         ->set('form.school', 'Colegio de Tayabas')
         ->call('save')
         ->assertSet('dialogOpen', false)
@@ -266,7 +266,7 @@ it('edits a row from its menu and from a click on an education row', function ()
         ->assertSet('form.exam_date', '2013-08-04')
         ->assertSet('form.rating', '85.40')
         ->assertSet('form.license_valid_until', '')
-        ->assertSee('Edit eligibility')
+        ->assertSee('Edit Eligibility')
         ->set('form.license_no', '0012345')
         ->call('save');
 
@@ -275,7 +275,7 @@ it('edits a row from its menu and from a click on an education row', function ()
         ->assertSet('form.monthly_salary', '18000.5')
         ->assertSet('form.government_service', 'N')
         ->assertSet('form.date_to', '2016-05-31')
-        ->assertSee('Edit previous job');
+        ->assertSee('Edit Previous Job');
 
     expect(pdslpageCount('eligibility', $employee))->toBe(1);
 });
@@ -414,7 +414,7 @@ it('hides Add, the row menus and the row clicks from a viewer who cannot edit, a
         ->assertSee('Colegio de la Ciudad de Tayabas')
         ->assertSee('None recorded · prints as N/A')
         ->assertDontSeeHtml('wire:click="openAdd"')
-        ->assertDontSeeHtml('<span>Add school</span>')
+        ->assertDontSeeHtml('<span>Add School</span>')
         ->assertDontSeeHtml('x-on:keydown.enter.self="$wire.startEdit(')
         ->assertDontSeeHtml('Actions for')
         ->assertDontSeeHtml('$wire.startEdit')

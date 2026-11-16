@@ -591,7 +591,7 @@ it('offers a manager only the moves the decision buttons do not already make', f
 
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
-        ->assertSee('Set status by hand')
+        ->assertSee('Set Status by Hand')
         ->assertViewHas('openTaskManualMoves', $moves);
 })->with([
     // Accept and Return are the decision buttons; Cancel is not offered
@@ -627,7 +627,7 @@ it('returns an accepted task from the dialog with the status note, required to r
 
     $page = Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
-        ->assertSee('Status note (required to return)')
+        ->assertSee('Status Note (required to return)')
         ->set('manualStatus', 'RETURNED')
         ->call('setTaskStatus', 'COMPLETED')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === 'Say what needs reworking before returning the task.');
@@ -654,7 +654,7 @@ it('shows no status picker to a viewer who does not run the project, and refuses
     Livewire::test(Show::class, ['project' => $task->project_id])
         ->call('openTask', $task->id)
         ->assertSet('openTaskId', $task->id)
-        ->assertDontSee('Set status by hand')
+        ->assertDontSee('Set Status by Hand')
         ->set('manualStatus', 'PENDING')
         ->call('setTaskStatus', 'IN_PROGRESS')
         ->assertDispatched('toast-show', fn ($n, $p) => ($p['slots']['text'] ?? null) === WorkRules::forbiddenMessage())

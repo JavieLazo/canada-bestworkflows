@@ -1,9 +1,9 @@
 <section class="hris-card p-5 space-y-4">
-    <div><h2 class="font-semibold">Signed MR attachments</h2><p class="text-sm text-muted-foreground">Private evidence of the signed receipt. The original MR details remain unchanged.</p></div>
+    <div><h2 class="font-semibold">Signed MR Attachments</h2><p class="text-sm text-muted-foreground">Private evidence of the signed receipt. The original MR details remain unchanged.</p></div>
     @if ($canManage)
         <form wire:submit="attach" class="flex flex-wrap items-end gap-3">
-            <div class="min-w-0 flex-1"><flux:input type="file" wire:model="upload" accept="application/pdf,image/jpeg,image/png" label="Signed PDF or image" /><flux:error name="upload" /><p class="text-xs text-muted-foreground mt-1">Maximum {{ number_format($maxBytes / 1024 / 1024, 1) }} MB.</p></div>
-            <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="upload,attach">Attach signed MR</flux:button>
+            <div class="min-w-0 flex-1"><flux:input type="file" wire:model="upload" accept="application/pdf,image/jpeg,image/png" label="Signed PDF or Image" /><flux:error name="upload" /><p class="text-xs text-muted-foreground mt-1">Maximum {{ number_format($maxBytes / 1024 / 1024, 1) }} MB.</p></div>
+            <flux:button type="submit" variant="primary" wire:loading.attr="disabled" wire:target="upload,attach">Attach Signed MR</flux:button>
         </form>
     @endif
     <ul class="divide-y divide-border">

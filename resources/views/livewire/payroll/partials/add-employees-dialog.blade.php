@@ -15,7 +15,7 @@
 >
     <div class="space-y-4">
         <div class="space-y-1.5">
-            <h2 id="add-employees-heading" class="text-lg font-semibold leading-none tracking-tight">Add employees</h2>
+            <h2 id="add-employees-heading" class="text-lg font-semibold leading-none tracking-tight">Add Employees</h2>
             <p class="text-sm text-muted-foreground">
                 {{ $pickerNote }}
             </p>
@@ -28,7 +28,7 @@
                 class="w-full min-w-[12rem] max-w-xs flex-1"
                 wire:model.live="pickSearch"
             />
-            <x-kit.filter-select label="Filter by position" class="w-[14rem]" wire:model.live="pickPosition">
+            <x-kit.filter-select label="Filter by Position" class="w-[14rem]" wire:model.live="pickPosition">
                 <flux:select.option value="ALL">All positions</flux:select.option>
                 @foreach ($pickerPositions as $position)
                     <flux:select.option value="{{ $position }}">{{ $position }}</flux:select.option>
@@ -116,7 +116,7 @@
                 Cancel
             </flux:button>
             <flux:button variant="primary" icon="check" wire:click="applyPicked">
-                Save selection
+                Save Selection
             </flux:button>
         </div>
     </div>

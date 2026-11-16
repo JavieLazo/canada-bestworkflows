@@ -162,7 +162,7 @@ it('has no Daily Time Record CSV: the export route is gone and the tab offers no
     Livewire::test(EdtrPage::class)->set('tab', 'dtr')
         ->call('employeePicked', 'dtr-employee', $employee->id)
         ->set('start', '2026-09-01')->set('end', '2026-09-07')
-        ->assertSee('Default shift')
+        ->assertSee('Default Shift')
         ->assertDontSeeHtml('/edtr/dtr/export');
 });
 

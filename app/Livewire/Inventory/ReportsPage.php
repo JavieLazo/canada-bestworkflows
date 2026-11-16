@@ -17,7 +17,7 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /** Reports compose current custody and movement evidence without deciding financial liability. */
-#[Title('Inventory reports')]
+#[Title('Inventory Reports')]
 class ReportsPage extends Component
 {
     use WithChangeStamp;

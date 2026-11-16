@@ -12,7 +12,7 @@
     and decides whether today is still possible.
 --}}
 <div class="space-y-1 sm:col-span-2">
-    <label for="{{ $fieldId }}" class="text-sm font-medium">Effective from</label>
+    <label for="{{ $fieldId }}" class="text-sm font-medium">Effective From</label>
     <x-kit.date-field :id="$fieldId" class="max-w-[12rem]" wire:model="{{ $model }}" aria-label="Effective from" />
     @if ($hint ?? true)
         <p class="text-xs text-muted-foreground">

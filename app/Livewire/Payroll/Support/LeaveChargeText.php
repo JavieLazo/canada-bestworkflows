@@ -47,7 +47,7 @@ final class LeaveChargeText
             $steps[] = ['label' => 'Nothing to deduct', 'detail' => 'No lateness, undertime or absence on this payroll, or the leave settings deduct them from pay.', 'state' => 'unused'];
         }
 
-        return ['title' => 'Leave credits deducted · '.$employeeName, 'amount' => $days, 'unit' => 'credits', 'steps' => $steps];
+        return ['title' => 'Leave Credits Deducted · '.$employeeName, 'amount' => $days, 'unit' => 'credits', 'steps' => $steps];
     }
 
     /** "1.25 credits", "1 credit": credits read at up to four decimals, never the grid's one-decimal day count. */

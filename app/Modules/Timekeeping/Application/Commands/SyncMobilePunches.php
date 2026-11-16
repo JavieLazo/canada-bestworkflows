@@ -6,6 +6,7 @@ namespace App\Modules\Timekeeping\Application\Commands;
 
 use App\Models\EdtrMobilePunchReceipt;
 use App\Modules\Timekeeping\Application\PunchInput;
+use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Support\Access;
 use App\Support\ManilaClock;
 use Illuminate\Database\QueryException;
@@ -16,7 +17,14 @@ use Throwable;
 /**
  * Writes biometric punches captured on a device, including ones queued
  * while the kiosk had no network. Each row is the same RecordPunch the
- * eDTR station uses, at the instant the device captured.
+ * eDTR station uses, at the instant the device captured. A row that arrives
+ * on a later day than it was captured is refused when a posted payslip
+ * already covers its day (RecordPunch).
+ *
+ * A DEVICE SET UP AT A SITE PUNCHES ONLY THAT SITE'S PEOPLE. A row may name
+ * the site its device stands at (`site_id`); RecordPunch then treats it as
+ * the station's site select and refuses anyone who works somewhere else that
+ * day, by name. A row with no site is judged by its coordinates alone.
  */
 final class SyncMobilePunches
 {
@@ -58,6 +66,13 @@ final class SyncMobilePunches
 
         try {
             return DB::transaction(function () use ($actor, $clientId, $row, $at): array {
+                // Payroll's membership lock FIRST, before the receipt is
+                // read: RecordPunch may have to answer whether the punch's
+                // day is already paid, and the lock also puts two devices'
+                // rows in one line, so their receipt inserts never wait on
+                // each other's gap.
+                app(PostedPayrollDates::class)->lock();
+
                 $existing = EdtrMobilePunchReceipt::query()->where('client_id', $clientId)->lockForUpdate()->first();
                 if ($existing !== null) {
                     return [
@@ -74,7 +89,8 @@ final class SyncMobilePunches
                         $actor,
                         new PunchInput(
                             (string) ($row['employee_id'] ?? ''),
-                            '',
+                            // The site the device stands at, as the station's site select.
+                            trim((string) ($row['site_id'] ?? '')),
                             'BIOMETRIC',
                             false,
                             '',

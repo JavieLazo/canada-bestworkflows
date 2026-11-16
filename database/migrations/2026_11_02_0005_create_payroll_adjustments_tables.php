@@ -141,10 +141,12 @@ return new class extends Migration
 
     public function down(): void
     {
+        // MySQL/MariaDB drop the key by its name; sqlite only by its column.
+        $mysql = $this->isMySql();
         foreach (['payslip_incentives' => 'psi', 'payslip_deductions' => 'psd'] as $table => $prefix) {
             if (Schema::hasColumn($table, 'adjustment_id')) {
                 if (Schema::hasForeignKey($table, ['adjustment_id'])) {
-                    Schema::table($table, static fn (Blueprint $t) => $t->dropForeign(['adjustment_id']));
+                    Schema::table($table, static fn (Blueprint $t) => $t->dropForeign($mysql ? "{$prefix}_adjustment_fk" : ['adjustment_id']));
                 }
                 if (Schema::hasIndex($table, "{$prefix}_adjustment_idx")) {
                     Schema::table($table, static fn (Blueprint $t) => $t->dropIndex("{$prefix}_adjustment_idx"));

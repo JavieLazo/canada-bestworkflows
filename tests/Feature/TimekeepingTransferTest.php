@@ -23,9 +23,9 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
  * the days CREDITED per type and year beside the remaining days the tab
  * shows. EXPORT ONLY: leave credits have no CSV import, so no importer is
  * registered for the table, the shared import dialog refuses it, and the
- * tab offers Export CSV and no Import CSV. (The Shift Roster has no CSV
- * export or import; Timekeeping's other transfer is Shift Types, in
- * RecordsTransferTest.)
+ * tab offers Export CSV and no Import CSV. (The Shift Roster and Shifting
+ * Settings have no CSV export or import; RecordsTransferTest pins the
+ * latter.)
  */
 
 /** @param list<string> $modules */

@@ -6,7 +6,7 @@
             <p class="text-sm text-muted-foreground">Payslips exist once a payroll is finalized.</p>
             <div>
                 <flux:button variant="outline" :href="route('payroll.show', ['id' => $runId])" wire:navigate>
-                    Back to the payroll
+                    Back to the Payroll
                 </flux:button>
             </div>
         </div>

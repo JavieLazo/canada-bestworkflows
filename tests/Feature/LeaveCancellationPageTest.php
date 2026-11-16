@@ -50,7 +50,7 @@ afterEach(function () {
 it('lets management cancel selected future dates of its own approved leave and retain the history', function () {
     ['request' => $request] = cancellationPageFixture();
     $page = Livewire::test(Index::class)->call('show', $request->id)
-        ->assertSee('Cancel future dates')
+        ->assertSee('Cancel Future Dates')
         ->assertDontSeeHtml('value="2026-10-09"')
         ->assertDontSeeHtml('value="2026-10-10"')
         ->set('cancelDates', ['2026-10-12', '2026-10-14'])
@@ -58,7 +58,7 @@ it('lets management cancel selected future dates of its own approved leave and r
         ->call('cancelSelectedDates')
         ->assertSet('cancelError', '')
         ->assertSee('Partially cancelled')
-        ->assertSee('Cancelled dates')
+        ->assertSee('Cancelled Dates')
         ->assertSee('Plans changed; the other days remain approved.')
         ->assertDontSeeHtml('value="2026-10-12"');
 
@@ -69,13 +69,13 @@ it('lets management cancel selected future dates of its own approved leave and r
 
     Livewire::test(PortalPage::class)->set('tab', 'requests')
         ->assertSee('2 cancelled dates')->assertSee('Plans changed; the other days remain approved.')
-        ->assertDontSee('Cancel selected dates');
+        ->assertDontSee('Cancel Selected Dates');
 });
 
 it('refuses cancellation through a visible own request without management access', function () {
     ['request' => $request] = cancellationPageFixture(false);
     Livewire::test(Index::class)->call('show', $request->id)
-        ->assertDontSee('Cancel future dates')
+        ->assertDontSee('Cancel Future Dates')
         ->set('cancelDates', ['2026-10-12'])->set('cancelReason', 'Not authorized')
         ->call('cancelSelectedDates');
     expect($request->fresh()->cancellations)->toHaveCount(0);
@@ -87,7 +87,7 @@ it('shows a fully cancelled request without calling its original approval reject
     Livewire::test(Index::class)->call('show', $request->id)
         ->set('cancelDates', ['2026-10-12'])->set('cancelReason', 'No longer needed')
         ->call('cancelSelectedDates')->assertSee('CANCELLED')->assertSeeHtml('data-decision>Approved as paid leave</p>')
-        ->assertDontSeeHtml('data-decision>Rejected</p>')->assertDontSee('Cancel future dates');
+        ->assertDontSeeHtml('data-decision>Rejected</p>')->assertDontSee('Cancel Future Dates');
 });
 
 it('warns payroll about a manual Leave amount after cancellation without changing the override', function () {
