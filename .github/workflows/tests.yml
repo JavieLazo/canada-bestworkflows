@@ -14,22 +14,23 @@ jobs:
     runs-on: ubuntu-latest
 
     # `composer setup` runs `artisan migrate --force` against the credentials in
-    # .env.example, which it has just copied to .env. Those name MySQL on
+    # .env.example, which it has just copied to .env. Those name a server on
     # 127.0.0.1:3306, so without a database here the Setup Application step fails
     # and ci:check never runs. Values below mirror .env.example exactly — change
-    # them together. This remains a MySQL compatibility check; production uses
-    # MariaDB 11.4, covered by the separate job below. phpunit.xml pins this
-    # job's feature and unit suite to sqlite :memory:.
+    # them together. The server is MariaDB 11.4, the engine production runs: the
+    # migrations are written for it and read its information_schema, which MySQL
+    # 8 lays out differently. phpunit.xml pins this job's feature and unit suite
+    # to sqlite :memory:; the MariaDB suite is the separate job below.
     services:
-      mysql:
-        image: mysql:8.0
+      mariadb:
+        image: mariadb:11.4
         env:
-          MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
-          MYSQL_DATABASE: bestworkflows
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: 'yes'
+          MARIADB_DATABASE: bestworkflows
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping --silent"
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
@@ -118,6 +119,13 @@ jobs:
 
       - name: Build frontend
         run: npm run build
+
+      # Laravel's console commands read the environment file and warn on every
+      # test when it is absent. The file changes no value the suite depends on:
+      # a variable this job or phpunit.mariadb.xml already set is never
+      # overwritten by .env.
+      - name: Create environment file
+        run: cp .env.example .env
 
       - name: Run MariaDB suite
         run: php vendor/bin/pest --configuration=phpunit.mariadb.xml
