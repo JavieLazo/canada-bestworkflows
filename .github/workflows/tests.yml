@@ -9,9 +9,19 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same branch or pull request makes the run in progress
+# worthless: its verdict is about code that is no longer the tip. Cancelling
+# it stops the MariaDB suite from running to the end for nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     runs-on: ubuntu-latest
+    # About twice this job's normal run time, so a hung step ends here
+    # instead of at GitHub's six-hour default.
+    timeout-minutes: 20
 
     # `composer setup` runs `artisan migrate --force` against the credentials in
     # .env.example, which it has just copied to .env. Those name a server on
@@ -69,6 +79,10 @@ jobs:
 
   mariadb:
     runs-on: ubuntu-latest
+    # A ceiling for a run that has gone wrong, not a target: a suite that
+    # fails throughout takes well over an hour, and without this it would
+    # run to GitHub's six-hour default.
+    timeout-minutes: 90
     # A dedicated account cannot access another database, and the test bootstrap
     # rejects cached configuration and non-disposable targets before Laravel boots.
     services:
@@ -81,15 +95,24 @@ jobs:
           MARIADB_PASSWORD: disposable-ci-only
         ports:
           - 3306:3306
+        # The data directory lives in memory. The Integration tests rebuild
+        # the whole schema for every test, and on disk each of those DDL
+        # statements waits for a flush; nothing in this database has to
+        # outlive the job.
         options: >-
+          --tmpfs /var/lib/mysql:rw
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
           --health-start-period=30s
+    # APP_KEY decodes to exactly 32 bytes, the length AES-256-CBC requires. Any
+    # other length fails every test that renders a page with "Unsupported
+    # cipher or incorrect key length". It protects nothing: this database and
+    # everything in it are thrown away with the job.
     env:
       APP_ENV: testing
-      APP_KEY: base64:UlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlI=
+      APP_KEY: base64:UlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlJSUlI=
       DB_PORT: '3306'
       DB_PASSWORD: disposable-ci-only
       EMS_MARIADB_TESTS: disposable
@@ -120,10 +143,10 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      # Laravel's console commands read the environment file and warn on every
-      # test when it is absent. The file changes no value the suite depends on:
-      # a variable this job or phpunit.mariadb.xml already set is never
-      # overwritten by .env.
+      # With no environment file, most tests end with a "file_get_contents(.env):
+      # Failed to open stream" warning. The file changes no value the suite
+      # depends on: a variable this job or phpunit.mariadb.xml already set is
+      # never overwritten by .env.
       - name: Create environment file
         run: cp .env.example .env
 
