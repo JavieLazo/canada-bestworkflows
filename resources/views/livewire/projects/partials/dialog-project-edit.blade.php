@@ -82,7 +82,7 @@
 
                 <div class="flex items-center justify-between gap-3 border-t border-border pt-4 sm:col-span-2">
                     <flux:button type="button" variant="ghost" wire:click="cancelProjectEdit">Cancel</flux:button>
-                    <flux:button type="submit" variant="primary">Save changes</flux:button>
+                    <flux:button type="submit" variant="primary">Save Changes</flux:button>
                 </div>
             </form>
         @endif

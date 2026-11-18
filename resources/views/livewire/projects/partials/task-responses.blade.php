@@ -29,7 +29,7 @@
 @endphp
 <div class="space-y-2">
     <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <h3 class="ppm-section-title">Individual responses</h3>
+        <h3 class="ppm-section-title">Individual Responses</h3>
         <p class="num text-xs text-muted-foreground">{{ $openTask->responseSummary() }}</p>
     </div>
 

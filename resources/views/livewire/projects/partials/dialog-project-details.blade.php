@@ -2,7 +2,7 @@
 <flux:modal x-data="workProjectDetails" wire:model.self="detailsOpen" :closable="false" class="ppm-details-dialog min-w-0 w-full max-w-3xl">
     @if ($detailsOpen)
         <header class="flex shrink-0 items-start justify-between gap-3 border-b border-border px-5 py-4">
-            <div class="min-w-0"><flux:heading size="lg" level="2" id="project-details-heading">{{ $editing ? ($canManage ? 'Edit project' : 'Plan project start') : ($projectStatusEditing ? 'Edit project status' : 'Project details') }}</flux:heading><p class="mt-1 truncate text-xs text-muted-foreground" title="{{ $project->name }}">{{ $project->name }}</p></div>
+            <div class="min-w-0"><flux:heading size="lg" level="2" id="project-details-heading">{{ $editing ? ($canManage ? 'Edit Project' : 'Plan Project Start') : ($projectStatusEditing ? 'Edit Project Status' : 'Project Details') }}</flux:heading><p class="mt-1 truncate text-xs text-muted-foreground" title="{{ $project->name }}">{{ $project->name }}</p></div>
             <div class="flex shrink-0 items-center gap-1">
                 @if (! $editing && ! $projectStatusEditing && $runsProject)<flux:button size="sm" variant="ghost" wire:click="openEdit" aria-label="Edit project details"><flux:icon.pencil-square class="size-4" /><span class="hidden sm:inline">Edit details</span></flux:button>
                 @endif

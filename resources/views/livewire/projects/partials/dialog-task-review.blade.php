@@ -22,8 +22,8 @@
         <x-slot:meta><a href="{{ route('projects.show', $project->id) }}" class="max-w-56 truncate hover:text-foreground">{{ $project->name }}</a></x-slot:meta>
         <x-slot:headingActions>
             <div class="flex items-center gap-1">
-                @if (in_array('COMPLETED', $actions, true))<flux:button size="sm" variant="primary" icon="check" wire:click="review('COMPLETED')" :disabled="$individual && ($openTaskGaps !== [] || $openTaskWaitingOn !== '')" :aria-describedby="$individual ? 'complete-reason' : null">{{ $individual ? 'Complete task' : 'Accept task' }}</flux:button>@endif
-                @if (in_array('CANCELLED', $actions, true))<flux:dropdown><flux:button size="sm" variant="ghost" square icon="ellipsis-horizontal" aria-label="Task actions" /><flux:menu><flux:menu.item variant="danger" wire:click="review('CANCELLED')">Cancel task</flux:menu.item></flux:menu></flux:dropdown>@endif
+                @if (in_array('COMPLETED', $actions, true))<flux:button size="sm" variant="primary" icon="check" wire:click="review('COMPLETED')" :disabled="$individual && ($openTaskGaps !== [] || $openTaskWaitingOn !== '')" :aria-describedby="$individual ? 'complete-reason' : null">{{ $individual ? 'Complete Task' : 'Accept Task' }}</flux:button>@endif
+                @if (in_array('CANCELLED', $actions, true))<flux:dropdown><flux:button size="sm" variant="ghost" square icon="ellipsis-horizontal" aria-label="Task actions" /><flux:menu><flux:menu.item variant="danger" wire:click="review('CANCELLED')">Cancel Task</flux:menu.item></flux:menu></flux:dropdown>@endif
             </div>
         </x-slot:headingActions>
         @if ($canEditWork && ! $closed && ! $openTaskModeLocked)
@@ -132,13 +132,13 @@
                         <p class="flex items-center gap-1.5 text-xs text-warning"><flux:icon.exclamation-triangle class="size-3.5" />{{ $openTask->subtasks_count - $openTask->subtasks_completed - $openTask->subtasks_cancelled }} subtasks still open</p>
                     @endif
                     @if ($openTask->awaitsReview() || $manualStatus === 'RETURNED')
-                        <flux:textarea label="{{ count($actions) > 0 ? 'Review remark' : 'Status note' }}{{ $needsRemark ? ' (required to return)' : '' }}" aria-label="Review remark" rows="2" placeholder="Add a note for the team…" wire:model="remarks" />
+                        <flux:textarea label="{{ count($actions) > 0 ? 'Review Remark' : 'Status Note' }}{{ $needsRemark ? ' (required to return)' : '' }}" aria-label="Review Remark" rows="2" placeholder="Add a note for the team…" wire:model="remarks" />
                     @else
                         <details><summary class="w-fit cursor-pointer text-xs text-muted-foreground">Add a status note</summary><flux:textarea class="mt-2" aria-label="Status note" rows="2" wire:model="remarks" /></details>
                     @endif
                     @if (count($actions) > 0)
                         <div class="flex flex-wrap justify-end gap-2">
-                            @if (in_array('RETURNED', $actions, true))<flux:button size="sm" variant="outline" icon="arrow-uturn-left" wire:click="review('RETURNED')">Return for rework</flux:button>
+                            @if (in_array('RETURNED', $actions, true))<flux:button size="sm" variant="outline" icon="arrow-uturn-left" wire:click="review('RETURNED')">Return for Rework</flux:button>
 @endif
                         </div>
                         @if (in_array('COMPLETED', $actions, true) && $individual)<p id="complete-reason" class="text-right text-xs text-muted-foreground">{{ $openTaskWaitingOn !== '' ? $openTaskWaitingOn : 'Every response is approved.' }}</p>

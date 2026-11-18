@@ -73,7 +73,7 @@
                 @if ($coAssignees !== '')<p class="mt-3">Working with: <span class="text-foreground">{{ $coAssignees }}</span></p>@endif
             </details>
             @if ($returned)
-                <section class="space-y-2" aria-label="Returned for rework"><h3 class="ppm-section-title text-danger">Returned for rework</h3><p class="text-sm">{{ trim((string) $reviewNote) !== '' ? $reviewNote : 'No remarks were left with the return.' }}</p></section>
+                <section class="space-y-2" aria-label="Returned for Rework"><h3 class="ppm-section-title text-danger">Returned for Rework</h3><p class="text-sm">{{ trim((string) $reviewNote) !== '' ? $reviewNote : 'No remarks were left with the return.' }}</p></section>
             @endif
             <section class="space-y-2"><h3 class="ppm-section-title">Description</h3><p class="whitespace-pre-line break-words text-sm text-muted-foreground">{{ trim((string) $open->description) !== '' ? $open->description : 'No description given.' }}</p></section>
             @if (! $open->isSubtask() && $open->has_subtasks)

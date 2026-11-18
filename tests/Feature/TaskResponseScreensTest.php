@@ -643,8 +643,8 @@ it('renders group submissions with their existing notes and decisions', function
         ->call('openTask', $submitted->id)
         ->assertSee('Team response')
         ->assertSee('Both halves done')
-        ->assertSee('Accept task')
-        ->assertSee('Return for rework')
-        ->assertDontSee('Complete task')
-        ->assertDontSee('Individual responses');
+        ->assertSee('Accept Task')
+        ->assertSee('Return for Rework')
+        ->assertDontSee('Complete Task')
+        ->assertDontSee('Individual Responses');
 });

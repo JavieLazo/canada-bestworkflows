@@ -103,6 +103,6 @@ it('keeps the brief and task link open after starting from the drawer', function
     $task = cpaTask($owner, $project, [$worker->employee]);
     cpaLogin($worker);
     Livewire::withQueryParams(['task' => $task->id]);
-    Livewire::test(MyTasksPage::class)->call('startTask')->assertSet('openId', $task->id)->assertSet('linkedTask', $task->id)->assertSee('Submit for review');
+    Livewire::test(MyTasksPage::class)->call('startTask')->assertSet('openId', $task->id)->assertSet('linkedTask', $task->id)->assertSee('Submit for Review');
     expect($task->fresh()->status)->toBe('IN_PROGRESS');
 });
