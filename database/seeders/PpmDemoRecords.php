@@ -28,7 +28,13 @@ abstract class PpmDemoRecords extends PortSeeder
             return false;
         }
         // Existing demo edits and retained history are never rewritten by a rerun.
-        $this->upsert($model, $match, $attributes);
+        //
+        // THE PACK KEEPS ITS OWN FIXED IDS, so the row is written here and not
+        // through upsert(): every demo row points at the others by id(), and
+        // upsert() gives a new row a generated key and files the fixed one
+        // away as a seed identity — the first row pointing at it would then
+        // name a record that does not exist.
+        (new $model)->forceFill($match + $attributes)->save();
 
         return true;
     }
