@@ -28,7 +28,10 @@ it('selects the application public directory before considering the cPanel sibli
             $root.'/vendor/autoload.php', $temporary.'/bestworkflows/bootstrap/app.php',
         ]);
         $process->mustRun();
-        expect($process->getOutput())->toBe($temporary.'/'.$expected);
+        // Which folder was chosen is the rule; Windows writes the same path
+        // with backslashes, so both sides are compared with one separator.
+        $chosen = str_replace('\\', '/', $process->getOutput());
+        expect($chosen)->toBe(str_replace('\\', '/', $temporary.'/'.$expected));
     } finally {
         $files->deleteDirectory($temporary);
     }
