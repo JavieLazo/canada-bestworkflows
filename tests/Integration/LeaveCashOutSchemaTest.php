@@ -79,6 +79,11 @@ it('admits a negative carry-forward and a cash-out entry, and refuses the signs 
     expect(fn () => lcoschemaEntry($employee, 'CARRY_FORWARD', '0'))->toThrow(QueryException::class, 'lce_days_chk');
     expect(fn () => lcoschemaEntry($employee, 'CASH_OUT', '1'))->toThrow(QueryException::class, 'lce_days_chk');
     expect(fn () => lcoschemaEntry($employee, 'REFUND', '1'))->toThrow(QueryException::class, 'lce_kind_chk');
+
+    // The suite's teardown rolls every migration back, and each one puts
+    // the ledger's earlier CHECK back: a cash-out entry and a negative
+    // carry-forward are rows those refuse. They go first.
+    DB::table('leave_credit_entries')->where('employee_id', $employee->getKey())->delete();
 });
 
 it('refuses a cash-out outside its constraints and keeps a paid one with its payslip', function () {

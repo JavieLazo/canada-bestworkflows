@@ -251,7 +251,7 @@ it('uses the fixed standard table whatever is stored, and shows it to managers a
     $stored->forceFill([
         'effective_from' => '2026-01-01', 'hours_per_day' => 8, 'decimals' => 3, 'rounding' => 'HALF_UP',
         'rows' => ['minutes' => [...MinuteConversion::rows(8, 3, 'HALF_UP')['minutes'], 30 => '0.070'], 'hours' => MinuteConversion::rows(8, 3, 'HALF_UP')['hours']],
-        'reference' => 'Our own', 'status' => 'APPROVED',
+        'reference' => 'Our own', 'status' => 'APPROVED', 'approved_at' => now('UTC'),
     ])->save();
 
     expect(ConversionTables::entry())->toBe([

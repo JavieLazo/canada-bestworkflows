@@ -203,6 +203,11 @@ it('refuses credits or a year outside the constraints and a second row for one e
     DB::table('leave_credits')->where('id', $zero)->update(['credits' => '-0.5']);
     expect((string) DB::table('leave_credits')->where('id', $zero)->value('credits'))->toBe('-0.5000')
         ->and((int) DB::table('leave_credits')->where('id', $zero)->value('year'))->toBe(2026);
+
+    // The suite's teardown rolls every migration back, and the one that
+    // narrows `credits` to DECIMAL(6,2) again refuses a value that column
+    // cannot hold. The rows at the wide column's edges go first.
+    DB::table('leave_credits')->where('employee_id', (string) $employee->getKey())->delete();
 });
 
 it('cascades the credit rows with their employee', function () {

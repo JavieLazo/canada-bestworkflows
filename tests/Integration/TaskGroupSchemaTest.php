@@ -57,9 +57,19 @@ it('reruns and reverses group schema without rewriting legacy tasks or their his
     $snapshot = static fn (): array => array_map(static fn (string $table): string => DB::table($table)->select($columns[$table])->orderBy('id')->get()->toJson(), $tables);
     $before = $snapshot();
     $migration = require database_path('migrations/2026_11_01_0001_add_project_task_groups.php');
+    // A rollback runs newest first: the project migrations that came after
+    // the groups point at them, so they go before the groups can and return
+    // after them.
+    $later = array_map(
+        static fn (string $file): mixed => require database_path('migrations/'.$file.'.php'),
+        ['2026_11_03_0005_add_project_funding', '2026_11_03_0004_add_project_reporting', '2026_11_03_0003_add_project_results', '2026_11_03_0002_add_project_capacity', '2026_11_03_0001_add_project_finance'],
+    );
     try {
         $migration->up();
         $migration->up();
+        foreach ($later as $newer) {
+            $newer->down();
+        }
         $migration->down();
         $migration->down();
         expect(Schema::hasColumn('project_tasks', 'group_id'))->toBeFalse()->and($snapshot())->toBe($before);
@@ -71,6 +81,9 @@ it('reruns and reverses group schema without rewriting legacy tasks or their his
         }
     } finally {
         $migration->up();
+        foreach (array_reverse($later) as $newer) {
+            $newer->up();
+        }
         tgroupSchemaCleanup([$project->id]);
     }
 });

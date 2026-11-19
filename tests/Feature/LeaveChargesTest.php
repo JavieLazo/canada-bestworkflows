@@ -336,7 +336,7 @@ it('converts with the fixed table, never with a stored one, and the run captures
     $stored->forceFill([
         'effective_from' => '2026-01-01', 'hours_per_day' => 8, 'decimals' => 3, 'rounding' => 'HALF_DOWN',
         'rows' => ['minutes' => MinuteConversion::rows(8, 3, 'HALF_DOWN')['minutes'], 'hours' => [...MinuteConversion::rows(8, 3, 'HALF_DOWN')['hours'], 1 => '0.200']],
-        'reference' => 'Our own', 'status' => 'APPROVED',
+        'reference' => 'Our own', 'status' => 'APPROVED', 'approved_at' => now('UTC'),
     ])->save();
     $run = lchgDraft($actor, $employee);
 

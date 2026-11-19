@@ -43,7 +43,7 @@ it('seeds the preset once as a draft equal to the fixed table, and leaves a held
     $migration->up();
     expect(LeaveConversionTable::query()->count())->toBe(1);
 
-    $preset->forceFill(['reference' => 'Civil Service Commission minutes-to-days conversion (preset)', 'status' => 'APPROVED'])->save();
+    $preset->forceFill(['reference' => 'Civil Service Commission minutes-to-days conversion (preset)', 'status' => 'APPROVED', 'approved_at' => now('UTC')])->save();
     $migration->down();
     expect(LeaveConversionTable::query()->count())->toBe(1);
 

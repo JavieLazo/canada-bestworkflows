@@ -51,7 +51,9 @@ it('adds the rule columns once, backfills the category from the flag and resumes
         ->where('CONSTRAINT_TYPE', 'CHECK')
         ->where('CONSTRAINT_NAME', 'like', 'pit\_%')
         ->pluck('CONSTRAINT_NAME')->sort()->values()->all();
-    expect($checks)->toBe(['pit_amount_type_chk', 'pit_frequency_chk', 'pit_proration_chk', 'pit_tax_chk']);
+    // Four are this migration's; `pit_cash_out_value_chk` is the cash-out
+    // day value's (2026_11_09_0003), on the same table.
+    expect($checks)->toBe(['pit_amount_type_chk', 'pit_cash_out_value_chk', 'pit_frequency_chk', 'pit_proration_chk', 'pit_tax_chk']);
 
     // A run killed after the columns and before the CHECKs resumes; a
     // category HR set since is never overwritten by the re-run.

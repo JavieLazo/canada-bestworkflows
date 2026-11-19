@@ -110,7 +110,7 @@ function gdpPosted(EmployeeProfile $employee, string $start, string $end): void
 it('adds the approval columns to the pay rules, backfilling every row approved, and creates the policy table, resuming from a partial run', function () {
     $employee = gdpEmployee('Migrated');
     $row = new PayrollPayRule;
-    $row->forceFill(['scope' => $employee->id, 'scope_type' => PayrollPayRule::SCOPE_EMPLOYEE, 'effective_from' => '2027-01-01', 'reason' => 'Synthetic', 'params' => null])->save();
+    $row->forceFill(['scope' => $employee->id, 'scope_type' => PayrollPayRule::SCOPE_EMPLOYEE, 'effective_from' => '2027-01-01', 'reason' => 'Synthetic', 'params' => null, 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
     $draft = new PayrollPayRule;
     $draft->forceFill(['scope' => $employee->id, 'scope_type' => PayrollPayRule::SCOPE_EMPLOYEE, 'effective_from' => '2027-02-01', 'reason' => 'Synthetic', 'params' => null, 'status' => PayrollPayRule::DRAFT])->save();
 

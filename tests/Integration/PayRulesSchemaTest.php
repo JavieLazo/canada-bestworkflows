@@ -65,6 +65,8 @@ it('refuses a second version of one scope on the same date', function () {
     $row = static fn (string $scope, string $from): array => [
         'id' => (string) Str::ulid(), 'scope' => $scope, 'scope_type' => $scope === 'COMPANY' ? 'COMPANY' : 'STATUS',
         'effective_from' => $from, 'reason' => null, 'params' => '{}',
+        // An approved row carries its stamp (`ppr_approval_chk`, 2026_11_02_0002).
+        'status' => 'APPROVED', 'approved_at' => now('UTC')->format('Y-m-d H:i:s.v'),
         'created_by' => null, 'created_by_name' => null,
         'created_at' => now('UTC')->format('Y-m-d H:i:s.v'), 'updated_at' => null,
     ];

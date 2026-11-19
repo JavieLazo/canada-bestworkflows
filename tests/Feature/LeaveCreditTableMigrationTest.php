@@ -21,8 +21,10 @@ use Illuminate\Support\Str;
  * before anything else, then deletes the rows seeded here by key. On
  * MySQL/MariaDB DDL commits implicitly, so a down() ends RefreshDatabase's
  * transaction, which can then roll back neither the schema nor those rows
- * (the RosterLocationsMigrationTest pattern). This file also runs under
- * phpunit.mariadb.xml, where that cleanup is what keeps the next test clean.
+ * (the RosterLocationsMigrationTest pattern). Under phpunit.mariadb.xml the
+ * rollback test is skipped for that reason — later migrations widened the
+ * table, and the create alone cannot bring that back — and only the
+ * "runs no DDL" test runs.
  *
  * `leave_credits` has no child tables, so dropping it takes nothing with it.
  * The two CHECKs are MySQL/MariaDB only and belong to
@@ -162,7 +164,8 @@ function lctmigAssertTable(bool $applied): void
         expect($columns['id']['type'])->toBe('char(26)')
             ->and($columns['employee_id']['type'])->toBe('char(26)')
             ->and($columns['request_type']['type'])->toBe('varchar(60)')
-            ->and($columns['credits']['type'])->toBe('decimal(6,2)')
+            // The finished schema's width: 2026_10_31_0003 widened the create's decimal(6,2).
+            ->and($columns['credits']['type'])->toBe('decimal(10,4)')
             ->and($columns['year']['type'])->toContain('unsigned')
             ->and($columns['created_at']['type'])->toBe('datetime(3)')
             ->and($columns['updated_at']['type'])->toBe('datetime(3)');
@@ -170,6 +173,13 @@ function lctmigAssertTable(bool $applied): void
 }
 
 it('rolls the leave_credits table back and re-applies it twice, losing every credit', function () {
+    // The create alone rebuilds the table in its first shape, narrower than
+    // the finished schema, and on MySQL/MariaDB that DDL commits: every
+    // later test would run on the narrow table. There the rollback is
+    // tests/Integration/LeaveCreditTableSchemaTest's, on a schema of its own.
+    if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+        $this->markTestSkipped('On MySQL/MariaDB the rollback is covered by LeaveCreditTableSchemaTest.');
+    }
     $migration = lctmigMigration();
     $seeded = [];
 

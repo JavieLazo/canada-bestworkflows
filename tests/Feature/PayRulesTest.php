@@ -17,6 +17,7 @@ use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\PayRulesStore;
 use App\Support\Access;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Support\PayrollEvidenceFixture;
 
@@ -76,7 +77,7 @@ function prulesFigures(array $changes = []): array
 function prulesVersion(string $scope, string $from, array $changes = [], ?string $reason = null): PayrollPayRule
 {
     $row = new PayrollPayRule;
-    $row->forceFill(['scope' => $scope, 'effective_from' => $from, 'reason' => $reason, 'params' => prulesFigures($changes)])->save();
+    $row->forceFill(['scope' => $scope, 'effective_from' => $from, 'reason' => $reason, 'params' => prulesFigures($changes), 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
 
     return $row;
 }
@@ -103,6 +104,15 @@ it('seeds one company version carrying the Formulas rows\' values and the refere
     $migration = prulesMigration();
     $migration->up();
     expect(PayrollPayRule::query()->count())->toBe(1);
+
+    // The seed writes the columns the table had when it was created. On the
+    // finished schema MariaDB refuses that row (the scope kind and the
+    // approval stamp came later and are backfilled by their own migrations),
+    // so there the edited-Formulas case is PayRulesSchemaTest's, which
+    // re-creates the table in its first shape before seeding it.
+    if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+        return;
+    }
 
     // On an installation whose Formulas rows were edited, the seeded version carries those values.
     PayrollPayRule::query()->delete();
@@ -319,11 +329,11 @@ it('adds the three rate-step keys, blank, to every stored version once and takes
     $older = prulesFigures();
     unset($older['hourly_rate'], $older['rounding'], $older['overtime']['seaport_rate']);
     $legacy = new PayrollPayRule;
-    $legacy->forceFill(['scope' => 'st-legacy', 'effective_from' => '2026-01-01', 'reason' => 'Before', 'params' => $older])->save();
+    $legacy->forceFill(['scope' => 'st-legacy', 'effective_from' => '2026-01-01', 'reason' => 'Before', 'params' => $older, 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
     $follows = new PayrollPayRule;
-    $follows->forceFill(['scope' => (string) Str::ulid(), 'scope_type' => PayrollPayRule::SCOPE_EMPLOYEE, 'effective_from' => '2026-01-01', 'reason' => 'Follows', 'params' => null])->save();
+    $follows->forceFill(['scope' => (string) Str::ulid(), 'scope_type' => PayrollPayRule::SCOPE_EMPLOYEE, 'effective_from' => '2026-01-01', 'reason' => 'Follows', 'params' => null, 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
     $set = new PayrollPayRule;
-    $set->forceFill(['scope' => 'st-set', 'effective_from' => '2026-01-01', 'reason' => 'Set', 'params' => prulesFigures(['hourly_rate.hours' => 8.0, 'rounding.decimals' => 2, 'overtime.seaport_rate' => 1.5])])->save();
+    $set->forceFill(['scope' => 'st-set', 'effective_from' => '2026-01-01', 'reason' => 'Set', 'params' => prulesFigures(['hourly_rate.hours' => 8.0, 'rounding.decimals' => 2, 'overtime.seaport_rate' => 1.5]), 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
 
     $migration = prulesRateFiguresMigration();
     $migration->up();

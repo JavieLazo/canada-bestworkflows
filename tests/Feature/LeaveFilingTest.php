@@ -10,6 +10,7 @@ use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveCashOut;
 use App\Models\LeaveCredit;
+use App\Models\LeaveCreditEntry;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
 use App\Models\Notification;
@@ -98,6 +99,16 @@ function lfilCredit(EmployeeProfile $employee, string $token, float $credits, in
 {
     $credit = new LeaveCredit;
     $credit->forceFill(['employee_id' => $employee->id, 'year' => $year, 'request_type' => $token, 'credits' => $credits])->save();
+    if ($credits >= 0) {
+        return;
+    }
+    // A balance below zero is never a starting grant: a charge took it there,
+    // and the ledger says so. Without these entries the writer would record
+    // the debt as the starting balance, which the ledger refuses (`lce_days_chk`).
+    foreach ([['BASELINE', 0.0], ['CHARGE', $credits]] as [$kind, $days]) {
+        $entry = new LeaveCreditEntry(['employee_id' => $employee->id, 'year' => $year, 'request_type' => $token, 'kind' => $kind, 'days' => $days, 'note' => 'Fixture']);
+        $entry->save();
+    }
 }
 
 function lfilRequest(EmployeeProfile $employee, string $token, string $start, string $end, string $dayType = 'WHOLE_DAY'): LeaveTravelRequest

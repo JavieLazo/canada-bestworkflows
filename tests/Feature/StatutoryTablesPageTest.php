@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Modules\Payroll\Application\Commands\AddStatutoryTableVersion;
 use App\Modules\Payroll\Application\Commands\ConfirmAllStatutoryTables;
 use App\Support\Access;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -197,6 +198,12 @@ it('refuses confirm all without all-data PAYROLL or a date, and changes nothing'
 it('confirms none when one table is refused, so the check is all or nothing', function () {
     $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
     $actor = Access::forActor(stpActor());
+    // One table can be refused here only when it is stored covered through a
+    // date BEFORE it starts. MariaDB cannot hold such a row (`pst_span_chk`),
+    // so the case cannot arise there; sqlite has no CHECK and shows the rule.
+    if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+        $this->markTestSkipped('MariaDB refuses the stored span this case needs (pst_span_chk).');
+    }
     // The last table starts after the date, which its own confirmation refuses.
     PayrollStatutoryTable::query()->where('kind', StatutorySchedule::WITHHOLDING_TAX)->update(['effective_from' => '2028-01-01', 'covered_through' => '2026-12-31']);
 

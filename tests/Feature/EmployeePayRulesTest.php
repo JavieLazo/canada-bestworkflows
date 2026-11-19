@@ -91,7 +91,7 @@ function eprVersion(string $scope, string $type, string $from, ?array $changes =
         }
     }
     $row = new PayrollPayRule;
-    $row->forceFill(['scope' => $scope, 'scope_type' => $type, 'effective_from' => $from, 'reason' => 'Synthetic', 'params' => $figures])->save();
+    $row->forceFill(['scope' => $scope, 'scope_type' => $type, 'effective_from' => $from, 'reason' => 'Synthetic', 'params' => $figures, 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
 
     return $row;
 }
@@ -167,9 +167,9 @@ it('labels a company or status row created without a kind by its scope, and keep
     $regular = eprStatus('Regular');
     $employee = eprEmployee('Kinds');
     $company = new PayrollPayRule;
-    $company->forceFill(['scope' => PayrollPayRule::COMPANY, 'effective_from' => '2027-01-01', 'params' => PayRules::fromFormulas()->toArray()])->save();
+    $company->forceFill(['scope' => PayrollPayRule::COMPANY, 'effective_from' => '2027-01-01', 'params' => PayRules::fromFormulas()->toArray(), 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
     $status = new PayrollPayRule;
-    $status->forceFill(['scope' => $regular->id, 'effective_from' => '2027-01-01', 'params' => PayRules::fromFormulas()->toArray()])->save();
+    $status->forceFill(['scope' => $regular->id, 'effective_from' => '2027-01-01', 'params' => PayRules::fromFormulas()->toArray(), 'status' => PayrollPayRule::APPROVED, 'approved_at' => now('UTC')])->save();
     eprVersion($employee->id, PayrollPayRule::SCOPE_EMPLOYEE, '2027-01-01');
     $actor = eprActor(['PAYROLL']);
 

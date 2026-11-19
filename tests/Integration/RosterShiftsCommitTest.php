@@ -104,15 +104,17 @@ it('rolls pattern and standing hours back if copying onto a weekday fails', func
 
 it('rolls hours and deferred audit back after a location write fails and permits a clean retry', function () {
     ['actor' => $actor, 'employee' => $employee, 'pattern' => $pattern] = rshiftcommitFixture();
+    // Every day carries a shift: a week that leaves one without is refused before anything is written.
+    $week = array_fill_keys([1, 2, 3, 4, 5, 6, 0], $pattern->id);
     DB::unprepared("CREATE TRIGGER reject_weekly_location BEFORE INSERT ON roster_locations FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic location failure'");
     try {
-        expect(fn () => app(SaveRosterWeek::class)->handle($actor, $employee->id, [1 => $pattern->id], [1 => 'WFH']))->toThrow(QueryException::class);
+        expect(fn () => app(SaveRosterWeek::class)->handle($actor, $employee->id, $week, [1 => 'WFH']))->toThrow(QueryException::class);
         expect(RosterShift::query()->count())->toBe(0)->and(RosterLocation::query()->count())->toBe(0)->and(AuditLog::query()->count())->toBe(0);
     } finally {
         DB::unprepared('DROP TRIGGER IF EXISTS reject_weekly_location');
     }
-    app(SaveRosterWeek::class)->handle($actor, $employee->id, [1 => $pattern->id], [1 => 'WFH']);
-    expect(RosterShift::query()->count())->toBe(1)->and(RosterLocation::query()->count())->toBe(1)->and(AuditLog::query()->count())->toBe(2);
+    app(SaveRosterWeek::class)->handle($actor, $employee->id, $week, [1 => 'WFH']);
+    expect(RosterShift::query()->count())->toBe(7)->and(RosterLocation::query()->count())->toBe(1)->and(AuditLog::query()->count())->toBe(2);
 });
 
 it('copies the edited pattern after a concurrent roster assignment waits on its pattern lock', function (string $kind) {

@@ -25,6 +25,9 @@ function employeeScopeRow(string $scope, string $type, ?string $params, string $
     return [
         'id' => (string) Str::ulid(), 'scope' => $scope, 'scope_type' => $type, 'effective_from' => $from, 'reason' => 'Synthetic',
         'params' => $params, 'created_by' => null, 'created_by_name' => null,
+        // A row is APPROVED unless it says otherwise, and an approved row
+        // carries its stamp (`ppr_approval_chk`).
+        'status' => 'APPROVED', 'approved_at' => now('UTC')->format('Y-m-d H:i:s.v'),
         'created_at' => now('UTC')->format('Y-m-d H:i:s.v'), 'updated_at' => null,
     ];
 }
@@ -48,6 +51,12 @@ it('rolls back the employee versions and resumes from a partial run', function (
     $migration = employeeScopeMigration();
     DB::table('payroll_pay_rules')->insert(employeeScopeRow((string) Str::ulid(), 'EMPLOYEE', null));
 
+    // A rollback runs newest first: the approval columns (2026_11_02_0002)
+    // came after the scope kind and `ppr_draft_chk` names it, so they go
+    // before it can.
+    $approval = require base_path('database/migrations/2026_11_02_0002_add_approval_to_payroll_pay_rules_table.php');
+    $approval->down();
+
     // Rolled back: every employee version goes, then the column.
     $migration->down();
     expect(Schema::hasColumn('payroll_pay_rules', 'scope_type'))->toBeFalse()
@@ -59,6 +68,8 @@ it('rolls back the employee versions and resumes from a partial run', function (
     $migration->up();
     expect(PayrollPayRule::query()->sole()->scope_type)->toBe('COMPANY')
         ->and(Schema::hasIndex('payroll_pay_rules', 'ppr_scope_type_idx'))->toBeTrue();
+    // The approval columns return, as they would on the way back up.
+    $approval->up();
     DB::table('payroll_pay_rules')->insert(employeeScopeRow((string) Str::ulid(), 'EMPLOYEE', null));
     expect(fn () => DB::table('payroll_pay_rules')->insert(employeeScopeRow((string) Str::ulid(), 'STATUS', null)))->toThrow(QueryException::class);
 });

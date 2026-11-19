@@ -237,6 +237,8 @@ it('keeps one salary row when a rate is edited on the record, whatever dated ver
     // Rows left by dated versions — one still to start, one awaiting approval — are folded into the one.
     foreach ([['2026-12-01', EmployeeSalaryRate::APPROVED], ['2026-08-01', EmployeeSalaryRate::PENDING]] as [$from, $status]) {
         $extra = new EmployeeSalaryRate(['employee_id' => $employee->id, 'effective_from' => $from, 'monthly_rate' => 30000, 'reason' => 'Dated version', 'status' => $status]);
+        // A reviewed version carries its stamp; a pending one has none (`esr_approval_chk`).
+        $extra->approved_at = $status === EmployeeSalaryRate::PENDING ? null : now('UTC');
         $extra->save();
     }
     $employee->forceFill(['monthly_rate' => 24000])->save();

@@ -7,15 +7,19 @@ use App\Models\EmployeeProfile;
 use App\Models\LeaveCredit;
 use App\Models\LeaveTravelRequest;
 use App\Models\LeaveType;
-use App\Models\Notification;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\Process\Process;
 
-/** Filing must see a concurrent credit reduction, deletion or approved usage before inserting. */
-it('waits for changing leave inputs and refuses a balance exhausted before filing', function (string $change) {
+/**
+ * Filing waits for a concurrent credit reduction, deletion or approval to
+ * commit before it inserts. A balance exhausted by then does not refuse the
+ * filing: a short balance is filed all the same and settled at approval, so
+ * the request lands once the other change has.
+ */
+it('waits for changing leave inputs, then files even when the balance was exhausted meanwhile', function (string $change) {
     $role = new Role;
     $role->forceFill(['name' => 'Leave filing race', 'all_data' => false, 'is_system' => false])->save();
     $grant = new RoleModuleGrant;
@@ -71,14 +75,9 @@ it('waits for changing leave inputs and refuses a balance exhausted before filin
         expect($worker->isSuccessful())->toBeTrue($worker->getErrorOutput());
         $lines = explode("\n", trim($worker->getOutput()));
         $result = json_decode((string) end($lines), true, 512, JSON_THROW_ON_ERROR);
-        expect($result)->toBe([
-            'filed' => false,
-            'type' => RuntimeException::class,
-            'message' => 'You have no available leave credits for the selected leave type in 2026.',
-        ]);
-        expect(LeaveTravelRequest::query()->count())->toBe(1)
-            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(0)
-            ->and(Notification::query()->count())->toBe(0);
+        expect($result)->toBe(['filed' => true]);
+        expect(LeaveTravelRequest::query()->count())->toBe(2)
+            ->and(AuditLog::query()->where('action', 'REQUEST_FILED')->count())->toBe(1);
     } finally {
         if (DB::transactionLevel() > 0) {
             DB::rollBack();

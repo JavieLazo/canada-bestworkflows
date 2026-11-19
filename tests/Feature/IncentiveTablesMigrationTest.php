@@ -111,6 +111,14 @@ function incmigPayroll(): array
 }
 
 it('rolls the three tables back and re-applies them twice, losing only the incentives', function () {
+    // Later migrations hang tables and columns on these three. On
+    // MySQL/MariaDB the drop is refused by their foreign keys, and DDL that
+    // did run commits, leaving every later test on the tables' first shape.
+    // There the migrations are tests/Integration/IncentiveTablesSchemaTest's,
+    // on a schema of its own.
+    if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+        $this->markTestSkipped('On MySQL/MariaDB these migrations are covered by IncentiveTablesSchemaTest.');
+    }
     $m = incmigMigrations();
     $isMySql = in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true);
 
