@@ -94,3 +94,54 @@ it('rolls back the ledger and the posted-line columns, and resumes from a partia
         ->and(Schema::hasForeignKey('payslip_deductions', ['adjustment_id']))->toBeTrue()
         ->and(DB::table('payroll_adjustment_categories')->count())->toBe(6);
 });
+
+it('refuses an earning category with no tax once the CHECK spells it out, settles a stored one first and resumes from a partial run', function () {
+    expect(in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true))->toBeTrue();
+    $migration = require base_path('database/migrations/2026_11_19_0001_require_tax_on_earning_adjustment_categories_table.php');
+    $clause = static fn (): string => strtolower((string) DB::table('information_schema.CHECK_CONSTRAINTS')
+        ->whereRaw('CONSTRAINT_SCHEMA = DATABASE()')->where('TABLE_NAME', 'payroll_adjustment_categories')
+        ->where('CONSTRAINT_NAME', 'pac_tax_chk')->value('CHECK_CLAUSE'));
+    $checks = static fn (): int => DB::table('information_schema.TABLE_CONSTRAINTS')
+        ->whereRaw('CONSTRAINT_SCHEMA = DATABASE()')->where('TABLE_NAME', 'payroll_adjustment_categories')
+        ->where('CONSTRAINT_NAME', 'pac_tax_chk')->where('CONSTRAINT_TYPE', 'CHECK')->count();
+    $ddlDuring = static function (callable $callback): array {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        try {
+            $callback();
+        } finally {
+            DB::disableQueryLog();
+        }
+
+        return array_values(array_filter(array_column(DB::getQueryLog(), 'query'), static fn (string $sql): bool => preg_match('/^\s*(create|alter|drop)\b/i', $sql) === 1));
+    };
+
+    // On the migrated schema the CHECK refuses the row, and a re-run sends no DDL.
+    expect(fn () => DB::table('payroll_adjustment_categories')->insert(adjustmentsCategoryRow('EARNING', null, 'No tax')))->toThrow(QueryException::class, 'pac_tax_chk')
+        ->and($clause())->toContain('is not null')
+        ->and($ddlDuring(static fn () => $migration->up()))->toBe([]);
+
+    // Rolled back, the earlier wording lets the row in: the gap this migration closes.
+    $migration->down();
+    $migration->down();
+    expect($clause())->not->toContain('is not null')->and($checks())->toBe(1);
+    DB::table('payroll_adjustment_categories')->insert(adjustmentsCategoryRow('EARNING', null, 'No tax'));
+
+    // Up again: the stored row is written down as payroll read it, and only then can the CHECK return.
+    $migration->up();
+    expect(DB::table('payroll_adjustment_categories')->where('name', 'No tax')->value('tax'))->toBe('NOT_TAXED')
+        ->and($clause())->toContain('is not null')
+        ->and(fn () => DB::table('payroll_adjustment_categories')->insert(adjustmentsCategoryRow('EARNING', null, 'Still no tax')))->toThrow(QueryException::class, 'pac_tax_chk');
+
+    // A run killed between the drop and the add resumes at the add.
+    DB::statement('ALTER TABLE `payroll_adjustment_categories` DROP CONSTRAINT `pac_tax_chk`');
+    $ddl = $ddlDuring(static fn () => $migration->up());
+    expect($ddl)->toHaveCount(1)->and($ddl[0])->toStartWith('ALTER TABLE `payroll_adjustment_categories` ADD CONSTRAINT `pac_tax_chk` CHECK')
+        ->and($checks())->toBe(1);
+
+    // What was valid stays valid, and the other half of the rule still holds.
+    DB::table('payroll_adjustment_categories')->insert(adjustmentsCategoryRow('EARNING', 'TAXABLE', 'Taxed earning'));
+    DB::table('payroll_adjustment_categories')->insert(adjustmentsCategoryRow('DEDUCTION', null, 'Plain deduction'));
+    expect(fn () => DB::table('payroll_adjustment_categories')->insert(adjustmentsCategoryRow('DEDUCTION', 'TAXABLE', 'Taxed deduction')))->toThrow(QueryException::class, 'pac_tax_chk')
+        ->and(DB::table('payroll_adjustment_categories')->count())->toBe(9);
+});

@@ -29,6 +29,7 @@ use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\Queries\AdjustmentRecords;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Support\Access;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -74,6 +75,12 @@ function adjCategory(string $name): PayrollAdjustmentCategory
     return PayrollAdjustmentCategory::query()->where('name', $name)->sole();
 }
 
+/** The migration that makes the tax CHECK refuse an earning category with no tax — an anonymous class, so untyped here. */
+function adjTaxCheckMigration(): mixed
+{
+    return require base_path('database/migrations/2026_11_19_0001_require_tax_on_earning_adjustment_categories_table.php');
+}
+
 /* |---| The migration |---| */
 
 it('creates the ledger with its starting categories and the posted-line columns, and resumes from a partial run', function () {
@@ -93,6 +100,37 @@ it('creates the ledger with its starting categories and the posted-line columns,
         ->and(Schema::hasColumns('payroll_adjustments', ['employee_id', 'category_id', 'amount', 'reason', 'status', 'target_run_id', 'payslip_id', 'prepared_by', 'approved_by']))->toBeTrue()
         ->and(Schema::hasColumn('payslip_incentives', 'adjustment_id'))->toBeTrue()
         ->and(PayrollAdjustmentCategory::query()->count())->toBe(6);
+
+    // The create alone brings the tax CHECK back in its first wording; the
+    // migration that tightened it runs again so the table ends as migrated.
+    adjTaxCheckMigration()->up();
+});
+
+it('reads a stored earning category with no tax as not taxed, once, and leaves every other category alone', function () {
+    // MySQL/MariaDB cannot hold the row this starts from once the CHECK is
+    // tightened; there the migration is tests/Integration/AdjustmentsSchemaTest's.
+    if (in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+        $this->markTestSkipped('On MySQL/MariaDB this migration is covered by AdjustmentsSchemaTest.');
+    }
+    $stray = new PayrollAdjustmentCategory;
+    $stray->forceFill(['name' => 'Written around the app', 'kind' => AdjustmentRule::KIND_EARNING, 'tax' => null])->save();
+    $stray->newQuery()->whereKey($stray->id)->update(['updated_at' => '2026-01-01 00:00:00.000']);
+    $others = static fn (): string => PayrollAdjustmentCategory::query()->whereKeyNot($stray->id)->orderBy('id')->get()->toJson();
+    $before = $others();
+
+    $migration = adjTaxCheckMigration();
+    $migration->up();
+    $migration->up();
+
+    // Payroll already read an empty tax as not taxed, so no pay figure moves.
+    $settled = PayrollAdjustmentCategory::query()->findOrFail($stray->id);
+    expect($settled->tax)->toBe(AdjustmentRule::TAX_NOT_TAXED)
+        ->and($settled->updated_at?->format('Y-m-d'))->toBe('2026-01-01')
+        ->and($others())->toBe($before);
+
+    // Rolling back rewrites no row.
+    $migration->down();
+    expect(PayrollAdjustmentCategory::query()->findOrFail($stray->id)->tax)->toBe(AdjustmentRule::TAX_NOT_TAXED);
 });
 
 /* |---| Categories |---| */
