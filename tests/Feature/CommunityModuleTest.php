@@ -1651,6 +1651,9 @@ it('lets each person keep their own answer, and refuses one to a role without ei
 
 it('lists leftover Community and Chat photos and files in the file check, and leaves the ones in use alone', function () {
     Storage::fake('local');
+    // The check also walks the public disk's portraits. Faked, it reads none
+    // of the portraits a developer's own local storage happens to hold.
+    Storage::fake('public');
     $disk = Storage::disk('local');
 
     // A photo still on a post is known, so it never shows up as a leftover.
