@@ -290,12 +290,17 @@ function taskRaceResponses(ProjectTask $task): array
         ->map(static fn ($status): string => (string) $status)->all();
 }
 
-/** @return list<string> the files the workers left on their private disk */
+/**
+ * Paths read with forward slashes on every system — the form the database
+ * stores them in — so a comparison with a stored path holds on Windows too.
+ *
+ * @return list<string> the files the workers left on their private disk
+ */
 function taskRaceStoredFiles(string $directory): array
 {
     $root = $directory.'/files';
 
-    return is_dir($root) ? array_values(array_map(static fn (SplFileInfo $file): string => $file->getRelativePathname(), File::allFiles($root))) : [];
+    return is_dir($root) ? array_values(array_map(static fn (SplFileInfo $file): string => str_replace('\\', '/', $file->getRelativePathname()), File::allFiles($root))) : [];
 }
 
 it('keeps one of two group moves that both started from the same task version', function () {
