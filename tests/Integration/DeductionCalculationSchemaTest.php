@@ -66,15 +66,16 @@ it('resumes after the column ALTER and restores the CHECK and the unique index',
 });
 
 it('pins the calculation list and keeps each calculation on one row while typed rows stay free', function () {
-    expect(PayrollDeduction::query()->findOrFail('ded-1')->calculation)->toBe('SSS');
+    // Late / Undertime is the one computed row the migrations leave in place.
+    expect(PayrollDeduction::query()->where('calculation', 'LATE_UNDERTIME')->count())->toBe(1);
 
     expect(fn () => PayrollDeduction::create(['code' => '90', 'name' => 'Made up', 'calculation' => 'RENT']))
         ->toThrow(QueryException::class, 'pded_calculation_chk');
-    expect(fn () => PayrollDeduction::create(['code' => '91', 'name' => 'SSS twice', 'calculation' => 'SSS']))
+    expect(fn () => PayrollDeduction::create(['code' => '91', 'name' => 'Late twice', 'calculation' => 'LATE_UNDERTIME']))
         ->toThrow(QueryException::class, 'pded_calculation_unq');
 
     PayrollDeduction::create(['code' => '92', 'name' => 'Cash Advance']);
-    PayrollDeduction::create(['code' => '93', 'name' => 'SSS Loan']);
+    PayrollDeduction::create(['code' => '93', 'name' => 'Uniform']);
     expect(PayrollDeduction::query()->whereNull('calculation')->count())->toBe(2)
-        ->and(PayrollDeduction::query()->where('calculation', 'SSS')->count())->toBe(1);
+        ->and(PayrollDeduction::query()->where('calculation', 'LATE_UNDERTIME')->count())->toBe(1);
 });

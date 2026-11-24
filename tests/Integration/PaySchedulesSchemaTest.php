@@ -36,9 +36,11 @@ it('seeds one default schedule, keeps the released mark to finalized runs and th
     $migration = paySchedulesMigration();
     $migration->up();
     $migration->up();
-    expect(DB::table('payroll_pay_schedules')->count())->toBe(1)
-        ->and((bool) DB::table('payroll_pay_schedules')->value('is_default'))->toBeTrue();
-    $scheduleId = (string) DB::table('payroll_pay_schedules')->value('id');
+    // This migration seeds its schedule once; the two-week default beside it comes from a later one.
+    expect(DB::table('payroll_pay_schedules')->where('name', 'Semi-monthly, paid on the last day')->count())->toBe(1)
+        ->and(DB::table('payroll_pay_schedules')->count())->toBe(2)
+        ->and(DB::table('payroll_pay_schedules')->where('is_default', true)->count())->toBe(1);
+    $scheduleId = (string) DB::table('payroll_pay_schedules')->where('name', 'Semi-monthly, paid on the last day')->value('id');
 
     $stamp = now('UTC')->format('Y-m-d H:i:s.v');
     DB::table('payroll_runs')->insert(paySchedulesRun('FINALIZED', $stamp, '2026-11', $scheduleId));
