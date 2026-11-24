@@ -47,13 +47,13 @@ final readonly class OpenAttendanceItems
         public array $requests,
     ) {}
 
-    /** Nothing open: a 13th month run, or a preview with nothing to compute. */
+    /** Nothing open: a preview with nothing to compute. */
     public static function none(): self
     {
         return new self(false, [], []);
     }
 
-    /** `$today` is the Manila calendar day the officer finalizes on (ManilaClock::todayKey()). */
+    /** `$today` is the local calendar day the officer finalizes on (LocalClock::todayKey()). */
     public static function forInputs(?PayrollInputs $inputs, string $today): self
     {
         if ($inputs === null) {

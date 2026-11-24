@@ -6,7 +6,7 @@ namespace App\Modules\Timekeeping\Domain\Attendance;
 
 use App\Domain\Attendance\AttendanceLog;
 use App\Domain\Attendance\Minutes;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * Ports of `copems/src/lib/attendance-policy.ts`, `pairingAnomaly` /
@@ -85,8 +85,8 @@ final class AttendancePolicy
         $sorted = $windowLogs;
         usort(
             $sorted,
-            static fn (AttendanceLog $a, AttendanceLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+            static fn (AttendanceLog $a, AttendanceLog $b): int => LocalClock::ms(LocalClock::instant($a->loggedAt))
+                <=> LocalClock::ms(LocalClock::instant($b->loggedAt)),
         );
 
         $last = $sorted === [] ? null : $sorted[count($sorted) - 1];
@@ -95,7 +95,7 @@ final class AttendancePolicy
         $stale = $openIn !== null
             && $expireOpenAfterMinutes !== null
             && $now !== null
-            && (ManilaClock::ms(ManilaClock::instant($now)) - ManilaClock::ms(ManilaClock::instant($openIn->loggedAt))) / 60000
+            && (LocalClock::ms(LocalClock::instant($now)) - LocalClock::ms(LocalClock::instant($openIn->loggedAt))) / 60000
                 > $expireOpenAfterMinutes;
 
         if ($logType === AttendanceLog::TIME_IN) {

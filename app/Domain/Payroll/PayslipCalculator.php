@@ -111,8 +111,8 @@ final class PayslipCalculator
      *                            column names, matching schema.prisma.
      * @param  list<AttendanceLog>  $logs
      * @param  list<LeaveRequest>  $leaves
-     * @param  string  $periodStart  'Y-m-d', a Manila calendar day.
-     * @param  string  $periodEnd  'Y-m-d', a Manila calendar day.
+     * @param  string  $periodStart  'Y-m-d', a local calendar day.
+     * @param  string  $periodEnd  'Y-m-d', a local calendar day.
      * @param  float  $bonus  0 on the reference server path
      *                        (payroll-server-calculation.ts:109); the golden
      *                        corpus's fuzz tier varies it (500, 123.456,

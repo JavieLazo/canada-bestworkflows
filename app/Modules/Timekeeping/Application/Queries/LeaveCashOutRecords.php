@@ -17,7 +17,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -127,7 +127,7 @@ final class LeaveCashOutRecords
             return null;
         }
         $employeeId = $actor->ownEmployeeId();
-        $available = LeaveBalances::available($employeeId, LeaveCharges::liveYear($employeeId, (int) substr(ManilaClock::todayKey(), 0, 4)), $token);
+        $available = LeaveBalances::available($employeeId, LeaveCharges::liveYear($employeeId, (int) substr(LocalClock::todayKey(), 0, 4)), $token);
         $limits = $entry['rules']->cashOutLimits;
 
         return ['lines' => $limits->lines(), 'reason_from' => $limits->reasonFrom($available), 'available' => $available];

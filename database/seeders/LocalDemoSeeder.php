@@ -27,7 +27,7 @@ use App\Modules\Timekeeping\Domain\Roster\ResolvedLocation;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
 use App\Support\CodeSequence;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Seeder;
@@ -49,12 +49,12 @@ final class LocalDemoSeeder extends Seeder
         if (! app()->environment(['local', 'testing'])) {
             throw new \RuntimeException('BestWorkflows demo data is available only in local and testing environments.');
         }
-        $through ??= ManilaClock::todayKey();
-        if ($days < 1 || $days > 366 || ! PayrollPeriod::isPayrollDate($through) || $through > ManilaClock::todayKey()) {
-            throw new \RuntimeException('Choose 1 to 366 days and a valid --through date no later than today in Manila.');
+        $through ??= LocalClock::todayKey();
+        if ($days < 1 || $days > 366 || ! PayrollPeriod::isPayrollDate($through) || $through > LocalClock::todayKey()) {
+            throw new \RuntimeException('Choose 1 to 366 days and a valid --through date no later than today in local time.');
         }
         $from = PayrollPeriod::addCalendarDays($through, 1 - $days);
-        $cutoff = min(ManilaClock::instant($through.'T23:59:59.999')->utc(), CarbonImmutable::now('UTC'));
+        $cutoff = min(LocalClock::instant($through.'T23:59:59.999')->utc(), CarbonImmutable::now('UTC'));
         $this->added = [];
 
         return DB::transaction(function () use ($from, $through, $cutoff): array {
@@ -104,7 +104,7 @@ final class LocalDemoSeeder extends Seeder
         $roster = app(ShiftRoster::class);
         $schedule = $roster->scheduleForEmployee($employee->id, CalendarDays::previous(CalendarDays::previous($from)), CalendarDays::next($through));
         $logs = AttendanceLog::query()->where('employee_id', $employee->id)
-            ->whereBetween('logged_at', [ManilaClock::instant(CalendarDays::previous(CalendarDays::previous($from)).'T00:00:00')->utc(), ManilaClock::instant(CalendarDays::next($through).'T23:59:59.999')->utc()])
+            ->whereBetween('logged_at', [LocalClock::instant(CalendarDays::previous(CalendarDays::previous($from)).'T00:00:00')->utc(), LocalClock::instant(CalendarDays::next($through).'T23:59:59.999')->utc()])
             ->orderBy('logged_at')->get()->map(static fn (AttendanceLog $row): DomainLog => DomainLog::fromArray(['id' => $row->id, 'log_type' => $row->log_type, 'logged_at' => $row->logged_at]))->all();
         $leave = LeaveTravelRequest::query()->where('employee_id', $employee->id)->where('status', 'APPROVED')->where('request_type', '!=', 'BUSINESS_TRAVEL')
             ->whereDate('start_date', '<=', $through)->whereDate('end_date', '>=', $from)->get();
@@ -117,24 +117,24 @@ final class LocalDemoSeeder extends Seeder
             $windowFrom = CalendarDays::previous(CalendarDays::previous($date));
             $windowTo = CalendarDays::next($date);
             $dayLogs = array_values(array_filter($logs, static function (DomainLog $row) use ($windowFrom, $windowTo): bool {
-                $day = ManilaClock::dayKey(ManilaClock::instant($row->loggedAt));
+                $day = LocalClock::dayKey(LocalClock::instant($row->loggedAt));
 
                 return $day >= $windowFrom && $day <= $windowTo;
             }));
             $existing = CorrectionWindow::replaceable($date, $dayLogs, $schedule);
             $special = $maria ? (self::MARIA_TIME_INS[$date] ?? null) : null;
             if ($special !== null) {
-                if (AttendanceLog::query()->where('employee_id', $employee->id)->where('log_type', 'TIME_IN')->whereBetween('logged_at', [ManilaClock::instant($date.'T00:00:00')->utc(), ManilaClock::instant($date.'T23:59:59.999')->utc()])->exists()) {
+                if (AttendanceLog::query()->where('employee_id', $employee->id)->where('log_type', 'TIME_IN')->whereBetween('logged_at', [LocalClock::instant($date.'T00:00:00')->utc(), LocalClock::instant($date.'T23:59:59.999')->utc()])->exists()) {
                     continue;
                 }
-                $times = ['in' => ManilaClock::instant($date.'T'.$special)->utc()];
+                $times = ['in' => LocalClock::instant($date.'T'.$special)->utc()];
             } else {
                 if (! ShiftResolver::worksOnDate($date, $schedule) || array_any($existing, static fn (DomainLog $row): bool => ! in_array($row->id, array_map(static fn ($slot): string => self::id($key.':'.$slot), ['in', 'break-out', 'break-in', 'out']), true))) {
                     continue;
                 }
                 $shift = $schedule?->forDate($date) ?? Shift::default();
                 $geometry = ShiftResolver::geometry($shift);
-                $midnight = ManilaClock::instant($date.'T00:00:00');
+                $midnight = LocalClock::instant($date.'T00:00:00');
                 $pattern = (int) substr(hash('sha256', $key), 0, 4);
                 $variation = $pattern % 9;
                 $arrival = $pattern % 11 === 0 ? $shift->graceMinutes + 12 : -5 + $variation;
@@ -172,7 +172,7 @@ final class LocalDemoSeeder extends Seeder
     private function leaveRequests(EmployeeProfile $employee, string $from, string $through, CarbonImmutable $cutoff, int $index, int &$code): void
     {
         foreach (CalendarDays::each($from, $through) as $date) {
-            $day = ManilaClock::instant($date.'T09:00:00');
+            $day = LocalClock::instant($date.'T09:00:00');
             if ($day->isWeekend() || ($day->dayOfYear + $index) % 17 !== 0 || $date < $employee->date_hired->format('Y-m-d')
                 || LeaveTravelRequest::query()->where('employee_id', $employee->id)->whereDate('start_date', '<=', $date)->whereDate('end_date', '>=', $date)->exists()) {
                 continue;
@@ -195,23 +195,23 @@ final class LocalDemoSeeder extends Seeder
         foreach ($chat->chunk(8)->values() as $number => $members) {
             $key = 'conversation:'.$number;
             $conversationId = self::id($key);
-            if (ManilaClock::instant($from.'T08:00:00')->utc() > $cutoff) {
+            if (LocalClock::instant($from.'T08:00:00')->utc() > $cutoff) {
                 continue;
             }
             $new = $this->add(ChatConversation::class, $key, ['kind' => 'GROUP', 'title' => 'Demo: Team discussion '.($number + 1), 'created_by' => $members->first()->id,
-                'created_at' => ManilaClock::instant($from.'T08:00:00')->utc(), 'last_message_at' => null]);
+                'created_at' => LocalClock::instant($from.'T08:00:00')->utc(), 'last_message_at' => null]);
             foreach ($members as $member) {
                 if ($new) {
                     $this->add(ChatParticipant::class, $key.':member:'.$member->id, ['conversation_id' => $conversationId, 'user_id' => $member->id,
                         'role' => $member->id === $members->first()->id ? 'ADMIN' : 'MEMBER', 'is_muted' => true, 'allow_mentions' => false,
-                        'last_read_at' => $cutoff, 'created_at' => ManilaClock::instant($from.'T08:00:00')->utc()]);
+                        'last_read_at' => $cutoff, 'created_at' => LocalClock::instant($from.'T08:00:00')->utc()]);
                 }
             }
             $participants = ChatParticipant::query()->where('conversation_id', $conversationId)->pluck('user_id')->all();
             $members = $members->filter(static fn (User $member): bool => in_array($member->id, $participants, true));
             foreach (CalendarDays::each($from, $through) as $date) {
                 foreach ($members->values() as $index => $member) {
-                    $at = ManilaClock::instant($date.'T14:00:00')->addMinutes($index * 3)->utc();
+                    $at = LocalClock::instant($date.'T14:00:00')->addMinutes($index * 3)->utc();
                     if ($at <= $cutoff) {
                         $this->add(ChatMessage::class, $key.':'.$date.':'.$member->id, ['conversation_id' => $conversationId, 'sender_id' => $member->id, 'kind' => 'TEXT',
                             'body' => '[Demo] '.$date.' '.['The review checklist is ready.', 'I have updated the sample delivery notes.', 'The next handover items are documented.', 'Thanks, I will check the remaining sample items.'][$index % 4], 'created_at' => $at]);
@@ -227,11 +227,11 @@ final class LocalDemoSeeder extends Seeder
             return;
         }
         foreach (CalendarDays::each($from, $through) as $date) {
-            $at = ManilaClock::instant($date.'T10:15:00')->utc();
+            $at = LocalClock::instant($date.'T10:15:00')->utc();
             if ($at > $cutoff) {
                 continue;
             }
-            $index = $at->setTimezone(ManilaClock::TZ)->dayOfYear;
+            $index = $at->setTimezone(LocalClock::zone())->dayOfYear;
             $key = 'post:'.$date;
             $postId = self::id($key);
             $this->add(CommunityPost::class, $key, ['author_id' => $community[$index % $community->count()]->id, 'group_id' => null, 'tag' => null,

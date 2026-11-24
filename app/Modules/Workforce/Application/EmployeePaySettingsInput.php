@@ -59,7 +59,7 @@ final class EmployeePaySettingsInput
     {
         $hourly = self::amount($form['hourly_rate'] ?? '');
         if ($hourly === null) {
-            return 'Hourly rate override: enter an amount up to ₱99,999,999.00, or leave it blank to use the shift.';
+            return 'Hourly rate override: enter an amount up to $99,999,999.00, or leave it blank to use the shift.';
         }
 
         return ['hourly_rate' => $hourly];

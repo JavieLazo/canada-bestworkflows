@@ -6,12 +6,13 @@ use App\Domain\Payroll\PayRules;
 use App\Domain\Payroll\StatutorySchedule;
 use App\Livewire\Payroll\Support\SettingsPages;
 use App\Livewire\Records\AdjustmentCategoriesPage;
+use App\Livewire\Records\ContributionTablesPage;
 use App\Livewire\Records\EmployeePaySettingsPage;
 use App\Livewire\Records\IncentiveTypesPage;
 use App\Livewire\Records\PayRulesPage;
+use App\Livewire\Records\PaySchedulesPage;
 use App\Livewire\Records\ReferenceListPage;
 use App\Livewire\Records\SignatoriesPage;
-use App\Livewire\Records\StatutoryTablesPage;
 use App\Livewire\Records\Support\BenefitText;
 use App\Models\EmployeeProfile;
 use App\Models\Holiday;
@@ -143,14 +144,15 @@ it('lets an all-data PAYROLL holder manage the company-wide settings, and nobody
 |--------------------------------------------------------------------------
 */
 
-it('heads every settings page with Payroll Settings and the same tabs, without an employee search, Pay Schedules or Adjustments', function () {
+it('heads every settings page with Payroll Settings and the same tabs, Pay Schedule among them, without an employee search or Adjustments', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-31 04:00:00', 'UTC'));
     psoEmployee('Search');
     psoActor();
 
     $pages = [
         EmployeePaySettingsPage::class => [[], 'Employee Pay Settings'],
-        StatutoryTablesPage::class => [[], 'Contribution &amp; Tax Tables'],
+        PaySchedulesPage::class => [[], 'Pay Schedule'],
+        ContributionTablesPage::class => [[], 'Contribution &amp; Tax Tables'],
         PayRulesPage::class => [[], 'Pay Basis &amp; Rates'],
         ReferenceListPage::class => [['slug' => 'payroll-deductions'], 'Payroll Deductions'],
         IncentiveTypesPage::class => [[], 'Incentives &amp; Bonuses'],
@@ -165,7 +167,7 @@ it('heads every settings page with Payroll Settings and the same tabs, without a
         expect($html)->toContain('>Payroll Settings</p>')
             ->and($html)->toContain('tracking-tight">'.$title.'</h1>')
             ->and($html)->toContain('aria-label="Payroll Settings pages"')
-            ->and($html)->not->toContain(route('payroll.settings.schedules'))
+            ->and($html)->toContain(route('payroll.settings.schedules'))
             ->and($html)->not->toContain(route('payroll.settings.adjustment-categories'));
 
         // The switch is a bar of tabs and, for a narrow head, one dropdown of the same six pages; the page in
@@ -186,14 +188,15 @@ it('heads every settings page with Payroll Settings and the same tabs, without a
             ->and(method_exists($class, 'settingsEmployeePicked'))->toBeFalse();
     }
 
-    // Adjustments is off the Payroll menu.
-    $labels = [];
+    // Adjustments is off the Payroll menu, which is one link to the run list and no tree.
+    $payroll = null;
     foreach ((array) config('modules') as $module) {
         if (is_array($module) && ($module['code'] ?? null) === 'PAYROLL') {
-            $labels = array_column((array) ($module['groups'] ?? []), 'label');
+            $payroll = $module;
         }
     }
-    expect($labels)->toBe(['Basic Payroll', '13th Month Payroll']);
+    expect($payroll['path'] ?? null)->toBe('/payroll')
+        ->and(array_key_exists('groups', (array) $payroll))->toBeFalse();
 
     // The Pay Schedules page stays reachable by its address.
     psoActor();

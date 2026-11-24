@@ -55,9 +55,9 @@ it('refuses figures it cannot use', function (array $changes, string $message) {
     expect(RecurringLine::error(recurringFigures($changes)))->toBe($message);
 })->with([
     'unknown kind' => [['kind' => 'BONUS'], 'Choose whether it is a deduction or an incentive.'],
-    'no amount' => [['amount' => 0.0], 'Enter the amount per payroll, above ₱0.00 and up to ₱99,999,999.00.'],
-    'an amount that is not a number' => [['amount' => null], 'Enter the amount per payroll, above ₱0.00 and up to ₱99,999,999.00.'],
-    'a total below the amount' => [['total' => 500.0], 'The total to pay off must be at least the amount per payroll, and up to ₱99,999,999.00.'],
+    'no amount' => [['amount' => 0.0], 'Enter the amount per payroll, above $0.00 and up to $99,999,999.00.'],
+    'an amount that is not a number' => [['amount' => null], 'Enter the amount per payroll, above $0.00 and up to $99,999,999.00.'],
+    'a total below the amount' => [['total' => 500.0], 'The total to pay off must be at least the amount per payroll, and up to $99,999,999.00.'],
     'an incentive with a total' => [['kind' => 'INCENTIVE'], 'Only a deduction has a total to pay off; end an incentive with its last date instead.'],
     'unknown frequency' => [['frequency' => 'YEARLY'], 'Choose which payrolls it is on.'],
     'a start off the cut-off' => [['starts_on' => '2026-11-05'], 'Choose the cut-off it starts on: the 1st or the 16th of a month.'],

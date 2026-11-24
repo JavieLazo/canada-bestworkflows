@@ -19,7 +19,7 @@ use App\Modules\Workforce\Application\Commands\RecordSalaryChange;
 use App\Modules\Workforce\Application\Commands\ReviewSalaryChange;
 use App\Modules\Workforce\Application\SalaryRates;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -76,7 +76,7 @@ function salrWorked(EmployeeProfile $employee, string $date): void
         $punch = new AttendanceLog;
         $punch->forceFill([
             'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc(),
+            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc(),
         ])->save();
     }
 }
@@ -317,7 +317,7 @@ it('changes the salary on the employee pay page, in effect at once, with no date
         ->assertSet('salaryOpen', false)
         ->assertSet('salaryError', null)
         ->assertDontSee('Awaiting approval')
-        ->assertSee('₱24,200.00');
+        ->assertSee('$24,200.00');
 
     // One salary row, in use from the hire date, and the record carries the rate.
     $row = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->sole();

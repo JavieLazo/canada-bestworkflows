@@ -21,7 +21,7 @@ use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
@@ -55,7 +55,7 @@ final class RosterHistory
      */
     private function histories(Access $actor, array $employeeIds): array
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $allChanges = RosterScheduleChange::query()
             ->toEmployee($actor, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL)
             ->whereIn('employee_id', $employeeIds)->orderByDesc('effective_from')->orderByDesc('id')->get();
@@ -183,7 +183,7 @@ final class RosterHistory
         if ($employeeIds === []) {
             return [];
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $counts = [];
         $changes = RosterScheduleChange::query()
             ->toEmployee($actor, 'employee_id', ModuleCode::ROSTER, ModuleCode::EDTR, ModuleCode::PAYROLL)
@@ -212,7 +212,7 @@ final class RosterHistory
 
     private static function stamp(?CarbonImmutable $at): ?string
     {
-        return $at?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+        return $at?->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
     }
 
     /**

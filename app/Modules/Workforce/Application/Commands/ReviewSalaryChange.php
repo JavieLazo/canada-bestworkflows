@@ -14,7 +14,7 @@ use App\Platform\Records\AccountEmployeeLinks;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
@@ -51,7 +51,7 @@ final class ReviewSalaryChange
         if (! SalaryRates::ready()) {
             throw new RuntimeException('Salary changes can be reviewed once this installation\'s upgrade finishes.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $id, $decision, $note, $today): string {
             abort_unless(app(AccountEmployeeLinks::class)->isActive((int) $access->userId), 403);

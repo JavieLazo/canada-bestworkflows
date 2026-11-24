@@ -14,7 +14,7 @@ use App\Models\RosterShift;
 use App\Models\Shift;
 use App\Models\ShiftType;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -70,8 +70,8 @@ function shmigSchedule(EmployeeProfile $employee): void
         'shift_data' => ['start_time' => '22:00:00', 'end_time' => '06:00:00', 'grace_minutes' => 0, 'mode' => 'FIXED']]);
     RosterDayOverride::query()->create(['employee_id' => $employee->id, 'date' => '2026-09-21', 'location_kind' => 'WFH']);
     foreach ([['2026-09-14T08:10:00', '2026-09-14T17:00:00'], ['2026-09-16T22:00:00', '2026-09-17T06:05:00'], ['2026-09-18T22:30:00', '2026-09-19T06:00:00'], ['2026-09-19T09:00:00', '2026-09-19T12:00:00']] as [$in, $out]) {
-        AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => 'TIME_IN', 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant($in)->utc()]);
-        AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => 'TIME_OUT', 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant($out)->utc()]);
+        AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => 'TIME_IN', 'source' => 'MANUAL', 'logged_at' => LocalClock::instant($in)->utc()]);
+        AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => 'TIME_OUT', 'source' => 'MANUAL', 'logged_at' => LocalClock::instant($out)->utc()]);
     }
 }
 

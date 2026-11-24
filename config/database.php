@@ -58,7 +58,7 @@ return [
             'prefix_indexes' => true,
 
             // MySQL performs no timezone conversion; the app owns it. DATETIME(3) columns
-            // are stored in UTC and every Manila conversion goes through ManilaClock.
+            // are stored in UTC and every local conversion goes through LocalClock.
             'timezone' => '+00:00',
 
             // Modes are set explicitly below instead of relying on Laravel's 'strict' bundle,

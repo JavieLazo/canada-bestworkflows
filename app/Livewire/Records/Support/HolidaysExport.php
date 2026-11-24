@@ -10,7 +10,7 @@ use App\Modules\Organization\Application\Queries\HolidayRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -41,6 +41,6 @@ final class HolidaysExport implements TableExport
             }
         };
 
-        return new CsvExport('holidays-'.ManilaClock::todayKey().'.csv', ImportHolidays::COLUMNS, $rows);
+        return new CsvExport('holidays-'.LocalClock::todayKey().'.csv', ImportHolidays::COLUMNS, $rows);
     }
 }

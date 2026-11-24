@@ -9,7 +9,7 @@ use App\Modules\Inventory\Application\Commands\ImportItems;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /** Exports the exact scoped register filters and sort, with custody clearly read-only. */
@@ -24,6 +24,6 @@ final class ItemsExport implements TableExport
             }
         };
 
-        return new CsvExport('inventory-items-'.ManilaClock::todayKey().'.csv', [...ImportItems::COLUMNS, 'Status (read-only)', 'Condition (read-only)', 'Held by (read-only)', 'MR No. (read-only)'], $rows);
+        return new CsvExport('inventory-items-'.LocalClock::todayKey().'.csv', [...ImportItems::COLUMNS, 'Status (read-only)', 'Condition (read-only)', 'Held by (read-only)', 'MR No. (read-only)'], $rows);
     }
 }

@@ -22,7 +22,7 @@ use App\Modules\Timekeeping\Application\PunchInput;
 use App\Modules\Timekeeping\Domain\Attendance\CorrectionWindow;
 use App\Modules\Workforce\Application\Queries\KioskEmployees;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Laravel\Fortify\Contracts\TwoFactorAuthenticationProvider;
@@ -543,8 +543,8 @@ it('refuses a punch a device sends late for a day a posted payslip already cover
         'password' => 'password',
         'device_id' => (string) Str::uuid(),
     ])->assertOk()->json('kiosk_token');
-    $paid = CarbonImmutable::parse('2026-09-10 08:00:00', ManilaClock::TZ);
-    $open = CarbonImmutable::parse('2026-09-17 08:00:00', ManilaClock::TZ);
+    $paid = CarbonImmutable::parse('2026-09-10 08:00:00', LocalClock::zone());
+    $open = CarbonImmutable::parse('2026-09-17 08:00:00', LocalClock::zone());
 
     $results = $this->withToken($kioskToken)->postJson('/api/mobile/edtr/punches', [
         'punches' => [
@@ -559,7 +559,7 @@ it('refuses a punch a device sends late for a day a posted payslip already cover
 
     // The day after the posted period is still open, and keeps the time the device captured.
     $log = AttendanceLog::query()->sole();
-    expect(ManilaClock::dayKey($log->logged_at))->toBe('2026-09-17')
+    expect(LocalClock::dayKey($log->logged_at))->toBe('2026-09-17')
         ->and($log->logged_at->getTimestamp())->toBe($open->getTimestamp());
     $this->assertDatabaseCount('edtr_mobile_punch_receipts', 1);
 });
@@ -580,7 +580,7 @@ it('judges a device punch captured today like the live station, whatever payroll
     ])->assertOk();
 
     // Yesterday's capture arrives late and its day is paid.
-    $send(CarbonImmutable::parse('2026-09-19 08:00:00', ManilaClock::TZ))
+    $send(CarbonImmutable::parse('2026-09-19 08:00:00', LocalClock::zone()))
         ->assertJsonPath('results.0.status', 'rejected')
         ->assertJsonPath('results.0.message', CorrectionWindow::PAID_DAY);
     expect(AttendanceLog::query()->count())->toBe(0);

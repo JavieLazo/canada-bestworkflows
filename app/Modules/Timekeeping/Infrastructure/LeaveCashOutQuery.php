@@ -19,7 +19,7 @@ use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
 use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Support\Access;
 use App\Support\AuditService;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -71,7 +71,7 @@ final class LeaveCashOutQuery implements LeaveCashOutPoster, LeaveCashOutSource
             throw new RuntimeException('Leave credits cannot be converted to cash until this installation\'s upgrade finishes.');
         }
         LeaveCreditWriter::lock();
-        $year = LeaveCharges::liveYear($employeeId, (int) substr(ManilaClock::todayKey(), 0, 4));
+        $year = LeaveCharges::liveYear($employeeId, (int) substr(LocalClock::todayKey(), 0, 4));
         $names = [];
         foreach (LeaveTypeCreditRecords::rules() as $token => $entry) {
             $names[$token] = $entry['name'];
@@ -108,7 +108,7 @@ final class LeaveCashOutQuery implements LeaveCashOutPoster, LeaveCashOutSource
             if (! $row->save()) {
                 throw new RuntimeException('The cash conversion could not be marked paid.');
             }
-            $parts[] = $typeName.' '.LeaveQuantity::format($days).' '.($days === 1.0 ? 'day' : 'days').' · PHP '.number_format($line['amount'], 2);
+            $parts[] = $typeName.' '.LeaveQuantity::format($days).' '.($days === 1.0 ? 'day' : 'days').' · CAD '.number_format($line['amount'], 2);
         }
         $sentence = "Payroll {$runCode}: ".implode(' · ', $parts).' cashed out of leave credits';
         DB::afterCommit(static function () use ($actor, $employeeId, $runCode, $sentence, $parts): void {

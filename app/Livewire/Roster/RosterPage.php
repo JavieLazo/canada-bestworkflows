@@ -12,7 +12,7 @@ use App\Modules\Timekeeping\Application\Queries\RosterCalendar;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
@@ -110,7 +110,7 @@ class RosterPage extends Component
             // table already says which department it is.
             'places' => $this->department === DepartmentFilter::ALL ? $directory->placeLabels($access, $ids) : [],
             'holidays' => app(RosterCalendar::class)->holidays($days[0], $days[6]),
-            'today' => ManilaClock::todayKey(),
+            'today' => LocalClock::todayKey(),
         ]);
     }
 }

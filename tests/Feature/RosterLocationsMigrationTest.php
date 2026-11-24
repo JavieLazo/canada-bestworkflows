@@ -6,7 +6,7 @@ use App\Models\AttendanceLog;
 use App\Models\EmployeeProfile;
 use App\Models\RosterLocation;
 use App\Models\WorkSite;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -115,7 +115,7 @@ function rlocmigPunch(EmployeeProfile $employee, ?WorkSite $site, string $kind):
         'accuracy_meters' => 9.0,
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T08:00:31')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T08:00:31')->utc(),
     ])->save();
 
     return $punch;

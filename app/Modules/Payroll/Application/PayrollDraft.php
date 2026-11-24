@@ -4,15 +4,11 @@ declare(strict_types=1);
 
 namespace App\Modules\Payroll\Application;
 
-use App\Domain\Enums\PayrollRunKind;
-
 /**
  * Unsaved payroll values; membership and current status are checked under the
  * payroll lock. `incentives` is employee id => [incentive type id =>
  * amount]; `customDeductions` is employee id => [deduction type id =>
- * amount]; `kind` is REGULAR or THIRTEENTH_MONTH (PayrollRunKind),
- * fixed once the run exists; `additionalBasicPay` is, on a 13th month run,
- * employee id => basic pay earned outside EMS; `skippedRecurring` is
+ * amount]; `skippedRecurring` is
  * employee id => the ids of their recurring lines skipped on this payroll;
  * `attendanceThrough` is the advance payroll's "attendance counted through"
  * date (PayrollAdvance), blank or null for the whole period;
@@ -28,9 +24,8 @@ final readonly class PayrollDraft
      * @param  array<string, float>  $allowances
      * @param  array<string, array<string, mixed>>  $earnings
      * @param  array<string, array<string, mixed>>  $incentives
-     * @param  array<string, mixed>  $additionalBasicPay
      * @param  array<string, array<string, mixed>>  $customDeductions
      * @param  array<string, list<string>>  $skippedRecurring
      */
-    public function __construct(public ?string $runId, public string $name, public string $start, public string $end, public array $members, public array $deductions, public array $allowances, public array $earnings, public array $incentives = [], public string $kind = PayrollRunKind::REGULAR, public array $additionalBasicPay = [], public array $customDeductions = [], public array $skippedRecurring = [], public ?string $attendanceThrough = null, public ?string $scheduleId = null, public ?string $payDate = null) {}
+    public function __construct(public ?string $runId, public string $name, public string $start, public string $end, public array $members, public array $deductions, public array $allowances, public array $earnings, public array $incentives = [], public array $customDeductions = [], public array $skippedRecurring = [], public ?string $attendanceThrough = null, public ?string $scheduleId = null, public ?string $payDate = null) {}
 }

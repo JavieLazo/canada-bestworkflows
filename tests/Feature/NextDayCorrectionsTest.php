@@ -21,7 +21,7 @@ use App\Modules\Timekeeping\Contracts\Views\CorrectionPunchView;
 use App\Modules\Timekeeping\Contracts\Views\DayCorrectionView;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportTesting\Testable;
 use Livewire\Livewire;
@@ -149,7 +149,7 @@ function ndcPunch(EmployeeProfile $employee, string $type, string $manilaStamp):
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ])->save();
 
     return $punch;

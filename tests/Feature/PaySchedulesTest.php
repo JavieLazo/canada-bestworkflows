@@ -93,8 +93,10 @@ function pschFigures(array $changes = []): array
 it('creates the schedules table with one default and the run columns, and resumes from a partial run', function () {
     expect(PaySchedules::ready())->toBeTrue();
     $default = PaySchedules::default();
-    expect($default?->name)->toBe('Semi-monthly, paid on the last day')
-        ->and(PaySchedules::schedule($default)->toArray())->toBe(PaySchedule::standard()->toArray());
+    // The company default is every two weeks; the schedule seeded first stays on record beside it.
+    expect($default?->name)->toBe('Every two weeks, paid the Friday after')
+        ->and(PaySchedules::schedule($default)->toArray())->toBe(PaySchedule::everyTwoWeeks('2025-12-21', 6)->toArray())
+        ->and(PaySchedules::schedule(PayrollPaySchedule::query()->where('name', 'Semi-monthly, paid on the last day')->sole())->toArray())->toBe(PaySchedule::standard()->toArray());
 
     $m = require base_path('database/migrations/2026_11_02_0004_create_payroll_pay_schedules_table.php');
     $m->down();
@@ -112,7 +114,7 @@ it('creates the schedules table with one default and the run columns, and resume
 it('adds, edits, re-defaults and deletes schedules for whoever manages the Payroll Settings, audited, keeping exactly one default', function () {
     $reader = pschActor(['PAYROLL'], allData: false);
     expect(fn () => app(SavePaySchedule::class)->handle($reader, null, 'Mine', pschFigures(), false))->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.')
-        ->and(PayrollPaySchedule::query()->count())->toBe(1);
+        ->and(PayrollPaySchedule::query()->count())->toBe(2);
 
     $actor = pschActor();
     $save = app(SavePaySchedule::class);
@@ -139,13 +141,13 @@ it('adds, edits, re-defaults and deletes schedules for whoever manages the Payro
 
     // A schedule a payroll took its dates from stays; one no payroll used goes.
     $employee = pschEmployee('Dated');
-    app(SavePayroll::class)->handle($actor, new PayrollDraft(null, 'November first half', '2026-11-01', '2026-11-15', [$employee->id], [], [], [], scheduleId: $seeded->id));
+    app(SavePayroll::class)->handle($actor, new PayrollDraft(null, 'November two weeks', '2026-11-08', '2026-11-21', [$employee->id], [], [], [], scheduleId: $seeded->id));
     expect(fn () => app(DeletePaySchedule::class)->handle($actor, $seeded->id))->toThrow(RuntimeException::class, 'One payroll took its dates from this schedule, so it stays on record.');
     $spare = $save->handle($actor, null, 'Spare', pschFigures(), false);
     expect(app(DeletePaySchedule::class)->handle($actor, $spare))->toBe('Pay schedule "Spare" deleted.')
         ->and(PayrollPaySchedule::query()->whereKey($spare)->exists())->toBeFalse()
         ->and(AuditLog::query()->where('action', AuditEvent::PAY_SCHEDULE_DELETED->value)->sole()->details)->toBe('Pay schedule "Spare" deleted')
-        ->and(app(PayScheduleRecords::class)->list($actor)->pluck('name')->all())->toBe(['15th and 30th', 'Semi-monthly, paid on the last day']);
+        ->and(app(PayScheduleRecords::class)->list($actor)->pluck('name')->all())->toBe(['15th and 30th', 'Every two weeks, paid the Friday after', 'Semi-monthly, paid on the last day']);
 });
 
 /* |---| The payroll |---| */
@@ -174,7 +176,7 @@ it('records the schedule, pay date and contribution month on a payroll, picks th
     app(SavePayroll::class)->handle($actor, new PayrollDraft($runId, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], scheduleId: $schedule->id, payDate: '2026-12-01'));
     expect($run->refresh()->pay_date?->format('Y-m-d'))->toBe('2026-12-01');
 
-    // Refusals: a day that is not one, a schedule that is gone, a lagged window, and a 13th month run.
+    // Refusals: a day that is not one, a schedule that is gone and a lagged window.
     expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($runId, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], payDate: '2026-13-01')))->toThrow(RuntimeException::class, 'Enter the pay date as a real day, or leave it blank.')
         ->and(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($runId, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], scheduleId: (string) Str::ulid())))->toThrow(RuntimeException::class, 'That pay schedule no longer exists.');
     $lagged = app(SavePaySchedule::class)->handle($actor, null, 'Lagged', pschFigures(['attendance_lag' => 5]), false);
@@ -192,7 +194,7 @@ it('records the schedule, pay date and contribution month on a payroll, picks th
         ->and($tables->resolve('2026-11-16', '2026-11-30', '2026-12-01', '2026-12')->tables[StatutorySchedule::SSS]['version_id'])->toBe($sssDecember->id);
 });
 
-it('starts a new payroll from the default schedule on the workspace, follows the dates, and keeps the pay date off the screens', function () {
+it('starts a new payroll on the default schedule\'s next period to pay, follows the dates, and says when it is paid', function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-20 02:00:00', 'UTC'));
     $actor = pschActor();
     $employee = pschEmployee('Workspace');
@@ -200,18 +202,22 @@ it('starts a new payroll from the default schedule on the workspace, follows the
 
     $page = Livewire::test(RunWorkspace::class)
         ->assertSet('scheduleId', $schedule)
-        // The current month's first cut-off: 15 Nov 2026 is a Sunday, so the Friday before.
-        ->assertSet('start', '2026-11-01')->assertSet('end', '2026-11-15')
-        ->assertSet('payDate', '2026-11-13')
+        // The period whose pay day comes next: the first half was paid on the 13th, so the second.
+        ->assertSet('start', '2026-11-16')->assertSet('end', '2026-11-30')
+        ->assertSet('payDate', '2026-11-30')
         ->assertSee('Approved by')
-        ->assertDontSee('not a 1st–15th or 16th–end-of-month cut-off')
+        ->assertSee('Twice-monthly pay period')
+        ->assertSee('Paid on')
+        ->assertDontSee('not one of the pay schedule')
+        // 15 Nov 2026 is a Sunday, so the first half is paid the Friday before.
+        ->set('start', '2026-11-01')->set('end', '2026-11-15')
+        ->assertSet('payDate', '2026-11-13')
+        // Dates that are not one of the schedule's periods keep the typed pay date and are said.
+        ->set('end', '2026-11-10')
+        ->assertSet('payDate', '2026-11-13')
+        ->assertSee('not one of the pay schedule')
         ->set('start', '2026-11-16')->set('end', '2026-11-30')
         ->assertSet('payDate', '2026-11-30')
-        // Dates that are not one of the schedule's periods keep the typed pay date and get the cut-off advice.
-        ->set('end', '2026-11-25')
-        ->assertSet('payDate', '2026-11-30')
-        ->assertSee('not a 1st–15th or 16th–end-of-month cut-off')
-        ->set('end', '2026-11-30')
         ->set('scheduleId', '')
         ->assertSet('payDate', '2026-11-30');
     $page->set('name', 'November second half')->set('scheduleId', $schedule)->call('openPicker')->call('togglePick', $employee->id)->call('applyPicked')->call('save');
@@ -219,7 +225,7 @@ it('starts a new payroll from the default schedule on the workspace, follows the
     expect($run->schedule_id)->toBe($schedule)->and($run->pay_date?->format('Y-m-d'))->toBe('2026-11-30');
 
     Livewire::test(PayrollIndex::class)->assertDontSee('Pay date');
-    Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertDontSee('Pay date');
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertSeeHtml('data-pay-line')->assertSee('Mon, Nov 30, 2026')->assertSee('this year');
 });
 
 it('shows a finalized payroll as FINALIZED alone, even one marked released before', function () {
@@ -271,53 +277,72 @@ it('reminds payroll officers of a pay date with no finalized payroll behind it, 
 
 /* |---| The page |---| */
 
-it('adds, edits, re-defaults and deletes schedules from the page, previewing the coming pay dates', function () {
-    $this->travelTo(CarbonImmutable::parse('2026-11-10 02:00:00', 'UTC'));
+it('shows the company schedule first and changes it from the page, previewing the coming pay dates', function () {
+    $this->travelTo(CarbonImmutable::parse('2026-11-24 02:00:00', 'UTC'));
     pschActor(['PAYROLL'], allData: false);
-    $this->get('/records/payroll-settings/pay-schedules')->assertOk()->assertSee('Semi-monthly, paid on the last day')->assertDontSee('openAdd');
-    Livewire::test(PaySchedulesPage::class)->call('openAdd')->assertSet('dialogOpen', false);
+    $this->get('/records/payroll-settings/pay-schedules')->assertOk()
+        ->assertSee('Company Pay Schedule')
+        ->assertSee('Every Two Weeks')
+        ->assertSee('Sunday to Saturday, Two Weeks')
+        ->assertSee('The Friday After the Period Ends')
+        ->assertSee('It Moves to the Working Day Before')
+        ->assertDontSee('startEdit');
+    Livewire::test(PaySchedulesPage::class)->call('startEdit')->assertSet('dialogOpen', false);
 
     pschActor();
-    $this->get('/records/payroll-settings/pay-schedules')->assertOk()->assertSee('openAdd')->assertSee('Default');
+    $this->get('/records/payroll-settings/pay-schedules')->assertOk()
+        ->assertSee('startEdit')
+        // The period today falls in, and the first one paid in the new year.
+        ->assertSee('Nov 22 to Dec 5, 2026')
+        ->assertSee('Fri, Dec 11')
+        ->assertSee('First pay on the 2027 figures')
+        ->assertSee('A year with 27 pay days.');
+
     Livewire::test(PaySchedulesPage::class)
-        ->call('openAdd')
+        ->call('startEdit')
         ->assertSet('dialogOpen', true)
-        ->assertSet('formPeriods', PaySchedulesPage::PERIODS_SEMI_MONTHLY)
-        ->set('formName', '15th and 30th')
-        ->set('formPayDays.0.kind', PaySchedule::PAY_DAY)->set('formPayDays.0.day', '15')
-        ->set('formPayDays.1.kind', PaySchedule::PAY_DAY)->set('formPayDays.1.day', '30')
-        ->set('formHolidayRule', PaySchedule::MOVE_BEFORE)
+        ->assertSet('formFrequency', PaySchedulesPage::EVERY_TWO_WEEKS)
+        ->assertSet('formAnchor', '2025-12-21')
+        ->assertSet('formPayAfter', '6')
+        // A refusal stays in the dialog.
+        ->set('formPayAfter', '40')
+        ->call('save')
+        ->assertSet('dialogOpen', true)
+        ->assertSet('formError', 'The pay day falls 0 to 31 days after the period ends.')
+        ->set('formPayAfter', '5')
+        ->assertSet('formError', null)
+        // The preview follows what is typed: five days after a Saturday is a Thursday.
+        ->assertSee('data-schedule-preview', false)
+        ->assertSee('Thu, Dec 10')
         ->call('addDeadline')
         ->set('formDeadlines.0.label', 'Approved')->set('formDeadlines.0.days', '3')
-        ->set('formIsDefault', true)
-        // The preview: 15 Nov 2026 is a Sunday, paid the Friday before.
-        ->assertSee('data-schedule-preview', false)
-        ->assertSee('13 Nov 2026')
         ->call('save')
         ->assertSet('dialogOpen', false)
         ->assertSet('formError', null)
-        ->assertSee('15th and 30th')
-        ->assertSee('Paid on the 15th and the 30th')
-        ->assertSee('Working day before')
+        ->assertSee('The Thursday After the Period Ends')
         ->assertSee('Approved 3 days before');
-    $added = PayrollPaySchedule::query()->where('name', '15th and 30th')->sole();
-    expect($added->is_default)->toBeTrue()->and(PayrollPaySchedule::query()->where('is_default', true)->count())->toBe(1);
 
-    // A refusal stays in the dialog; the seeded one becomes the default again and the added one goes.
-    $seeded = PayrollPaySchedule::query()->where('name', 'Semi-monthly, paid on the last day')->sole();
+    // The company's schedule is changed in place: still two rows, one default, one audit line.
+    $default = PaySchedules::default();
+    expect($default?->name)->toBe('Every two weeks, paid 5 days after')
+        ->and(PayrollPaySchedule::query()->count())->toBe(2)
+        ->and(PayrollPaySchedule::query()->where('is_default', true)->count())->toBe(1)
+        ->and(AuditLog::query()->where('action', AuditEvent::PAY_SCHEDULE_SAVED->value)->count())->toBe(1);
+
+    // Twice a month asks for the two pay days instead, and keeps the reminder.
     Livewire::test(PaySchedulesPage::class)
-        ->call('startEdit', $added->id)
-        ->assertSet('formName', '15th and 30th')
-        ->set('formPayDays.0.day', '32')
+        ->call('startEdit')
+        ->set('formFrequency', PaySchedulesPage::TWICE_A_MONTH)
+        ->assertCount('formPayDays', 2)
+        ->set('formPayDays.0.kind', PaySchedule::PAY_DAY)->set('formPayDays.0.day', '15')
+        ->set('formPayDays.1.kind', PaySchedule::PAY_DAY)->set('formPayDays.1.day', '30')
         ->call('save')
-        ->assertSet('dialogOpen', true)
-        ->assertSet('formError', 'A pay day is a day of the month, 1 to 31.')
-        ->call('makeDefault', $seeded->id)
-        ->call('confirmDelete', $added->id)
-        ->assertSet('confirmOpen', true)
-        ->call('deleteConfirmed')
-        ->assertDontSee('schedule-'.$added->id, false);
-    expect($seeded->refresh()->is_default)->toBeTrue()->and(PayrollPaySchedule::query()->count())->toBe(1);
-
-    expect($this->get('/records/payroll-settings/pay-schedules/export')->assertOk()->streamedContent())->toContain('Semi-monthly, paid on the last day')->toContain('Paid on the last day of each period');
+        ->assertSet('dialogOpen', false)
+        ->assertSee('Twice a Month')
+        ->assertSee('Paid on the 15th and the 30th')
+        ->assertSee('Approved 3 days before')
+        ->assertDontSee('A year with 27 pay days.');
+    expect(PaySchedules::default()?->id)->toBe($default?->id)
+        ->and(PaySchedules::default()?->name)->toBe('Twice a month, paid on the 15th and the 30th')
+        ->and(PayrollPaySchedule::query()->count())->toBe(2);
 });

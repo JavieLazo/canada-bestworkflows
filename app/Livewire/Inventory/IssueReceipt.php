@@ -11,7 +11,7 @@ use App\Modules\Inventory\Application\Commands\IssueItems;
 use App\Modules\Inventory\Application\Queries\InventoryRecords;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -51,7 +51,7 @@ class IssueReceipt extends Component
         $this->resetValidation();
         $this->reset('selectedIds', 'employeeId', 'issuerId', 'mrNumber', 'search', 'remarks');
         $this->resetPage('issueStockPage');
-        $this->issuedOn = ManilaClock::todayKey();
+        $this->issuedOn = LocalClock::todayKey();
         $this->dialogOpen = true;
     }
 

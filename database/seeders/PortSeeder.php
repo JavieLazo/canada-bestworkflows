@@ -7,7 +7,7 @@ namespace Database\Seeders;
 use App\Models\EmployeeProfile;
 use App\Models\User;
 use App\Models\WorkSite;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Seeder;
@@ -25,7 +25,7 @@ use Illuminate\Database\Seeder;
  *  - Fixture ids ('role-admin', 'emp-1') are stable SEED KEYS, never assigned
  *    to a new row. seed_identities remembers the real key that BaseModel
  *    generates. Legacy rows keep their existing primary keys and links.
- *  - at()/dateKey() mirror seed.ts at(daysAgo, hour, minute): Manila wall
+ *  - at()/dateKey() mirror seed.ts at(daysAgo, hour, minute): Local wall
  *    clock, a NEGATIVE daysAgo meaning the future, stored as UTC.
  */
 abstract class PortSeeder extends Seeder
@@ -138,19 +138,19 @@ abstract class PortSeeder extends Seeder
                 : [$column => $legacy];
     }
 
-    /** Manila wall-clock instant $daysAgo back (negative = future), as UTC. */
+    /** Local wall-clock instant $daysAgo back (negative = future), as UTC. */
     protected function at(int $daysAgo, int $hour, int $minute, int $second = 0): CarbonImmutable
     {
-        return CarbonImmutable::now(ManilaClock::TZ)
+        return CarbonImmutable::now(LocalClock::zone())
             ->subDays($daysAgo)
             ->setTime($hour, $minute, $second)
             ->utc();
     }
 
-    /** The Manila calendar day $daysAgo back (negative = future), as Y-m-d. */
+    /** The local calendar day $daysAgo back (negative = future), as Y-m-d. */
     protected function dateKey(int $daysAgo): string
     {
-        return CarbonImmutable::now(ManilaClock::TZ)->subDays($daysAgo)->format('Y-m-d');
+        return CarbonImmutable::now(LocalClock::zone())->subDays($daysAgo)->format('Y-m-d');
     }
 
     /**

@@ -10,7 +10,7 @@ use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -44,6 +44,6 @@ final class AccountsExport implements TableExport
             }
         };
 
-        return new CsvExport('accounts-'.ManilaClock::todayKey().'.csv', ['Name', 'Email', 'Role', 'Linked employee', 'Active'], $rows);
+        return new CsvExport('accounts-'.LocalClock::todayKey().'.csv', ['Name', 'Email', 'Role', 'Linked employee', 'Active'], $rows);
     }
 }

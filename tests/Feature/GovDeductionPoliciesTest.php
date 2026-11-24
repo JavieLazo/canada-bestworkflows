@@ -5,8 +5,6 @@ declare(strict_types=1);
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Enums\PayrollRunStatus;
-use App\Livewire\Records\EmployeePaySettingsPage;
-use App\Livewire\Records\EmployeePaySettingsShow;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\PayrollDeduction;
@@ -22,14 +20,12 @@ use App\Modules\Payroll\Application\Commands\DiscardGovDeductionPolicy;
 use App\Modules\Payroll\Application\Commands\SaveGovDeductionPolicy;
 use App\Modules\Payroll\Application\GovDeductionPolicyStore;
 use App\Modules\Payroll\Application\PayrollData;
-use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\Queries\GovDeductionPolicyRecords;
 use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
 use App\Support\Access;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
-use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\Support\PayrollEvidenceFixture;
 
@@ -211,63 +207,6 @@ it('prepares a draft, approves it from a second account of the preparer, and dis
 
 /* |---| What payroll computes with |---| */
 
-it('lays the approved version in force over the employee, records it in the evidence, prices the fund at their own rate, and replays it', function () {
-    ['actor' => $actor, 'employee' => $employee] = PayrollEvidenceFixture::make();
-    PayrollEvidenceFixture::sourceFacts($employee);
-    $fund = gdpFund();
-    $compute = static fn (): array => PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
-
-    $baseline = $compute();
-    $before = $baseline['drafts'][0];
-    expect($before->sss)->toBeGreaterThan(0.0)
-        ->and($baseline['inputs']->govPolicies)->toBe([])
-        ->and($baseline['inputs']->employees[0]->allow_sss)->toBeTrue()
-        // The listed rate: 3% of 30,000, halved on the first cut-off.
-        ->and($baseline['customDeductionLines'][$employee->id][0]['amount'])->toBe(450.0);
-
-    // Prepared, then approved; only then does it price.
-    $preparer = gdpActor();
-    $id = app(SaveGovDeductionPolicy::class)->handle($preparer, $employee->id, '2026-09-01', 'Exempt from SSS', gdpFigures(['allow_sss' => false, 'fixed_pagibig_ee' => 400.0, 'percent_tax' => 5.0, 'percent_rates' => [$fund->id => 5.0]]));
-    expect($compute()['inputs']->fingerprint())->toBe($baseline['inputs']->fingerprint());
-    app(ApproveGovDeductionPolicy::class)->handle(gdpActor(), $id);
-
-    $custom = $compute();
-    $after = $custom['drafts'][0];
-    $fundLine = $custom['customDeductionLines'][$employee->id][0];
-    expect($after->sss)->toBe(0.0)
-        ->and($after->sss_er)->toBe(0.0)
-        ->and($after->pagibig)->toBe(200.0)
-        ->and($after->withholding_tax)->toBeGreaterThan(0.0)
-        ->and($fundLine['amount'])->toBe(750.0)
-        ->and($fundLine['employer_amount'])->toBe(1500.0)
-        ->and($custom['inputs']->employees[0]->allow_sss)->toBeFalse()
-        ->and($custom['inputs']->govPolicies[$employee->id])->toMatchArray(['version_id' => $id, 'effective_from' => '2026-09-01'])
-        ->and($custom['inputs']->govPolicies[$employee->id]['figures']['percent_rates'])->toEqual([$fund->id => 5.0])
-        ->and($custom['inputs']->fingerprint())->not->toBe($baseline['inputs']->fingerprint());
-
-    // A version from the 16th does not reach the first cut-off, and a later approved version supersedes.
-    expect(GovDeductionPolicyStore::forEmployees([$employee->id], '2026-08-16'))->toBe([]);
-
-    // The evidence replays the captured version, whatever the table holds later.
-    $json = PayrollInputs::json($custom['inputs']->toArray());
-    $restored = PayrollInputs::restore($json);
-    expect($restored->fingerprint())->toBe($custom['inputs']->fingerprint())
-        ->and(json_decode($json, true)['schema_version'])->toBe(24);
-    PayrollGovDeductionPolicy::query()->whereKey($id)->delete();
-    $fund->forceFill(['percent' => [...$fund->percent, 'employee' => 4.0]])->save();
-    $replay = PayrollData::calculateInputs($restored, strict: true);
-    expect($replay['drafts'][0]->sss)->toBe(0.0)
-        ->and($replay['customDeductionLines'][$employee->id][0]['amount'])->toBe(750.0);
-
-    // Tampered evidence is refused, never coerced.
-    $data = json_decode($json, true);
-    $data['gov_policies'][$employee->id]['figures']['percent_rates'][$fund->id] = 101;
-    expect(fn () => PayrollInputs::restore(PayrollInputs::json($data)))->toThrow(RuntimeException::class, 'Invalid payroll contribution policy evidence.');
-    $data = json_decode($json, true);
-    $data['gov_policies'][(string) Str::ulid()] = $data['gov_policies'][$employee->id];
-    expect(fn () => PayrollInputs::restore(PayrollInputs::json($data)))->toThrow(RuntimeException::class, 'Invalid payroll contribution policy evidence.');
-});
-
 it('keeps the record\'s baseline columns for an employee with no approved version', function () {
     ['actor' => $actor, 'employee' => $employee] = PayrollEvidenceFixture::make();
     PayrollEvidenceFixture::sourceFacts($employee);
@@ -286,69 +225,3 @@ it('keeps the record\'s baseline columns for an employee with no approved versio
 });
 
 /* |---| The page |---| */
-
-it('edits an employee\'s contributions and tax on the pay page, in effect at once, with no date, reason or approval', function () {
-    $this->travelTo(CarbonImmutable::parse('2026-10-12 02:00:00', 'UTC'));
-    $employee = gdpEmployee('Paged', ['allow_philhealth' => false]);
-    $fund = gdpFund();
-    gdpActor();
-
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        // The card counts what differs from the standard, by the same test as each row's pill:
-        // the record's own PhilHealth switch is one of the five rows.
-        ->assertSee('1 of 5 set for this employee.')
-        ->assertDontSee('Prepare a version')
-        ->call('startEdit')
-        ->assertSet('editing', true)
-        ->assertDontSee('Takes effect on')
-        // The form starts from the baseline the record holds.
-        ->assertSet('form.philhealth_deduct', false)
-        ->assertSet('form.percent.'.$fund->id, '')
-        ->set('form.sss_deduct', false)
-        ->set('form.tax_method', 'PERCENT')
-        ->set('form.tax_amount', '5')
-        ->set('form.percent.'.$fund->id, '10')
-        ->call('save')
-        ->assertSet('editing', false)
-        ->assertSet('formError', null)
-        // In use at once: the card reads the settings, with the fund at the employee's rate.
-        ->assertDontSee('Awaiting approval')
-        ->assertSee('4 of 5 set for this employee.')
-        ->assertSee('5% of taxable compensation')
-        ->assertSee('Own rate 10%');
-    $row = PayrollGovDeductionPolicy::query()->sole();
-    expect($row->status)->toBe('APPROVED')
-        ->and($row->effective_from->format('Y-m-d'))->toBe('2025-01-01')
-        ->and($row->params['allow_sss'])->toBeFalse()
-        ->and($row->params['allow_philhealth'])->toBeFalse()
-        ->and($row->params['percent_tax'])->toEqual(5.0)
-        ->and($row->params['percent_rates'])->toEqual([$fund->id => 10.0])
-        ->and(AuditLog::query()->where('action', 'GOV_POLICY_SAVED')->where('entity_id', $row->id)->count())->toBe(1);
-    Livewire::test(EmployeePaySettingsPage::class)->assertSee('Paged')->assertDontSee('Awaiting approval');
-
-    // "Reset to standard" fills the standard computation; saving replaces the same row.
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->call('startEdit')
-        ->assertSee('Reset to Standard')
-        ->call('useStandard')
-        ->assertSet('form.sss_deduct', true)
-        ->assertSet('form.percent.'.$fund->id, '')
-        ->call('save')
-        ->assertSet('editing', false)
-        ->assertSee('The standard settings apply.');
-    $again = PayrollGovDeductionPolicy::query()->sole();
-    expect($again->id)->toBe($row->id)
-        ->and($again->params['allow_sss'])->toBeTrue()
-        ->and($again->params['percent_rates'])->toBe([]);
-
-    // A holder without all data reads nothing and writes nothing.
-    gdpActor(['PAYROLL'], allData: false);
-    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
-        ->assertDontSeeHtml('wire:click="startEdit"')
-        ->call('startEdit')
-        ->assertSet('editing', false)
-        ->set('form.sss_deduct', false)
-        ->call('save');
-    expect(PayrollGovDeductionPolicy::query()->sole()->params['allow_sss'])->toBeTrue()
-        ->and(PayrollGovDeductionPolicy::query()->count())->toBe(1);
-});

@@ -11,7 +11,7 @@ use App\Livewire\Edtr\Support\Hris;
 use App\Modules\Timekeeping\Application\Queries\CompensatoryHours;
 use App\Modules\Timekeeping\Application\Queries\OwnAttendance;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Livewire\Component;
@@ -30,7 +30,7 @@ class MyAttendance extends Component
 
     public function thisCutoff(): void
     {
-        $this->setCutoff(ManilaClock::todayKey());
+        $this->setCutoff(LocalClock::todayKey());
     }
 
     public function previousCutoff(): void
@@ -81,7 +81,7 @@ class MyAttendance extends Component
             // Compensatory Leave hours earned: the overtime minutes credited instead of paid, the employee's own rows.
             'compMinutes' => $access->hasEmployeeLink() ? app(CompensatoryHours::class)->earnedMinutes($access, $access->ownEmployeeId()) : 0,
             'linked' => $access->hasEmployeeLink(),
-            'today' => ManilaClock::todayKey(),
+            'today' => LocalClock::todayKey(),
         ]);
     }
 }

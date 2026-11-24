@@ -67,7 +67,7 @@
             <ol class="mt-2 list-decimal space-y-1 pl-4 leading-relaxed">
                 @foreach ($document->notes as $note)<li>{{ $note }}</li>@endforeach
             </ol>
-            <p class="mt-2">Prepared {{ $generatedAt }} (Manila).</p>
+            <p class="mt-2">Prepared {{ $generatedAt }} (local time).</p>
         </details>
     @endif
 </section>

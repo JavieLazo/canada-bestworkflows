@@ -16,7 +16,7 @@ use App\Modules\Workforce\Contracts\EmployeePayContexts;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -69,7 +69,7 @@ final class ReplaceGovDeductionPolicy
             }
         }
         $name = EmployeeName::display($employee);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $employee, $name, $settings, $today): string {
             PayrollData::lockMembership();

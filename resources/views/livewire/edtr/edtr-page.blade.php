@@ -318,7 +318,7 @@
                                         <span> and the four time cells stay plain `num`
                                         cells: the tag sits beside the time, never in a new
                                         column, and the day it names is decided by
-                                        Hris::isNextDay on the Manila calendar day, never on
+                                        Hris::isNextDay on the local calendar day, never on
                                         the stored UTC stamp.
                                     --}}
                                     <tr

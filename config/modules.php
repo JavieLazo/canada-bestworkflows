@@ -109,12 +109,6 @@ return [
         'path' => '/payroll',
         'description' => 'Run and review payroll',
         'icon' => 'banknote',
-        // Expands in place like Records Management, the two run lists labelled
-        // exactly as PayrollRunKind::LABELS spells them.
-        'groups' => [
-            ['label' => 'Basic Payroll', 'path' => '/payroll'],
-            ['label' => '13th Month Payroll', 'path' => '/payroll/thirteenth-month'],
-        ],
     ],
     [
         'code' => ModuleCode::REPORTS,

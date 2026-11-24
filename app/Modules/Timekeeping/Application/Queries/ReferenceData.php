@@ -17,7 +17,7 @@ use App\Modules\Timekeeping\Contracts\Views\ShiftView;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Collection;
 
 /** Timekeeping reference facts retain each table's established row scope. */
@@ -106,7 +106,7 @@ final class ReferenceData
     {
         abort_if($actor->userId === null, 403);
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $versions = app(RosterVersions::class);
         $linkedIds = array_values(array_unique(array_merge(
             RosterVersions::live(Shift::query())->whereNotNull('shift_type_id')->distinct()->pluck('employee_id')->all(),

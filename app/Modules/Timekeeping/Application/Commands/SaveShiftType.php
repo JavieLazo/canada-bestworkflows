@@ -28,7 +28,7 @@ use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\CodeSequence;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Collection;
 
 /**
@@ -81,6 +81,9 @@ use Illuminate\Database\Eloquent\Collection;
  */
 final class SaveShiftType
 {
+    /** The longest unpaid break a pattern may carry: twelve hours. */
+    public const MAX_BREAK_MINUTES = 720;
+
     public function handle(Access $access, ?string $id, ShiftTypeDraft $input, ?string $effectiveFrom = null, ?string $confirmed = null): string
     {
         [$impact, $message] = $this->apply($access, $id, $input, $effectiveFrom, $confirmed, commit: true);
@@ -118,8 +121,12 @@ final class SaveShiftType
         if ($payload['grace_minutes'] < 0 || $payload['grace_minutes'] > 600) {
             throw new \RuntimeException('grace_minutes: must be between 0 and 600.');
         }
-        if ($payload['break_minutes'] < 0 || $payload['break_minutes'] > 600) {
-            throw new \RuntimeException('break_minutes: must be between 0 and 600.');
+        // DELIBERATE DIVERGENCE: the reference stops a break at 600 minutes.
+        // TWELVE HOURS ARE ALLOWED, so one pattern can hold two duties of a
+        // day with the hours between them unpaid — 12:00 AM to 12:00 AM with
+        // 8:00 AM to 8:00 PM off — as custom hours on the roster already can.
+        if ($payload['break_minutes'] < 0 || $payload['break_minutes'] > self::MAX_BREAK_MINUTES) {
+            throw new \RuntimeException('break_minutes: must be between 0 and '.self::MAX_BREAK_MINUTES.'.');
         }
         if ($payload['required_hours'] !== null && ($payload['required_hours'] < 0 || $payload['required_hours'] > 24)) {
             throw new \RuntimeException('required_hours: must be between 0 and 24.');
@@ -150,7 +157,7 @@ final class SaveShiftType
         // the write reads each employee's copies again under their lock,
         // and the list is read AGAIN under the pattern lock below.
         $versions = app(RosterVersions::class);
-        $asOf = $effectiveFrom ?? ManilaClock::todayKey();
+        $asOf = $effectiveFrom ?? LocalClock::todayKey();
         $reach = self::reach($versions, $id, $asOf);
         if ($reach !== [] && ! $access->mayReadAllData(ModuleCode::ROSTER)) {
             throw new \RuntimeException('Editing a pattern that employees are rostered on needs Shift Roster access.');
@@ -200,7 +207,7 @@ final class SaveShiftType
         assert($row instanceof ShiftType);
         $rostered = count($reach);
         $date = $impact->date();
-        $later = $date !== null && $date !== ManilaClock::todayKey();
+        $later = $date !== null && $date !== LocalClock::todayKey();
         AuditService::record($access, AuditEvent::SHIFT_TYPE_UPDATED, 'shift_types', (string) $row->getKey(),
             "Shift pattern {$row->code} updated — {$name}".($rostered > 0 ? ' · re-copied onto '.self::rosteredPhrase($rostered) : '').($later ? ' · from '.HrisFormat::date($date) : ''));
 

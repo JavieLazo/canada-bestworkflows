@@ -25,7 +25,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveTypeCredits;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -637,7 +637,7 @@ class LeaveCreditSettingsPage extends Component
     {
         $access = app(Access::class);
         $canManage = LeaveSettingsAccess::mayManage($access);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $types = app(LeaveTypeCreditRecords::class)->list($access);
         $ruleRecords = app(LeaveRuleRecords::class);
         $ruleType = $this->ruleTypeId === null ? null : $types->first(fn (LeaveTypeView $t): bool => $t->id === $this->ruleTypeId);

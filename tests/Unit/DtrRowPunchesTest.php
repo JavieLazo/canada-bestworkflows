@@ -7,7 +7,7 @@ use App\Domain\Attendance\DayRecord;
 use App\Domain\Attendance\DtrCalculator;
 use App\Domain\Attendance\Shift;
 use App\Domain\Attendance\ShiftResolver;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * DtrCalculator::rowPunches() — the stored punches the DTR reads as ONE
@@ -109,7 +109,7 @@ function rowpRow(array $logs, ?Shift $shift, string $date): array
 /** The punch's Manila calendar day — what the engine buckets it by. */
 function rowpDayOf(AttendanceLog $log): string
 {
-    return ManilaClock::dayKey(ManilaClock::instant($log->loggedAt));
+    return LocalClock::dayKey(LocalClock::instant($log->loggedAt));
 }
 
 /**

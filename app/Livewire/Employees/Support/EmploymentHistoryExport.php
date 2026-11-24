@@ -9,7 +9,7 @@ use App\Modules\Workforce\Application\Queries\EmploymentHistoryRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /** Exports one row per changed field through the history screen's scoped read. */
@@ -32,14 +32,14 @@ final class EmploymentHistoryExport implements TableExport
                         $entry->id,
                         $entry->employee_code,
                         $entry->employee_name,
-                        $entry->created_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
+                        $entry->created_at->setTimezone(LocalClock::zone())->format('Y-m-d H:i:s'),
                         $change['label'],
                         EmploymentChangeDisplay::value($change['field'], $change['before'], $change['before_known']),
                         EmploymentChangeDisplay::value($change['field'], $change['after'], $change['after_known']),
                         $entry->recorded_by_name ?: 'System',
                         $entry->request_id,
                         $entry->requested_by_name,
-                        $entry->requested_at?->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
+                        $entry->requested_at?->setTimezone(LocalClock::zone())->format('Y-m-d H:i:s'),
                         $entry->request_reason,
                         $entry->review_note,
                     ];
@@ -47,10 +47,10 @@ final class EmploymentHistoryExport implements TableExport
             }
         };
 
-        return new CsvExport('employment-history-'.ManilaClock::todayKey().'.csv', [
-            'Change ID', 'Employee record ID', 'Employee', 'Changed on (Manila)',
+        return new CsvExport('employment-history-'.LocalClock::todayKey().'.csv', [
+            'Change ID', 'Employee record ID', 'Employee', 'Changed on (local time)',
             'Field', 'Previous value', 'New value', 'Changed by',
-            'Request ID', 'Requested by', 'Requested on (Manila)', 'Request reason', 'Review note',
+            'Request ID', 'Requested by', 'Requested on (local time)', 'Request reason', 'Review note',
         ], $rows);
     }
 }

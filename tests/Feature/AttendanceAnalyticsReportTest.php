@@ -18,7 +18,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -60,7 +60,7 @@ function attendanceAnalyticsPunch(EmployeeProfile $employee, string $date, strin
 {
     foreach (['TIME_IN' => $in, 'TIME_OUT' => $out] as $type => $clock) {
         if ($clock !== null) {
-            AttendanceLog::create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant($date.'T'.$clock)->utc()]);
+            AttendanceLog::create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => LocalClock::instant($date.'T'.$clock)->utc()]);
         }
     }
 }

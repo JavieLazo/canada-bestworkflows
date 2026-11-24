@@ -33,6 +33,9 @@ use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Modules\Payroll\Domain\Benefits\ExemptBenefitCeiling;
 use App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue;
+use App\Modules\Payroll\Domain\Canada\DeductionRates;
+use App\Modules\Payroll\Domain\Canada\PayDeductions;
+use App\Modules\Payroll\Domain\Canada\TaxDetails;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
 use App\Modules\Payroll\Domain\PayrollAdvance;
@@ -47,9 +50,10 @@ use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\CodeSequence;
 use App\Support\CodeSort;
+use App\Support\Currency;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use App\Support\TextSort;
 use Carbon\CarbonImmutable;
@@ -170,28 +174,31 @@ final class PayrollData
         // PHP 90,000 ceiling) and the tax-exempt part.
         'bonus',
         'exempt_benefits',
+        // The source deductions and the employer's own contributions.
+        'cpp',
+        'cpp2',
+        'ei',
+        'federal_tax',
+        'provincial_tax',
+        'cpp_er',
+        'cpp2_er',
+        'ei_er',
     ];
 
     /* ------------------------------------------------------------------ */
     /* hris.ts helpers */
     /* ------------------------------------------------------------------ */
 
-    /** hris.ts todayKey() — today's Manila calendar day, 'YYYY-MM-DD', ManilaClock's one clock read. */
+    /** hris.ts todayKey() — today's local calendar day, 'YYYY-MM-DD', LocalClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::todayKey();
+        return LocalClock::todayKey();
     }
 
-    /** peso() (hris.ts:184-189): ₱ + en-PH grouping, always two decimals. */
-    public static function peso(mixed $n): string
+    /** `$1,234.50`, always two decimals: the one figure format, Currency::format(). */
+    public static function money(mixed $n): string
     {
-        $v = is_numeric($n) ? (float) $n : 0.0;
-
-        if (! is_finite($v)) {
-            $v = 0.0;
-        }
-
-        return "\u{20B1}".number_format($v, 2);
+        return Currency::format($n);
     }
 
     /**
@@ -611,8 +618,7 @@ final class PayrollData
      * Assembles the inputs — employees, punches (±1 day for overnight
      * shifts), shifts, leaves, formulas, holidays — and hands each employee to
      * PayslipCalculator::compute + PayrollReadiness::issues. Every amount on
-     * every REGULAR (cut-off) payroll screen comes out of here; the 13th month
-     * run's come out of ThirteenthMonthData::calculateDrafts.
+     * every payroll screen comes out of here.
      *
      * `$strict` is the server/client split of the reference collapsed into a
      * flag: finalize (`true`) refuses when a selected employee no longer
@@ -686,17 +692,13 @@ final class PayrollData
             // ON right now (a deleted SSS row = no SSS on this draft):
             // captured with the run, in the fingerprint.
             $active = self::activeCalculations();
-            // The Contribution & Tax Table versions in force on the period's
-            // first day, with their figures: captured with the run, in the
-            // fingerprint, so a new version stales the preview and a replay
-            // never reads the live tables. An uncovered period never
-            // computes (the cut-off check refuses it first). A payroll made
-            // from a pay schedule picks the withholding table by its pay
-            // date and the contributions by its contribution month.
-            $tables = app(StatutoryTables::class)->resolve($periodStart, $periodEnd, $payDate, $contributionMonth);
-            if ($tables->error !== null) {
-                throw new RuntimeException($tables->error);
-            }
+            // What the source deductions are worked out from — the pay date
+            // and its tax year, the year's pay dates, the published rates in
+            // force, each member's tax details and the year's totals so far
+            // — captured with the run, in the fingerprint, so a saved tax
+            // detail or a payslip posted meanwhile stales the preview and a
+            // replay never reads the live tables.
+            $sourceDeductions = SourceDeductionFacts::entry($employeeIds, $runId === null ? null : PayrollRun::query()->whereKey($runId)->first(), $payDate, $periodEnd);
             // The Pay Basis & Rates version pricing each member — a version
             // of their own in force, else their Employment status's override,
             // else the company's — captured with the run, in the fingerprint
@@ -715,6 +717,9 @@ final class PayrollData
             // schedules that take the rest.
             $contributionOverlayDate = $contributionMonth === null ? $periodStart : $contributionMonth.'-01';
             [$employees, $govPolicies] = GovDeductionPolicyStore::overlay(app(EmployeePayContexts::class)->get($actor, $employeeIds), $contributionOverlayDate);
+            // The engine's own contribution and withholding lines are off for
+            // every member: the source deductions above take their place.
+            $employees = array_map(self::withoutEngineStatutory(...), $employees);
             $contributionPosted = ContributionMonthToDate::posted($employeeIds, $contributionMonth ?? substr($periodStart, 0, 7));
             // DIVERGENCE 20: for the members priced by the whole-year
             // estimate, the tax year (of the pay date), the regular payrolls
@@ -790,7 +795,7 @@ final class PayrollData
             // advance payslips that this payroll settles, captured with the
             // run — and the punches read only through the counted date, so
             // the processing day's own punches never move the preview.
-            $settlements = AdvanceSettlements::capture($actor, $employeeIds, $periodStart, ManilaClock::todayKey(), $employees);
+            $settlements = AdvanceSettlements::capture($actor, $employeeIds, $periodStart, LocalClock::todayKey(), $employees);
 
             // DIVERGENCE 15: what each member's leave policy charges to credits,
             // the conversion table and their balances AS THEY STAND, captured
@@ -835,9 +840,9 @@ final class PayrollData
                 array_values(PayrollFormula::query()->get()->map->toArray()->all()),
                 app(HolidayCalendar::class)->all(),
                 $draftDeductions, $draftAllowances, $draftEarnings, CalculatorVersion::current(),
-                $incentives, $ytd, $customDeductions, $active, $tables->tables, $payRules, $benefitRules, $deductionRules,
+                $incentives, $ytd, $customDeductions, $active, [], $payRules, $benefitRules, $deductionRules,
                 $recurring, $skipped, $attendanceThrough, $settlements, $leaveCharges, $pricedCashOuts, $cashOutType, $govPolicies, $adjustments,
-                $contributionMonth, $contributionPosted, $benefitCeiling, $benefitAssignments, $taxYear,
+                $contributionMonth, $contributionPosted, $benefitCeiling, $benefitAssignments, $taxYear, $sourceDeductions,
             );
         });
 
@@ -846,16 +851,18 @@ final class PayrollData
 
     /**
      * The cut-off check a regular payroll makes before anything computes:
-     * the dates, the Contribution & Tax Tables in force, then the Pay Basis
-     * & Rates — the company's version, the override of every member's
-     * Employment status and the versions of members with rates of their
-     * own — none of which may change inside the period.
+     * the dates, then the Pay Basis & Rates — the company's version, the
+     * override of every member's Employment status and the versions of
+     * members with rates of their own — none of which may change inside the
+     * period. The deduction figures need no check here: a payroll reads the
+     * published set in force on its pay date, and a pay date before the
+     * earliest set is refused when the facts are captured.
      *
      * @param  list<string>  $memberIds
      */
     public static function cutoffError(Access $actor, array $memberIds, string $periodStart, string $periodEnd): ?string
     {
-        $error = app(StatutoryTables::class)->cutoffError($periodStart, $periodEnd);
+        $error = PayrollPeriod::cutoffError($periodStart, $periodEnd, static fn (): ?string => null);
         if ($error !== null) {
             return $error;
         }
@@ -877,6 +884,66 @@ final class PayrollData
         }
 
         return $store->cutoffError($periodStart, $periodEnd, $statusIds, $labels, $own);
+    }
+
+    /**
+     * A member with the engine's own contribution and withholding lines
+     * switched off, for both the employee's and the employer's share. The
+     * engine still computes the pay; the source deductions are worked out
+     * after it, from the captured facts.
+     */
+    private static function withoutEngineStatutory(EmployeePayData $employee): EmployeePayData
+    {
+        return new EmployeePayData(...[
+            ...get_object_vars($employee),
+            'allow_sss' => false,
+            'allow_philhealth' => false,
+            'allow_pagibig' => false,
+            'allow_withholding_tax' => false,
+            'whole_year_tax' => false,
+        ]);
+    }
+
+    /**
+     * One member's source deductions for a pay, from the payroll's captured
+     * facts; null when the payroll captured none (evidence from before they
+     * existed), which deducts none.
+     *
+     * @param  array{pay_date: string, tax_year: int, periods: int, rates_from: string, rates: array<string, mixed>, members: array<string, array{details: array<string, mixed>, to_date: array{pensionable: float, pension: float, second_pension: float, insurance: float}}>}|null  $facts
+     * @return array{cpp: float, cpp2: float, ei: float, federal_tax: float, provincial_tax: float, cpp_er: float, cpp2_er: float, ei_er: float, pensionable_earnings: float, insurable_earnings: float}|null
+     */
+    private static function sourceDeductionLines(?array $facts, string $employeeId, float $pay, float $beforeTax): ?array
+    {
+        $member = $facts['members'][$employeeId] ?? null;
+        if ($facts === null || $member === null) {
+            return null;
+        }
+
+        return PayDeductions::forPay(
+            DeductionRates::fromArray($facts['rates_from'], $facts['rates']),
+            TaxDetails::fromArray($member['details']),
+            $facts['periods'],
+            $pay,
+            $beforeTax,
+            $member['to_date'],
+        );
+    }
+
+    /**
+     * A draft carrying its source deductions, re-footed: the five lines
+     * join the total deductions and come off the net pay.
+     *
+     * @param  array{cpp: float, cpp2: float, ei: float, federal_tax: float, provincial_tax: float, cpp_er: float, cpp2_er: float, ei_er: float, pensionable_earnings: float, insurable_earnings: float}  $lines
+     */
+    private static function withSourceDeductions(PayslipDraft $draft, array $lines): PayslipDraft
+    {
+        $total = Money::round($draft->total_deductions + PayDeductions::deducted($lines));
+
+        return $draft->with([
+            ...$lines,
+            'total_deductions' => $total,
+            'net_pay' => Money::round($draft->gross_pay - $total + $draft->tax_refund),
+        ]);
     }
 
     /**
@@ -1468,8 +1535,8 @@ final class PayrollData
             foreach ($named as $line) {
                 if (! $line['automatic'] && $line['recurring_line_id'] === $entry['line_id'] && Money::round($line['amount']) > $left) {
                     $errors[] = $left <= 0.0
-                        ? "{$entry['name']} is already paid off, so ".self::peso($line['amount']).' cannot be deducted for it. Clear the amount, or end the paid-off line in the employee\'s pay settings on '.$dayBefore.' or earlier.'
-                        : "{$entry['name']}: ".self::peso($line['amount']).' is more than the '.self::peso($left).' left to pay. Type at most '.self::peso($left).'.';
+                        ? "{$entry['name']} is already paid off, so ".self::money($line['amount']).' cannot be deducted for it. Clear the amount, or end the paid-off line in the employee\'s pay settings on '.$dayBefore.' or earlier.'
+                        : "{$entry['name']}: ".self::money($line['amount']).' is more than the '.self::money($left).' left to pay. Type at most '.self::money($left).'.';
                 }
             }
         }
@@ -1947,6 +2014,16 @@ final class PayrollData
                 $draft = $draft->withCustomDeductions(array_column($named, 'amount'));
             }
 
+            // The source deductions — the pension plan, the insurance and
+            // income tax — on the pay as it now stands, from the facts the
+            // payroll captured. Pay that is not income is outside them, and
+            // what was deducted before tax comes off the taxed income. They
+            // join the deduction footing last.
+            $sourceLines = self::sourceDeductionLines($inputs->sourceDeductions, $employeeId, Money::round($draft->gross_pay - $exemptTotal), $preTax);
+            if ($sourceLines !== null) {
+                $draft = self::withSourceDeductions($draft, $sourceLines);
+            }
+
             // The taxable base the posted withholding stands on, from the
             // shares the payslip actually carries (payroll.ts:644-647),
             // less what was deducted before tax.
@@ -1971,6 +2048,9 @@ final class PayrollData
                 'off' => $off,
                 'withholding_rederived' => $taxRederived,
                 'benefits' => ['ytd_before' => $ytdBefore, 'exempt' => $exemptTotal, 'ceiling' => $ceilingTotal, 'taxable_excess' => $excessTotal],
+                // The source deductions as computed, or null on a payroll
+                // that captured no facts for them.
+                'source_deductions' => $sourceLines,
             ];
 
             $error = self::draftError($draft);
@@ -2013,9 +2093,7 @@ final class PayrollData
      * A fourth map, `incentives` (employee id => [incentive type id =>
      * amount]), comes from each member's lines: eager-loaded rows
      * on a model (`members.incentives`), or the `incentives` projection
-     * PayrollRecords puts on a member view; and a fifth, `additional`
-     * (employee id => basic pay earned outside EMS), which only a 13th month
-     * run reads.
+     * PayrollRecords puts on a member view.
      *
      * @param  iterable<PayrollRunMember|PayrollRunMemberView>  $members
      * @return array{
@@ -2024,7 +2102,6 @@ final class PayrollData
      *     earnings: array<string, array<string, mixed>>,
      *     incentives: array<string, array<string, float>>,
      *     customDeductions: array<string, array<string, float>>,
-     *     additional: array<string, float>,
      *     skippedRecurring: array<string, list<string>>,
      * }
      */
@@ -2035,7 +2112,6 @@ final class PayrollData
         $earnings = [];
         $incentives = [];
         $customDeductions = [];
-        $additional = [];
         $skipped = [];
 
         foreach ($members as $member) {
@@ -2089,11 +2165,6 @@ final class PayrollData
                 $customDeductions[$member->employee_id] = $named;
             }
 
-            // 13th month runs: the basic pay typed as earned outside EMS.
-            if ($member->additional_basic_pay !== null) {
-                $additional[$member->employee_id] = (float) $member->additional_basic_pay;
-            }
-
             // The recurring lines skipped on this payroll.
             $skips = $member->skipped_recurring_lines ?? null;
             if (is_array($skips) && $skips !== []) {
@@ -2101,7 +2172,7 @@ final class PayrollData
             }
         }
 
-        return ['deductions' => $deductions, 'allowances' => $allowances, 'earnings' => $earnings, 'incentives' => $incentives, 'customDeductions' => $customDeductions, 'additional' => $additional, 'skippedRecurring' => $skipped];
+        return ['deductions' => $deductions, 'allowances' => $allowances, 'earnings' => $earnings, 'incentives' => $incentives, 'customDeductions' => $customDeductions, 'skippedRecurring' => $skipped];
     }
 
     /**
@@ -2154,7 +2225,6 @@ final class PayrollData
      * @param  array<string, array<string, mixed>>  $deductions
      * @param  array<string, mixed>  $allowances
      * @param  array<string, array<string, mixed>>  $earnings
-     * @param  array<string, mixed>  $additionalBasicPay  13th month runs: employee id => basic pay earned outside EMS
      * @param  array<string, list<string>>  $skippedRecurring  employee id => the recurring lines skipped on this payroll
      * @return array<string, mixed>
      */
@@ -2167,7 +2237,6 @@ final class PayrollData
         array $deductions,
         array $allowances,
         array $earnings,
-        array $additionalBasicPay = [],
         array $skippedRecurring = [],
     ): array {
         $columns = [
@@ -2189,12 +2258,6 @@ final class PayrollData
             'overtime_acknowledged' => null,
             'additional_basic_pay' => null,
         ];
-
-        // 13th month runs only: basic pay earned outside EMS.
-        $additional = $additionalBasicPay[$employeeId] ?? null;
-        if (is_numeric($additional)) {
-            $columns['additional_basic_pay'] = (float) $additional;
-        }
 
         $allowance = $allowances[$employeeId] ?? null;
         if (is_numeric($allowance)) {

@@ -325,6 +325,9 @@ enum AuditEvent: string
     /** A tax balance draft discarded (RequiredAudit, DiscardTaxBalance). */
     case TAX_BALANCE_DISCARDED = 'TAX_BALANCE_DISCARDED';
 
+    /** One employee's tax details saved: province of employment, claim amounts, extra tax, and whether CPP and EI are deducted (RequiredAudit, SaveEmployeeTaxDetails); the entity id is the employee's. */
+    case TAX_DETAILS_SAVED = 'TAX_DETAILS_SAVED';
+
     /** An outside payment or balance adjustment on a loan recorded as a draft (RequiredAudit, SaveRecurringLineEntry); never the amount. */
     case LOAN_ENTRY_RECORDED = 'LOAN_ENTRY_RECORDED';
 

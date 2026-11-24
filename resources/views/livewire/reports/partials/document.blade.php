@@ -1,10 +1,9 @@
 {{-- A report on paper: A4 portrait sheets in the payslip's style, from the owner's detached facts.
      Every sheet reads the same way — PPMC's header, one ruled block with what the report covers and
-     its answer, framed tables, then the sign-off and one closing line. Payslips keep their own sheet.
+     its answer, framed tables, then the sign-off and one closing line. Payslips print as pay statements.
      Attendance analysis prints its graphs as tables; nothing on a sheet is calculated here.
      `data-print-part` and `data-print-table` name what the Print options dialog can leave off the paper. --}}
 @php
-    use App\Livewire\Payroll\Support\PayslipDocument;
     use App\Support\HrisFormat;
     use Illuminate\Support\Str;
 
@@ -17,9 +16,18 @@
 @endphp
 <div @class(['record-print reports-document', 'reports-document-statements' => $type === 'payslips'])>
     @if ($type === 'payslips' && $document->sections !== [])
-        @php $payslipSheets = PayslipDocument::reportSheets($document->sections); @endphp
-        @foreach ($payslipSheets as $sheet)
-            @include('livewire.reports.partials.statement', ['sheet' => $sheet, 'statementNumber' => $loop->iteration, 'statementCount' => count($payslipSheets)])
+        {{-- One pay statement per posted payslip, whatever kind of payroll posted it. --}}
+        @foreach ($document->sections as $section)
+            <div class="reports-statement" wire:key="report-statement-{{ $section['statement']['payslip_id'] }}">
+                <x-payroll.statement
+                    :statement="$section['statement']"
+                    :employee="$section['statement_employee']['name']"
+                    :employee-no="$section['statement_employee']['number']"
+                    :position="$section['statement_employee']['position']"
+                >
+                    <p>Pay statement {{ $loop->iteration }} / {{ count($document->sections) }} · Generated {{ $generatedAt }} (local time)</p>
+                </x-payroll.statement>
+            </div>
         @endforeach
     @elseif ($sheets)
         @foreach ($document->sections as $section)
@@ -104,7 +112,7 @@
                         $numeric = array_map(static fn (int $index): int => $onePayroll && $index > 2 ? $index - 1 : $index, $section['numericColumns'] ?? []);
                     @endphp
                     <section class="reports-sheet-frame" data-print-part="section-{{ $loop->index }}">
-                        <div class="reports-sheet-band"><h3>{{ $section['title'] }}</h3><span>{{ $onePayroll ? $payrolls[0] : 'Philippine pesos' }}</span></div>
+                        <div class="reports-sheet-band"><h3>{{ $section['title'] }}</h3><span>{{ $onePayroll ? $payrolls[0] : 'Canadian dollars' }}</span></div>
                         @include('livewire.reports.partials.sheet-table', ['columns' => $drop($section['columns']), 'reportRows' => array_map($drop, $section['rows']), 'totals' => $drop($section['totals'] ?? []), 'numericColumns' => $numeric, 'tableTitle' => $section['title']])
                     </section>
                 @endforeach

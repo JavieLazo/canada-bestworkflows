@@ -45,7 +45,7 @@ final class SaveAdjustment
         }
         $pesos = AdjustmentRule::amount($amount);
         if ($pesos === null) {
-            throw new RuntimeException('Enter the amount as a peso figure above zero.');
+            throw new RuntimeException('Enter the amount as a dollar amount above zero.');
         }
         $reason = trim($reason);
         if ($reason === '' || mb_strlen($reason) > AdjustmentRule::REASON_MAX) {
@@ -88,7 +88,7 @@ final class SaveAdjustment
                 throw new RuntimeException('The adjustment could not be saved.');
             }
             RequiredAudit::record($access, AuditEvent::ADJUSTMENT_SAVED, 'payroll_adjustments', $row->id,
-                "{$name} · {$category->name} ".($category->kind === AdjustmentRule::KIND_DEDUCTION ? 'deduction' : 'earning').' of '.AdjustmentRule::peso($pesos).' '.($id === null ? 'prepared' : 'corrected').($target === null ? '' : " for payroll {$target->code}").": {$reason}");
+                "{$name} · {$category->name} ".($category->kind === AdjustmentRule::KIND_DEDUCTION ? 'deduction' : 'earning').' of '.AdjustmentRule::money($pesos).' '.($id === null ? 'prepared' : 'corrected').($target === null ? '' : " for payroll {$target->code}").": {$reason}");
 
             return $row->id;
         });

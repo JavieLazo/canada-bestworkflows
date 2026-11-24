@@ -93,8 +93,8 @@
                                 </div>
                             </td>
                         @endunless
-                        {{-- When the punch landed, in Manila: the day, the time under it. --}}
-                        @php($punchedAt = $l->logged_at->setTimezone(\App\Support\ManilaClock::TZ))
+                        {{-- When the punch landed, in local time: the day, the time under it. --}}
+                        @php($punchedAt = $l->logged_at->setTimezone(\App\Support\LocalClock::zone()))
                         <td class="{{ $compact ? 'num align-top break-words' : 'num whitespace-nowrap' }}">
                             <p>{{ $punchedAt->format('M d, Y') }}</p>
                             <p class="text-xs text-muted-foreground">{{ $punchedAt->format('g:i A') }}</p>

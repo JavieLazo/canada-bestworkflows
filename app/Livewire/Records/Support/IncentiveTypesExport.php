@@ -10,7 +10,7 @@ use App\Platform\Records\ReferenceCatalogs;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -47,11 +47,10 @@ final class IncentiveTypesExport implements TableExport
                     implode('; ', array_map(static fn (mixed $id): string => $statusNames[(string) $id] ?? '', $statuses)),
                     is_numeric($type->cap ?? null) ? Hris::moneyText($type->cap) : '',
                     $type->approval_reference ?? '',
-                    ($type->counts_toward_13th ?? false) ? 'Yes' : 'No',
                 ];
             }
         };
 
-        return new CsvExport('incentive-types-'.ManilaClock::todayKey().'.csv', ImportIncentiveTypes::COLUMNS, $rows);
+        return new CsvExport('incentive-types-'.LocalClock::todayKey().'.csv', ImportIncentiveTypes::COLUMNS, $rows);
     }
 }

@@ -2,31 +2,21 @@
 
 declare(strict_types=1);
 
-use App\Domain\Payroll\PayslipDraft;
 use App\Domain\Payroll\Statutory;
 use App\Domain\Payroll\StatutorySchedule;
 use App\Models\AuditLog;
-use App\Models\PayrollFinalizationSnapshot;
 use App\Models\PayrollRun;
 use App\Models\PayrollStatutoryTable;
-use App\Models\Payslip;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Payroll\Application\Commands\AddStatutoryTableVersion;
 use App\Modules\Payroll\Application\Commands\ConfirmStatutoryTable;
-use App\Modules\Payroll\Application\Commands\FinalizePayroll;
 use App\Modules\Payroll\Application\Commands\UpdateStatutoryTableVersion;
 use App\Modules\Payroll\Application\Commands\WithdrawStatutoryTableVersion;
-use App\Modules\Payroll\Application\PayrollData;
-use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\StatutoryTables;
-use App\Modules\Payroll\Application\ThirteenthMonthData;
-use App\Modules\Payroll\Application\ThirteenthMonthInputs;
 use App\Support\Access;
 use Illuminate\Support\Str;
-use Tests\Support\PayrollEvidenceFixture;
-use Tests\Support\PayrollReviewFixture;
 
 /**
  * The Contribution & Tax Tables are the figures payroll computes from: the
@@ -296,96 +286,4 @@ it('corrects or withdraws a version only before it takes effect and only for a P
         ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_WITHDRAWN')->sole()->details)->toBe('PhilHealth table version from 01 Jul 2027 withdrawn before taking effect')
         ->and(app(StatutoryTables::class)->resolve('2027-07-01', '2027-07-15')->tables[StatutorySchedule::PHILHEALTH]['version_id'])->toBe($future->id);
     expect(fn () => $withdraw($later->id))->toThrow(RuntimeException::class, 'That table version no longer exists.');
-});
-
-/*
-|--------------------------------------------------------------------------
-| Evidence
-|--------------------------------------------------------------------------
-*/
-
-it('captures the versions in the evidence, stales a preview when a version lands, and leaves a finalized run alone', function () {
-    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
-    PayrollEvidenceFixture::sourceFacts($employee);
-    $seededPhilhealth = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::PHILHEALTH)->value('id');
-
-    $first = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
-    $inputs = $first['inputs'];
-    expect($inputs->statutoryTables[StatutorySchedule::PHILHEALTH]['version_id'])->toBe($seededPhilhealth)
-        ->and(array_keys($inputs->statutoryTables))->toBe(StatutorySchedule::KINDS)
-        ->and($inputs->toArray()['schema_version'])->toBe(PayrollInputs::SCHEMA_VERSION)
-        ->and($inputs->toArray()['statutory_tables'][StatutorySchedule::SSS]['figures'])->toEqual(StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]);
-
-    // Round trip, and the older shapes restore to the built-in figures.
-    $restored = PayrollInputs::restore(PayrollInputs::json($inputs->toArray()));
-    expect($restored->fingerprint())->toBe($inputs->fingerprint())
-        ->and($restored->statutoryTables)->toEqual($inputs->statutoryTables);
-    $seven = $inputs->toArray();
-    unset($seven['statutory_tables'], $seven['pay_rules'], $seven['benefit_rules'], $seven['deduction_rules'], $seven['recurring_lines'], $seven['skipped_recurring_lines'], $seven['attendance_through'], $seven['settlements'], $seven['leave_charges'], $seven['leave_cash_outs'], $seven['cash_out_type'], $seven['gov_policies'], $seven['adjustments']);
-    $seven['schema_version'] = 7;
-    $seven = PayrollEvidenceFixture::beforeSchema17($seven);
-    $restoredSeven = PayrollInputs::restore(PayrollInputs::json($seven));
-    expect($restoredSeven->statutoryTables)->toBe([])
-        ->and($restoredSeven->schedule()->toArray())->toEqual(StatutorySchedule::BUILT_IN)
-        ->and($restoredSeven->fingerprint())->toBe(hash('sha256', PayrollInputs::json($seven)));
-    $broken = $inputs->toArray();
-    $broken['statutory_tables'][StatutorySchedule::SSS]['figures']['ee_rate'] = 2;
-    expect(fn () => PayrollInputs::restore(PayrollInputs::json($broken)))->toThrow(RuntimeException::class, 'Invalid payroll statutory table evidence.');
-    $missing = $inputs->toArray();
-    unset($missing['statutory_tables'][StatutorySchedule::PAGIBIG]);
-    expect(fn () => PayrollInputs::restore(PayrollInputs::json($missing)))->toThrow(RuntimeException::class, 'Invalid payroll statutory table evidence.');
-
-    // Finalized with the seeded figures.
-    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
-    $posted = Payslip::query()->sole()->toArray();
-    $snapshot = PayrollFinalizationSnapshot::query()->sole();
-    expect($posted['philhealth'])->toBe(375.0);
-
-    // A PhilHealth version from the period's first day: the same draft now
-    // prices PhilHealth at 3%, its fingerprint moves, the posted payslip
-    // and its evidence do not, and the evidence replays the seeded version.
-    app(AddStatutoryTableVersion::class)->handle(sttRecordsAccess(), StatutorySchedule::PHILHEALTH, '2026-09-01', '2026-12-31', '', sttPhilhealth());
-    $second = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
-    expect($second['inputs']->fingerprint())->not->toBe($inputs->fingerprint())
-        ->and($second['inputs']->statutoryTables[StatutorySchedule::PHILHEALTH]['version_id'])->not->toBe($seededPhilhealth)
-        ->and($second['drafts'][0]->philhealth)->toBe(450.0)
-        ->and($first['drafts'][0]->philhealth)->toBe(375.0)
-        ->and(Payslip::query()->sole()->toArray())->toBe($posted)
-        ->and($snapshot->fresh()->payload)->toBe($snapshot->payload);
-    $payload = json_decode($snapshot->payload, true, 512, JSON_THROW_ON_ERROR);
-    $replayed = PayrollInputs::restore(PayrollInputs::json($payload['inputs']));
-    expect($replayed->statutoryTables[StatutorySchedule::PHILHEALTH]['version_id'])->toBe($seededPhilhealth)
-        ->and(array_map(fn (PayslipDraft $draft) => $draft->toArray(), PayrollData::calculateInputs($replayed, strict: true)['drafts']))->toEqual($payload['results']);
-
-    // A period before any version is refused before it computes; one past the confirmed date is not.
-    expect(fn () => PayrollData::calculateDrafts([$employee->id], '2024-12-16', '2024-12-31', actor: $actor))
-        ->toThrow(RuntimeException::class, 'No SSS table is in force on 16 Dec 2024. Add a version that starts on or before it in Contribution & Tax Tables.');
-    expect(PayrollData::calculateDrafts([$employee->id], '2027-01-01', '2027-01-15', actor: $actor)['inputs']->statutoryTables[StatutorySchedule::SSS]['version_id'])
-        ->toBe((string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->value('id'));
-});
-
-it('captures the withholding table in the 13th month evidence and restores the older shape with the built-in figures', function () {
-    ['actor' => $actor, 'employee' => $employee] = PayrollEvidenceFixture::make();
-    $seededWithholding = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::WITHHOLDING_TAX)->value('id');
-
-    $inputs = ThirteenthMonthData::calculateDrafts([$employee->id], 2026, actor: $actor)['inputs'];
-    expect($inputs->withholdingTable[StatutorySchedule::WITHHOLDING_TAX]['version_id'])->toBe($seededWithholding)
-        ->and($inputs->toArray()['schema_version'])->toBe(5)
-        ->and(array_keys($inputs->toArray()['withholding_table']))->toBe([StatutorySchedule::WITHHOLDING_TAX]);
-    $restored = ThirteenthMonthInputs::restore(PayrollInputs::json($inputs->toArray()));
-    expect($restored->fingerprint())->toBe($inputs->fingerprint())
-        ->and($restored->schedule()->toArray())->toEqual(StatutorySchedule::BUILT_IN);
-
-    $two = $inputs->toArray();
-    unset($two['withholding_table'], $two['benefit_ceiling']);
-    // Schema 2 carried no salary segments (4) or whole-year keys (5) on an employee.
-    $two['employees'] = array_map(static fn (array $e): array => array_diff_key($e, ['salary_rates' => true, 'whole_year_tax' => true, 'tax_spread' => true]), $two['employees']);
-    $two['schema_version'] = 2;
-    $restoredTwo = ThirteenthMonthInputs::restore(PayrollInputs::json($two));
-    expect($restoredTwo->withholdingTable)->toBe([])
-        ->and($restoredTwo->schedule()->toArray())->toEqual(StatutorySchedule::BUILT_IN)
-        ->and($restoredTwo->fingerprint())->toBe(hash('sha256', PayrollInputs::json($two)));
-
-    expect(fn () => ThirteenthMonthData::calculateDrafts([$employee->id], 2024, actor: $actor))
-        ->toThrow(RuntimeException::class, 'No Withholding Tax table is in force on 31 Dec 2024. Add a version that starts on or before it in Contribution & Tax Tables.');
 });

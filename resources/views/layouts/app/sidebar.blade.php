@@ -24,10 +24,10 @@
     $isCurrent = fn (string $path): bool => str_starts_with($currentPath, $path);
 
     // The ONE link a tree lights: of every group or item path the current page
-    // lives under (the path itself, or below it), the LONGEST. Payroll's
-    // "/payroll" is a prefix of its "/payroll/thirteenth-month", so a plain
-    // prefix test would light both; Records' paths are no prefix of one
-    // another, so for them this comes down to the plain prefix test.
+    // lives under (the path itself, or below it), the LONGEST, so a tree
+    // whose one path is a prefix of another never lights both. Records'
+    // paths are no prefix of one another, so for them this comes down to
+    // the plain prefix test.
     $activeTreePath = function (array $module) use ($currentPath): ?string {
         $best = null;
         foreach ($module['groups'] ?? [] as $group) {

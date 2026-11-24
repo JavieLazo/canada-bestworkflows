@@ -18,7 +18,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
@@ -120,7 +120,7 @@ final class LeaveCreditRecords
 
     /**
      * The balances of a page of employees AS THE BOOKS STOOD at the end of
-     * one Manila day, for that day's credits year — what a leave card shows
+     * one local day, for that day's credits year — what a leave card shows
      * "as of" a date:
      *
      *  - the allocation is today's, with every ledger entry recorded after
@@ -147,8 +147,8 @@ final class LeaveCreditRecords
             return [];
         }
         $year = LeaveCreditPolicy::yearOf($asOf);
-        $cutoff = ManilaClock::instant($asOf.'T23:59:59.999')->utc();
-        $past = $asOf < ManilaClock::todayKey();
+        $cutoff = LocalClock::instant($asOf.'T23:59:59.999')->utc();
+        $past = $asOf < LocalClock::todayKey();
         $types = $this->creditableTypes($actor);
         $names = $this->typeNames($actor);
         $credits = $this->forYear($actor, $year, $employeeIds);

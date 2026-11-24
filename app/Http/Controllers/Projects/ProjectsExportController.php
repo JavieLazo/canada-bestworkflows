@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Projects;
 use App\Http\Controllers\Controller;
 use App\Modules\WorkManagement\Application\Queries\WorkExports;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -33,6 +33,6 @@ class ProjectsExportController extends Controller
             'site' => (string) $request->query('site', 'ALL'),
             'manager' => (string) $request->query('manager', 'ALL'),
             'queue' => (string) $request->query('queue', 'ALL'),
-        ], $sort, $request->query('dir') === 'desc' ? 'desc' : 'asc', ManilaClock::todayKey());
+        ], $sort, $request->query('dir') === 'desc' ? 'desc' : 'asc', LocalClock::todayKey());
     }
 }

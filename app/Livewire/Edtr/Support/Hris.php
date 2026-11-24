@@ -10,7 +10,7 @@ use App\Domain\Attendance\Minutes;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -26,7 +26,7 @@ use Carbon\CarbonImmutable;
  *   fmtDateTime  toLocaleString(year numeric, month short, day 2-digit, ...)
  *   fmtDate      toLocaleDateString(year numeric, month short, day 2-digit)
  *
- * All instants are shown in Manila via ManilaClock — never format a UTC value
+ * All instants are shown in local via LocalClock — never format a UTC value
  * directly.
  */
 final class Hris
@@ -40,10 +40,10 @@ final class Hris
 
     private function __construct() {}
 
-    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()` — ManilaClock's one clock read. */
+    /** Today's local calendar day, 'Y-m-d'. TS: `todayKey()` — LocalClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::todayKey();
+        return LocalClock::todayKey();
     }
 
     /**
@@ -105,7 +105,7 @@ final class Hris
     }
 
     /**
-     * TS: `fmtTime(iso)` — `2:05 PM`, Manila.
+     * TS: `fmtTime(iso)` — `2:05 PM`, local.
      *
      * DELIBERATE DIVERGENCE: hris.ts prints `2:05:31 PM`. The seconds are
      * dropped here for DISPLAY ONLY — the four DTR punch cells and the
@@ -115,13 +115,13 @@ final class Hris
      */
     public static function fmtTime(string $iso): string
     {
-        return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('g:i A');
+        return LocalClock::instant($iso)->setTimezone(LocalClock::zone())->format('g:i A');
     }
 
-    /** TS: `fmtDateTime(iso)` — `Aug 31, 2026, 2:05 PM`, Manila. */
+    /** TS: `fmtDateTime(iso)` — `Aug 31, 2026, 2:05 PM`, local. */
     public static function fmtDateTime(string $iso): string
     {
-        return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+        return LocalClock::instant($iso)->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
     }
 
     /** TS: `fmtDate(d)` — a 'Y-m-d' calendar day as `Aug 05, 2026`, shared through HrisFormat. */

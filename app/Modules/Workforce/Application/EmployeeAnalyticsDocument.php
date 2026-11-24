@@ -7,7 +7,7 @@ namespace App\Modules\Workforce\Application;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
 use App\Support\EmployeeIdentity;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use DateTimeImmutable;
 use Illuminate\Validation\ValidationException;
 
@@ -56,7 +56,7 @@ final class EmployeeAnalyticsDocument
         $sections = [];
         $notes = [
             $coverage,
-            'Management analysis of current employee records as of '.ManilaClock::todayKey().'. Employment status is the recorded company classification; this is not a prescribed government submission or an official appointment classification.',
+            'Management analysis of current employee records as of '.LocalClock::todayKey().'. Employment status is the recorded company classification; this is not a prescribed government submission or an official appointment classification.',
             'Every count and panel uses the same permitted, filtered employees. Shares use that full cohort, including Not recorded; unknown values are never treated as zero. Displayed shares may differ slightly from 100% because of formatting.',
             'Department, unit, position and worksite are current labels. The position catalog is not an authorized staffing or vacancy register.',
         ];
@@ -70,7 +70,7 @@ final class EmployeeAnalyticsDocument
         } elseif ($topic === 'development') {
             [$summary, $sections] = self::development($criteria, $facts, $trainings, $eligibilities);
             $notes[] = 'Highest recorded education describes attendance or study, not verified completion. Structured schools take precedence over legacy details within each level. Graduate studies is not a separate masters or doctorate classification.';
-            $notes[] = 'Training counts employee training records completed during the selected period, using the recorded end date through '.min($criteria->to, ManilaClock::todayKey()).' (Manila). Future end dates are excluded. One event attended by several employees creates several records; hours are reported participant-hours, with missing hours counted separately.';
+            $notes[] = 'Training counts employee training records completed during the selected period, using the recorded end date through '.min($criteria->to, LocalClock::todayKey()).' (local time). Future end dates are excluded. One event attended by several employees creates several records; hours are reported participant-hours, with missing hours counted separately.';
             $notes[] = 'Eligibility entries are current records. An absent expiry date means Not recorded, not lifetime validity; this analysis does not assess qualification requirements.';
         } elseif ($topic === 'service') {
             [$summary, $sections] = self::service($criteria, $facts);
@@ -224,7 +224,7 @@ final class EmployeeAnalyticsDocument
         $eligible = [];
         $expiry = ['Expired' => 0, 'Expires within 90 days' => 0, 'Later expiry' => 0, 'Expiry not recorded' => 0];
         $eligibilityGroups = [];
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $soon = (new DateTimeImmutable($today))->modify('+90 days')->format('Y-m-d');
         foreach ($eligibilities as $entry) {
             $eligible[$entry['employee_id']] = true;
@@ -249,7 +249,7 @@ final class EmployeeAnalyticsDocument
         $summary = [self::metric('Employees', count($facts)), self::metric('Education Recorded', $educationCount), self::metric('Training Participants', count($participants)), self::metric('Training Records', count($trainings)), self::metric('Known Training Hours', number_format($hours, 2, '.', '')), self::metric('Hours Not Recorded', $missing)];
         $sections = [
             self::distribution($facts, 'education'),
-            self::section('Training Completed: '.$criteria->from.' to '.$criteria->to, ['Training Type', 'Records', 'Employees', 'Known Hours', 'Hours Not Recorded'], $trainingRows, ['Completion cutoff: '.min($criteria->to, $today).' (Manila); future end dates are excluded. Employees can appear in more than one training type; the total employee count is distinct across the period.'], ['Total', (string) count($trainings), (string) count($participants), number_format($hours, 2, '.', ''), (string) $missing], [1, 2, 3, 4]),
+            self::section('Training Completed: '.$criteria->from.' to '.$criteria->to, ['Training Type', 'Records', 'Employees', 'Known Hours', 'Hours Not Recorded'], $trainingRows, ['Completion cutoff: '.min($criteria->to, $today).' (local time); future end dates are excluded. Employees can appear in more than one training type; the total employee count is distinct across the period.'], ['Total', (string) count($trainings), (string) count($participants), number_format($hours, 2, '.', ''), (string) $missing], [1, 2, 3, 4]),
             self::section('Recorded Eligibility', ['Eligibility', 'Entries', 'Employees'], $eligibilityRows, ['Employees may hold several different eligibilities; the total counts distinct employees.'], ['Total', (string) count($eligibilities), (string) count($eligible)], [1, 2]),
             self::section('Eligibility Expiry as of '.$today, ['Expiry Status', 'Entries'], $expiryRows, [], ['Total', (string) count($eligibilities)], [1]),
             self::section('Development Record Coverage', ['Coverage', 'Employees', 'Share of Cohort'], [
@@ -311,7 +311,7 @@ final class EmployeeAnalyticsDocument
         $missing = array_fill_keys(array_keys(self::QUALITY_FIELDS), 0);
         $incomplete = [];
         $exceptions = [];
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         foreach ($facts as $fact) {
             $absent = [];
             foreach (self::QUALITY_FIELDS as $key => $label) {

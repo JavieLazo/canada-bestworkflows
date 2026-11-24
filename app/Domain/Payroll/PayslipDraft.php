@@ -54,7 +54,23 @@ final class PayslipDraft
         'withholding_tax',
         'other_deductions',
         'custom_deductions',
+        // The source deductions (pension plan, second pension contribution,
+        // insurance, federal and provincial tax). Appended, and zero on the
+        // reference path, so the sum above them is the reference's.
+        'cpp',
+        'cpp2',
+        'ei',
+        'federal_tax',
+        'provincial_tax',
     ];
+
+    /**
+     * The source deductions among the keys above: computed by the
+     * application after the engine, never typed over.
+     *
+     * @var list<string>
+     */
+    public const SOURCE_DEDUCTION_KEYS = ['cpp', 'cpp2', 'ei', 'federal_tax', 'provincial_tax'];
 
     /**
      * payroll.ts:289-295 — EDITABLE_PAYROLL_DEDUCTION_KEYS. The subset a
@@ -200,6 +216,25 @@ final class PayslipDraft
         public readonly float $tax_refund = 0.0,
         public readonly ?int $tax_year = null,
         public readonly ?string $tax_method = null,
+        /**
+         * The source deductions, set by the application after compute()
+         * and zero until then: the employee's Canada Pension Plan
+         * contribution and second contribution, Employment Insurance
+         * premium, and federal and provincial income tax — all inside
+         * `total_deductions` — with what the employer pays on top of each
+         * (never deducted) and the pay each was worked out on, which is
+         * what the year-end slip reports.
+         */
+        public readonly float $cpp = 0.0,
+        public readonly float $cpp2 = 0.0,
+        public readonly float $ei = 0.0,
+        public readonly float $federal_tax = 0.0,
+        public readonly float $provincial_tax = 0.0,
+        public readonly float $cpp_er = 0.0,
+        public readonly float $cpp2_er = 0.0,
+        public readonly float $ei_er = 0.0,
+        public readonly float $pensionable_earnings = 0.0,
+        public readonly float $insurable_earnings = 0.0,
     ) {}
 
     /**
@@ -351,6 +386,17 @@ final class PayslipDraft
             'tax_refund' => $this->tax_refund,
             'tax_year' => $this->tax_year,
             'tax_method' => $this->tax_method,
+
+            'cpp' => $this->cpp,
+            'cpp2' => $this->cpp2,
+            'ei' => $this->ei,
+            'federal_tax' => $this->federal_tax,
+            'provincial_tax' => $this->provincial_tax,
+            'cpp_er' => $this->cpp_er,
+            'cpp2_er' => $this->cpp2_er,
+            'ei_er' => $this->ei_er,
+            'pensionable_earnings' => $this->pensionable_earnings,
+            'insurable_earnings' => $this->insurable_earnings,
         ];
     }
 }

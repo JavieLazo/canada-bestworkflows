@@ -16,7 +16,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Timekeeping\Domain\Credits\LeaveTypeRule;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Once;
 use Illuminate\Support\Str;
@@ -86,7 +86,7 @@ function lformPage(): Testable
     return Livewire::test(PortalPage::class)->set('tab', 'requests');
 }
 
-beforeEach(fn () => CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-16 09:00:00', ManilaClock::TZ)));
+beforeEach(fn () => CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-16 09:00:00', LocalClock::zone())));
 afterEach(fn () => CarbonImmutable::setTestNow());
 
 /*
@@ -107,7 +107,7 @@ it('fills the identity lines from the employee\'s own record', function () {
         ->assertSee('Liza')
         ->assertSee('Reyes')
         ->assertSee('Accountant')
-        ->assertSee("\u{20B1}35,000.00")
+        ->assertSee('$35,000.00')
         ->assertSee('Nov 16, 2026');
 });
 
@@ -117,9 +117,9 @@ it('keeps an all-data holder\'s form to their own record', function () {
     lformActor(['PORTAL', 'LEAVES', 'EMPLOYEES', 'PAYROLL'], allData: true, employeeId: $mine->getKey());
 
     lformPage()
-        ->assertSee("\u{20B1}35,000.00")
+        ->assertSee('$35,000.00')
         ->assertDontSee('Director')
-        ->assertDontSee("\u{20B1}99,000.00");
+        ->assertDontSee('$99,000.00');
 });
 
 it('says a daily rate is daily, and leaves an unset salary blank', function (array $rates, ?string $shown) {
@@ -130,7 +130,7 @@ it('says a daily rate is daily, and leaves an unset salary blank', function (arr
 
     expect($data['salary'])->toBe($shown ?? '');
 })->with([
-    'daily' => [['monthly_rate' => 0, 'daily_rate' => 1200], "\u{20B1}1,200.00 a day"],
+    'daily' => [['monthly_rate' => 0, 'daily_rate' => 1200], '$1,200.00 a day'],
     'none' => [['monthly_rate' => 0, 'daily_rate' => null], null],
 ]);
 

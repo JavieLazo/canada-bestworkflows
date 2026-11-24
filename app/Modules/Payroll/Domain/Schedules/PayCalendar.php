@@ -13,6 +13,12 @@ namespace App\Modules\Payroll\Domain\Schedules;
  * contributions it carries. A period's dates are 'Y-m-d' strings compared
  * as the rest of payroll compares them.
  *
+ * A schedule that runs by weeks has no months to cut: its periods follow
+ * one another from the schedule's anchor day, each is the ONLY one of its
+ * kind (no first or last of a month), and "the month's periods" means the
+ * periods that START in that month, so walking the months meets each period
+ * once.
+ *
  * Pure: the holidays are handed in as dates, the clock never read. Day
  * arithmetic is integer epoch days, as PayrollPeriod does it.
  */
@@ -36,6 +42,9 @@ final class PayCalendar
      */
     public static function month(PaySchedule $schedule, int $year, int $month, array $holidays = []): array
     {
+        if ($schedule->isByWeeks()) {
+            return self::weeksStartingIn($schedule, $year, $month, $holidays);
+        }
         $out = [];
         $count = count($schedule->periods);
         $lastDay = self::daysInMonth($year, $month);
@@ -73,6 +82,11 @@ final class PayCalendar
         if (preg_match('/^(\d{4})-(\d{2})-\d{2}$/', $start, $m) !== 1) {
             return null;
         }
+        if ($schedule->isByWeeks()) {
+            $period = self::weekPeriodAt($schedule, self::toEpochDay($start), $holidays);
+
+            return $period['start'] === $start && $period['end'] === $end ? $period : null;
+        }
         foreach (self::month($schedule, (int) $m[1], (int) $m[2], $holidays) as $period) {
             if ($period['start'] === $start && $period['end'] === $end) {
                 return $period;
@@ -91,6 +105,11 @@ final class PayCalendar
      */
     public static function nextAfter(PaySchedule $schedule, string $day, array $holidays = []): array
     {
+        if ($schedule->isByWeeks()) {
+            $containing = self::weekPeriodAt($schedule, self::toEpochDay($day), $holidays);
+
+            return self::weekPeriodAt($schedule, self::toEpochDay($containing['start']) + $schedule->periodDays(), $holidays);
+        }
         $year = (int) substr($day, 0, 4);
         $month = (int) substr($day, 5, 2);
         for ($i = 0; $i < 3; $i++) {
@@ -123,6 +142,25 @@ final class PayCalendar
         $month = (int) substr($today, 5, 2);
         $limit = self::addDays($today, $days);
         $out = [];
+        if ($schedule->isByWeeks()) {
+            // A pay date follows its period and a deadline precedes its pay
+            // date, so the periods to look at reach a little before today
+            // and a little past the limit.
+            $reach = PaySchedule::MAX_PAY_AFTER_DAYS + PaySchedule::MAX_DEADLINE_DAYS + $schedule->periodDays();
+            $day = self::toEpochDay(self::weekPeriodAt($schedule, self::toEpochDay($today) - $reach, $holidays)['start']);
+            $last = self::toEpochDay($limit) + $reach;
+            for (; $day <= $last; $day += $schedule->periodDays()) {
+                $period = self::weekPeriodAt($schedule, $day, $holidays);
+                foreach ([$period['pay_date'], ...array_column($period['deadlines'], 'date')] as $date) {
+                    if ($date >= $today && $date <= $limit) {
+                        $out[] = $period;
+                        break;
+                    }
+                }
+            }
+
+            return $out;
+        }
         for ($i = 0; $i < 2; $i++) {
             foreach (self::month($schedule, $year, $month, $holidays) as $period) {
                 $dates = [$period['pay_date'], ...array_column($period['deadlines'], 'date')];
@@ -143,6 +181,89 @@ final class PayCalendar
     }
 
     /**
+     * The period a day falls in.
+     *
+     * @param  list<string>  $holidays
+     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}
+     */
+    public static function containing(PaySchedule $schedule, string $day, array $holidays = []): array
+    {
+        if ($schedule->isByWeeks()) {
+            return self::weekPeriodAt($schedule, self::toEpochDay($day), $holidays);
+        }
+        foreach (self::month($schedule, (int) substr($day, 0, 4), (int) substr($day, 5, 2), $holidays) as $period) {
+            if ($period['start'] <= $day && $day <= $period['end']) {
+                return $period;
+            }
+        }
+
+        // Unreachable: a month-cut schedule covers every day of every month.
+        return self::month($schedule, (int) substr($day, 0, 4), (int) substr($day, 5, 2), $holidays)[0];
+    }
+
+    /**
+     * The period a day falls in and the ones after it, `$count` in all.
+     *
+     * @param  list<string>  $holidays
+     * @return list<array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}>
+     */
+    public static function following(PaySchedule $schedule, string $day, int $count, array $holidays = []): array
+    {
+        $out = [];
+        $period = self::containing($schedule, $day, $holidays);
+        for ($i = 0; $i < $count; $i++) {
+            $out[] = $period;
+            $period = self::nextAfter($schedule, $period['start'], $holidays);
+        }
+
+        return $out;
+    }
+
+    /**
+     * How many pay dates fall in a calendar year: what a pay's tax is
+     * annualized by. A two-week schedule gives 26 in most years and 27 in
+     * a year its pay dates fit one more time.
+     *
+     * @param  list<string>  $holidays
+     */
+    public static function payDatesInYear(PaySchedule $schedule, int $year, array $holidays = []): int
+    {
+        $count = 0;
+        // From the month before the year (a period can be paid in the month
+        // after it starts) through the year's last month.
+        $period = self::containing($schedule, sprintf('%04d-11-01', $year - 1), $holidays);
+        $end = sprintf('%04d-12-31', $year);
+        for ($i = 0; $i < 80 && $period['start'] <= $end; $i++) {
+            if ((int) substr($period['pay_date'], 0, 4) === $year) {
+                $count++;
+            }
+            $period = self::nextAfter($schedule, $period['start'], $holidays);
+        }
+
+        return $count;
+    }
+
+    /**
+     * Which pay of its year a pay date is: 1 for the year's first.
+     *
+     * @param  list<string>  $holidays
+     */
+    public static function payNumber(PaySchedule $schedule, string $payDate, array $holidays = []): int
+    {
+        $year = (int) substr($payDate, 0, 4);
+        $number = 0;
+        $period = self::containing($schedule, sprintf('%04d-11-01', $year - 1), $holidays);
+        for ($i = 0; $i < 80 && $period['pay_date'] <= $payDate; $i++) {
+            if ((int) substr($period['pay_date'], 0, 4) === $year) {
+                $number++;
+            }
+            $period = self::nextAfter($schedule, $period['start'], $holidays);
+        }
+
+        return max(1, $number);
+    }
+
+    /**
      * Whether a day is a Saturday, a Sunday or one of the holidays.
      *
      * @param  list<string>  $holidays
@@ -152,6 +273,58 @@ final class PayCalendar
         $weekday = (int) gmdate('N', self::toEpochDay($day) * 86400);
 
         return $weekday >= 6 || in_array($day, $holidays, true);
+    }
+
+    /**
+     * The by-weeks period a day falls in: the anchor's period counted
+     * forward or back in whole periods.
+     *
+     * @param  list<string>  $holidays
+     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}
+     */
+    private static function weekPeriodAt(PaySchedule $schedule, int $epochDay, array $holidays): array
+    {
+        $length = $schedule->periodDays();
+        $anchor = self::toEpochDay((string) ($schedule->cycle['anchor'] ?? '1970-01-04'));
+        $index = (int) floor(($epochDay - $anchor) / $length);
+        $start = $anchor + $index * $length;
+        $end = self::fromEpochDay($start + $length - 1);
+        $payDate = self::movedOff(self::addDays($end, (int) ($schedule->cycle['pay_after_days'] ?? 0)), $schedule->holidayRule, $holidays);
+        $deadlines = [];
+        foreach ($schedule->deadlines as $deadline) {
+            $deadlines[] = ['label' => $deadline['label'], 'date' => self::addDays($payDate, -$deadline['days_before'])];
+        }
+
+        return [
+            'start' => self::fromEpochDay($start),
+            'end' => $end,
+            'pay_date' => $payDate,
+            'position' => self::ONLY,
+            'contribution_month' => $schedule->contributionMonth === PaySchedule::MONTH_PAY_DATE ? substr($payDate, 0, 7) : substr(self::fromEpochDay($start), 0, 7),
+            'deadlines' => $deadlines,
+        ];
+    }
+
+    /**
+     * The by-weeks periods that start in a month.
+     *
+     * @param  list<string>  $holidays
+     * @return list<array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}>
+     */
+    private static function weeksStartingIn(PaySchedule $schedule, int $year, int $month, array $holidays): array
+    {
+        $first = sprintf('%04d-%02d-01', $year, $month);
+        $last = sprintf('%04d-%02d-%02d', $year, $month, self::daysInMonth($year, $month));
+        $out = [];
+        $period = self::weekPeriodAt($schedule, self::toEpochDay($first), $holidays);
+        for ($i = 0; $i < 8 && $period['start'] <= $last; $i++) {
+            if ($period['start'] >= $first) {
+                $out[] = $period;
+            }
+            $period = self::weekPeriodAt($schedule, self::toEpochDay($period['start']) + $schedule->periodDays(), $holidays);
+        }
+
+        return $out;
     }
 
     /** @param array{kind: string, day: ?int, next_month: bool} $payDay */

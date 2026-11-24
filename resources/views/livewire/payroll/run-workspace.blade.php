@@ -27,7 +27,6 @@
     same figures, one round-trip later.
 --}}
 @php
-    use App\Domain\Enums\PayrollRunKind;
     use App\Livewire\Payroll\Support\LeaveChargeText;
     use App\Livewire\Payroll\Support\PayrollData;
     use App\Modules\Payroll\Domain\DeductionCalculation;
@@ -52,7 +51,7 @@
                 :href="route('payroll.index')"
                 wire:navigate
             >
-                {{ PayrollRunKind::LABELS[PayrollRunKind::REGULAR] }}
+                Payroll
             </flux:button>
             <h1 class="text-2xl font-bold tracking-tight">
                 {{ $run ? $run->name : 'Create Payroll' }}
@@ -67,6 +66,18 @@
                     ? 'Finalized — these payslips are posted and no longer change.'
                     : 'Name the payroll, set its period, then add the employees it covers.' }}
             </p>
+            @if ($yearly)
+                {{-- A 13th month payroll posted before: read-only, its one earning named in the grid. --}}
+                <p class="text-sm text-muted-foreground" data-thirteenth-month-run>
+                    This payroll paid 13th month pay for the year. Select an employee to see the pay statement.
+                </p>
+            @endif
+            {{-- How long the period is, when it is paid and which pay of the year that is. --}}
+            @if ($payLine !== null)
+                <p class="text-sm text-muted-foreground" data-pay-line>
+                    {{ $payLine['length'] }} · Paid on <span class="num">{{ \App\Livewire\Records\Support\PayScheduleText::longDay($payLine['pay_date']) }}</span>@if ($payLine['number'] !== null) · Pay <span class="num">{{ $payLine['number'] }}</span> of <span class="num">{{ $payLine['of'] }}</span> this year @endif
+                </p>
+            @endif
             {{-- The schedule's deadlines, when it has any. --}}
             @if (($schedulePeriod['deadlines'] ?? []) !== [])
                 <p class="text-sm text-muted-foreground" data-pay-schedule-line>
@@ -120,7 +131,7 @@
             <div class="min-w-[14rem] flex-1 space-y-2">
                 <flux:label>Payroll Name</flux:label>
                 <flux:input
-                    placeholder="e.g. August 2026 — 1st cut-off"
+                    placeholder="e.g. Nov 8 to Nov 21, 2026"
                     wire:model.live.debounce.500ms="name"
                     :disabled="$finalized"
                 />
@@ -214,7 +225,7 @@
                 @if ($advance['settled'] > 0)
                     <p data-advance-settled>
                         <span class="font-semibold">Adjusts earlier days:</span>
-                        <span class="num">{{ PayrollData::peso($advance['total']) }}</span> for {{ $advance['settled'] === 1 ? '1 employee' : $advance['settled'].' employees' }}.
+                        <span class="num">{{ PayrollData::money($advance['total']) }}</span> for {{ $advance['settled'] === 1 ? '1 employee' : $advance['settled'].' employees' }}.
                         Select a Prior Cut-off Adjustment figure for details.
                     </p>
                 @endif
@@ -232,7 +243,7 @@
              fingerprint, so editing its text would stale every open preview. --}}
         @if ($cutoffWarning)
             <x-payroll.notice tone="warning" data-cutoff-warning class="border-b px-5 py-3">
-                This payroll is not a 1st–15th or 16th–end-of-month cut-off. Contributions and tax still follow the semi-monthly rules. Check those cells before finalizing.
+                These dates are not one of the pay schedule's periods. CPP, EI and income tax are still worked out as one regular pay. Check the dates before finalizing.
             </x-payroll.notice>
         @endif
         {{-- A warning, never a block: a Contribution & Tax Table whose figures
@@ -242,11 +253,11 @@
                 {{ $statutoryWarning }}
             </x-payroll.notice>
         @endif
-        {{-- Also a warning, never a block: the ₱90,000 exemption is
+        {{-- Also a warning, never a block: the $90,000 exemption is
              spent in the order payrolls are finalized. --}}
         @if ($exemptOrderWarning)
             <x-payroll.notice tone="warning" data-exempt-order-warning class="border-b px-5 py-3">
-                Finalize the earlier open payroll first. It also pays tax-exempt incentives to someone here, and the ₱90,000 exemption is used in finalizing order.
+                Finalize the earlier open payroll first. It also pays tax-exempt incentives to someone here, and the $90,000 exemption is used in finalizing order.
             </x-payroll.notice>
         @endif
         {{-- Two holds, then a warning. An adjustment awaiting approval and a
@@ -312,15 +323,15 @@
                 </div>
                 <div class="bg-card px-5 py-4">
                     <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Gross Pay</dt>
-                    <dd class="num mt-1 text-xl font-bold">{{ PayrollData::peso($totals['gross_pay']) }}</dd>
+                    <dd class="num mt-1 text-xl font-bold">{{ PayrollData::money($totals['gross_pay']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
                     <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total Deductions</dt>
-                    <dd class="num mt-1 text-xl font-bold text-danger">{{ PayrollData::peso($totals['total_deductions']) }}</dd>
+                    <dd class="num mt-1 text-xl font-bold text-danger">{{ PayrollData::money($totals['total_deductions']) }}</dd>
                 </div>
                 <div class="bg-card px-5 py-4">
                     <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Net Pay</dt>
-                    <dd class="num mt-1 text-xl font-bold text-success">{{ PayrollData::peso($totals['net_pay']) }}</dd>
+                    <dd class="num mt-1 text-xl font-bold text-success">{{ PayrollData::money($totals['net_pay']) }}</dd>
                 </div>
             </dl>
         @endif
@@ -374,7 +385,7 @@
                             $columnRows = $deductionColumns->filter(static fn ($c) => $c->headsColumn())->values();
                             $lateUndertimeOn = $deductionColumns->contains(static fn ($c) => $c->calculation === DeductionCalculation::LATE_UNDERTIME);
                         @endphp
-                        <th colspan="{{ $columnRows->count() + 2 + ($lateUndertimeOn ? 2 : 0) }}" class="text-center">Deductions</th>
+                        <th colspan="{{ $columnRows->count() + 6 + ($lateUndertimeOn ? 2 : 0) }}" class="text-center">Deductions</th>
                         <th rowspan="2" class="text-right">Net Pay</th>
                         <th rowspan="2" class="text-right">Actions</th>
                     </tr>
@@ -399,9 +410,16 @@
                         <th class="text-right">Other Earnings</th>
                         {{-- The settlement of days paid in advance on an earlier payroll, positive or negative. --}}
                         <th class="text-right">Prior Cut-Off Adjustment</th>
-                        {{-- Incentives and bonuses, taxed and tax-exempt together. --}}
-                        <th class="text-right">Incentives</th>
+                        {{-- Incentives and bonuses, taxed and tax-exempt together; on a 13th month payroll, the 13th month pay it posted. --}}
+                        <th class="text-right">{{ $yearly ? '13th Month Pay' : 'Incentives' }}</th>
                         <th class="text-right">Gross Pay</th>
+
+                        {{-- The source deductions: computed from the published figures and
+                             each employee's tax details, never typed. --}}
+                        <th class="text-right" data-source-deduction-head="cpp">CPP</th>
+                        <th class="text-right" data-source-deduction-head="ei">EI</th>
+                        <th class="text-right" data-source-deduction-head="federal_tax">Federal Tax</th>
+                        <th class="text-right" data-source-deduction-head="provincial_tax">{{ $provinceName }} Tax</th>
 
                         @foreach ($columnRows as $column)
                             {{-- The name ends the cell unless the column is a percentage, whose rule follows on its own line (an expression, not a directive: a Blade conditional would put a Livewire block marker after the name). --}}
@@ -495,9 +513,9 @@
                                 @endif
                             </td>
 
-                            <td class="num text-right">{{ PayrollData::peso($p->basic_pay) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($p->basic_pay) }}</td>
                             @if ($finalized)
-                                <td class="num text-right">{{ PayrollData::peso($p->allowances) }}</td>
+                                <td class="num text-right">{{ PayrollData::money($p->allowances) }}</td>
                             @else
                                 <td class="text-right">
                                     <input
@@ -513,7 +531,7 @@
                                     />
                                 </td>
                             @endif
-                            <td class="num text-right">{{ PayrollData::peso($p->total_base_pay) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($p->total_base_pay) }}</td>
                             {{-- Overtime is approved per day on the Daily Time Record,
                                  so a draft shows the approved pay. A posted payslip may
                                  instead carry the computed amount and the source's
@@ -525,12 +543,12 @@
                                     class="{{ $p->overtime_acknowledged ? 'num text-success' : 'num text-muted-foreground line-through' }}"
                                     title="{{ $p->overtime_acknowledged ? 'Approved: included in gross pay.' : 'Not approved: excluded from gross pay.' }}"
                                 >
-                                    {{ PayrollData::peso($p->overtime_pay) }}
+                                    {{ PayrollData::money($p->overtime_pay) }}
                                 </span>
                             </td>
                             @foreach (PayrollData::EARNING_FIELDS as $field => $label)
                                 @if ($finalized)
-                                    <td class="num text-right">{{ PayrollData::peso($p->{$field}) }}</td>
+                                    <td class="num text-right">{{ PayrollData::money($p->{$field}) }}</td>
                                 @else
                                     {{-- An emptied cell returns to the computed figure (see
                                          money-field.js on `fallback`); the key changes with the
@@ -559,15 +577,15 @@
                                 @if ($settlementAmount === 0.0)
                                     <span class="num text-muted-foreground">—</span>
                                 @elseif ($finalized)
-                                    <span class="num {{ $settlementAmount < 0 ? 'text-danger' : '' }}">{{ PayrollData::peso($settlementAmount) }}</span>
+                                    <span class="num {{ $settlementAmount < 0 ? 'text-danger' : '' }}">{{ PayrollData::money($settlementAmount) }}</span>
                                 @else
                                     <button
                                         type="button"
                                         wire:click="openWhy('{{ $p->employee_id }}', 'settlement')"
-                                        aria-label="Why is {{ $nameForInput }}'s prior cut-off adjustment {{ PayrollData::peso($settlementAmount) }}?"
+                                        aria-label="Why is {{ $nameForInput }}'s prior cut-off adjustment {{ PayrollData::money($settlementAmount) }}?"
                                         class="num inline-flex h-8 w-full min-w-[7.5rem] items-center justify-end rounded-md border border-border bg-background px-2.5 text-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring {{ $settlementAmount < 0 ? 'text-danger' : '' }}"
                                     >
-                                        {{ PayrollData::peso($settlementAmount) }}
+                                        {{ PayrollData::money($settlementAmount) }}
                                     </button>
                                 @endif
                             </td>
@@ -576,34 +594,42 @@
                                  per-employee dialog, and its title itemises the lines. --}}
                             @php
                                 $incentiveTitle = collect($incentiveLines[$p->employee_id] ?? [])
-                                    ->map(fn (array $line): string => $line['name'].': '.PayrollData::peso($line['amount'])
-                                        .' ('.strtolower(\App\Livewire\Records\Support\BenefitText::TAXES[$line['tax']] ?? ($line['is_taxable'] ? 'Taxable' : 'Tax-exempt')).($line['over_ceiling'] > 0 ? ', '.PayrollData::peso($line['over_ceiling']).' over the yearly ceiling' : '').')')
+                                    ->map(fn (array $line): string => $line['name'].': '.PayrollData::money($line['amount'])
+                                        .' ('.strtolower(\App\Livewire\Records\Support\BenefitText::TAXES[$line['tax']] ?? ($line['is_taxable'] ? 'Taxable' : 'Tax-exempt')).($line['over_ceiling'] > 0 ? ', '.PayrollData::money($line['over_ceiling']).' over the yearly ceiling' : '').')')
                                     ->implode('; ');
                             @endphp
                             <td class="text-right" data-incentives="{{ $p->employee_id }}">
-                                @if ($finalized)
-                                    <span class="num">{{ PayrollData::peso(PayrollData::incentivesTotal($p)) }}</span>
+                                @if ($yearly)
+                                    <span class="num" data-thirteenth-month-pay>{{ PayrollData::money($p->thirteenth_month) }}</span>
+                                @elseif ($finalized)
+                                    <span class="num">{{ PayrollData::money(PayrollData::incentivesTotal($p)) }}</span>
                                 @else
                                     <button
                                         type="button"
                                         wire:click="openIncentives('{{ $p->employee_id }}')"
-                                        aria-label="Incentives for {{ $nameForInput }}: {{ PayrollData::peso(PayrollData::incentivesTotal($p)) }}"
+                                        aria-label="Incentives for {{ $nameForInput }}: {{ PayrollData::money(PayrollData::incentivesTotal($p)) }}"
                                         @if ($incentiveTitle !== '') title="{{ $incentiveTitle }}" @endif
                                         class="num inline-flex h-8 w-full min-w-[7.5rem] items-center justify-end rounded-md border border-border bg-background px-2.5 text-sm hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring"
                                     >
-                                        {{ PayrollData::peso(PayrollData::incentivesTotal($p)) }}
+                                        {{ PayrollData::money(PayrollData::incentivesTotal($p)) }}
                                     </button>
                                     @if (isset($figureMarks[$p->employee_id]['incentives']))
                                         <div class="mt-1 flex justify-end"><span class="pill pill-muted" data-figure-mark="incentives">{{ $figureMarks[$p->employee_id]['incentives'] }} recurring</span></div>
                                     @endif
                                 @endif
                             </td>
-                            <td class="num text-right font-semibold">{{ PayrollData::peso($p->gross_pay) }}</td>
+                            <td class="num text-right font-semibold">{{ PayrollData::money($p->gross_pay) }}</td>
+
+                            {{-- CPP shows both contributions together; the second one is named under it when there is any. --}}
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction="cpp">{{ PayrollData::money(($p->cpp ?? 0) + ($p->cpp2 ?? 0)) }}{!! ($p->cpp2 ?? 0) > 0 ? '<span class="block text-xs font-normal text-muted-foreground">incl. second CPP '.e(PayrollData::money($p->cpp2)).'</span>' : '' !!}</td>
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction="ei">{{ PayrollData::money($p->ei ?? 0) }}</td>
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction="federal_tax">{{ PayrollData::money($p->federal_tax ?? 0) }}</td>
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction="provincial_tax">{{ PayrollData::money($p->provincial_tax ?? 0) }}</td>
 
                             @foreach ($columnRows as $column)
                                 @php $field = $column->calculation !== null ? DeductionCalculation::statutoryKey($column->calculation) : null; @endphp
                                 @if ($field !== null && $finalized)
-                                    <td class="num text-right text-danger" data-deduction-cell="{{ $column->key() }}">{{ PayrollData::peso($p->{$field}) }}</td>
+                                    <td class="num text-right text-danger" data-deduction-cell="{{ $column->key() }}">{{ PayrollData::money($p->{$field}) }}</td>
                                 @elseif ($field !== null)
                                     {{-- A typed figure overrides the computed statutory amount.
                                          Clearing the cell restores it; both use the same styling. --}}
@@ -632,7 +658,7 @@
                                     {{-- A typed row, as the payslip posted it: zero when this
                                          employee had no such line. --}}
                                     <td class="num text-right text-danger" data-deduction-cell="{{ $column->key() }}">
-                                        {{ PayrollData::peso($typedAmounts[$p->employee_id][$column->key()] ?? 0) }}
+                                        {{ PayrollData::money($typedAmounts[$p->employee_id][$column->key()] ?? 0) }}
                                     </td>
                                 @else
                                     {{-- A typed row's cell: the Payroll Deductions row's amount for this
@@ -646,7 +672,7 @@
                                         $percentShare = $column->isPercent() || $recurringCell ? (string) ($typedAmounts[$p->employee_id][$column->key()] ?? 0) : '0';
                                         $typedCell = isset($draftCustomDeductions[$p->employee_id][$column->id]);
                                     @endphp
-                                    <td class="text-right" data-deduction-cell="{{ $column->key() }}" @if ($typedCell && $column->isPercent()) data-overridden="{{ $column->key() }}" title="Typed over the computed {{ PayrollData::peso((float) $percentShare) }}" @elseif ($recurringCell) data-recurring="{{ $column->key() }}" title="Recurring for this employee: {{ PayrollData::peso((float) $percentShare) }}. A typed amount replaces it." @endif>
+                                    <td class="text-right" data-deduction-cell="{{ $column->key() }}" @if ($typedCell && $column->isPercent()) data-overridden="{{ $column->key() }}" title="Typed over the computed {{ PayrollData::money((float) $percentShare) }}" @elseif ($recurringCell) data-recurring="{{ $column->key() }}" title="Recurring for this employee: {{ PayrollData::money((float) $percentShare) }}. A typed amount replaces it." @endif>
                                         <input
                                             type="text" inputmode="decimal" autocomplete="off"
                                             wire:key="deduction-{{ $p->employee_id }}-{{ $column->key() }}-{{ $typedCell ? 'typed' : 'computed' }}"
@@ -666,7 +692,7 @@
                                 @endif
                             @endforeach
                             @if ($finalized)
-                                <td class="num text-right text-danger">{{ PayrollData::peso($p->other_deductions) }}</td>
+                                <td class="num text-right text-danger">{{ PayrollData::money($p->other_deductions) }}</td>
                             @else
                                 {{-- The reference's one free-form line (run-workspace.tsx:57), the
                                      only Deductions column not from the list; a typed 0 is 0. --}}
@@ -688,13 +714,13 @@
                             {{-- The DTR-priced lines: attendance results, fixed after Other
                                  Deductions, while the Late / Undertime row is on the list. --}}
                             @if ($lateUndertimeOn)
-                                <td class="num text-right text-danger">{{ PayrollData::peso($p->undertime_deduction) }}</td>
-                                <td class="num text-right text-danger">{{ PayrollData::peso($p->late_deduction) }}</td>
+                                <td class="num text-right text-danger">{{ PayrollData::money($p->undertime_deduction) }}</td>
+                                <td class="num text-right text-danger">{{ PayrollData::money($p->late_deduction) }}</td>
                             @endif
-                            <td class="num text-right text-danger">{{ PayrollData::peso($p->total_deductions) }}</td>
+                            <td class="num text-right text-danger">{{ PayrollData::money($p->total_deductions) }}</td>
 
                             <td class="num text-right font-bold {{ $p->net_pay < 0 ? 'text-danger' : '' }}">
-                                {{ PayrollData::peso($p->net_pay) }}
+                                {{ PayrollData::money($p->net_pay) }}
                             </td>
                             <td class="whitespace-nowrap text-right">
                                 @if (! $finalized && in_array($p->employee_id, $recurringMembers, true))
@@ -745,28 +771,33 @@
                             <td class="num text-right">{{ PayrollData::dayCount($totals['presumed_days']) }}</td>
                             <td class="num text-right">{{ LeaveChargeText::credits($totals['leave_charged_days']) }}</td>
 
-                            <td class="num text-right">{{ PayrollData::peso($totals['basic_pay']) }}</td>
-                            <td class="num text-right">{{ PayrollData::peso($totals['allowances']) }}</td>
-                            <td class="num text-right">{{ PayrollData::peso($totals['total_base_pay']) }}</td>
-                            <td class="num text-right text-success">{{ PayrollData::peso($totals['overtime_pay']) }}</td>
-                            <td class="num text-right">{{ PayrollData::peso($totals['night_differential']) }}</td>
-                            <td class="num text-right">{{ PayrollData::peso($totals['leave_pay']) }}</td>
-                            <td class="num text-right">{{ PayrollData::peso($totals['other_earnings']) }}</td>
-                            <td class="num text-right {{ $totals['settlement'] < 0 ? 'text-danger' : '' }}">{{ PayrollData::peso($totals['settlement']) }}</td>
-                            <td class="num text-right">{{ PayrollData::peso(PayrollData::incentivesTotal((object) $totals)) }}</td>
-                            <td class="num text-right font-semibold">{{ PayrollData::peso($totals['gross_pay']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($totals['basic_pay']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($totals['allowances']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($totals['total_base_pay']) }}</td>
+                            <td class="num text-right text-success">{{ PayrollData::money($totals['overtime_pay']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($totals['night_differential']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($totals['leave_pay']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($totals['other_earnings']) }}</td>
+                            <td class="num text-right {{ $totals['settlement'] < 0 ? 'text-danger' : '' }}">{{ PayrollData::money($totals['settlement']) }}</td>
+                            <td class="num text-right">{{ PayrollData::money($yearly ? $thirteenthMonthTotal : PayrollData::incentivesTotal((object) $totals)) }}</td>
+                            <td class="num text-right font-semibold">{{ PayrollData::money($totals['gross_pay']) }}</td>
+
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction-total="cpp">{{ PayrollData::money($totals['cpp'] + $totals['cpp2']) }}</td>
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction-total="ei">{{ PayrollData::money($totals['ei']) }}</td>
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction-total="federal_tax">{{ PayrollData::money($totals['federal_tax']) }}</td>
+                            <td class="num bg-muted/40 text-right text-danger" data-source-deduction-total="provincial_tax">{{ PayrollData::money($totals['provincial_tax']) }}</td>
 
                             @foreach ($columnRows as $column)
-                                <td class="num text-right text-danger" wire:key="deduction-total-{{ $column->key() }}">{{ PayrollData::peso($deductionTotals[$column->key()] ?? 0) }}</td>
+                                <td class="num text-right text-danger" wire:key="deduction-total-{{ $column->key() }}">{{ PayrollData::money($deductionTotals[$column->key()] ?? 0) }}</td>
                             @endforeach
-                            <td class="num text-right text-danger">{{ PayrollData::peso($totals['other_deductions']) }}</td>
+                            <td class="num text-right text-danger">{{ PayrollData::money($totals['other_deductions']) }}</td>
                             @if ($lateUndertimeOn)
-                                <td class="num text-right text-danger">{{ PayrollData::peso($totals['undertime_deduction']) }}</td>
-                                <td class="num text-right text-danger">{{ PayrollData::peso($totals['late_deduction']) }}</td>
+                                <td class="num text-right text-danger">{{ PayrollData::money($totals['undertime_deduction']) }}</td>
+                                <td class="num text-right text-danger">{{ PayrollData::money($totals['late_deduction']) }}</td>
                             @endif
-                            <td class="num text-right text-danger">{{ PayrollData::peso($totals['total_deductions']) }}</td>
+                            <td class="num text-right text-danger">{{ PayrollData::money($totals['total_deductions']) }}</td>
 
-                            <td class="num text-right font-bold">{{ PayrollData::peso($totals['net_pay']) }}</td>
+                            <td class="num text-right font-bold">{{ PayrollData::money($totals['net_pay']) }}</td>
                             <td></td>
                         </tr>
                     </tfoot>
@@ -775,11 +806,47 @@
         </div>
     </section>
 
+    {{-- What the payroll costs beyond the pay, and what it owes the tax agency:
+         footings of the grid's own figures, nothing computed here. --}}
+    @if ($lineCount > 0)
+        @php
+            $employerPension = $totals['cpp_er'] + $totals['cpp2_er'];
+            $employeePension = $totals['cpp'] + $totals['cpp2'];
+            $incomeTax = $totals['federal_tax'] + $totals['provincial_tax'];
+        @endphp
+        <div class="grid items-start gap-6 lg:grid-cols-2" data-source-deduction-summary>
+            <section class="hris-card overflow-hidden" aria-labelledby="employer-pays-heading" data-employer-pays>
+                <x-payroll.settings.head title="What the Employer Pays" heading-id="employer-pays-heading" description="On top of the pay. These are not deducted from anyone." />
+                <dl class="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2.5 p-5 text-sm">
+                    <dt>Employer CPP <span class="text-muted-foreground">(same as the employees' CPP)</span></dt>
+                    <dd class="num text-right" data-employer-cpp>{{ PayrollData::money($employerPension) }}</dd>
+                    <dt>Employer EI <span class="text-muted-foreground">(1.4 times each employee's EI)</span></dt>
+                    <dd class="num text-right" data-employer-ei>{{ PayrollData::money($totals['ei_er']) }}</dd>
+                    <dt class="border-t border-border pt-2.5 font-bold">Total</dt>
+                    <dd class="num border-t border-border pt-2.5 text-right font-bold" data-employer-total>{{ PayrollData::money($employerPension + $totals['ei_er']) }}</dd>
+                </dl>
+            </section>
+            <section class="hris-card overflow-hidden" aria-labelledby="remit-heading" data-remittance>
+                <x-payroll.settings.head title="Amount to Send to the CRA" heading-id="remit-heading" description="What this payroll owes the Canada Revenue Agency. The system shows the figure; the payment itself is made at your bank." />
+                <dl class="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2.5 p-5 text-sm">
+                    <dt>CPP, employees and employer</dt>
+                    <dd class="num text-right" data-remit-cpp>{{ PayrollData::money($employeePension + $employerPension) }}</dd>
+                    <dt>EI, employees and employer</dt>
+                    <dd class="num text-right" data-remit-ei>{{ PayrollData::money($totals['ei'] + $totals['ei_er']) }}</dd>
+                    <dt>Income tax, federal and {{ $provinceName }}</dt>
+                    <dd class="num text-right" data-remit-tax>{{ PayrollData::money($incomeTax) }}</dd>
+                    <dt class="border-t border-border pt-2.5 font-bold">Total</dt>
+                    <dd class="num border-t border-border pt-2.5 text-right font-bold" data-remit-total>{{ PayrollData::money($employeePension + $employerPension + $totals['ei'] + $totals['ei_er'] + $incomeTax) }}</dd>
+                </dl>
+            </section>
+        </div>
+    @endif
+
     @if (! $finalized && $dirty && $run)
         <p class="text-xs text-warning">Unsaved changes — save before finalizing.</p>
     @endif
 
-    {{-- Add-employees dialog (add-employees-dialog.tsx), shared with the 13th month run. --}}
+    {{-- Add-employees dialog (add-employees-dialog.tsx). --}}
     @include('livewire.payroll.partials.add-employees-dialog', [
         'pickerNote' => 'Tick everyone this payroll covers. Unticking an employee removes them from it.',
     ])
@@ -796,7 +863,7 @@
                     <div class="space-y-1">
                         <flux:heading size="lg" id="why-heading">{{ $why['title'] }}</flux:heading>
                         <flux:text class="text-sm text-muted-foreground">
-                            <span class="num font-semibold text-foreground">{{ ($why['unit'] ?? '') === 'days' ? LeaveChargeText::days($why['amount']) : PayrollData::peso($why['amount']) }}</span> on this payroll.
+                            <span class="num font-semibold text-foreground">{{ ($why['unit'] ?? '') === 'days' ? LeaveChargeText::days($why['amount']) : PayrollData::money($why['amount']) }}</span> on this payroll.
                             {{ $whyCell === 'settlement' ? 'Found from the days paid as scheduled on earlier payrolls, each priced again from its attendance:' : ($whyCell === 'leave' ? 'Deducted from leave credits first, by the leave settings; only what the credits did not cover is priced to pay:' : 'Payroll takes the first of these that is set:') }}
                         </flux:text>
                     </div>
@@ -861,10 +928,10 @@
                                     @elseif ($line['skipped'])
                                         Skipped on this payroll.
                                     @else
-                                        <span class="num">{{ PayrollData::peso($line['proposed']) }}</span> on this payroll.
+                                        <span class="num">{{ PayrollData::money($line['proposed']) }}</span> on this payroll.
                                     @endif
                                     @if ($line['left'] !== null)
-                                        Balance: <span class="num">{{ PayrollData::peso($line['left']) }}</span>.
+                                        Balance: <span class="num">{{ PayrollData::money($line['left']) }}</span>.
                                     @endif
                                     @if ($line['note'])
                                         {{ $line['note'] }}
@@ -930,7 +997,7 @@
                                     {{ \App\Livewire\Records\Support\BenefitText::TAXES[$incentiveTax] }}
                                 </span>
                                 @if (isset($proposedIncentives[$type->id]))
-                                    <p class="mt-1 text-xs text-muted-foreground">Proposed <span class="num">{{ PayrollData::peso($proposedIncentives[$type->id]) }}</span> · {{ trim((string) ($incentiveForm[$type->id] ?? '')) === '' ? 'leave empty to pay it as proposed; it cannot be set to 0 here' : 'the typed amount replaces it' }}</p>
+                                    <p class="mt-1 text-xs text-muted-foreground">Proposed <span class="num">{{ PayrollData::money($proposedIncentives[$type->id]) }}</span> · {{ trim((string) ($incentiveForm[$type->id] ?? '')) === '' ? 'leave empty to pay it as proposed; it cannot be set to 0 here' : 'the typed amount replaces it' }}</p>
                                 @endif
                             </div>
                             <x-kit.money-input wire:model="incentiveForm.{{ $type->id }}" aria-label="{{ $type->name }} amount" />

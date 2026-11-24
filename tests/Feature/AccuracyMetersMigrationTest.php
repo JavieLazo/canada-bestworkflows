@@ -5,7 +5,7 @@ declare(strict_types=1);
 use App\Models\AttendanceLog;
 use App\Models\EmployeeProfile;
 use App\Models\WorkSite;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -73,7 +73,7 @@ function accmigSeed(string $suffix, ?float $accuracy): array
         'distance_meters' => null,
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T08:00:31')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T08:00:31')->utc(),
     ], $accuracy === null ? [] : ['accuracy_meters' => $accuracy]))->save();
 
     return ['site' => (string) $site->getKey(), 'employee' => (string) $employee->getKey(), 'punch' => (string) $punch->getKey()];

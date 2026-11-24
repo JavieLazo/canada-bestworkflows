@@ -88,7 +88,7 @@ function ccrManager(): Access
 }
 
 /**
- * Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, PHP 30,000 a month.
+ * Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, CAD 30,000 a month.
  *
  * @param  array<string, mixed>  $overrides
  */
@@ -442,7 +442,7 @@ it('values a day at the daily rate when the paying type says so, and in evidence
         ->and(PayrollData::calculateInputs($older)['incentiveLines'][$employee->id][0]['amount'])->toBe(3409.09)
         ->and(PayrollInputs::restore(PayrollInputs::json($older->toArray()))->fingerprint())->toBe($older->fingerprint());
 
-    // September 2026 has 22 scheduled days: PHP 30,000 is PHP 1,363.636… a day, so 2.5 days are PHP 3,409.09.
+    // September 2026 has 22 scheduled days: CAD 30,000 is CAD 1,363.636… a day, so 2.5 days are CAD 3,409.09.
     app(SaveIncentiveType::class)->handle($manager, $type->id, 'Leave conversion pay', null, true, null, true, ['day_value' => 'DAILY', 'factor' => null]);
     expect($type->refresh()->cash_out_day_value)->toBe('DAILY')
         ->and($type->cash_out_factor)->toBe(0.0481927)

@@ -64,6 +64,17 @@ use Carbon\CarbonImmutable;
  * @property-read float $taxable_benefits_excess
  * @property-read float|null $taxable_compensation
  * @property-read float|null $tax_refund  withholding refunded on the year's last payroll, paid into the net pay outside gross pay
+ * @property-read float|null $cpp  the employee's Canada Pension Plan contribution; null on a read made before the column
+ * @property-read float|null $cpp2  the employee's second Canada Pension Plan contribution
+ * @property-read float|null $ei  the employee's Employment Insurance premium
+ * @property-read float|null $federal_tax  federal income tax deducted
+ * @property-read float|null $provincial_tax  provincial income tax deducted
+ * @property-read float|null $cpp_er  the employer's pension contribution, never deducted
+ * @property-read float|null $cpp2_er  the employer's second pension contribution, never deducted
+ * @property-read float|null $ei_er  the employer's insurance premium, never deducted
+ * @property-read float|null $pensionable_earnings  the pay the pension contribution was worked out on
+ * @property-read float|null $insurable_earnings  the pay the insurance premium was worked out on
+ * @property-read int|null $tax_year  the year the pay counts in: the year of its pay date
  * @property-read CarbonImmutable $created_at
  */
 final readonly class PayslipView extends Record {}

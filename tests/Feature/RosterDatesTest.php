@@ -27,7 +27,7 @@ use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Modules\Timekeeping\Infrastructure\SiteReferences;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Tests\Support\ScheduleFixture;
 
@@ -244,7 +244,7 @@ it('keeps a rest day when a shift is picked for it, and schedules work on it onl
     $employee = rdateEmployee();
     $actor = rdateActor();
     $pattern = rdatePattern('09:00:00', '18:00:00');
-    $punch = AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => 'TIME_IN', 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant('2026-09-26T09:05:00')->utc()]);
+    $punch = AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => 'TIME_IN', 'source' => 'MANUAL', 'logged_at' => LocalClock::instant('2026-09-26T09:05:00')->utc()]);
     $command = app(SaveRosterDate::class);
     $roster = app(RosterDates::class);
 

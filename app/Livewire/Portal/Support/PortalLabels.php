@@ -8,9 +8,10 @@ use App\Modules\Timekeeping\Application\LeaveHalves;
 use App\Modules\Timekeeping\Domain\Absence\AbsencePolicy;
 use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Support\CodeSequence;
+use App\Support\Currency;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * The slice of `src/lib/hris.ts` the Portal screens read — labels, formats and
@@ -132,10 +133,10 @@ final class PortalLabels
         return EmployeeName::display($e);
     }
 
-    /** TS: `peso(n)` — ₱12,345.67, always two decimals (hris.ts:186-191). */
-    public static function peso(float $n): string
+    /** `$12,345.67`, always two decimals: the one figure format, Currency::format(). */
+    public static function money(float $n): string
     {
-        return "\u{20B1}".number_format(is_finite($n) ? $n : 0.0, 2, '.', ',');
+        return Currency::format($n);
     }
 
     /** TS: `fmtDate(d)` — a 'Y-m-d' calendar day as `Aug 05, 2026`, shared through HrisFormat. */
@@ -144,16 +145,16 @@ final class PortalLabels
         return HrisFormat::date($d);
     }
 
-    /** TS: `fmtDateTime(iso)` — `Aug 31, 2026, 2:05 PM`, Manila. */
+    /** TS: `fmtDateTime(iso)` — `Aug 31, 2026, 2:05 PM`, local. */
     public static function fmtDateTime(string $iso): string
     {
-        return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+        return LocalClock::instant($iso)->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
     }
 
-    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()` — ManilaClock's one clock read. */
+    /** Today's local calendar day, 'Y-m-d'. TS: `todayKey()` — LocalClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::todayKey();
+        return LocalClock::todayKey();
     }
 
     /** PayslipDetail.tsx:12 — whole days, unless a half-day leave landed in the count. */

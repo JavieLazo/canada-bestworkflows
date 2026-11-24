@@ -36,7 +36,7 @@
                 @endif
             </header>
             <dl class="grid gap-4 p-5 sm:grid-cols-2 xl:grid-cols-1">
-                @foreach (['Item' => $item->name, 'Serial Number' => $item->serial_no, 'Category' => $item->category_name, 'Location' => $item->location_name, 'Condition' => ucfirst(strtolower($item->condition)), 'Acquisition Date' => HrisFormat::date($item->acquired_on), 'Acquisition Cost' => '₱'.number_format($item->cost, 2)] as $label => $value)
+                @foreach (['Item' => $item->name, 'Serial Number' => $item->serial_no, 'Category' => $item->category_name, 'Location' => $item->location_name, 'Condition' => ucfirst(strtolower($item->condition)), 'Acquisition Date' => HrisFormat::date($item->acquired_on), 'Acquisition Cost' => '$'.number_format($item->cost, 2)] as $label => $value)
                     <div class="min-w-0">
                         <dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">{{ $label }}</dt>
                         <dd class="mt-1 break-words text-sm {{ in_array($label, ['Serial Number', 'Acquisition Date', 'Acquisition Cost'], true) ? 'num' : '' }}">{{ $value ?: '—' }}</dd>

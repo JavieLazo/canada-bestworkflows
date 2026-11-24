@@ -24,7 +24,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -161,7 +161,7 @@ final class FillUnscheduledDates
      */
     private static function dates(array $dates): array
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $picked = [];
         foreach ($dates as $date) {
             if (! is_string($date) || ! PayrollPeriod::isPayrollDate($date)) {

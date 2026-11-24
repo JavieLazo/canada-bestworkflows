@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Livewire\Records\Support;
 
+use App\Support\Currency;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 
@@ -47,22 +48,16 @@ final class Hris
         return HrisFormat::hm($value);
     }
 
-    /** TS: `peso(n)` — `₱17,000.00` (hris.ts:184-189). */
-    public static function peso(mixed $n): string
+    /** `$17,000.00`: the one figure format, Currency::format(). */
+    public static function money(mixed $n): string
     {
-        $f = is_numeric($n) ? (float) $n : 0.0;
-
-        if (! is_finite($f)) {
-            $f = 0.0;
-        }
-
-        return "\u{20B1}".number_format($f, 2);
+        return Currency::format($n);
     }
 
-    /** Today's Manila calendar day, 'Y-m-d'. TS: `todayKey()` — ManilaClock's one clock read. */
+    /** Today's local calendar day, 'Y-m-d'. TS: `todayKey()` — LocalClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::todayKey();
+        return LocalClock::todayKey();
     }
 
     /**

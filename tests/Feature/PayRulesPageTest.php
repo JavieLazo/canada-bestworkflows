@@ -96,7 +96,7 @@ it('fills the form from the seeded version and from the presets without saving a
         ->assertSet('formMatrix.REST.worked', '150')
         ->assertSet('formMatrix.REGULAR.worked', '250')
         ->assertSee('Unsaved changes')
-        ->assertSee('₱1,363.64');
+        ->assertSee('$1,363.64');
     $page->call('applyPreset', PayRules::PRESET_STANDARD)
         ->assertSet('formBasis', PayRules::BASIS_DAILY)
         ->assertSet('formHolidayNeedsAttendance', true)

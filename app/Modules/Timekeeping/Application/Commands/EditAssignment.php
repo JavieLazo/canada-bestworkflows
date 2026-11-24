@@ -21,7 +21,7 @@ use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -89,7 +89,7 @@ final class EditAssignment
         if ($saved === null || $employee === null) {
             throw new RuntimeException('That temporary schedule no longer exists.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $first = $saved->date->format('Y-m-d');
         $last = RosterVersions::appliesThrough($saved);
         if ($last < $first) {
@@ -140,7 +140,7 @@ final class EditAssignment
             $hours = AssignmentWriter::hours($employeeId, $start, $shiftChoice, $pattern, $saved);
             $includeRestDays = AssignmentWriter::includeRestDays($employeeId, $name, $start, $to, $hours, $workOnRestDays);
             // The same dates, shift, place and rest-day choice: nothing to do.
-            $begun = $saved->date->format('Y-m-d') <= ManilaClock::todayKey();
+            $begun = $saved->date->format('Y-m-d') <= LocalClock::todayKey();
             if (($begun || $saved->date->format('Y-m-d') === $start) && RosterVersions::appliesThrough($saved) === $to
                 && ! (clone $saved)->fill($hours + $place + ['include_rest_days' => $includeRestDays])->isDirty()) {
                 return false;
@@ -156,7 +156,7 @@ final class EditAssignment
             // before the change starts. One that had not begun keeps none,
             // even when the change starts later than it did.
             $first = $saved->date->format('Y-m-d');
-            RosterChanges::cancelAssignment($actor, $saved, CalendarDays::previous($first <= ManilaClock::todayKey() ? $start : min($first, $start)));
+            RosterChanges::cancelAssignment($actor, $saved, CalendarDays::previous($first <= LocalClock::todayKey() ? $start : min($first, $start)));
             AssignmentWriter::create($actor, $employeeId, $start, $to, $hours, $place, $includeRestDays, $saved->id);
             AssignmentWriter::assertPayable($employeeId, $start);
             $description = AssignmentWriter::sentence($actor, $name, $start, $to, $hours, $place).' · changed'

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Platform\Reports;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -39,7 +39,7 @@ final readonly class ReportCriteria
         if (($input['type'] ?? '') === 'employee-list' && ($input['view'] ?? '') !== 'analysis') {
             // Employee directories have no period; hidden draft dates must
             // not prevent generation. Analysis keeps its activity window.
-            $input['from'] = $input['to'] = ManilaClock::todayKey();
+            $input['from'] = $input['to'] = LocalClock::todayKey();
         }
         if (array_key_exists('employeeIds', $input)) {
             $employeeIds = $input['employeeIds'];
@@ -96,7 +96,7 @@ final readonly class ReportCriteria
             'view' => ['required', 'in:details,summary,analysis'],
         ])->validate();
 
-        if (ManilaClock::instant($values['from'])->diffInDays(ManilaClock::instant($values['to'])) > 365) {
+        if (LocalClock::instant($values['from'])->diffInDays(LocalClock::instant($values['to'])) > 365) {
             throw ValidationException::withMessages(['to' => 'Choose a period of at most 366 days.']);
         }
 

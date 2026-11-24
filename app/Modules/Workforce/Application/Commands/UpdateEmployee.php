@@ -19,7 +19,7 @@ use App\Platform\Retention\EmployeeObligations;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -78,7 +78,7 @@ final class UpdateEmployee
                 app(EmploymentHistoryRecorder::class)->updated($access, $employee, $beforeEmployment);
                 // A rate edit here is a salary version dated today, so the
                 // salary history stays one (SalaryRates, divergence 18).
-                SalaryRates::recordProfileEdit($access, $employee, $monthlyBefore, $dailyBefore, ManilaClock::todayKey());
+                SalaryRates::recordProfileEdit($access, $employee, $monthlyBefore, $dailyBefore, LocalClock::todayKey());
             }
 
             return [$employee, $payload, $obligationNote];

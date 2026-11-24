@@ -11,7 +11,7 @@ use App\Modules\Inventory\Application\Commands\ResolveIncident;
 use App\Modules\Inventory\Application\Queries\InventoryLifecycle;
 use App\Modules\Inventory\Application\Queries\InventoryRecords;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -65,7 +65,7 @@ class IncidentsPage extends Component
     {
         $access = app(Access::class);
         abort_unless($access->mayReadAllData(ModuleCode::INVENTORY), 403);
-        $this->reportedOn = ManilaClock::dayKey(now());
+        $this->reportedOn = LocalClock::dayKey(now());
         $itemId = request()->query('item');
         if ($itemId !== null) {
             abort_unless(is_string($itemId) && $itemId !== '' && mb_strlen($itemId) <= 26, 404);

@@ -9,7 +9,7 @@ use App\Modules\Inventory\Application\Queries\InventoryRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /** Employee Records exports the same scoped holdings projection as its issued-items card. */
@@ -35,6 +35,6 @@ final class EmployeeItemsExport implements TableExport
             } while (true);
         };
 
-        return new CsvExport('employee-issued-items-'.ManilaClock::todayKey().'.csv', ['Item code', 'Item', 'Serial number', 'Condition', 'Location', 'MR No.'], $rows);
+        return new CsvExport('employee-issued-items-'.LocalClock::todayKey().'.csv', ['Item code', 'Item', 'Serial number', 'Condition', 'Location', 'MR No.'], $rows);
     }
 }

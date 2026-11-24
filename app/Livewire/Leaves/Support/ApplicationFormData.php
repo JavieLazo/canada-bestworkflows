@@ -15,7 +15,7 @@ use App\Modules\Timekeeping\Contracts\Views\LeaveTravelRequestView;
 use App\Modules\Workforce\Application\Queries\EmployeeRecords;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * What the Application for Leave shows, for the two screens that draw it: My
@@ -122,8 +122,8 @@ final class ApplicationFormData
     private static function salary(float $monthly, float $daily): string
     {
         return match (true) {
-            $monthly > 0.0 => PortalLabels::peso($monthly),
-            $daily > 0.0 => PortalLabels::peso($daily).' a day',
+            $monthly > 0.0 => PortalLabels::money($monthly),
+            $daily > 0.0 => PortalLabels::money($daily).' a day',
             default => '',
         };
     }
@@ -156,7 +156,7 @@ final class ApplicationFormData
         return [
             'code' => $request->code,
             'status' => HrisFormat::requestStatus($request->status),
-            'filed' => $request->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y'),
+            'filed' => $request->created_at->setTimezone(LocalClock::zone())->format('M d, Y'),
             'types' => LeaveFormText::arrange($types, 'label'),
             'type' => $picked,
             'detail' => $request->leave_detail ?? null,

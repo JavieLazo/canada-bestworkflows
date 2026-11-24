@@ -22,7 +22,7 @@ use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use RuntimeException;
 
 /**
@@ -58,7 +58,7 @@ final class AssignShift
             return "No changes: {$name} is already on {$pattern->name}.";
         }
         $from = $impact->effective[$employeeId];
-        $later = $from !== ManilaClock::todayKey();
+        $later = $from !== LocalClock::todayKey();
         // Two reference sentences meet here. FIXED keeps the server's raw clock,
         // `${input.start_time}–${input.end_time}` (route.ts:90). FLEXIBLE is a
         // DELIBERATE DIVERGENCE from that same line, which logged the filler

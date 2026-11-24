@@ -51,7 +51,7 @@
             @else
                 <td class="num whitespace-nowrap">{!! $cell(EmployeeFields::dateText($row->date_to)) !!}</td>
             @endif
-            <td class="num whitespace-nowrap text-right">{!! $row->monthly_salary === null ? $blank : e(EmployeeFields::peso($row->monthly_salary)) !!}</td>
+            <td class="num whitespace-nowrap text-right">{!! $row->monthly_salary === null ? $blank : e(EmployeeFields::money($row->monthly_salary)) !!}</td>
             <td class="whitespace-nowrap">{!! $cell($row->pay_grade) !!}</td>
             <td>{!! $cell($row->appointment_status) !!}</td>
             <td class="whitespace-nowrap">{!! $service($row->government_service) !!}</td>

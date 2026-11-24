@@ -29,7 +29,7 @@ use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -76,7 +76,7 @@ function rhistPunchDay(EmployeeProfile $employee, string $date, string $in, stri
 {
     $outDate = $out <= $in ? CarbonImmutable::parse($date, 'UTC')->addDay()->format('Y-m-d') : $date;
     foreach (['TIME_IN' => "{$date}T{$in}:00", 'TIME_OUT' => "{$outDate}T{$out}:00"] as $type => $at) {
-        AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant($at)->utc()]);
+        AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => LocalClock::instant($at)->utc()]);
     }
 }
 

@@ -26,7 +26,7 @@ use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -60,7 +60,7 @@ final class ProjectFunding
     {
         abort_unless(FinanceScope::projects($actor)->whereKey($projectId)->exists(), 403);
         $period = ProjectReportingPeriod::query()->where('project_id', $projectId)->whereKey($periodId)->firstOrFail();
-        $asOf = min($period->ends_on, ManilaClock::todayKey());
+        $asOf = min($period->ends_on, LocalClock::todayKey());
         $budget = $budgetId === null ? null : ProjectBudget::query()->where('project_id', $projectId)->whereKey($budgetId)->whereIn('status', ['APPROVED', 'DRAFT'])->first();
         $lines = ProjectBudgetLine::query()->where('budget_id', $budget->id ?? '__none__');
         $periodLines = (clone $lines)->where('period_id', $period->id);
@@ -164,7 +164,7 @@ final class ProjectFunding
     {
         abort_unless(FinanceScope::projects($actor)->whereKey($projectId)->exists(), 403);
         $settings = ProjectFinance::query()->where('project_id', $projectId)->first();
-        $asOf ??= ManilaClock::todayKey();
+        $asOf ??= LocalClock::todayKey();
         if ($settings === null || $settings->opening_minor === null || $settings->opening_on === null || $settings->opening_on > $asOf) {
             return null;
         }
@@ -187,7 +187,7 @@ final class ProjectFunding
     {
         $cash = $this->linkedReceipts($actor, $projectId, $from, $to)->where('source_kind', 'CONTRIBUTION')->whereColumn('source_id', 'project_contributions.id');
         $deliveries = ProjectContributionDelivery::query()->whereColumn('contribution_id', 'project_contributions.id')->whereNull('voided_at')
-            ->where('occurred_on', '<=', $to ?? ManilaClock::todayKey())->when($from !== null, static fn (Builder $query) => $query->where('occurred_on', '>=', $from));
+            ->where('occurred_on', '<=', $to ?? LocalClock::todayKey())->when($from !== null, static fn (Builder $query) => $query->where('occurred_on', '>=', $from));
         $query = ProjectContribution::query()->where('project_id', $projectId)->whereIn('project_id', FinanceScope::projects($actor)->select('projects.id'))->select('project_contributions.*')
             ->selectSub((clone $cash)->selectRaw('SUM(amount_minor)'), 'cash_received_minor')
             ->selectSub((clone $deliveries)->selectRaw('SUM(value_minor)'), 'inkind_received_minor')
@@ -216,7 +216,7 @@ final class ProjectFunding
         return ProjectCashAllocation::query()->where('project_id', $projectId)->whereIn('project_id', FinanceScope::projects($actor)->select('projects.id'))
             ->whereExists(static function ($query) use ($from, $to): void {
                 $query->selectRaw('1')->from('project_cash_entries')->whereColumn('id', 'project_cash_allocations.entry_id')->whereColumn('allocation_revision', 'project_cash_allocations.revision')
-                    ->whereNull('voided_at')->where('kind', 'RECEIPT')->whereDate('occurred_on', '<=', $to ?? ManilaClock::todayKey())
+                    ->whereNull('voided_at')->where('kind', 'RECEIPT')->whereDate('occurred_on', '<=', $to ?? LocalClock::todayKey())
                     ->when($from !== null, static fn ($query) => $query->whereDate('occurred_on', '>=', $from));
             });
     }

@@ -11,7 +11,7 @@ use App\Models\RosterScheduleChange;
 use App\Modules\Timekeeping\Contracts\ScheduleNotices;
 use App\Modules\Timekeeping\Domain\Roster\ScheduleBasis;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -40,7 +40,7 @@ final class ScheduleNoticeQuery implements ScheduleNotices
         }
         // A date still ahead can be given a schedule: only what has been
         // judged already needs review.
-        $end = min($end, ManilaClock::todayKey());
+        $end = min($end, LocalClock::todayKey());
         $out = [];
         foreach ($this->reader->between($employeeIds, $start, $end) as $employeeId => $days) {
             $count = count(array_filter($days, static fn ($day): bool => $day->basis === ScheduleBasis::NONE));

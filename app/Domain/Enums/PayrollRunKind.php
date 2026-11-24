@@ -11,8 +11,10 @@ namespace App\Domain\Enums;
  * ENUM.
  *
  * REGULAR is the cut-off payroll ("Basic Payroll"); the name carries no
- * frequency or tax table of its own. THIRTEENTH_MONTH is the yearly run
- * ("13th Month Payroll") covering 1 January to 31 December. No reference
+ * frequency or tax table of its own, and it is the ONLY KIND A SCREEN
+ * CREATES. THIRTEENTH_MONTH is a yearly run ("13th Month Payroll") covering
+ * 1 January to 31 December: stored runs and their payslips keep the value
+ * and stay readable, and nothing saves or finalizes one. No reference
  * counterpart: the reference has one kind of run.
  */
 final class PayrollRunKind
@@ -21,7 +23,7 @@ final class PayrollRunKind
 
     public const string THIRTEENTH_MONTH = 'THIRTEENTH_MONTH';
 
-    /** The sidebar and page labels, in menu order. */
+    /** What a report calls each kind. */
     public const array LABELS = [
         self::REGULAR => 'Basic Payroll',
         self::THIRTEENTH_MONTH => '13th Month Payroll',

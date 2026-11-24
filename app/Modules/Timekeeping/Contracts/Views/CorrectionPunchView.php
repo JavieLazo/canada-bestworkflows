@@ -27,8 +27,8 @@ use Carbon\CarbonImmutable;
  * @property-read string|null $anomaly_note
  * @property-read CarbonImmutable $logged_at UTC, as the column holds it
  * @property-read string|null $site_name
- * @property-read string $slot The Manila HH:mm this row reads as — floored, never rounded (PunchSlots::slotOf)
- * @property-read bool $is_carried A next-day row this date's row owns: its Manila day is after the date (PunchSlots::isNextDay)
+ * @property-read string $slot The local HH:mm this row reads as — floored, never rounded (PunchSlots::slotOf)
+ * @property-read bool $is_carried A next-day row this date's row owns: its local day is after the date (PunchSlots::isNextDay)
  * @property-read bool $in_dtr_slot Whether the DTR row shows it in one of its four slots — a row it owns but shows nowhere is replaced by a save unless entered
  * @property-read bool $hand_entered Entered by hand in AttendanceLog's sense: an admin's MANUAL punch at the station, or a row a saved correction inserted (CORRECTION). The dialog shows "Manually Entered" for these, with no place or map — even when a MANUAL row carries the kiosk's fix. A CORRECTION row has no coordinates at all
  */

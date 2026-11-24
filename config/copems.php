@@ -11,6 +11,13 @@ return [
     // Current employer label; frozen historical records keep their own copy.
     'company_name' => env('COMPANY_NAME', env('APP_NAME', 'BestWorkflows')),
 
+    // The time zone the organization keeps its days in: which calendar day a
+    // punch belongs to, when a payroll period starts and ends, what "today"
+    // is. An IANA name, so each date is read on the offset in force on it,
+    // clock changes included. Stored timestamps stay UTC whatever this says;
+    // App\Support\LocalClock is the only reader.
+    'timezone' => env('BESTWORKFLOWS_TIMEZONE', env('COPEMS_TIMEZONE', 'America/Edmonton')),
+
     // Where the header's App link downloads the eDTR mobile app from: a full
     // address or a path on this host. The app file is uploaded by the
     // operator, never shipped in a release, so the link is drawn only once

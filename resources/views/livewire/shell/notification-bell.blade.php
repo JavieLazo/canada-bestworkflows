@@ -70,7 +70,7 @@
                                         </span>
                                     @endif
                                     <span class="num mt-0.5 block text-xs text-muted-foreground">
-                                        {{ $n->created_at->setTimezone(\App\Support\ManilaClock::TZ)->format('M d, Y, g:i A') }}
+                                        {{ $n->created_at->setTimezone(\App\Support\LocalClock::zone())->format('M d, Y, g:i A') }}
                                     </span>
                                 </span>
                             </button>

@@ -19,7 +19,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -72,11 +72,11 @@ final class ReviewLeaveCashOut
                 // (LeaveEligibilities) — their status or sex changed since
                 // the request, or the type's settings did — is not approved;
                 // terminal leave still pays what is held.
-                $refusal = $terminal ? null : LeaveEligibilities::refusal($row->employee_id, $row->request_type, ManilaClock::todayKey());
+                $refusal = $terminal ? null : LeaveEligibilities::refusal($row->employee_id, $row->request_type, LocalClock::todayKey());
                 if ($refusal !== null) {
                     throw new RuntimeException($refusal.' Its credits cannot be converted to cash: reject the request instead.');
                 }
-                $year = LeaveCharges::liveYear($row->employee_id, (int) substr(ManilaClock::todayKey(), 0, 4));
+                $year = LeaveCharges::liveYear($row->employee_id, (int) substr(LocalClock::todayKey(), 0, 4));
                 $others = LeaveQuantity::normalize((LeaveCashOuts::spokenFor($row->employee_id)[$row->request_type] ?? 0.0) - $row->days);
                 $available = LeaveQuantity::normalize(LeaveBalances::balance($row->employee_id, $year, $row->request_type) - $others);
                 if ($available + 1e-9 < $row->days) {

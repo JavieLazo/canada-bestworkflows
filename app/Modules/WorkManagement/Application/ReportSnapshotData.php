@@ -25,7 +25,7 @@ use App\Modules\WorkManagement\Application\Queries\ProjectResults;
 use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Modules\WorkManagement\Infrastructure\WorkScope;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Validation\ValidationException;
@@ -47,7 +47,7 @@ final class ReportSnapshotData
         abort_unless(ReportAccess::allows($actor, $report->project_id, $work, $financial), 403);
         $project = app(WorkRecords::class)->project($actor, $report->project_id);
         abort_if($project === null, 403);
-        $asOf = min($period->ends_on, ManilaClock::todayKey());
+        $asOf = min($period->ends_on, LocalClock::todayKey());
         $rows = [];
         $ids = ['PROJECT' => [$project->id], 'REPORT' => [$report->id]];
         $warnings = [];
@@ -221,7 +221,7 @@ final class ReportSnapshotData
             $blocking[] = 'Approve the selected budget before submitting this report.';
         }
         $cashPosition = $financial && $settings !== null ? app(FundingQuery::class)->cashPosition($actor, $project->id, $asOf) : null;
-        $periodOpening = $settings === null || $period->starts_on > ManilaClock::todayKey() ? null : ($settings->opening_on === $period->starts_on ? $settings->opening_minor
+        $periodOpening = $settings === null || $period->starts_on > LocalClock::todayKey() ? null : ($settings->opening_on === $period->starts_on ? $settings->opening_minor
             : app(FundingQuery::class)->cashPosition($actor, $project->id, CarbonImmutable::parse($period->starts_on)->subDay()->format('Y-m-d')));
         $variance = $financial ? app(FundingQuery::class)->periodVariance($actor, $project->id, $period->id, $report->budget_id) : null;
         if ($financial && $settings === null) {

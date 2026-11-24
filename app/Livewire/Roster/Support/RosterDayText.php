@@ -10,7 +10,7 @@ use App\Modules\Organization\Contracts\Views\WorkSiteView;
 use App\Modules\Timekeeping\Contracts\Views\RosterDayView;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Collection;
 
 /**
@@ -29,7 +29,7 @@ final class RosterDayText
     /** The Monday of the week holding `$date`, or of this week for anything that is not a date. */
     public static function monday(string $date): string
     {
-        $date = PayrollPeriod::isPayrollDate($date) ? $date : ManilaClock::todayKey();
+        $date = PayrollPeriod::isPayrollDate($date) ? $date : LocalClock::todayKey();
 
         return PayrollPeriod::addCalendarDays($date, -((CalendarDays::dayOfWeek($date) + 6) % 7));
     }
@@ -51,7 +51,7 @@ final class RosterDayText
 
         return preg_match('/^\d{4}-\d{2}$/', $month) === 1 && PayrollPeriod::isPayrollDate($first)
             ? $first
-            : substr(ManilaClock::todayKey(), 0, 8).'01';
+            : substr(LocalClock::todayKey(), 0, 8).'01';
     }
 
     /** "Nov 16", the short date the roster's headings use. */

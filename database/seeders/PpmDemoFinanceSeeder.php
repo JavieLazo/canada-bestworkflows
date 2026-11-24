@@ -30,7 +30,7 @@ final class PpmDemoFinanceSeeder extends PpmDemoRecords
             return;
         }
         $p = $project->id;
-        $currency = $number % 7 === 0 ? 'USD' : ($number % 11 === 0 ? 'EUR' : 'PHP');
+        $currency = $number % 7 === 0 ? 'USD' : ($number % 11 === 0 ? 'EUR' : 'CAD');
         $this->keep(ProjectFinance::class, $p.':finance', ['project_id' => $p, 'currency' => $currency, 'opening_on' => $number % 5 === 0 ? null : $this->dateKey(190),
             'opening_minor' => $number % 5 === 0 ? null : 250000, 'opening_reference' => $number % 5 === 0 ? null : 'DEMO-OPENING-'.$number,
             'opening_notes' => 'Synthetic opening balance for review.', 'opening_revision' => $number % 5 === 0 ? 0 : 1]);

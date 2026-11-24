@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Contracts\Views;
 
 /**
- * The shift an employee is measured against on ONE Manila calendar date, as
+ * The shift an employee is measured against on ONE local calendar date, as
  * the DTR correction dialog describes it — resolved through the per-date
  * seam (Infrastructure\ShiftRoster), so a roster that varies by weekday
  * changes what this carries and nothing in the dialog.

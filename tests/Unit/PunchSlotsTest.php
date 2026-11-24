@@ -122,7 +122,7 @@ it('stamps a ticked slot on the next calendar day as an offset-less Manila stamp
         ['log_type' => 'TIME_OUT', 'logged_at' => '2026-09-24T06:00:00'],
     ]);
 
-    // No `Z`, no offset: ManilaClock::instant() reads these as Manila wall clock.
+    // No `Z`, no offset: LocalClock::instant() reads these as Manila wall clock.
     foreach ($punches as $punch) {
         expect($punch['logged_at'])->toMatch('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00$/');
     }

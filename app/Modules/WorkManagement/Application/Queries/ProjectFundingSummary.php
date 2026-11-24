@@ -11,7 +11,7 @@ use App\Models\ProjectContributionDelivery;
 use App\Models\ProjectFunding;
 use App\Modules\WorkManagement\Infrastructure\FinanceScope;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -40,7 +40,7 @@ final class ProjectFundingSummary
         $cash = ProjectCashAllocation::query()->join('project_cash_entries', 'project_cash_entries.id', '=', 'project_cash_allocations.entry_id')->join('project_finances', 'project_finances.project_id', '=', 'project_cash_entries.project_id')
             ->leftJoin('project_fundings', static fn ($join) => $join->on('project_fundings.id', '=', 'project_cash_allocations.source_id')->where('source_kind', 'FUNDING'))
             ->leftJoin('project_contributions', static fn ($join) => $join->on('project_contributions.id', '=', 'project_cash_allocations.source_id')->where('source_kind', 'CONTRIBUTION'))
-            ->whereIn('project_cash_entries.project_id', clone $scope)->whereColumn('project_cash_entries.allocation_revision', 'project_cash_allocations.revision')->whereNull('project_cash_entries.voided_at')->where('project_cash_entries.kind', 'RECEIPT')->whereDate('project_cash_entries.occurred_on', '<=', ManilaClock::todayKey())->whereIn('source_kind', ['FUNDING', 'CONTRIBUTION'])
+            ->whereIn('project_cash_entries.project_id', clone $scope)->whereColumn('project_cash_entries.allocation_revision', 'project_cash_allocations.revision')->whereNull('project_cash_entries.voided_at')->where('project_cash_entries.kind', 'RECEIPT')->whereDate('project_cash_entries.occurred_on', '<=', LocalClock::todayKey())->whereIn('source_kind', ['FUNDING', 'CONTRIBUTION'])
             ->select('project_finances.currency')->selectRaw("CASE WHEN source_kind = 'FUNDING' THEN 'FUNDING' ELSE 'CASH' END AS source_type,
                 CASE WHEN COALESCE(project_fundings.status, project_contributions.status, 'MISSING') != 'ACTIVE' THEN 'INACTIVE' WHEN COALESCE(project_fundings.committed_minor, project_contributions.committed_minor) IS NULL THEN 'UNPLANNED' ELSE 'KNOWN' END AS coverage,
                 SUM(project_cash_allocations.amount_minor) AS received")->groupBy('project_finances.currency', 'source_type', 'coverage')->toBase()->get();
@@ -57,7 +57,7 @@ final class ProjectFundingSummary
             $data[$row->currency] = $item;
         }
         $deliveries = ProjectContributionDelivery::query()->join('project_contributions', 'project_contributions.id', '=', 'project_contribution_deliveries.contribution_id')->join('project_finances', 'project_finances.project_id', '=', 'project_contributions.project_id')
-            ->whereIn('project_contributions.project_id', clone $scope)->whereNull('voided_at')->where('occurred_on', '<=', ManilaClock::todayKey())->select('project_finances.currency')
+            ->whereIn('project_contributions.project_id', clone $scope)->whereNull('voided_at')->where('occurred_on', '<=', LocalClock::todayKey())->select('project_finances.currency')
             ->selectRaw("SUM(CASE WHEN project_contributions.status = 'ACTIVE' AND project_contributions.committed_minor IS NOT NULL THEN value_minor ELSE 0 END) AS received,
                 SUM(CASE WHEN project_contributions.status = 'ACTIVE' AND project_contributions.committed_minor IS NULL THEN value_minor ELSE 0 END) AS unplanned,
                 SUM(CASE WHEN project_contributions.status != 'ACTIVE' THEN value_minor ELSE 0 END) AS inactive_value, SUM(CASE WHEN value_minor IS NULL THEN 1 ELSE 0 END) AS unvalued")->groupBy('project_finances.currency')->toBase()->get();
@@ -70,7 +70,7 @@ final class ProjectFundingSummary
             $data[$row->currency] = $item;
         }
         $receipts = ProjectCashEntry::query()->join('project_finances', 'project_finances.project_id', '=', 'project_cash_entries.project_id')->whereIn('project_cash_entries.project_id', clone $scope)
-            ->whereNull('voided_at')->where('kind', 'RECEIPT')->whereDate('occurred_on', '<=', ManilaClock::todayKey())->select('project_finances.currency')->selectRaw('SUM(amount_minor) AS received')->groupBy('project_finances.currency')->toBase()->get();
+            ->whereNull('voided_at')->where('kind', 'RECEIPT')->whereDate('occurred_on', '<=', LocalClock::todayKey())->select('project_finances.currency')->selectRaw('SUM(amount_minor) AS received')->groupBy('project_finances.currency')->toBase()->get();
         foreach ($receipts as $row) {
             $item = $data[$row->currency] ?? $this->currency($row->currency);
             $item['unlinked'] = (int) $row->received - ($linked[$row->currency] ?? 0);

@@ -23,7 +23,7 @@ use App\Modules\Timekeeping\Application\ShiftPolicy;
 use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -310,6 +310,57 @@ it('adds a fixed shift pattern and refuses a broken one', function () {
     expect(ShiftType::query()->where('name', 'Broken Flex')->exists())->toBeFalse();
 });
 
+it('saves a pattern with a twelve-hour break and refuses a longer one', function () {
+    recordsActor(['RECORDS'], true);
+
+    // Two duties of one day, 12:00 AM to 8:00 AM and 8:00 PM to midnight,
+    // with the twelve hours between them as the unpaid break.
+    Livewire::test(ShiftTypesPage::class)
+        ->call('openAdd')
+        ->set('formName', 'Split Duty')
+        ->set('formStartTime', '00:00')
+        ->set('formEndTime', '00:00')
+        ->set('formBreakStart', '08:00')
+        ->set('formBreakEnd', '20:00')
+        ->set('formBreakMinutes', '720')
+        ->call('save')
+        ->assertSet('dialogOpen', false);
+
+    $this->assertDatabaseHas('shift_types', [
+        'name' => 'Split Duty',
+        'mode' => 'FIXED',
+        'start_time' => '00:00:00',
+        'end_time' => '00:00:00',
+        'break_start' => '08:00:00',
+        'break_end' => '20:00:00',
+        'break_minutes' => 720,
+    ]);
+
+    // A flexible pattern has no break window to measure, so only the cap
+    // stands between it and a break one minute longer.
+    Livewire::test(ShiftTypesPage::class)
+        ->call('openAdd')
+        ->set('formName', 'Long Break Flex')
+        ->set('formMode', 'FLEXIBLE')
+        ->set('formRequiredHours', '13')
+        ->set('formBreakMinutes', '721')
+        ->call('save')
+        ->assertSet('dialogOpen', true);
+
+    expect(ShiftType::query()->where('name', 'Long Break Flex')->exists())->toBeFalse();
+
+    Livewire::test(ShiftTypesPage::class)
+        ->call('openAdd')
+        ->set('formName', 'Long Break Flex')
+        ->set('formMode', 'FLEXIBLE')
+        ->set('formRequiredHours', '13')
+        ->set('formBreakMinutes', '720')
+        ->call('save')
+        ->assertSet('dialogOpen', false);
+
+    $this->assertDatabaseHas('shift_types', ['name' => 'Long Break Flex', 'mode' => 'FLEXIBLE', 'break_minutes' => 720]);
+});
+
 it('adds a site, validates its geofence, and blocks deleting a used one', function () {
     recordsActor(['RECORDS'], true);
 
@@ -415,7 +466,7 @@ function recordsRosteredShift(EmployeeProfile $employee, ?ShiftType $pattern, ar
 /** The default-shift row in effect today (an edit adds a dated row). */
 function recordsShiftToday(string $employeeId): Shift
 {
-    $row = app(RosterVersions::class)->standingAsOf([$employeeId], ManilaClock::todayKey())[$employeeId] ?? null;
+    $row = app(RosterVersions::class)->standingAsOf([$employeeId], LocalClock::todayKey())[$employeeId] ?? null;
     expect($row)->not->toBeNull();
     assert($row instanceof Shift);
 

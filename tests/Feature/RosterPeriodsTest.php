@@ -30,7 +30,7 @@ use App\Modules\Timekeeping\Application\ShiftTypeDraft;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 
 /**
@@ -80,7 +80,7 @@ function rperAt(string $manila): void
 
 function rperPunch(EmployeeProfile $employee, string $type, string $manila): AttendanceLog
 {
-    return AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant($manila)->utc()]);
+    return AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => LocalClock::instant($manila)->utc()]);
 }
 
 /**

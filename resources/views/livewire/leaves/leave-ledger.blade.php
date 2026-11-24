@@ -3,7 +3,7 @@
     use App\Modules\Timekeeping\Application\Commands\RecordLeaveCredit;
     use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
     use App\Support\EmployeeName;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
 
     $fmt = static fn (?float $value): string => $value === null ? '—' : LeaveQuantity::credits($value);
     $exportQuery = ['employee' => $employeeId, 'year' => $year, 'type' => $type];
@@ -96,7 +96,7 @@
                     <tbody>
                         @forelse ($rows as $row)
                             <tr wire:key="ledger-entry-{{ $row->id }}">
-                                @php($recordedAt = $row->recorded_at->setTimezone(ManilaClock::TZ))
+                                @php($recordedAt = $row->recorded_at->setTimezone(LocalClock::zone()))
                                 <td class="num whitespace-nowrap">
                                     <p>{{ $recordedAt->format('M d, Y') }}</p>
                                     <p class="text-xs text-muted-foreground">{{ $recordedAt->format('g:i A') }}</p>

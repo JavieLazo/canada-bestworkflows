@@ -29,7 +29,7 @@ use RuntimeException;
 final class ImportIncentiveTypes implements TableImport
 {
     /** The columns an import reads — the Incentives & Bonuses export's own. */
-    public const array COLUMNS = ['ID', 'Name', 'Tax', 'Description', 'Amount type', 'Amount', 'How often', 'Month', 'Minimum months of service', 'Proration', 'Employment statuses', 'Tax-free up to', 'Approval reference', 'Counts toward 13th'];
+    public const array COLUMNS = ['ID', 'Name', 'Tax', 'Description', 'Amount type', 'Amount', 'How often', 'Month', 'Minimum months of service', 'Proration', 'Employment statuses', 'Tax-free up to', 'Approval reference'];
 
     public const array TAX = [
         BenefitRule::TAX_TAXABLE => 'Taxable',
@@ -140,9 +140,6 @@ final class ImportIncentiveTypes implements TableImport
         }
         if ($given('Approval reference')) {
             $figures['approval_reference'] = trim($row->text('Approval reference'));
-        }
-        if ($given('Counts toward 13th')) {
-            $figures['counts_toward_13th'] = $row->flag('Counts toward 13th') ?? false;
         }
         // A figure the file fills that the rule it names cannot take is a
         // mistake to report, never to drop; one the file leaves blank follows the rule.

@@ -124,7 +124,7 @@ final class ImportRow
 
     /**
      * A plain numeric string, as the money inputs send it, or "" for a blank
-     * cell. Takes Excel's thousands separators, a peso sign or PHP prefix,
+     * cell. Takes Excel's thousands separators, a dollar sign or CAD prefix,
      * and accounting-style (1,000.00) negatives.
      */
     public function money(string $column): string
@@ -133,7 +133,7 @@ final class ImportRow
         if ($value === '') {
             return '';
         }
-        $number = self::number((string) preg_replace('/PHP|₱|[\s\x{00A0}]/iu', '', $value));
+        $number = self::number((string) preg_replace('/CAD|\$|[\s\x{00A0}]/iu', '', $value));
         if ($number === null) {
             throw new RuntimeException("{$column}: {$value} is not an amount.");
         }

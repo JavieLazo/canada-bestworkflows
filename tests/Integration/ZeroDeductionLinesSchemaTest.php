@@ -14,9 +14,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * MariaDB 11.4 proves a named deduction line may be ₱0.00 and never negative
+ * MariaDB 11.4 proves a named deduction line may be $0.00 and never negative
  * (2026_11_11_0004), that each interrupted step resumes, and that the
- * rollback tightens a table only when no ₱0 line would break it. sqlite
+ * rollback tightens a table only when no $0 line would break it. sqlite
  * creates no CHECK, so only this suite can show it.
  */
 function zdlMigration(): mixed

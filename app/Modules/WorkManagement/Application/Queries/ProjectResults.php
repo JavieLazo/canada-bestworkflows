@@ -19,7 +19,7 @@ use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -124,7 +124,7 @@ final class ProjectResults
             COALESCE(SUM(CASE WHEN kind = 'QUALITATIVE' AND target_text IS NOT NULL AND actual_state = 'ACHIEVED' THEN 1 WHEN kind = 'NUMERIC' AND actual_scaled IS NOT NULL AND target_scaled IS NOT NULL AND
                 ((direction = 'AT_LEAST' AND actual_scaled >= target_scaled) OR (direction = 'AT_MOST' AND actual_scaled <= target_scaled) OR (direction = 'EXACT' AND actual_scaled = target_scaled)) THEN 1 ELSE 0 END), 0) AS met")->first();
         $missing = $this->entryQuery($actor, $projectId, $portfolio, $client)->whereNull('voided_at')->where('evidence_required', true)
-            ->where('occurred_on', '<=', $to ?? ManilaClock::todayKey())->when($from !== null, static fn (Builder $query) => $query->where('occurred_on', '>=', $from))
+            ->where('occurred_on', '<=', $to ?? LocalClock::todayKey())->when($from !== null, static fn (Builder $query) => $query->where('occurred_on', '>=', $from))
             ->whereNotExists(static fn ($query) => $query->selectRaw('1')->from('project_record_files')->whereColumn('project_id', 'project_result_entries.project_id')
                 ->where('entity_type', 'RESULT_ENTRY')->whereColumn('record_id', 'project_result_entries.id')->whereNull('removed_at'))->count();
 
@@ -135,8 +135,8 @@ final class ProjectResults
     private function query(Access $actor, ?string $projectId, ?string $from, ?string $to, string $portfolio = 'ALL', string $client = 'ALL'): Builder
     {
         $entries = ProjectResultEntry::query()->whereColumn('indicator_id', 'project_indicators.id')->whereNull('voided_at')
-            ->where('occurred_on', '<=', $to ?? ManilaClock::todayKey())->when($from !== null, static fn (Builder $query) => $query->where('occurred_on', '>=', $from));
-        $latest = ProjectResultEntry::query()->whereColumn('indicator_id', 'project_indicators.id')->whereNull('voided_at')->where('occurred_on', '<=', $to ?? ManilaClock::todayKey())->orderByDesc('occurred_on')->orderByDesc('created_at')->orderByDesc('id')->limit(1);
+            ->where('occurred_on', '<=', $to ?? LocalClock::todayKey())->when($from !== null, static fn (Builder $query) => $query->where('occurred_on', '>=', $from));
+        $latest = ProjectResultEntry::query()->whereColumn('indicator_id', 'project_indicators.id')->whereNull('voided_at')->where('occurred_on', '<=', $to ?? LocalClock::todayKey())->orderByDesc('occurred_on')->orderByDesc('created_at')->orderByDesc('id')->limit(1);
         $base = ProjectIndicator::query()->whereIn('project_id', SharedWorkScope::projects($actor, $portfolio, $client)->select('projects.id'))
             ->when($projectId !== null, static fn (Builder $query) => $query->where('project_id', $projectId))->select('project_indicators.*')
             ->selectSub((clone $entries)->selectRaw('SUM(value_scaled)'), 'sum_scaled')->selectSub((clone $latest)->select('value_scaled'), 'latest_scaled')

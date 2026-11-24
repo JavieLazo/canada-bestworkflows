@@ -11,11 +11,11 @@ use App\Domain\Attendance\ShiftDayBoundary;
 use App\Domain\Attendance\ShiftGeometry;
 use App\Domain\Attendance\ShiftResolver;
 use App\Domain\Payroll\PayrollPeriod;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
- * Which Manila calendar date a live punch belongs to — the shift START date
+ * Which local calendar date a live punch belongs to — the shift START date
  * a DTR row is keyed on (`.claude/rules/time-and-dtr.md`: "A DTR row
  * belongs to its shift START date").
  *
@@ -42,7 +42,7 @@ use Carbon\CarbonImmutable;
  * The geometry-only entry points retain the uniform-schedule rules.
  *
  * Pure: value objects and instants in, a 'Y-m-d' string out. The only
- * framework dependency is ManilaClock, the single timezone boundary.
+ * framework dependency is LocalClock, the single timezone boundary.
  */
 final class PunchWorkDate
 {
@@ -55,7 +55,7 @@ final class PunchWorkDate
      */
     public static function forScheduledInstant(CarbonImmutable $instant, ?DomainShift $schedule): string
     {
-        $previous = CalendarDays::previous(ManilaClock::dayKey($instant));
+        $previous = CalendarDays::previous(LocalClock::dayKey($instant));
 
         return self::forInstant($instant, ShiftResolver::geometry($schedule?->forDate($previous)));
     }
@@ -82,8 +82,8 @@ final class PunchWorkDate
     /** @param list<DomainLog> $windowLogs */
     private static function scheduledTimeInDate(array $windowLogs, DomainLog $timeIn, ?DomainShift $schedule): string
     {
-        $instant = ManilaClock::instant($timeIn->loggedAt);
-        $date = ManilaClock::dayKey($instant);
+        $instant = LocalClock::instant($timeIn->loggedAt);
+        $date = LocalClock::dayKey($instant);
         if ($schedule !== null && $schedule->hasScheduleOverrides()
             && ShiftDayBoundary::belongsToFollowingShift(
                 $windowLogs, $timeIn, $schedule->forDate(CalendarDays::previous($date)), $schedule->forDate($date), $date,
@@ -101,7 +101,7 @@ final class PunchWorkDate
     {
         $latest = self::latest($windowLogs);
         if ($logType === DomainLog::TIME_OUT && $latest !== null && $latest->logType === DomainLog::TIME_IN) {
-            return self::forInstant(ManilaClock::instant($latest->loggedAt), $geometry);
+            return self::forInstant(LocalClock::instant($latest->loggedAt), $geometry);
         }
 
         return self::forInstant($now, $geometry);
@@ -109,9 +109,9 @@ final class PunchWorkDate
 
     public static function forInstant(CarbonImmutable $instant, ShiftGeometry $geometry): string
     {
-        $date = ManilaClock::dayKey($instant);
+        $date = LocalClock::dayKey($instant);
 
-        if ($geometry->overnight && ManilaClock::minutesOfDay($instant) <= $geometry->rawEnd) {
+        if ($geometry->overnight && LocalClock::minutesOfDay($instant) <= $geometry->rawEnd) {
             return PayrollPeriod::addCalendarDays($date, -1);
         }
 
@@ -129,8 +129,8 @@ final class PunchWorkDate
 
         usort(
             $windowLogs,
-            static fn (DomainLog $a, DomainLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+            static fn (DomainLog $a, DomainLog $b): int => LocalClock::ms(LocalClock::instant($a->loggedAt))
+                <=> LocalClock::ms(LocalClock::instant($b->loggedAt)),
         );
 
         return $windowLogs[count($windowLogs) - 1];

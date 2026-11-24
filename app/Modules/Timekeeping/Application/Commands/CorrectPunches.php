@@ -19,7 +19,7 @@ use App\Modules\Workforce\Contracts\EmployeeDirectory;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Realtime;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -38,7 +38,7 @@ use RuntimeException;
  *
  * DELIBERATE DIVERGENCE: the reference deletes the whole day and re-inserts
  * every slot. Here a slot that still reads as a recorded punch — same type,
- * same Manila minute, seconds ignored exactly as the dialog's prefill
+ * same local minute, seconds ignored exactly as the dialog's prefill
  * ignores them — KEEPS that row, with its source, coordinates, distance
  * and accuracy. Only the slots that changed or were cleared are
  * deleted and, where filled, inserted. The keep rule is
@@ -249,8 +249,8 @@ final class CorrectPunches
                     'is_geofenced' => true,
                     'is_anomaly' => false,
                     'anomaly_note' => null,
-                    // The slots speak Manila wall clock; the column holds UTC.
-                    'logged_at' => ManilaClock::instant($punch['logged_at'])->utc(),
+                    // The slots speak local wall clock; the column holds UTC.
+                    'logged_at' => LocalClock::instant($punch['logged_at'])->utc(),
                 ]);
             }
 
@@ -294,7 +294,7 @@ final class CorrectPunches
                 // and of what stands — a kept row prints its real stamp, an
                 // inserted one its :00. A punch after the corrected date says
                 // so: the sentence carries only that one date.
-                $parts[] = $row['log_type'].' '.ManilaClock::instant($row['logged_at'])->setTimezone(ManilaClock::TZ)->format('g:i:s A')
+                $parts[] = $row['log_type'].' '.LocalClock::instant($row['logged_at'])->setTimezone(LocalClock::zone())->format('g:i:s A')
                     .(PunchSlots::isNextDay($row['logged_at'], $date) ? ' next day' : '');
             }
 

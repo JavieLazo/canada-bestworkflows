@@ -21,7 +21,7 @@ use App\Modules\WorkManagement\Contracts\Views\ProjectView;
 use App\Modules\WorkManagement\Domain\Projects\ManualProjectStatus;
 use App\Support\Access;
 use App\Support\Csv;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\TextSort;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -134,7 +134,7 @@ it('streams every filtered export batch and opens tasks outside the current page
         $last = ProjectTask::create(['code' => sprintf('TSK-%03d', $i), 'project_id' => $project->id, 'title' => 'Export '.($i === 104 ? '=formula' : $i), 'status' => 'PENDING', 'priority' => 'NORMAL']);
     }
     $filters = ['q' => '', 'status' => 'ALL', 'assignee' => 'ALL', 'priority' => 'ALL', 'queue' => 'ALL'];
-    $tasks = ProjectsData::visibleTasks(array_values(app(WorkRecords::class)->tasks($actor, $project->id)->all()), collect(), $filters, 'code', 'desc', ManilaClock::todayKey());
+    $tasks = ProjectsData::visibleTasks(array_values(app(WorkRecords::class)->tasks($actor, $project->id)->all()), collect(), $filters, 'code', 'desc', LocalClock::todayKey());
     $expected = Csv::build(['Code', 'Task', 'Assignees', 'Priority', 'Start date', 'Due date', 'Status'], array_map(fn ($task) => [$task->code, $task->title, ProjectsData::employeeName(null), 'Normal', '', '', 'Pending'], $tasks));
     $csv = $this->get('/projects/'.$project->id.'/tasks/export?sort=code&dir=desc')->assertOk()->streamedContent();
     expect($csv)->toBe($expected)->and(substr_count($csv, Csv::BOM))->toBe(1);
@@ -145,7 +145,7 @@ it('streams every filtered export batch and opens tasks outside the current page
         Project::create(['code' => sprintf('PRJ-%03d', $i), 'name' => $i === 105 ? '=SUM(1,2)' : 'Project '.$i, 'status' => 'PLANNING', 'start_date' => '2026-09-01']);
     }
     $data = ProjectsData::projectsDataset($actor);
-    $projects = ProjectsData::visibleProjects($data['projects'], $data['tasksByProject'], $data['accounts'], ['q' => '', 'status' => 'ALL', 'site' => 'ALL', 'manager' => 'ALL', 'queue' => 'ALL'], 'name', 'desc', ManilaClock::todayKey());
+    $projects = ProjectsData::visibleProjects($data['projects'], $data['tasksByProject'], $data['accounts'], ['q' => '', 'status' => 'ALL', 'site' => 'ALL', 'manager' => 'ALL', 'queue' => 'ALL'], 'name', 'desc', LocalClock::todayKey());
     $expected = Csv::build(['Code', 'Project', 'Site', 'Task Leader', 'Start date', 'Due date', 'Progress', 'Health', 'Status'], array_map(fn ($row) => [$row->code, $row->name, '', '', '2026-09-01', '', '0%', 'On track', 'Planning'], $projects));
     expect($this->get('/projects/export?sort=name&dir=desc')->assertOk()->streamedContent())->toBe($expected);
 });

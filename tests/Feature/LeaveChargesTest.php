@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Livewire\Payroll\RunWorkspace;
-use App\Livewire\Payroll\Support\PayslipDocument;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
@@ -25,13 +24,12 @@ use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PayrollInputs;
-use App\Modules\Payroll\Application\Queries\PayslipRecords;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\PostLeaveEarnings;
 use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
 use App\Modules\Timekeeping\Domain\Credits\MinuteConversion;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\LeaveRuleFixture;
@@ -48,8 +46,8 @@ use Tests\Support\PayrollReviewFixture;
  * twice. The earning job still counts a covered absence as a day without
  * pay: an absence is poor attendance whether credits or pay bore it.
  *
- * September 2026 has 22 scheduled Monday-to-Friday days: PHP 30,000 a
- * month is PHP 1,363.636… a day, PHP 170.4545… an hour. The period is 1 to
+ * September 2026 has 22 scheduled Monday-to-Friday days: CAD 30,000 a
+ * month is CAD 1,363.636… a day, CAD 170.4545… an hour. The period is 1 to
  * 15 September; the employee is absent on the 3rd and the 10th and an hour
  * late on the 2nd.
  */
@@ -70,7 +68,7 @@ function lchgActor(array $modules = ['PAYROLL', 'EDTR', 'LEAVES', 'RECORDS']): A
     return app(Access::class);
 }
 
-/** Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, PHP 30,000 a month. */
+/** Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, CAD 30,000 a month. */
 function lchgEmployee(): EmployeeProfile
 {
     $employee = new EmployeeProfile;
@@ -93,7 +91,7 @@ function lchgPunch(EmployeeProfile $employee, string $type, string $manilaStamp)
     $punch = new AttendanceLog;
     $punch->forceFill([
         'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ])->save();
 }
 
@@ -210,13 +208,11 @@ it('charges absences and lateness to credits on the draft, posts them at finaliz
         ->and(AuditLog::query()->where('action', 'LEAVE_CHARGED')->value('details'))->toBe('Payroll '.$run->code.': Vacation Leave −2.125 charged to leave credits (0.125 for lateness and undertime, 2 for absences)')
         ->and(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->value('details'))->toContain('2.1250 days of leave credits charged for 1 employee');
 
-    // The evidence carries the plan and the captured facts; the payslip document names the days.
+    // The evidence carries the plan and the captured facts.
     $evidence = json_decode((string) PayrollFinalizationSnapshot::query()->where('run_id', $run->id)->sole()->payload, true, 512, JSON_THROW_ON_ERROR);
     expect($evidence['inputs']['schema_version'])->toBe(PayrollInputs::SCHEMA_VERSION)
         ->and($evidence['leave_charges'][$employee->id]['lines'])->toHaveCount(3)
         ->and(PayrollInputs::restore(PayrollInputs::json($evidence['inputs']))->leaveCharges[$employee->id]['year'])->toBe(2026);
-    $document = PayslipDocument::issued(app(PayslipRecords::class)->find($actor, $run->id, $employee->id), $employee, false, [], [], collect());
-    expect(array_column($document['basis'], 'label'))->toContain('Leave credits deducted');
 
     // Never twice: the charged dates are in the next capture, and the plan skips them.
     $again = app(LeaveChargeSource::class)->forPayroll($actor, [$employee->id], '2026-09-01', '2026-09-15')[$employee->id];

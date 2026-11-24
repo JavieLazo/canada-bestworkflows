@@ -37,7 +37,7 @@ use App\Platform\Files\PortraitUrl;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\SocialFormat;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -476,12 +476,12 @@ final class CommunityFeed
             $query->where('community_posts.author_id', $filter->authorId);
         }
 
-        // Dates are Manila calendar days, so the day starts at Manila midnight.
+        // Dates are local calendar days, so the day starts at local midnight.
         if ($filter->from !== null) {
-            $query->where('community_posts.created_at', '>=', $filter->from->setTimezone(ManilaClock::TZ)->startOfDay()->utc());
+            $query->where('community_posts.created_at', '>=', $filter->from->setTimezone(LocalClock::zone())->startOfDay()->utc());
         }
         if ($filter->to !== null) {
-            $query->where('community_posts.created_at', '<', $filter->to->setTimezone(ManilaClock::TZ)->startOfDay()->addDay()->utc());
+            $query->where('community_posts.created_at', '<', $filter->to->setTimezone(LocalClock::zone())->startOfDay()->addDay()->utc());
         }
 
         $has = static fn (string $kind) => static fn (QueryBuilder $q) => $q->select(DB::raw('1'))

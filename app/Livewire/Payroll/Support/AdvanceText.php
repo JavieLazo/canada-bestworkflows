@@ -76,8 +76,8 @@ final class AdvanceText
         foreach ($lines as $line) {
             $steps[] = [
                 'label' => 'Prior cut-off adjustment for '.self::days($line['from'], $line['to']).' · payroll '.$line['run_code'],
-                'detail' => 'Paid as scheduled '.Hris::peso($line['presumed_amount']).' for '.self::dayCount($line['presumed']['work_days'] ?? 0.0).' scheduled '.(($line['presumed']['work_days'] ?? 0.0) == 1.0 ? 'day' : 'days')
-                    .'; from attendance the days are worth '.Hris::peso($line['actual_amount']).self::changes($line['actual']).'. Difference '.Hris::peso($line['amount']).'.',
+                'detail' => 'Paid as scheduled '.Hris::money($line['presumed_amount']).' for '.self::dayCount($line['presumed']['work_days'] ?? 0.0).' scheduled '.(($line['presumed']['work_days'] ?? 0.0) == 1.0 ? 'day' : 'days')
+                    .'; from attendance the days are worth '.Hris::money($line['actual_amount']).self::changes($line['actual']).'. Difference '.Hris::money($line['amount']).'.',
                 'state' => 'used',
             ];
         }
@@ -137,13 +137,13 @@ final class AdvanceText
             $parts[] = self::dayCount($leave).($leave == 1.0 ? ' day' : ' days').' of paid leave';
         }
         if ((float) ($actual['late_deduction'] ?? 0.0) > 0 || (float) ($actual['undertime_deduction'] ?? 0.0) > 0) {
-            $parts[] = Hris::peso((float) ($actual['late_deduction'] ?? 0.0) + (float) ($actual['undertime_deduction'] ?? 0.0)).' of lateness and undertime';
+            $parts[] = Hris::money((float) ($actual['late_deduction'] ?? 0.0) + (float) ($actual['undertime_deduction'] ?? 0.0)).' of lateness and undertime';
         }
         if ((float) ($actual['overtime_pay'] ?? 0.0) > 0) {
-            $parts[] = Hris::peso((float) $actual['overtime_pay']).' of approved overtime';
+            $parts[] = Hris::money((float) $actual['overtime_pay']).' of approved overtime';
         }
         if ((float) ($actual['night_differential'] ?? 0.0) > 0) {
-            $parts[] = Hris::peso((float) $actual['night_differential']).' of night pay';
+            $parts[] = Hris::money((float) $actual['night_differential']).' of night pay';
         }
 
         return $parts === [] ? ' (worked as scheduled)' : ' ('.implode(', ', $parts).')';

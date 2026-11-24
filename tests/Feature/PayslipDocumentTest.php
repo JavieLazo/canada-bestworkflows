@@ -22,8 +22,9 @@ use App\Support\Access;
 use Livewire\Livewire;
 
 /**
- * Every printable payslip uses company branding and issued figures, including
- * historical line names and legacy deductions, without repricing current pay.
+ * Every payslip prints as a pay statement, whatever kind of payroll posted
+ * it, with company branding and issued figures, including historical line
+ * names and legacy deductions, without repricing current pay.
  */
 function payslipDocumentEmployee(): EmployeeProfile
 {
@@ -123,17 +124,19 @@ it('renders branded issued pay and historical lines without using current salary
     $printed = payslipDocumentText($document[1] ?? '');
 
     expect($html)->toContain('bestworkflows-wordmark.png')
-        ->and($printed)->toContain((string) config('copems.company_name'), 'Operations Coordinator', 'For the month of SEPTEMBER 2026', 'SEPTEMBER 1–15, 2026', '1st half')
+        ->and($printed)->toContain((string) config('copems.company_name'), 'Operations Coordinator', 'Pay Statement', 'Sep 1 to Sep 15, 2026')
         ->and($text)->toContain('COP-DOCUMENT-001', 'Alexandria Statement', 'Payroll ID PR-DOCUMENT-001')
         ->toContain('812.34', '1,332.75', '660.66', '672.09')
         ->toContain('Issued equipment installment', '60.06', 'Issued service award', '100.77')
-        ->toContain('Legacy late / undertime deduction', '90.09', 'Legacy absence deduction', '100.10', 'Legacy unpaid leave deduction', '110.11')
+        ->toContain('Late and Undertime', '90.09', 'Absences', '100.10', 'Leave Without Pay', '110.11')
+        // Amounts an earlier system posted stay on the statement, each under its own name.
+        ->toContain('SSS', '10.01', 'Withholding Tax', '40.04')
         // One needle per negation: negated together they pass when any ONE is absent.
         ->not->toContain('987,654.32')->not->toContain('5,432.19')
         ->not->toContain('Current renamed repayment')->not->toContain('Current renamed bonus');
 
     // Charged legacy rows must survive printing, not just screen-only details.
-    expect($printed)->toContain('Legacy late / undertime deduction', '90.09', 'Legacy absence deduction', '100.10', 'Legacy unpaid leave deduction', '110.11');
+    expect($printed)->toContain('Late and Undertime', '90.09', 'Absences', '100.10', 'Leave Without Pay', '110.11');
 
     if ($surface === 'Portal') {
         // My Portal is the employee's copy: the payslip alone. The additional
@@ -141,9 +144,12 @@ it('renders branded issued pay and historical lines without using current salary
         expect($text)->not->toContain('777.77')
             ->not->toContain('Additional payroll details')->not->toContain('Employer contributions')
             ->not->toContain('111.12')->not->toContain('222.23')->not->toContain('333.34')
-            ->and($html)->not->toContain('hris-payslip-details')->not->toContain('data-employer-shares');
+            ->and($html)->not->toContain('hris-payslip-details')->not->toContain('data-employer-shares')->not->toContain('data-employer-box');
     } else {
-        expect($text)->toContain('Additional payroll details', 'Employer contributions (not deducted)', '111.12', '222.23', '333.34');
+        // What the employer pays is shown to payroll beside the statement, never printed on it.
+        expect($html)->toContain('data-employer-box')
+            ->and($text)->toContain('Shown to Payroll Only')
+            ->and($printed)->not->toContain('Shown to Payroll Only');
         // Unapproved overtime shows no amount on the payslip itself, the officer's copy
         // included. The Reports register beside the statement still lists the stored
         // figure as "Stored overtime" with "Overtime included in gross: No".
@@ -153,7 +159,7 @@ it('renders branded issued pay and historical lines without using current salary
     expect($payslip->refresh()->getRawOriginal())->toEqual($issued);
 })->with(['Payroll' => ['Payroll'], 'Portal' => ['Portal'], 'Reports' => ['Reports']]);
 
-it('shows yearly pay and tax treatment without an attendance basis on every payslip surface', function (string $surface) {
+it('prints a posted 13th month payslip as a pay statement on every payslip surface', function (string $surface) {
     config(['copems.company_name' => 'Fixture Company']);
     $employee = payslipDocumentEmployee();
     payslipDocumentActor($employee);
@@ -167,16 +173,21 @@ it('shows yearly pay and tax treatment without an attendance basis on every pays
         'withholding_tax' => 345.67, 'total_deductions' => 345.67, 'net_pay' => 12000,
     ])->save();
 
-    $html = payslipDocumentHtml($surface, $run, $payslip);
-    $text = payslipDocumentText($html);
+    $issued = $payslip->refresh()->getRawOriginal();
 
+    $html = payslipDocumentHtml($surface, $run, $payslip);
+    preg_match('/<article[^>]*class="[^"]*hris-payslip[^"]*"[^>]*>(.*?)<\/article>/s', $html, $document);
+    $printed = payslipDocumentText($document[1] ?? '');
+
+    // The same sheet as any other pay: its one earning, the tax an earlier system took, the net.
     expect($html)->toContain('bestworkflows-wordmark.png')
-        ->and($text)->toContain((string) config('copems.company_name'), 'For the year 2026', '13th month pay', '12,345.67', '345.67', '12,000.00')
-        ->not->toContain('Work days', 'Absences', 'Daily Rate', 'Time and rate details');
-    // A 13th month slip stands alone: it is not a cut-off of any month.
-    expect($html)->not->toContain('data-month-summary')
-        ->and(substr_count($html, 'data-payslip-slip'))->toBe(1);
-    // Every surface keeps the posted exemption split, never a split of the
-    // current rate; grouping separators only change how the amount is read.
-    expect(str_replace(',', '', $text))->toContain('9000.00', '3345.67');
+        ->and(substr_count($html, 'data-pay-statement'))->toBe(1)
+        ->and($printed)->toContain((string) config('copems.company_name'), 'Pay Statement', 'Jan 1 to Dec 31, 2026', 'Payroll ID PR-DOCUMENT-001')
+        ->toContain('Alexandria Statement', 'COP-DOCUMENT-001', 'Operations Coordinator')
+        ->toContain('13th Month Pay', '12,345.67', 'Withholding Tax', '345.67', '12,000.00')
+        // One needle per negation: negated together they pass when any ONE is absent.
+        ->not->toContain('Regular Pay')->not->toContain('Overtime Pay')->not->toContain('Absences');
+    // Nothing of the sheet a 13th month payslip used to print on is drawn.
+    expect($html)->not->toContain('data-payslip-slip')->not->toContain('data-month-summary')->not->toContain('data-thirteenth-month=');
+    expect($payslip->refresh()->getRawOriginal())->toEqual($issued);
 })->with(['Payroll' => ['Payroll'], 'Portal' => ['Portal'], 'Reports' => ['Reports']]);

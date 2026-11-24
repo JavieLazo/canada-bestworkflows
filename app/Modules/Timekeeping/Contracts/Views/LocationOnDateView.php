@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Contracts\Views;
 
 /**
- * Where an employee works on ONE Manila calendar date, fallback applied —
+ * Where an employee works on ONE local calendar date, fallback applied —
  * what the punch station shows for today and the DTR correction dialog
  * shows for the corrected date, resolved through the per-date seam
  * (Infrastructure\ShiftRoster::locationForDate) so both read the same

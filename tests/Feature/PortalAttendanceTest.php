@@ -25,7 +25,7 @@ use App\Modules\Timekeeping\Application\Queries\OwnAttendance;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Contracts\Views\OwnAttendanceView;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -76,7 +76,7 @@ function portalAttendancePunch(EmployeeProfile $employee, string $type, string $
     $log = new AttendanceLog;
     $log->forceFill([
         'employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL',
-        'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ])->save();
 }
 

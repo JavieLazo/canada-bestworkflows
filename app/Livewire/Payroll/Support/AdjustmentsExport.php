@@ -9,7 +9,7 @@ use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -31,11 +31,11 @@ final class AdjustmentsExport implements TableExport
                     $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Earning, taxable' : 'Earning, not compensation'),
                     number_format($row->amount, 2, '.', ''), $row->reason, $row->reference ?? '', $row->status,
                     $row->payslip_run_code ?? $row->target_run_code ?? '', $row->prepared_by_name ?? '', $row->approved_by_name ?? '', $row->review_note ?? '',
-                    $row->created_at->setTimezone(ManilaClock::TZ)->format('Y-m-d'),
+                    $row->created_at->setTimezone(LocalClock::zone())->format('Y-m-d'),
                 ];
             }
         };
 
-        return new CsvExport('adjustments-'.ManilaClock::todayKey().'.csv', ['Employee ID', 'Employee', 'Category', 'Kind', 'Amount', 'Reason', 'Reference', 'Status', 'Payroll', 'Prepared by', 'Reviewed by', 'Note', 'Prepared on'], $rows);
+        return new CsvExport('adjustments-'.LocalClock::todayKey().'.csv', ['Employee ID', 'Employee', 'Category', 'Kind', 'Amount', 'Reason', 'Reference', 'Status', 'Payroll', 'Prepared by', 'Reviewed by', 'Note', 'Prepared on'], $rows);
     }
 }

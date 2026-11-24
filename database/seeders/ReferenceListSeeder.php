@@ -55,19 +55,14 @@ final class ReferenceListSeeder extends PortSeeder
 
         // Every row is a column of the Basic Payroll grid; the third value is
         // how payroll prices it (DeductionCalculation), and a row without one
-        // is typed per employee. Migration 2026_09_30_0010 tags these five on
-        // an installation seeded before the column existed; a fresh install
-        // gets them tagged here.
+        // is typed per employee. The pension plan, the insurance and income
+        // tax are NOT rows here: payroll computes them for every pay from
+        // the published figures. ADDS ONLY, by name, because an installation
+        // seeded with the earlier list holds these two under other codes.
         $this->list(PayrollDeduction::class, 'ded', 'DED', [
-            ['SSS', 'Social Security System contribution', DeductionCalculation::SSS],
-            ['PhilHealth', 'National health insurance premium', DeductionCalculation::PHILHEALTH],
-            ['Pag-IBIG', 'Home Development Mutual Fund', DeductionCalculation::PAGIBIG],
-            ['Withholding Tax', 'BIR income tax withheld', DeductionCalculation::WITHHOLDING_TAX],
             ['Late / Undertime', null, DeductionCalculation::LATE_UNDERTIME],
             ['Cash Advance', null],
-            ['SSS Loan', null],
-            ['Pag-IBIG Loan', null],
-        ]);
+        ], addOnly: true);
 
         $this->list(DocumentType::class, 'doc', 'DOC', [
             ['Government ID', 'SSS, PhilHealth, Pag-IBIG, TIN, licences'],

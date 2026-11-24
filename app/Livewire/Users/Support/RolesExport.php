@@ -8,7 +8,7 @@ use App\Modules\IdentityAccess\Application\Queries\GetAccounts;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\ModuleRegistry;
 use Generator;
 
@@ -42,7 +42,7 @@ final class RolesExport implements TableExport
         };
 
         return new CsvExport(
-            'roles-'.ManilaClock::todayKey().'.csv',
+            'roles-'.LocalClock::todayKey().'.csv',
             ['Role', 'Scope', ...array_map(static fn (array $module): string => (string) $module['label'], $modules)],
             $rows,
         );

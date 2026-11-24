@@ -25,7 +25,7 @@ use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
@@ -181,7 +181,7 @@ function rlocRow(EmployeeProfile $employee, int $weekday, ?WorkSite $site): Rost
 /** Freezes the clock at a Manila wall-clock instant. */
 function rlocFreeze(string $manila): void
 {
-    CarbonImmutable::setTestNow(CarbonImmutable::parse($manila, ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($manila, LocalClock::zone()));
 }
 
 /**
@@ -215,7 +215,7 @@ function rlocWeekOf(EmployeeProfile $employee): array
 {
     // The week in effect today: a change adds a dated row and a return to
     // the Assigned Worksite is a row with no kind.
-    $days = app(RosterVersions::class)->placesAsOf([(string) $employee->getKey()], ManilaClock::todayKey())[(string) $employee->getKey()] ?? [];
+    $days = app(RosterVersions::class)->placesAsOf([(string) $employee->getKey()], LocalClock::todayKey())[(string) $employee->getKey()] ?? [];
     ksort($days);
 
     return array_map(static fn (RosterLocation $row): array => ['kind' => $row->kind, 'site_id' => $row->site_id], $days);
@@ -725,7 +725,7 @@ it('stamps corrected punches with the corrected date\'s place', function () {
     CorrectPunches::apply($actor, $id, '2026-09-04', ['time_in' => '08:00', 'break_out' => null, 'break_in' => null, 'time_out' => '17:00'], PunchSlots::SAME_DAY, null);
 
     $byDay = AttendanceLog::query()->orderBy('logged_at')->get()
-        ->groupBy(static fn (AttendanceLog $row): string => ManilaClock::dayKey($row->logged_at));
+        ->groupBy(static fn (AttendanceLog $row): string => LocalClock::dayKey($row->logged_at));
     expect($byDay->keys()->all())->toBe(['2026-09-02', '2026-09-03', '2026-09-04']);
 
     foreach ($byDay['2026-09-02'] as $row) {
@@ -810,7 +810,7 @@ it('keeps a work site any weekly schedule named, as schedule history', function 
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T08:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T08:00:00')->utc(),
     ])->save();
     expect(app(SiteRetention::class)->refusal((string) $b->getKey()))
         ->toBe('This work site has recorded punches and must remain in attendance history. Make it inactive instead.');

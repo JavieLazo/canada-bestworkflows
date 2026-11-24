@@ -20,7 +20,7 @@ use App\Modules\Workforce\Contracts\EmployeeLeaveFacts;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * The leave rules as Leave Settings shows them — the one rule each leave
@@ -50,7 +50,7 @@ final class LeaveRuleRecords
         if (! self::ready() || ! LeaveSettingsAccess::mayView($access)) {
             return [];
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $book = LeaveRules::book();
         $ids = [];
         foreach ($book->scopes() as $scope) {
@@ -75,7 +75,7 @@ final class LeaveRuleRecords
 
     /**
      * When the schedule last ran the earning job, as a screen shows it —
-     * "Nov 07, 2026, 2:30 PM" in Manila time — or null when it has not run
+     * "Nov 07, 2026, 2:30 PM" in local time — or null when it has not run
      * since the cache was last cleared. For whoever may open the leave
      * credit settings or leave management.
      */
@@ -85,7 +85,7 @@ final class LeaveRuleRecords
             return null;
         }
 
-        return PostLeaveEarnings::lastRun()?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+        return PostLeaveEarnings::lastRun()?->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
     }
 
     /**

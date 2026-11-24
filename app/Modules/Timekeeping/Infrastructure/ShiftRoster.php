@@ -12,11 +12,11 @@ use App\Models\RosterDayOverride;
 use App\Modules\Timekeeping\Domain\Roster\ResolvedLocation;
 use App\Modules\Timekeeping\Domain\Roster\ScheduleBasis;
 use App\Modules\Timekeeping\Domain\Roster\ScheduleTimeline;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use InvalidArgumentException;
 
 /**
- * Resolves hours and places by the Manila date a shift STARTS, from the
+ * Resolves hours and places by the local date a shift STARTS, from the
  * schedule that applied ON THAT DATE: a temporary assignment wins, then the
  * weekday hours or place in effect that day, then the default shift or
  * assigned worksite in effect that day. A later change never reaches an
@@ -103,7 +103,7 @@ final class ShiftRoster
         }
         $ranged = $start !== null && $end !== null;
         $versions = app(RosterVersions::class);
-        $asOf ??= ManilaClock::todayKey();
+        $asOf ??= LocalClock::todayKey();
         $timelines = $versions->timelines($employeeIds, $ranged ? $end : $asOf, $lock);
         $assignments = [];
         foreach ($versions->assignments($employeeIds, $start, $end, $lock) as $row) {

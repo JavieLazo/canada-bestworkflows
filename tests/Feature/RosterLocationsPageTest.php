@@ -21,7 +21,7 @@ use App\Models\WorkSite;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -150,7 +150,7 @@ function rlocpageRow(EmployeeProfile $employee, int $weekday, ?WorkSite $site): 
  */
 function rlocpageWeek(EmployeeProfile $employee): array
 {
-    $days = app(RosterVersions::class)->placesAsOf([(string) $employee->getKey()], ManilaClock::todayKey())[(string) $employee->getKey()] ?? [];
+    $days = app(RosterVersions::class)->placesAsOf([(string) $employee->getKey()], LocalClock::todayKey())[(string) $employee->getKey()] ?? [];
     ksort($days);
 
     return array_map(static fn (RosterLocation $row): array => [$row->kind, $row->site_id], $days);
@@ -175,7 +175,7 @@ function rlocpagePunch(EmployeeProfile $employee, ?WorkSite $site, string $type,
         'accuracy_meters' => 8.0,
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ])->save();
 
     return $punch;
@@ -218,7 +218,7 @@ function rlocpageFactsHtml(string $html): string
 /** Freezes the clock at a Manila wall-clock instant. */
 function rlocpageFreeze(string $manila): void
 {
-    CarbonImmutable::setTestNow(CarbonImmutable::parse($manila, ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse($manila, LocalClock::zone()));
 }
 
 afterEach(function (): void {

@@ -31,7 +31,7 @@ use App\Modules\Timekeeping\Application\Commands\ReviewLeaveCashOut;
 use App\Modules\Timekeeping\Application\Commands\SaveLeaveTypeCredits;
 use App\Modules\Timekeeping\Application\Commands\WithdrawLeaveCashOut;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -50,8 +50,8 @@ use Tests\Support\PayrollReviewFixture;
  * (LeaveCashOutQuery::post). The requests are in the payroll's evidence.
  *
  * The paying type values a converted day at the monthly rate times
- * 0.0481927 unless set otherwise: 2.5 days of PHP 30,000 a month are
- * 30,000 × 2.5 × 0.0481927 = PHP 3,614.45 (CashConversionRulesTest prices
+ * 0.0481927 unless set otherwise: 2.5 days of CAD 30,000 a month are
+ * 30,000 × 2.5 × 0.0481927 = CAD 3,614.45 (CashConversionRulesTest prices
  * the daily rate and terminal leave).
  */
 
@@ -88,7 +88,7 @@ function lcosSelf(EmployeeProfile $employee): Access
     return app(Access::class);
 }
 
-/** Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, PHP 30,000 a month. */
+/** Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, CAD 30,000 a month. */
 function lcosEmployee(string $last = 'Cashout'): EmployeeProfile
 {
     $employee = new EmployeeProfile;
@@ -136,7 +136,7 @@ function lcosAttendance(EmployeeProfile $employee): void
             $punch = new AttendanceLog;
             $punch->forceFill([
                 'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-                'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant("2026-09-{$day}T{$time}:00")->utc(),
+                'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant("2026-09-{$day}T{$time}:00")->utc(),
             ])->save();
         }
     }
@@ -239,7 +239,7 @@ it('has a manager decide it, the employee\'s own linked account included, pays i
     assert($inputs !== null);
     expect($inputs->leaveCashOuts[$employee->id][0])->toBe(['id' => $request->id, 'request_type' => 'VACATION_LEAVE', 'name' => 'Vacation Leave', 'days' => 2.5, 'purpose' => 'MONETIZATION', 'salary' => null])
         ->and($inputs->cashOutType)->toMatchArray(['type_id' => $type->id, 'name' => 'Leave credits cash-out', 'tax' => 'TAXABLE', 'is_taxable' => true, 'day_value' => 'FACTOR', 'factor' => 0.0481927])
-        ->and($inputs->toArray()['schema_version'])->toBe(24)
+        ->and($inputs->toArray()['schema_version'])->toBe(25)
         ->and(PayrollInputs::restore(PayrollInputs::json($inputs->toArray()))->fingerprint())->toBe($inputs->fingerprint());
     // Schema 13 evidence restores without the two keys; malformed cash-out evidence is refused.
     $older = $inputs->toArray();
@@ -269,7 +269,7 @@ it('has a manager decide it, the employee\'s own linked account included, pays i
         ->and(LeaveCredit::query()->where('employee_id', $employee->id)->where('year', 2026)->where('request_type', 'VACATION_LEAVE')->value('credits'))->toBe(7.5)
         ->and(LeaveCreditEntry::query()->where('employee_id', $employee->id)->where('kind', 'CASH_OUT')->value('days'))->toBe(-2.5)
         ->and(AuditLog::query()->where('action', 'PAYROLL_FINALIZED')->value('details'))->toContain('1 leave credit cash-out paid')
-        ->and(AuditLog::query()->where('action', 'LEAVE_CASH_OUT_PAID')->value('details'))->toContain('Vacation Leave 2.5 days · PHP 3,614.45');
+        ->and(AuditLog::query()->where('action', 'LEAVE_CASH_OUT_PAID')->value('details'))->toContain('Vacation Leave 2.5 days · CAD 3,614.45');
     $evidence = json_decode((string) PayrollFinalizationSnapshot::query()->where('run_id', $run->id)->sole()->payload, true, 512, JSON_THROW_ON_ERROR);
     expect($evidence['inputs']['leave_cash_outs'][$employee->id][0]['id'])->toBe($request->id);
 

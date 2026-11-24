@@ -26,7 +26,12 @@ use InvalidArgumentException;
  *    PERIOD (the salary period's month) or PAY_DATE (the pay date's);
  *  - `attendance_lag`: how many days before the salary period the
  *    attendance window ends (0 = the period itself; a later phase prices
- *    a lagged window, so a payroll from a lagged schedule is refused).
+ *    a lagged window, so a payroll from a lagged schedule is refused);
+ *  - `cycle`, only on a schedule that runs BY WEEKS instead of cutting the
+ *    month: `weeks` (1 or 2) long, every period following from the `anchor`
+ *    day (the first day of one period), paid `pay_after_days` after its
+ *    last day. Such a schedule has no `periods`: a two-week period belongs
+ *    to no month, and a year has 26 pay dates of it, now and then 27.
  *
  * ONE immutable value, read strictly from a row's figures. Pure: no clock,
  * database or framework.
@@ -59,9 +64,13 @@ final class PaySchedule
 
     public const int MAX_LAG_DAYS = 31;
 
+    /** The longest a weekly or two-week period waits for its pay date. */
+    public const int MAX_PAY_AFTER_DAYS = 31;
+
     /**
      * @param  list<array{start: int, end: ?int, pay_day: array{kind: string, day: ?int, next_month: bool}}>  $periods
      * @param  list<array{label: string, days_before: int}>  $deadlines
+     * @param  array{weeks: int, anchor: string, pay_after_days: int}|null  $cycle
      */
     private function __construct(
         public readonly array $periods,
@@ -69,7 +78,27 @@ final class PaySchedule
         public readonly array $deadlines,
         public readonly string $contributionMonth,
         public readonly int $attendanceLag,
+        public readonly ?array $cycle = null,
     ) {}
+
+    /**
+     * A schedule of two-week periods: every period follows from the anchor
+     * day and is paid a set number of days after it ends. The year a pay
+     * counts in is the year of its pay date.
+     *
+     * @param  list<array{label: string, days_before: int}>  $deadlines
+     */
+    public static function everyTwoWeeks(string $anchor, int $payAfterDays, string $holidayRule = self::MOVE_BEFORE, array $deadlines = []): self
+    {
+        return self::fromArray([
+            'periods' => [],
+            'holiday_rule' => $holidayRule,
+            'deadlines' => $deadlines,
+            'contribution_month' => self::MONTH_PAY_DATE,
+            'attendance_lag' => 0,
+            'cycle' => ['weeks' => 2, 'anchor' => $anchor, 'pay_after_days' => $payAfterDays],
+        ]);
+    }
 
     /** Today's behaviour: the 1st–15th and the 16th–end, paid on the period's last day, no move, no deadlines. */
     public static function standard(): self
@@ -114,19 +143,30 @@ final class PaySchedule
             $deadlines[] = ['label' => trim((string) $deadline['label']), 'days_before' => (int) $deadline['days_before']];
         }
 
-        return new self($periods, (string) $data['holiday_rule'], $deadlines, (string) $data['contribution_month'], (int) $data['attendance_lag']);
+        $cycle = isset($data['cycle'])
+            ? ['weeks' => (int) $data['cycle']['weeks'], 'anchor' => (string) $data['cycle']['anchor'], 'pay_after_days' => (int) $data['cycle']['pay_after_days']]
+            : null;
+
+        return new self($periods, (string) $data['holiday_rule'], $deadlines, (string) $data['contribution_month'], (int) $data['attendance_lag'], $cycle);
     }
 
     /** @return array<string, mixed> */
     public function toArray(): array
     {
-        return [
+        $out = [
             'periods' => $this->periods,
             'holiday_rule' => $this->holidayRule,
             'deadlines' => $this->deadlines,
             'contribution_month' => $this->contributionMonth,
             'attendance_lag' => $this->attendanceLag,
         ];
+        // Written only by a schedule that has one, so a month-cut schedule's
+        // figures stay exactly as they were stored.
+        if ($this->cycle !== null) {
+            $out['cycle'] = $this->cycle;
+        }
+
+        return $out;
     }
 
     /** Why the figures cannot be used, or null. */
@@ -140,7 +180,17 @@ final class PaySchedule
                 return "The pay schedule is incomplete ({$key}).";
             }
         }
-        if (! is_array($data['periods']) || $data['periods'] === [] || count($data['periods']) > 4) {
+        $byWeeks = array_key_exists('cycle', $data) && $data['cycle'] !== null;
+        if ($byWeeks) {
+            $cycleError = self::cycleError($data['cycle']);
+            if ($cycleError !== null) {
+                return $cycleError;
+            }
+            if ($data['periods'] !== []) {
+                return 'A schedule that runs by weeks does not also cut the month into periods.';
+            }
+        }
+        if (! $byWeeks && (! is_array($data['periods']) || $data['periods'] === [] || count($data['periods']) > 4)) {
             return 'Cut the month into one to four salary periods.';
         }
         $expectedStart = 1;
@@ -207,6 +257,44 @@ final class PaySchedule
         return null;
     }
 
+    /** Whether the schedule runs by weeks from an anchor day instead of cutting the month. */
+    public function isByWeeks(): bool
+    {
+        return $this->cycle !== null;
+    }
+
+    /** Days in one period of a schedule that runs by weeks: 7 or 14. */
+    public function periodDays(): int
+    {
+        return ($this->cycle['weeks'] ?? 0) * 7;
+    }
+
+    /** How many pay dates a normal year has: 52, 26, or the month's periods twelve times. */
+    public function usualPaysPerYear(): int
+    {
+        return $this->cycle === null ? count($this->periods) * 12 : intdiv(52, $this->cycle['weeks']);
+    }
+
+    /** Why a by-weeks cycle cannot be used, or null. */
+    private static function cycleError(mixed $cycle): ?string
+    {
+        if (! is_array($cycle) || ! isset($cycle['weeks'], $cycle['anchor'], $cycle['pay_after_days'])) {
+            return 'A schedule that runs by weeks needs its length, the day its first period starts and its pay day.';
+        }
+        if (! in_array($cycle['weeks'], [1, 2], true)) {
+            return 'A period is one week or two weeks long.';
+        }
+        $anchor = $cycle['anchor'];
+        if (! is_string($anchor) || preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $anchor, $m) !== 1 || ! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return 'Enter the day the first period starts as a real date.';
+        }
+        if (! is_int($cycle['pay_after_days']) || $cycle['pay_after_days'] < 0 || $cycle['pay_after_days'] > self::MAX_PAY_AFTER_DAYS) {
+            return 'The pay day falls 0 to '.self::MAX_PAY_AFTER_DAYS.' days after the period ends.';
+        }
+
+        return null;
+    }
+
     /** Whether the periods are the standard 1–15 and 16–end. */
     public function isSemiMonthly(): bool
     {
@@ -229,6 +317,10 @@ final class PaySchedule
             default => 'kept on a weekend or holiday',
         };
         $deadlines = array_map(static fn (array $d): string => $d['label'].' '.$d['days_before'].' days before', $this->deadlines);
+        if ($this->cycle !== null) {
+            return ($this->cycle['weeks'] === 2 ? 'every two weeks' : 'every week').' from '.$this->cycle['anchor']
+                .', paid '.$this->cycle['pay_after_days'].' days after the period ends; '.$move.($deadlines === [] ? '' : '; '.implode(', ', $deadlines));
+        }
 
         return implode('; ', $periods).'; '.$move.($deadlines === [] ? '' : '; '.implode(', ', $deadlines))
             .'; contributions of the '.($this->contributionMonth === self::MONTH_PAY_DATE ? 'pay date\'s month' : 'period\'s month')

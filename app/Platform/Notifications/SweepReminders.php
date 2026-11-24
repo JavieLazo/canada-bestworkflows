@@ -6,7 +6,7 @@ namespace App\Platform\Notifications;
 
 use App\Domain\Reminders\ReminderSweep;
 use App\Models\Notification;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -18,7 +18,7 @@ final class SweepReminders
     /** @return array{swept: int, attempted: int, written: int, duplicates: int, failed: int, errors: int} */
     public function handle(): array
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $result = ['swept' => 0, 'attempted' => 0, 'written' => 0, 'duplicates' => 0, 'failed' => 0, 'errors' => 0];
         foreach ($this->recipients->active() as $recipient) {
             $actor = $recipient->actor;

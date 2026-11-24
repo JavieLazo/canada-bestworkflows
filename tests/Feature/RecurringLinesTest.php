@@ -66,7 +66,7 @@ function rlActor(array $modules = ['PAYROLL'], bool $allData = true): Access
 }
 
 /**
- * A line's figures over a ₱500-a-payroll loan of ₱750 from 1 Sep 2026.
+ * A line's figures over a $500-a-payroll loan of $750 from 1 Sep 2026.
  *
  * @param  array<string, mixed>  $changes
  * @return array<string, mixed>
@@ -160,7 +160,7 @@ it('proposes a due line on the draft, lets a typed amount replace and pay it, an
 
     // A typed payment cannot pay more than is left.
     expect(rlDraft($actor, $employee->id, typed: [$loan->id => 800])['draftErrors'])
-        ->toContain(['employee_id' => $employee->id, 'message' => 'SSS Loan: ₱800.00 is more than the ₱750.00 left to pay. Type at most ₱750.00.']);
+        ->toContain(['employee_id' => $employee->id, 'message' => 'SSS Loan: $800.00 is more than the $750.00 left to pay. Type at most $750.00.']);
 
     $skipped = rlDraft($actor, $employee->id, skipped: [$line->id]);
     expect($skipped['customDeductionLines'])->toBe([])
@@ -193,8 +193,8 @@ it('prices a recurring tax-exempt incentive against what the year has already sp
     rlLine($actor, $employee->id, $pay->id, ['kind' => 'INCENTIVE', 'amount' => 5000.0, 'total' => null]);
     $before = rlDraft($actor, $employee->id);
 
-    // ₱88,000 of the ceiling already spent this year leaves ₱2,000 of the
-    // ₱5,000 tax-free; the other ₱3,000 is taxed with the pay.
+    // $88,000 of the ceiling already spent this year leaves $2,000 of the
+    // $5,000 tax-free; the other $3,000 is taxed with the pay.
     $posted = new Payslip;
     $posted->forceFill(['employee_id' => $employee->id, 'period_start' => '2026-08-16', 'period_end' => '2026-08-31',
         'gross_pay' => 15000, 'total_deductions' => 0, 'net_pay' => 15000, 'exempt_benefits' => 88000])->save();
@@ -249,13 +249,13 @@ it('pays a loan down with each finalized payslip, trims the last payment and sto
 
     // The next payroll proposes only what is left.
     expect(rlDraft($actor, $employee->id, '2026-09-16', '2026-09-30')['customDeductionLines'][$employee->id][0]['amount'])->toBe(250.0)
-        ->and(app(EmployeeObligations::class)->outstanding($employee->id))->toBe([['label' => 'SSS Loan · Loan 42', 'reference' => '₱250.00 left to pay']]);
+        ->and(app(EmployeeObligations::class)->outstanding($employee->id))->toBe([['label' => 'SSS Loan · Loan 42', 'reference' => '$250.00 left to pay']]);
 
     // Paid on a payslip: it keeps its row and kind, its total never drops below what it paid, and it cannot be deleted.
     $other = PayrollDeduction::create(['code' => '9', 'name' => 'Cash Advance']);
     expect(fn () => app(SaveRecurringLine::class)->handle($actor, $line->id, $employee->id, $other->id, rlFigures(), ''))->toThrow(RuntimeException::class, 'keeps what it charges')
         ->and(fn () => app(SaveRecurringLine::class)->handle($actor, $line->id, $employee->id, $loan->id, rlFigures(['total' => 400.0]), ''))->toThrow(RuntimeException::class, 'The total to pay off must be at least the amount per payroll')
-        ->and(fn () => app(SaveRecurringLine::class)->handle($actor, $line->id, $employee->id, $loan->id, rlFigures(['amount' => 300.0, 'total' => 400.0]), ''))->toThrow(RuntimeException::class, 'cannot be less than the ₱500.00 already paid.')
+        ->and(fn () => app(SaveRecurringLine::class)->handle($actor, $line->id, $employee->id, $loan->id, rlFigures(['amount' => 300.0, 'total' => 400.0]), ''))->toThrow(RuntimeException::class, 'cannot be less than the $500.00 already paid.')
         ->and(fn () => app(DeleteRecurringLine::class)->handle($actor, $line->id))->toThrow(RuntimeException::class, 'End it instead.');
 
     // A total equal to what was paid: paid off, proposed no more, no longer an obligation.
@@ -267,7 +267,7 @@ it('pays a loan down with each finalized payslip, trims the last payment and sto
     // An amount typed on a paid-off loan's row is refused, not deducted loose past its total…
     $typed = rlDraft($actor, $employee->id, '2026-09-16', '2026-09-30', typed: [$loan->id => 300]);
     expect($typed['draftErrors'])->toContain(['employee_id' => $employee->id,
-        'message' => 'SSS Loan is already paid off, so ₱300.00 cannot be deducted for it. Clear the amount, or end the paid-off line in the employee\'s pay settings on 15 Sep 2026 or earlier.'])
+        'message' => 'SSS Loan is already paid off, so $300.00 cannot be deducted for it. Clear the amount, or end the paid-off line in the employee\'s pay settings on 15 Sep 2026 or earlier.'])
         ->and($typed['customDeductionLines'][$employee->id][0]['recurring_line_id'])->toBe($line->id)
         // Captured only to refuse that amount, it offers the grid no line to skip.
         ->and(PayrollData::recurringMembers($typed['inputs']))->toBe([]);
@@ -361,8 +361,8 @@ it('keeps a skip on the draft through save and reload, and drops it from the pro
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->assertSee('Recurring deductions and allowances for Synthetic Evidence')
         ->call('openRecurring', $employee->id)
-        ->assertSee('₱500.00')
-        ->assertSee('₱750.00')
+        ->assertSee('$500.00')
+        ->assertSee('$750.00')
         ->call('toggleRecurringSkip', $line->id)
         ->assertSet('skippedRecurring', [$employee->id => [$line->id]])
         ->assertSee('Skipped on this payroll.')
@@ -439,7 +439,7 @@ it('adds, edits, ends and deletes a recurring line on the employee\'s page, and 
         ->set('lineNote', 'Loan 42')
         ->call('saveLine')
         ->assertSet('lineOpen', false)
-        ->assertSee('₱12,000.00')
+        ->assertSee('$12,000.00')
         ->assertSee('Upcoming');
     $line = PayrollRecurringLine::query()->sole();
     expect($line->amount)->toBe(1000.0)->and($line->total)->toBe(12000.0)->and($line->starts_on->format('Y-m-d'))->toBe('2026-10-16');
@@ -448,7 +448,7 @@ it('adds, edits, ends and deletes a recurring line on the employee\'s page, and 
         ->assertSet('lineAmount', '1000')
         ->set('lineAmount', 'lots')
         ->call('saveLine')
-        ->assertSet('lineError', 'Enter the amount per payroll, above ₱0.00 and up to ₱99,999,999.00.')
+        ->assertSet('lineError', 'Enter the amount per payroll, above $0.00 and up to $99,999,999.00.')
         ->set('lineAmount', '2000')
         ->call('saveLine')
         ->assertSet('lineOpen', false);
@@ -456,7 +456,7 @@ it('adds, edits, ends and deletes a recurring line on the employee\'s page, and 
 
     Livewire::test(EmployeePaySettingsPage::class)
         ->assertSee('Synthetic Evidence')
-        ->assertSee('1 line, ₱12,000.00 left');
+        ->assertSee('1 line, $12,000.00 left');
 
     $page->call('startEnd', $line->id)
         ->set('endLastDay', '2027-03-16')

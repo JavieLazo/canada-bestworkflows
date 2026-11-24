@@ -21,7 +21,7 @@ use App\Modules\Timekeeping\Application\Commands\ReviewAbsence;
 use App\Modules\Timekeeping\Domain\Attendance\CorrectionWindow;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\ScheduleFixture;
@@ -77,7 +77,7 @@ function paidPunch(EmployeeProfile $employee, string $type, string $manilaStamp)
     $punch = new AttendanceLog;
     $punch->forceFill([
         'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'WEB_GPS',
-        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ])->save();
 
     return $punch;

@@ -20,7 +20,7 @@ use App\Support\CodeSort;
 use App\Support\EmployeeIdentity;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Validator;
@@ -158,7 +158,7 @@ final class EmployeeReport
         ReportDocument::guardSize($employees->count());
         $placements = EmployeePlacements::of($employees);
         $sites = $employees->isEmpty() ? collect() : app(OrganizationDirectory::class)->sites($actor)->keyBy('id');
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $facts = [];
         foreach ($employees as $employee) {
             $placement = $placements[$employee->id] ?? [];
@@ -324,7 +324,7 @@ final class EmployeeReport
             return [[], []];
         }
         $ids = array_column($facts, 'id');
-        $completionCutoff = min($criteria->to, ManilaClock::todayKey());
+        $completionCutoff = min($criteria->to, LocalClock::todayKey());
         $trainings = PdsLists::ready('training') ? EmployeeTraining::query()->whereIn('employee_id', $ids)
             ->whereDate('date_to', '>=', $criteria->from)->whereDate('date_to', '<=', $completionCutoff)
             ->orderBy('id')->limit(ReportDocument::MAX_ROWS + 1)

@@ -21,7 +21,7 @@ use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Modules\Workforce\Contracts\PunchEmployees;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 
@@ -102,7 +102,7 @@ final class RosterLocations
         if ($employee === null) {
             return null;
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $previous = PayrollPeriod::addCalendarDays($today, -2);
         $schedule = $this->roster->scheduleForEmployee($employee->id, $previous, $today);
         $span = PayrollPeriod::attendanceInstants($previous, $today);
@@ -112,7 +112,7 @@ final class RosterLocations
             ->map(static fn (AttendanceLog $row): DomainLog => DomainLog::fromArray([
                 'id' => $row->id, 'log_type' => $row->log_type, 'logged_at' => $row->logged_at,
             ]))->all();
-        $now = CarbonImmutable::now(ManilaClock::TZ);
+        $now = CarbonImmutable::now(LocalClock::zone());
         $workDate = PunchWorkDate::forScheduledPunch(array_values($logs), DomainLog::TIME_IN, $now, $schedule);
         $resolved = $this->roster->locationForDate($employee->id, $workDate)
             ?? ResolvedLocation::assigned($employee->work_site_id);

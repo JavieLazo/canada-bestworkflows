@@ -11,7 +11,7 @@ use App\Models\EmployeeSalaryRate;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -206,7 +206,7 @@ final class SalaryRates
      */
     public static function replace(Access $actor, EmployeeProfile $employee, string $reason): EmployeeSalaryRate
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $rows = EmployeeSalaryRate::query()->where('employee_id', $employee->id)->lockForUpdate()->orderBy('effective_from')->orderBy('id')->get();
         // The row in use today, else the earliest: the one the change is written on.
         $kept = $rows->last(static fn (EmployeeSalaryRate $row): bool => $row->status === EmployeeSalaryRate::APPROVED

@@ -19,7 +19,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Models\WorkSite;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -141,17 +141,17 @@ function portalCreditRow(EmployeeProfile $employee, string $requestType, float $
 
 /**
  * Runs $work with the clock frozen at 2026-09-26 09:00 Manila, so the panel's
- * year — LeaveCreditPolicy::yearOf(ManilaClock::todayKey()), exactly as the
+ * year — LeaveCreditPolicy::yearOf(LocalClock::todayKey()), exactly as the
  * page derives it — is 2026 whichever day the suite runs on. The clock is
  * released in `finally`, so a failing assertion never leaks it into the next
  * test.
  */
 function portalCreditFrozen(Closure $work): void
 {
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-26 09:00:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-26 09:00:00', LocalClock::zone()));
 
     try {
-        expect(LeaveCreditPolicy::yearOf(ManilaClock::todayKey()))->toBe(2026);
+        expect(LeaveCreditPolicy::yearOf(LocalClock::todayKey()))->toBe(2026);
         $work();
     } finally {
         CarbonImmutable::setTestNow();
@@ -529,7 +529,7 @@ it('opens the payslip as a bare sheet with nothing round it but its close button
         ->and($path->evaluate('count('.$dialog.'//button)'))->toBe(1.0)
         ->and($path->evaluate('string(('.$dialog.'//button)[1]/@aria-label)'))->toBe('Close')
         ->and($path->evaluate('normalize-space(('.$dialog.'//button)[1])'))->toBe('')
-        ->and($path->evaluate('string('.$dialog.')'))->toContain('AUGUST 1–15, 2026')
+        ->and($path->evaluate('string('.$dialog.')'))->toContain('Aug 1 to Aug 15, 2026')
         ->not->toContain('Aug 01, 2026');
 });
 
@@ -550,9 +550,9 @@ it('totals the employee\'s own payslips under the list', function (bool $allData
 
     // Someone who also runs payroll still totals only their own: the list is theirs alone.
     expect($cell(1))->toBe('Total')
-        ->and($cell(2))->toBe('₱3,500.30')
-        ->and($cell(3))->toBe('₱500.00')
-        ->and($cell(4))->toBe('₱3,000.30');
+        ->and($cell(2))->toBe('$3,500.30')
+        ->and($cell(3))->toBe('$500.00')
+        ->and($cell(4))->toBe('$3,000.30');
 })->with(['portal employee' => false, 'payroll administrator' => true]);
 
 it('shows no total while no payslip has posted', function () {

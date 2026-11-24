@@ -72,7 +72,7 @@ final class PpmDemoReportingSeeder extends PpmDemoRecords
             ['REPORT', 'CHOICE', 'Delivery confidence', null, 'PROJECT'], ['REPORT', 'DATE', 'Next review', null, 'PROJECT'],
             ['REPORT', 'EVIDENCE', 'Supporting record', null, 'PROJECT']];
         if ($finance) {
-            $specs[] = ['REPORT', 'MONEY', 'Forecast adjustment', $number % 7 === 0 ? 'USD' : ($number % 11 === 0 ? 'EUR' : 'PHP'), 'FINANCE'];
+            $specs[] = ['REPORT', 'MONEY', 'Forecast adjustment', $number % 7 === 0 ? 'USD' : ($number % 11 === 0 ? 'EUR' : 'CAD'), 'FINANCE'];
             $specs[] = ['REPORT', 'EVIDENCE', 'Financial supporting record', null, 'FINANCE'];
         }
         foreach ($specs as $i => [$entity, $type, $name, $unit, $visibility]) {

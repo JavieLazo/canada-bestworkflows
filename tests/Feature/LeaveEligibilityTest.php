@@ -30,7 +30,7 @@ use App\Modules\Timekeeping\Application\Queries\LeaveRuleRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
 use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -140,7 +140,7 @@ function leligRule(Access $access, string $typeId, string $manilaDay, array $ove
 
 function leligFreeze(string $manilaDay): void
 {
-    test()->travelTo(CarbonImmutable::parse($manilaDay.' 09:00:00', ManilaClock::TZ)->utc());
+    test()->travelTo(CarbonImmutable::parse($manilaDay.' 09:00:00', LocalClock::zone())->utc());
 }
 
 function leligCredit(EmployeeProfile $employee, string $token, float $credits, int $year = 2026): void

@@ -92,14 +92,14 @@ final readonly class RecurringLine
             return 'Choose whether it is a deduction or an incentive.';
         }
         if (! self::finite($data['amount']) || Money::round($data['amount']) <= 0.0 || (float) $data['amount'] > self::AMOUNT_CAP) {
-            return 'Enter the amount per payroll, above ₱0.00 and up to ₱99,999,999.00.';
+            return 'Enter the amount per payroll, above $0.00 and up to $99,999,999.00.';
         }
         if ($data['total'] !== null) {
             if ($data['kind'] !== self::KIND_DEDUCTION) {
                 return 'Only a deduction has a total to pay off; end an incentive with its last date instead.';
             }
             if (! self::finite($data['total']) || (float) $data['total'] > self::AMOUNT_CAP || Money::round($data['total']) < Money::round($data['amount'])) {
-                return 'The total to pay off must be at least the amount per payroll, and up to ₱99,999,999.00.';
+                return 'The total to pay off must be at least the amount per payroll, and up to $99,999,999.00.';
             }
         }
         if (! in_array($data['frequency'], self::FREQUENCIES, true)) {

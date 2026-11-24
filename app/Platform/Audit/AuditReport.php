@@ -9,7 +9,7 @@ use App\Models\AuditLog;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /** Period reports filter before limiting, so the latest-500 inbox window cannot truncate history. */
 final class AuditReport
@@ -20,18 +20,18 @@ final class AuditReport
         abort_unless($criteria->type === 'audit-logs', 422);
 
         $entries = AuditLog::query()
-            ->where('created_at', '>=', ManilaClock::instant($criteria->from.'T00:00:00')->utc())
-            ->where('created_at', '<', ManilaClock::instant($criteria->to.'T00:00:00')->addDay()->utc())
+            ->where('created_at', '>=', LocalClock::instant($criteria->from.'T00:00:00')->utc())
+            ->where('created_at', '<', LocalClock::instant($criteria->to.'T00:00:00')->addDay()->utc())
             ->orderByDesc('created_at')->orderByDesc('id')
             ->limit(ReportDocument::MAX_ROWS + 1)->get();
         ReportDocument::guardSize($entries->count());
 
-        return new ReportDocument('Audit Logs', ['Timestamp (Manila)', 'Actor', 'Action', 'Entity', 'Record ID', 'Details'],
+        return new ReportDocument('Audit Logs', ['Timestamp (local time)', 'Actor', 'Action', 'Entity', 'Record ID', 'Details'],
             array_values($entries->map(static fn (AuditLog $entry): array => [
-                $entry->created_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s.v'),
+                $entry->created_at->setTimezone(LocalClock::zone())->format('Y-m-d H:i:s.v'),
                 $entry->actor_name ?: 'System', $entry->action, $entry->entity ?? '', $entry->entity_id ?? '', $entry->details ?? '',
             ])->all()),
-            ['All audit entries in the selected Manila calendar dates, newest first. Timestamps retain millisecond precision. The audit trail is append-only.'], [], [
+            ['All audit entries in the selected local calendar dates, newest first. Timestamps retain millisecond precision. The audit trail is append-only.'], [], [
                 ['label' => 'Audit entries', 'value' => (string) $entries->count()],
                 ['label' => 'Actors', 'value' => (string) $entries->pluck('actor_id')->unique()->count()],
                 ['label' => 'Action types', 'value' => (string) $entries->pluck('action')->unique()->count()],

@@ -9,7 +9,7 @@ use App\Models\EmployeeProfile;
 use App\Models\EmployeeRecordChangeRequest;
 use App\Modules\Organization\Contracts\OrganizationReferences;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Schema;
 
@@ -33,7 +33,7 @@ final class EmploymentHistoryRecorder
     /** Approval evidence is required in the caller's employee-update transaction. */
     public function approved(Access $actor, EmployeeProfile $employee, EmployeeRecordChangeRequest $request): void
     {
-        $this->append($actor, $employee, self::RECORD_APPROVED, ManilaClock::todayKey(), ['record_change'], request: $request);
+        $this->append($actor, $employee, self::RECORD_APPROVED, LocalClock::todayKey(), ['record_change'], request: $request);
     }
 
     /** @var list<string> */
@@ -70,7 +70,7 @@ final class EmploymentHistoryRecorder
             return;
         }
 
-        $this->append($actor, $employee, self::UPDATED, ManilaClock::todayKey(), $changed, $before);
+        $this->append($actor, $employee, self::UPDATED, LocalClock::todayKey(), $changed, $before);
     }
 
     /**

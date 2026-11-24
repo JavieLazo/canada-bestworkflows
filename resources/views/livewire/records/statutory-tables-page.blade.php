@@ -85,8 +85,8 @@
                                 <tbody>
                                     @foreach ($bracketRows[$list] ?? [] as [$over, $base, $rate])
                                         <tr>
-                                            <td class="num">{{ \App\Livewire\Records\Support\Hris::peso((float) $over) }}</td>
-                                            <td class="num text-right">{{ \App\Livewire\Records\Support\Hris::peso((float) $base) }}</td>
+                                            <td class="num">{{ \App\Livewire\Records\Support\Hris::money((float) $over) }}</td>
+                                            <td class="num text-right">{{ \App\Livewire\Records\Support\Hris::money((float) $base) }}</td>
                                             <td class="num text-right">{{ StatutoryTablesPage::percentText($rate) }}%</td>
                                         </tr>
                                     @endforeach

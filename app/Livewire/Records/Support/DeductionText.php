@@ -29,7 +29,7 @@ final class DeductionText
 
     /**
      * The rest of a percentage rule, for the Computation column's second
-     * line: "2nd cut-off · cap ₱200.00 a month · before tax" — empty when
+     * line: "2nd cut-off · cap $200.00 a month · before tax" — empty when
      * the rule is the plain one.
      *
      * @param  array<string, mixed>  $percent
@@ -41,7 +41,7 @@ final class DeductionText
             $parts[] = '2nd cut-off only';
         }
         if (is_numeric($percent['cap'] ?? null)) {
-            $parts[] = 'cap '.Hris::peso((float) $percent['cap']).' a month per share';
+            $parts[] = 'cap '.Hris::money((float) $percent['cap']).' a month per share';
         }
         if (($percent['before_tax'] ?? false) === true) {
             $parts[] = 'before tax';

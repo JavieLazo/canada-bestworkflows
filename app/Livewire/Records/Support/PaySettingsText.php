@@ -19,7 +19,7 @@ final class PaySettingsText
 {
     private function __construct() {}
 
-    /** SSS, PhilHealth or Pag-IBIG (`$key` is the column prefix): "Table", "Off", "₱500.00 fixed", with the schedule when it is not halved. */
+    /** SSS, PhilHealth or Pag-IBIG (`$key` is the column prefix): "Table", "Off", "$500.00 fixed", with the schedule when it is not halved. */
     public static function contribution(GovDeductionSettings $settings, string $key): string
     {
         if (! (bool) $settings->get("allow_{$key}")) {
@@ -28,9 +28,9 @@ final class PaySettingsText
         $employee = (float) $settings->get("fixed_{$key}_ee");
         $employer = (float) $settings->get("fixed_{$key}_er");
         $text = match (true) {
-            $employee > 0.0 && $employer > 0.0 => Hris::peso($employee).' + '.Hris::peso($employer).' fixed',
-            $employee > 0.0 => Hris::peso($employee).' fixed',
-            $employer > 0.0 => 'Table, employer '.Hris::peso($employer).' fixed',
+            $employee > 0.0 && $employer > 0.0 => Hris::money($employee).' + '.Hris::money($employer).' fixed',
+            $employee > 0.0 => Hris::money($employee).' fixed',
+            $employer > 0.0 => 'Table, employer '.Hris::money($employer).' fixed',
             default => 'Table',
         };
 
@@ -42,7 +42,7 @@ final class PaySettingsText
         };
     }
 
-    /** "Off", "BIR semi-monthly table", "Annualized per cut-off (×24)", "₱1,000.00 fixed" or "5% of taxable compensation". */
+    /** "Off", "BIR semi-monthly table", "Annualized per cut-off (×24)", "$1,000.00 fixed" or "5% of taxable compensation". */
     public static function withholding(GovDeductionSettings $settings): string
     {
         if (! (bool) $settings->get('allow_withholding_tax')) {
@@ -52,7 +52,7 @@ final class PaySettingsText
         $percent = (float) $settings->get('percent_tax');
 
         return match (GovDeductionInput::methodOf($fixed, $percent, (bool) $settings->get('annualize_tax'), (bool) $settings->get('whole_year_tax'))) {
-            GovDeductionInput::METHOD_FIXED => Hris::peso($fixed).' fixed',
+            GovDeductionInput::METHOD_FIXED => Hris::money($fixed).' fixed',
             GovDeductionInput::METHOD_PERCENT => Hris::moneyText($percent).'% of taxable compensation',
             GovDeductionInput::METHOD_ANNUALIZED => 'Annualized per cut-off (×24)',
             GovDeductionInput::METHOD_WHOLE_YEAR => 'Projected annual tax with year-end adjustment, '.lcfirst((string) (GovDeductionInput::SPREADS[(string) $settings->get('tax_spread')] ?? 'spread equally')),
@@ -103,7 +103,7 @@ final class PaySettingsText
     /** "From the shift", or the override per hour. */
     public static function hourly(EmployeePaySettingsView $settings): string
     {
-        return (float) $settings->hourly_rate > 0.0 ? Hris::peso($settings->hourly_rate).' an hour' : 'From the shift';
+        return (float) $settings->hourly_rate > 0.0 ? Hris::money($settings->hourly_rate).' an hour' : 'From the shift';
     }
 
     /**

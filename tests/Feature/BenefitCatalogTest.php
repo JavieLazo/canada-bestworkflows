@@ -18,7 +18,6 @@ use App\Modules\Payroll\Application\Commands\SaveIncentiveType;
 use App\Modules\Payroll\Application\ExemptBenefitLedger;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollInputs;
-use App\Modules\Payroll\Application\Queries\ThirteenthMonthBasis;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Support\Access;
 use Illuminate\Support\Facades\DB;
@@ -32,8 +31,8 @@ use Tests\Support\PayrollEvidenceFixture;
  * is proposed on every draft payroll it is due on, for the members who
  * qualify, as an automatic line a typed amount replaces; the four tax
  * categories split as the rule says and only the ceiling's part spends the
- * yearly ceiling; a line flagged as basic pay reaches the 13th month; and
- * the evidence captures the rules, so a replay never reads the catalog.
+ * yearly ceiling; a line posts its stored basic-pay flag as a copy; and the
+ * evidence captures the rules, so a replay never reads the catalog.
  */
 function bencatStatus(string $name): EmploymentStatusOption
 {
@@ -96,11 +95,11 @@ it('saves a benefit\'s rule through the page and lists it in words', function ()
         ->set("formStatuses.{$regular->id}", true)
         ->set('formMinServiceMonths', '4')
         ->set('formApprovalReference', 'Board resolution 12')
-        ->assertSee('At ₱30,000 a month with every day paid: ₱2,000.00 when due.')
+        ->assertSee('At $30,000 a month with every day paid: $2,000.00 when due.')
         ->call('save')
         ->assertSet('formError', null)
         ->assertSet('dialogOpen', false)
-        ->assertSee('₱2,000.00')
+        ->assertSee('$2,000.00')
         ->assertSee('Monthly · 1st cut-off')
         ->assertSee('Not compensation')
         ->assertSee('Regular · 4 months of service');
@@ -263,9 +262,8 @@ it('splits the four categories, spends the ceiling only with the ceiling\'s part
             ->map(static fn (PayslipIncentive $l): array => [$l->name, $l->tax, $l->counts_toward_13th, $l->amount, $l->over_ceiling])->all())
         ->toBe([['PERA', 'NOT_INCOME', true, 2000.0, 0.0], ['Rice', 'DE_MINIMIS', false, 1500.0, 0.0], ['Bonus', 'EXEMPT', false, 100000.0, 10500.0], ['Commission', 'TAXABLE', false, 1000.0, 0.0]]);
 
-    // The ledger counts the ceiling's part; the 13th month basis adds the flagged line.
-    expect(app(ExemptBenefitLedger::class)->usedBefore($actor, [$employee->id], 2026))->toBe([$employee->id => 90000.0])
-        ->and(app(ThirteenthMonthBasis::class)->forEmployees($actor, [$employee->id], 2026)[$employee->id]['basic_pay'])->toBe(4727.27);
+    // The ledger counts the ceiling's part.
+    expect(app(ExemptBenefitLedger::class)->usedBefore($actor, [$employee->id], 2026))->toBe([$employee->id => 90000.0]);
     // A payslip posted before the ceiling was recorded apart counts its whole exempt figure.
     DB::table('payslips')->where('id', $posted->id)->update(['ceiling_benefits' => null]);
     expect(app(ExemptBenefitLedger::class)->usedBefore($actor, [$employee->id], 2026))->toBe([$employee->id => 93000.0]);
@@ -279,7 +277,7 @@ it('shows the proposal in the workspace dialog and saves a typed amount over it'
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('openIncentives', $employee->id)
         ->assertSee('Proposed')
-        ->assertSee('₱2,000.00')
+        ->assertSee('$2,000.00')
         ->assertSee('Not compensation')
         ->assertSee('leave empty to pay it as proposed; it cannot be set to 0 here')
         // 0 is not an amount: a scheduled benefit is stopped in the catalog, never from the dialog.

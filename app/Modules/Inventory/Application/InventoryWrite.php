@@ -16,7 +16,7 @@ use App\Modules\Workforce\Contracts\InventoryEmployees;
 use App\Platform\Database\TransactionMutex;
 use App\Support\Access;
 use App\Support\CodeSequence;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use RuntimeException;
@@ -56,7 +56,7 @@ final class InventoryWrite
         $parts = explode('-', $date);
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1
             || ! checkdate((int) ($parts[1] ?? 0), (int) ($parts[2] ?? 0), (int) $parts[0])
-            || $date > ManilaClock::todayKey()) {
+            || $date > LocalClock::todayKey()) {
             throw new RuntimeException('Use a real calendar date that is not in the future.');
         }
         if ($minimum !== null && $date < $minimum) {

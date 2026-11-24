@@ -6,11 +6,11 @@ namespace Database\Seeders;
 
 use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
- * One DRAFT payroll for the current Manila month's first cut-off with every
+ * One DRAFT payroll for the current local month's first cut-off with every
  * seeded employee on it — the port of seed.ts run-2. The reference's
  * FINALIZED run-1 and its posted payslips are deliberately NOT seeded:
  * finalising is a flow the user will exercise, and a pre-finalized run would
@@ -42,7 +42,7 @@ final class PayrollRunSeeder extends PortSeeder
             return;
         }
 
-        $month = CarbonImmutable::now(ManilaClock::TZ)->startOfMonth();
+        $month = CarbonImmutable::now(LocalClock::zone())->startOfMonth();
         $periodStart = $month->format('Y-m-d');
         $periodEnd = $month->addDays(14)->format('Y-m-d');
 

@@ -33,7 +33,7 @@ use App\Modules\Social\Application\SocialRules;
 use App\Modules\Social\Contracts\FeedFilter;
 use App\Modules\Social\Contracts\Views\GroupView;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Realtime;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
@@ -114,7 +114,7 @@ class CommunityPage extends Component
     #[Url(as: 'by', except: 0)]
     public int $filterAuthor = 0;
 
-    /** A Manila calendar day, Y-m-d, or ''. */
+    /** A local calendar day, Y-m-d, or ''. */
     #[Url(as: 'from', except: '')]
     public string $filterFrom = '';
 
@@ -854,14 +854,14 @@ class CommunityPage extends Component
         );
     }
 
-    /** A typed Y-m-d, as that Manila day, or null when it isn't one. */
+    /** A typed Y-m-d, as that local day, or null when it isn't one. */
     private static function day(string $value): ?CarbonImmutable
     {
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
             return null;
         }
 
-        $day = CarbonImmutable::createFromFormat('!Y-m-d', $value, ManilaClock::TZ);
+        $day = CarbonImmutable::createFromFormat('!Y-m-d', $value, LocalClock::zone());
 
         return $day !== null && $day->format('Y-m-d') === $value ? $day : null;
     }
@@ -928,6 +928,6 @@ class CommunityPage extends Component
 
     private function today(): CarbonImmutable
     {
-        return CarbonImmutable::now(ManilaClock::TZ)->startOfDay();
+        return CarbonImmutable::now(LocalClock::zone())->startOfDay();
     }
 }

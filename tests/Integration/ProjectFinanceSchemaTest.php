@@ -18,7 +18,7 @@ use App\Modules\WorkManagement\Application\Commands\StartProjectBudget;
 use App\Modules\WorkManagement\Application\Queries\ProjectFinancials;
 use App\Modules\WorkManagement\Domain\Projects\FinanceAmount;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -160,7 +160,7 @@ it('checks current cash totals and accepted retries behind an earlier snapshot',
     $project = cpaProject($owner, cpaClient($owner));
     app(SetupProjectFinance::class)->handle($actor, $project->id, 'PHP');
     $category = ProjectCostCategory::query()->sole();
-    $date = ManilaClock::todayKey();
+    $date = LocalClock::todayKey();
     $record = app(RecordCashEntry::class);
     $record->handle($actor, $project->id, new CashEntryDraft('EXPENSE', $date, 'Cash fact', '0.01', $category->id));
     $row = (array) DB::table('project_cash_entries')->first();

@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schedule;
 
@@ -7,7 +8,8 @@ use Illuminate\Support\Facades\Schedule;
 |--------------------------------------------------------------------------
 | Production schedule - driven by ONE cron entry: artisan schedule:run
 |--------------------------------------------------------------------------
-| APP_TIMEZONE is UTC, so Manila is stated explicitly where it matters.
+| The application runs on UTC, so the organization's own zone is stated
+| explicitly where the hour matters.
 */
 
 // The reminder sweep the reference ran in the browser (GAP-07), moved to the
@@ -17,7 +19,7 @@ use Illuminate\Support\Facades\Schedule;
 Schedule::command('reminders:sweep')
     ->everyThirtyMinutes()
     ->between('06:00', '20:00')
-    ->timezone('Asia/Manila')
+    ->timezone(LocalClock::zone())
     ->withoutOverlapping();
 
 // The database cache store has no built-in prune, and the session GC lottery
@@ -39,7 +41,7 @@ Schedule::call(function (): void {
 Schedule::command('leave:post-earnings')
     ->everyThirtyMinutes()
     ->between('06:00', '20:00')
-    ->timezone('Asia/Manila')
+    ->timezone(LocalClock::zone())
     ->withoutOverlapping();
 
 // An approved salary version dated ahead becomes the record's rates on its
@@ -49,5 +51,5 @@ Schedule::command('leave:post-earnings')
 // reads it.
 Schedule::command('salary:apply-due')
     ->everyThirtyMinutes()
-    ->timezone('Asia/Manila')
+    ->timezone(LocalClock::zone())
     ->withoutOverlapping();

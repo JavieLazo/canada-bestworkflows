@@ -16,7 +16,7 @@ use App\Modules\Timekeeping\Domain\Attendance\AttendancePolicy;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -35,7 +35,7 @@ use RuntimeException;
  * "today's punches" by mixing the host's LOCAL date with UTC midnight, which
  * put the day's cut eight hours into the working day and silently excluded
  * pre-08:00 punches from pairing. RecordPunch preserves the corrected window:
- * the Manila calendar day via ManilaClock::dayKey / PayrollPeriod::
+ * the local calendar day via LocalClock::dayKey / PayrollPeriod::
  * attendanceInstants, reading one adjacent day back so an overnight shift's
  * open TIME_IN still pairs with its next-morning TIME_OUT.
  *

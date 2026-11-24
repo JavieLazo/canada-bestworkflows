@@ -12,7 +12,7 @@ use App\Models\EmployeeProfile;
 use App\Models\LeaveTravelRequest;
 use App\Models\Shift;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -29,7 +29,7 @@ beforeEach(function (): void {
 function localDemoPunch(EmployeeProfile $employee, string $date, string $time, string $type = 'TIME_OUT'): AttendanceLog
 {
     return AttendanceLog::query()->create(['employee_id' => $employee->id, 'log_type' => $type, 'source' => AttendanceLog::SOURCE_CORRECTION,
-        'site_id' => null, 'logged_at' => ManilaClock::instant($date.'T'.$time)->utc()]);
+        'site_id' => null, 'logged_at' => LocalClock::instant($date.'T'.$time)->utc()]);
 }
 
 /** @return array<string, string> */
@@ -62,9 +62,9 @@ it('adds current history for linked accounts, preserves Maria exceptions and exi
         expect(AttendanceLog::query()->findOrFail($id)->getRawOriginal())->toBe($row);
     }
     foreach (['2026-11-11' => '13:09:00', '2026-11-12' => '13:00:00'] as $date => $time) {
-        $rows = AttendanceLog::query()->where('employee_id', $maria->employee_id)->whereBetween('logged_at', [ManilaClock::instant($date.'T00:00:00')->utc(), ManilaClock::instant($date.'T23:59:59.999')->utc()])->orderBy('logged_at')->get();
+        $rows = AttendanceLog::query()->where('employee_id', $maria->employee_id)->whereBetween('logged_at', [LocalClock::instant($date.'T00:00:00')->utc(), LocalClock::instant($date.'T23:59:59.999')->utc()])->orderBy('logged_at')->get();
         expect($rows->pluck('log_type')->all())->toBe(['TIME_IN', 'TIME_OUT'])
-            ->and($rows->first()->logged_at->setTimezone(ManilaClock::TZ)->format('H:i:s'))->toBe($time);
+            ->and($rows->first()->logged_at->setTimezone(LocalClock::zone())->format('H:i:s'))->toBe($time);
     }
     expect(AttendanceLog::query()->where('employee_id', $maria->employee_id)->whereNotNull('site_id')->exists())->toBeFalse()
         ->and(AttendanceLog::query()->where('employee_id', $maria->employee_id)->whereNotNull('latitude')->exists())->toBeFalse()
@@ -116,8 +116,8 @@ it('keeps overnight pairs on their scheduled dates and respects posted-payroll c
     expect(Artisan::call('ems:demo', ['--days' => 3, '--through' => '2026-11-12']))->toBe(0);
     $rows = AttendanceLog::query()->where('employee_id', $user->employee_id)->orderBy('logged_at')->get();
     expect($rows->pluck('log_type')->all())->toBe(['TIME_IN', 'TIME_OUT', 'TIME_IN'])
-        ->and($rows[0]->logged_at->setTimezone(ManilaClock::TZ)->format('Y-m-d'))->toBe('2026-11-11')
-        ->and($rows[1]->logged_at->setTimezone(ManilaClock::TZ)->format('Y-m-d'))->toBe('2026-11-12')
+        ->and($rows[0]->logged_at->setTimezone(LocalClock::zone())->format('Y-m-d'))->toBe('2026-11-11')
+        ->and($rows[1]->logged_at->setTimezone(LocalClock::zone())->format('Y-m-d'))->toBe('2026-11-12')
         ->and($rows[2]->logged_at <= CarbonImmutable::now('UTC'))->toBeTrue();
 });
 
@@ -128,7 +128,7 @@ it('keeps approved leave dates clear of newly invented attendance', function () 
     $original = $leave->fresh()->getRawOriginal();
     expect(Artisan::call('ems:demo', ['--days' => 3, '--through' => '2026-11-12']))->toBe(0)
         ->and(AttendanceLog::query()->count())->toBe(4)
-        ->and(AttendanceLog::query()->whereBetween('logged_at', [ManilaClock::instant('2026-11-11T00:00:00')->utc(), ManilaClock::instant('2026-11-11T23:59:59.999')->utc()])->exists())->toBeFalse()
+        ->and(AttendanceLog::query()->whereBetween('logged_at', [LocalClock::instant('2026-11-11T00:00:00')->utc(), LocalClock::instant('2026-11-11T23:59:59.999')->utc()])->exists())->toBeFalse()
         ->and($leave->fresh()->getRawOriginal())->toBe($original);
 });
 

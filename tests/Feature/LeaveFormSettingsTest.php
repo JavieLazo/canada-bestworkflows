@@ -27,7 +27,7 @@ use App\Modules\Timekeeping\Domain\Absence\LeaveSignatorySlot;
 use App\Modules\Timekeeping\Infrastructure\AccountReferences;
 use App\Modules\Workforce\Application\Queries\EmployeeRecords;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -120,7 +120,7 @@ function lfsetRequest(EmployeeProfile $employee, string $code, array $overrides 
     return $request;
 }
 
-beforeEach(fn () => CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-16 09:00:00', ManilaClock::TZ)));
+beforeEach(fn () => CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-16 09:00:00', LocalClock::zone())));
 afterEach(fn () => CarbonImmutable::setTestNow());
 
 /*
@@ -495,7 +495,7 @@ it('asks for the note in the review dialog and shows it afterwards', function ()
 */
 
 it('opens the employee\'s own filed application, read-only, with what was filed', function () {
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-12 09:00:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-12 09:00:00', LocalClock::zone()));
     lfsetType('Vacation Leave', 'VACATION');
     $mine = lfsetEmployee('EMP-7');
     lfsetCredit($mine, 'VACATION_LEAVE', 15);
@@ -682,7 +682,7 @@ it('hides the salary from a leave manager who cannot open the employee\'s record
 
     Livewire::test(Index::class)->call('show', $request->id)->call('viewApplication')
         ->assertSeeHtml("data-applicant-salary>\u{2014}</dd>")
-        ->assertDontSee("\u{20B1}35,000.00");
+        ->assertDontSee('$35,000.00');
 });
 
 it('shows the salary to a leave manager who also holds the employee\'s record', function (string $module) {
@@ -692,7 +692,7 @@ it('shows the salary to a leave manager who also holds the employee\'s record', 
     lfsetActor(['LEAVES', $module], allData: true);
 
     Livewire::test(Index::class)->call('show', $request->id)->call('viewApplication')
-        ->assertSeeHtml("data-applicant-salary>\u{20B1}35,000.00</dd>");
+        ->assertSeeHtml('data-applicant-salary>$35,000.00</dd>');
 })->with(['EMPLOYEES', 'PAYROLL']);
 
 it('reads the employee\'s credits on the form, never the manager\'s', function () {

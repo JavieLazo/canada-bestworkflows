@@ -10,7 +10,7 @@ use App\Support\CodeSequence;
 use App\Support\EmailRule;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\TextSort;
 
 /** Compatibility adapter; implementation belongs to \App\Modules\Workforce\Application\EmployeeFields. */
@@ -392,16 +392,16 @@ final class EmployeeFields
         return \App\Modules\Workforce\Application\EmployeeFields::categoryLabel($value);
     }
 
-    /** Today's Manila calendar day, `YYYY-MM-DD` (hris.ts todayKey) — ManilaClock's one clock read. */
+    /** Today's local calendar day, `YYYY-MM-DD` (hris.ts todayKey) — LocalClock's one clock read. */
     public static function todayKey(): string
     {
         return \App\Modules\Workforce\Application\EmployeeFields::todayKey();
     }
 
-    /** peso() (hris.ts:180-186): ₱ + en-PH grouping, always two decimals. */
-    public static function peso(float $n): string
+    /** `$1,234.50`, always two decimals: the one figure format, Currency::format(). */
+    public static function money(float $n): string
     {
-        return \App\Modules\Workforce\Application\EmployeeFields::peso($n);
+        return \App\Modules\Workforce\Application\EmployeeFields::money($n);
     }
 
     /** humanSize() (attachments.ts:25-28), shared through HrisFormat — one spelling on every upload surface. */

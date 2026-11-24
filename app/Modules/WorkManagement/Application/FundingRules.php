@@ -8,14 +8,14 @@ use App\Models\ProjectContribution;
 use App\Models\ProjectFunding;
 use App\Models\ProjectFundingInstallment;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSchedule;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Validation\ValidationException;
 
 final class FundingRules
 {
     public static function date(?string $date, string $field, bool $actual = false): void
     {
-        if ($date !== null && (! TaskSchedule::isDateKey($date) || ($actual && $date > ManilaClock::todayKey()))) {
+        if ($date !== null && (! TaskSchedule::isDateKey($date) || ($actual && $date > LocalClock::todayKey()))) {
             throw ValidationException::withMessages([$field => $actual ? 'Choose an actual date through today.' : 'Choose a valid date.']);
         }
     }

@@ -10,7 +10,7 @@ use App\Modules\Payroll\Application\BenefitCeilings;
 use App\Modules\Payroll\Contracts\Views\BenefitCeilingView;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Collection;
 
 /**
@@ -25,7 +25,7 @@ final class BenefitCeilingRecords
     public function current(Access $actor): ?BenefitCeilingView
     {
         abort_unless($actor->hasModule(ModuleCode::PAYROLL, ModuleCode::RECORDS), 403);
-        $row = BenefitCeilings::inForce(ManilaClock::todayKey());
+        $row = BenefitCeilings::inForce(LocalClock::todayKey());
 
         return $row === null ? null : Snapshot::of($row, BenefitCeilingView::class);
     }

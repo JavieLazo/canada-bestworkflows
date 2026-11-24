@@ -87,7 +87,7 @@ final class SaveRecurringLine
                     throw new RuntimeException('A line already paid on a payslip keeps what it charges. End it, and add a new line for the other one.');
                 }
                 if ($rule->total !== null && Money::round($rule->total) < ($paid[$row->id] ?? 0.0)) {
-                    throw new RuntimeException('The total loan payable cannot be less than the '.PayrollData::peso($paid[$row->id] ?? 0.0).' already paid.');
+                    throw new RuntimeException('The total loan payable cannot be less than the '.PayrollData::money($paid[$row->id] ?? 0.0).' already paid.');
                 }
                 if ($rule->total === null && $row->total !== null) {
                     throw new RuntimeException('A line already paid on a payslip keeps its total. Change the total, or end the line.');

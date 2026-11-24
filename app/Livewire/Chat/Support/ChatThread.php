@@ -20,7 +20,7 @@ use Carbon\CarbonImmutable;
  * message.
  *
  * A quiet time label sits over the first message, over the first one of a
- * new Manila day, and over any message that comes 10 minutes or more after
+ * new local day, and over any message that comes 10 minutes or more after
  * the one before it, the way Messenger marks a conversation picking up again.
  *
  * @phpstan-type Row array{message: MessageView, stamp: string|null, first: bool, last: bool, afterReply: bool}

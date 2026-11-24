@@ -20,7 +20,7 @@ use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -83,11 +83,11 @@ final class LeaveLedgerRecords
             }
         }
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         foreach ($requests as $request) {
             $key = LeaveCreditPolicy::resolveKey($request->request_type, $creditKeys) ?? $request->request_type;
             // The dates the request costs (its frozen working days, or every
-            // active calendar day of an older row), split at Manila today.
+            // active calendar day of an older row), split at local today.
             $dates = LeaveBalances::usedDates($request);
             $all = LeaveBalances::usedDays($request);
             $taken = LeaveCreditPolicy::selectedDays($request->day_type, array_values(array_filter($dates, static fn (string $date): bool => $date <= $today)));

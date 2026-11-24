@@ -10,14 +10,14 @@ use App\Platform\Audit\AuditRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
  * The Audit Trail as CSV: the entries the table shows — the latest
  * {@see Index::LIMIT}, all_data + AUDIT only (anyone else exports an empty
  * file, as they see an empty table), filtered and sorted as on screen
- * ({@see AuditRows}). Timestamps are Manila wall-clock, and Action and Entity
+ * ({@see AuditRows}). Timestamps are local wall-clock, and Action and Entity
  * are the labels ({@see AuditLabels}), as displayed. Export only: the trail is
  * append-only and is never imported.
  */
@@ -39,12 +39,12 @@ final class AuditExport implements TableExport
             $entries = app(AuditRecords::class)->latest($actor, Index::LIMIT);
             foreach (AuditRows::arrange($entries, $filters['q'], $filters['action'], $filters['entity'], $filters['actor'], $filters['sort'], $filters['dir']) as $entry) {
                 yield [
-                    $entry->created_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
+                    $entry->created_at->setTimezone(LocalClock::zone())->format('Y-m-d H:i:s'),
                     Index::actorLabel($entry), AuditLabels::action($entry->action), AuditLabels::entity($entry->entity) ?? '', $entry->details ?? '',
                 ];
             }
         };
 
-        return new CsvExport('audit-trail-'.ManilaClock::todayKey().'.csv', ['Timestamp', 'Actor', 'Action', 'Entity', 'Details'], $rows);
+        return new CsvExport('audit-trail-'.LocalClock::todayKey().'.csv', ['Timestamp', 'Actor', 'Action', 'Entity', 'Details'], $rows);
     }
 }

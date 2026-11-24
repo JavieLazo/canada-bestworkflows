@@ -16,7 +16,7 @@ use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -58,7 +58,7 @@ function attendanceRankingPunches(EmployeeProfile $employee, string $date, strin
         if ($clock !== null) {
             AttendanceLog::create([
                 'employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL',
-                'logged_at' => ManilaClock::instant($date.'T'.$clock)->utc(),
+                'logged_at' => LocalClock::instant($date.'T'.$clock)->utc(),
             ]);
         }
     }

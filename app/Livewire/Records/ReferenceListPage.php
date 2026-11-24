@@ -328,10 +328,10 @@ class ReferenceListPage extends Component
             : '';
         $fraction = $rule->frequency === PercentDeduction::FREQUENCY_EVERY ? 0.5 : 1.0;
         $capped = $rule->cap !== null && max($shares['employee'], $shares['employer']) >= $rule->cap * $fraction
-            ? ' — capped at '.Hris::peso($rule->cap).' a month per share'
+            ? ' — capped at '.Hris::money($rule->cap).' a month per share'
             : '';
 
-        return ['text' => "{$when} ₱30,000 {$base}: employee ".Hris::peso($shares['employee']).', employer '.Hris::peso($shares['employer']).$each.$capped.'.', 'valid' => true];
+        return ['text' => "{$when} $30,000 {$base}: employee ".Hris::money($shares['employee']).', employer '.Hris::money($shares['employer']).$each.$capped.'.', 'valid' => true];
     }
 
     private static function percentNumber(string $text): ?float

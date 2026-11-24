@@ -116,7 +116,7 @@ final class EmployeeSheet
         return EmployeeFields::residentialText($employee);
     }
 
-    /** The age line: EmployeeFields' Manila-calendar age, '' when the birthday is unset. */
+    /** The age line: EmployeeFields' local-calendar age, '' when the birthday is unset. */
     public static function age(EmployeeProfileView $employee): string
     {
         $age = EmployeeFields::ageFrom($employee->birth_date);

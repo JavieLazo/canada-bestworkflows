@@ -20,7 +20,7 @@ use App\Modules\Timekeeping\Application\LeaveFormFreeze;
 use App\Modules\Timekeeping\Application\Queries\AbsenceRecords;
 use App\Modules\Workforce\Contracts\EmployeeLeaveFacts;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -88,7 +88,7 @@ function alfFiled(): array
     return ['type' => $type, 'node' => $node, 'employee' => $employee, 'request' => $request];
 }
 
-beforeEach(fn () => CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-16 09:00:00', ManilaClock::TZ)));
+beforeEach(fn () => CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-16 09:00:00', LocalClock::zone())));
 afterEach(fn () => CarbonImmutable::setTestNow());
 
 it('keeps an approved application exactly as it was approved, whatever changes later', function () {
@@ -116,7 +116,7 @@ it('keeps an approved application exactly as it was approved, whatever changes l
         ->assertSeeHtml('data-applicant-position>Accountant</dd>')
         ->assertSeeHtml('data-applicant-office>Finance</dd>')
         ->assertSeeHtml('data-office-head>Juan Cruz</dd>')
-        ->assertSeeHtml("data-applicant-salary>\u{20B1}35,000.00</dd>")
+        ->assertSeeHtml('data-applicant-salary>$35,000.00</dd>')
         ->assertSeeHtml('data-filed-with-pay>2</dd>');
 
     $form = $page->viewData('filedForm');
@@ -231,7 +231,7 @@ it('hides the stored salary from a leave manager who cannot open the employee\'s
 
     Livewire::test(Index::class)->call('show', $request->id)->call('viewApplication')
         ->assertSeeHtml("data-applicant-salary>\u{2014}</dd>")
-        ->assertDontSee("\u{20B1}35,000.00");
+        ->assertDontSee('$35,000.00');
 });
 
 it('shows the stored salary to a leave manager who also holds the employee\'s record', function (string $module) {
@@ -239,7 +239,7 @@ it('shows the stored salary to a leave manager who also holds the employee\'s re
     app(ReviewAbsence::class)->handle(Access::forActor(alfActor(['LEAVES', $module], allData: true)), $request->id, 'APPROVED', true);
 
     Livewire::test(Index::class)->call('show', $request->id)->call('viewApplication')
-        ->assertSeeHtml("data-applicant-salary>\u{20B1}35,000.00</dd>");
+        ->assertSeeHtml('data-applicant-salary>$35,000.00</dd>');
 })->with(['EMPLOYEES', 'PAYROLL']);
 
 it('stores the salary even when the approver may not read it', function () {

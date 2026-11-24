@@ -17,7 +17,7 @@ use App\Modules\WorkManagement\Application\Queries\ProjectReports;
 use App\Modules\WorkManagement\Domain\Projects\FinanceAmount;
 use App\Modules\WorkManagement\Domain\Projects\ResultValue;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
@@ -140,7 +140,7 @@ class ProjectFundingWorkspace extends Component
         $row = $id === null ? null : $query->delivery(app(Access::class), $this->projectId, $id);
         abort_if($id !== null && ($row === null || $row->contribution_id !== $contribution->id || $row->voided_at !== null), 404);
         $this->requestId = (string) Str::ulid();
-        $this->begin('delivery', $id, $contribution->id, 0, ['date' => $row->occurred_on ?? ManilaClock::todayKey(), 'quantity' => $row?->quantity_scaled === null ? '' : ResultValue::input($row->quantity_scaled), 'amount' => $row?->value_minor === null ? '' : FinanceAmount::input($row->value_minor), 'basis' => $row->valuation_basis ?? '', 'reference' => $row->reference ?? '', 'notes' => $row->notes ?? '', 'reason' => '']);
+        $this->begin('delivery', $id, $contribution->id, 0, ['date' => $row->occurred_on ?? LocalClock::todayKey(), 'quantity' => $row?->quantity_scaled === null ? '' : ResultValue::input($row->quantity_scaled), 'amount' => $row?->value_minor === null ? '' : FinanceAmount::input($row->value_minor), 'basis' => $row->valuation_basis ?? '', 'reference' => $row->reference ?? '', 'notes' => $row->notes ?? '', 'reason' => '']);
     }
 
     public function showDelivery(string $id): void

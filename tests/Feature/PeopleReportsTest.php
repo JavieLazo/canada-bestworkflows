@@ -20,7 +20,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\Reports\ReportCriteria;
 use App\Support\Access;
 use App\Support\Csv;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -242,7 +242,7 @@ it('reports canonical attendance with separate computed and approved overtime', 
     foreach ([['TIME_IN', '08:00:00'], ['TIME_OUT', '12:00:00'], ['TIME_IN', '13:00:00'], ['TIME_OUT', '18:00:00']] as [$type, $clock]) {
         AttendanceLog::query()->create([
             'employee_id' => $employee->id, 'log_type' => $type, 'source' => 'MANUAL',
-            'logged_at' => ManilaClock::instant('2026-09-28T'.$clock)->utc(),
+            'logged_at' => LocalClock::instant('2026-09-28T'.$clock)->utc(),
         ]);
     }
     OvertimeApproval::query()->create([

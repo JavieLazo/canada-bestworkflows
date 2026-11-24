@@ -24,11 +24,11 @@
 --}}
 @php
     use App\Livewire\Notifications\Index as NotificationsIndex;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
 
     // fmtDateTime (hris.ts:199-207) — en-PH "Aug 31, 2026, 2:05 PM";
-    // datetimes are stored UTC and display in Manila.
-    $fmtDateTime = static fn ($at): string => $at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+    // datetimes are stored UTC and display in local time.
+    $fmtDateTime = static fn ($at): string => $at->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
 @endphp
 
 <div class="space-y-6" wire:poll.60s="pollForChanges">

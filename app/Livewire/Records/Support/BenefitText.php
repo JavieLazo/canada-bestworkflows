@@ -57,16 +57,16 @@ final class BenefitText
 
     public const array MONTHS = [1 => 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-    /** The amount rule in words: "₱2,000.00", "3% of salary", "One month's basic", "₱150.00 per day", "Typed per payroll". */
+    /** The amount rule in words: "$2,000.00", "3% of salary", "One month's basic", "$150.00 per day", "Typed per payroll". */
     public static function amount(object $type): string
     {
         $amount = is_numeric($type->amount ?? null) ? (float) $type->amount : null;
 
         return match ($type->amount_type ?? BenefitRule::AMOUNT_TYPED) {
-            BenefitRule::AMOUNT_FIXED => $amount === null ? '—' : Hris::peso($amount),
+            BenefitRule::AMOUNT_FIXED => $amount === null ? '—' : Hris::money($amount),
             BenefitRule::AMOUNT_PERCENT => $amount === null ? '—' : Hris::moneyText($amount).'% of salary',
             BenefitRule::AMOUNT_MONTH => "One month's basic",
-            BenefitRule::AMOUNT_DAILY => $amount === null ? '—' : Hris::peso($amount).' per day',
+            BenefitRule::AMOUNT_DAILY => $amount === null ? '—' : Hris::money($amount).' per day',
             default => 'Typed per payroll',
         };
     }

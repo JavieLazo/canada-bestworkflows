@@ -16,7 +16,7 @@ use App\Platform\Audit\AuditReport;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -169,10 +169,10 @@ it('rejects report generation after its source grant is revoked', function () {
 it('reports complete audit periods with Manila date boundaries beyond the latest 500 window', function () {
     $actor = Access::forActor(reportsModuleActor([ModuleCode::REPORTS, ModuleCode::AUDIT], true));
     foreach ([['2026-08-31T23:59:59', 'Before'], ['2026-09-01T00:00:00', 'First'], ['2026-09-01T23:59:59', 'Last'], ['2026-09-02T00:00:00', 'After']] as [$at, $label]) {
-        (new AuditLog)->forceFill(['action' => 'REPORT_FIXTURE', 'actor_name' => 'Test', 'details' => $label, 'created_at' => ManilaClock::instant($at)->utc()])->save();
+        (new AuditLog)->forceFill(['action' => 'REPORT_FIXTURE', 'actor_name' => 'Test', 'details' => $label, 'created_at' => LocalClock::instant($at)->utc()])->save();
     }
     for ($i = 0; $i < 501; $i++) {
-        (new AuditLog)->forceFill(['action' => 'REPORT_FIXTURE', 'actor_name' => 'Test', 'details' => 'In period', 'created_at' => ManilaClock::instant('2026-09-01T12:00:00')->utc()])->save();
+        (new AuditLog)->forceFill(['action' => 'REPORT_FIXTURE', 'actor_name' => 'Test', 'details' => 'In period', 'created_at' => LocalClock::instant('2026-09-01T12:00:00')->utc()])->save();
     }
     $criteria = ReportCriteria::from(['type' => 'audit-logs', 'from' => '2026-09-01', 'to' => '2026-09-01']);
     $report = app(AuditReport::class)->generate($actor, $criteria);

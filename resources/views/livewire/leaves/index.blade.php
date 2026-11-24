@@ -24,7 +24,7 @@
     use App\Modules\Timekeeping\Application\LeaveRecommendation;
     use App\Modules\Timekeeping\Domain\Absence\LeaveApplication;
     use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
     use App\Platform\Files\PortraitUrl;
 
     // The status pill (leaves-page.tsx:314-323).
@@ -45,9 +45,9 @@
 
     $employeeName = static fn ($employee): string => \App\Support\EmployeeName::display($employee);
 
-    // fmtDate / fmtDateTime (hris.ts:199-213); datetimes display in Manila.
+    // fmtDate / fmtDateTime (hris.ts:199-213); datetimes display in local time.
     $fmtDate = static fn ($d): string => $d->format('M d, Y');
-    $fmtDateTime = static fn ($at): string => $at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+    $fmtDateTime = static fn ($at): string => $at->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
 @endphp
 
 <div class="space-y-6">
@@ -158,7 +158,7 @@
                                 @php
                                     $employee = $r->employee;
                                     $isOb = $r->request_type === LeaveLabels::OFFICIAL_BUSINESS;
-                                    $filedAt = $r->created_at->setTimezone(ManilaClock::TZ);
+                                    $filedAt = $r->created_at->setTimezone(LocalClock::zone());
                                 @endphp
                                 <tr
                                     wire:key="req-{{ $r->id }}"
@@ -186,7 +186,7 @@
                                             </div>
                                         </div>
                                     </td>
-                                    {{-- When the request was recorded, in Manila: the day, the time under it. --}}
+                                    {{-- When the request was recorded, in local time: the day, the time under it. --}}
                                     <td class="num whitespace-nowrap">
                                         <p>{{ $fmtDate($filedAt) }}</p>
                                         <p class="text-xs text-muted-foreground">{{ $filedAt->format('g:i A') }}</p>
@@ -328,7 +328,7 @@
                     </div>
                     <div class="min-w-0">
                         <dt class="{{ $fieldLabel }}">Filed On</dt>
-                        <dd class="num mt-1 font-semibold">{{ $open->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y · g:i A') }}</dd>
+                        <dd class="num mt-1 font-semibold">{{ $open->created_at->setTimezone(LocalClock::zone())->format('M d, Y · g:i A') }}</dd>
                     </div>
                     {{-- The application's details of leave and commutation, as filed; a request filed before they were kept has neither. --}}
                     @php

@@ -16,7 +16,7 @@ use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Modules\Workforce\Contracts\EmployeeDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -60,7 +60,7 @@ final class DecidePendingOvertime
         }
 
         // Nothing after today has overtime to decide.
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $end = $end > $today ? $today : $end;
         if ($start > $end) {
             return ['decided' => 0, 'skipped' => 0];

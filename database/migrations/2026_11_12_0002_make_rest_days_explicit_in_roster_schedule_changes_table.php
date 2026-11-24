@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Modules\Timekeeping\Application\RestDayConversion;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -47,7 +47,7 @@ return new class extends Migration
             DB::statement('ALTER TABLE `roster_schedule_changes` ADD CONSTRAINT `rsc_source_chk` CHECK (`source` IN ('.self::SOURCES_WITH.'))');
         }
         if (Schema::hasTable('shifts') && Schema::hasTable('roster_shifts') && Schema::hasTable('roster_schedule_changes')) {
-            RestDayConversion::run(ManilaClock::todayKey());
+            RestDayConversion::run(LocalClock::todayKey());
         }
     }
 

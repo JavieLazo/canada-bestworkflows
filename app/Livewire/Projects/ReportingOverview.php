@@ -34,9 +34,9 @@ class ReportingOverview extends Component
     public string $sourceKind = 'results';
 
     #[Locked]
-    public string $sourceCurrency = 'PHP';
+    public string $sourceCurrency = 'CAD';
 
-    public function openSource(string $kind, string $currency = 'PHP'): void
+    public function openSource(string $kind, string $currency = 'CAD'): void
     {
         abort_unless(in_array($kind, ['results', 'reports', 'funding'], true) && isset(FinanceAmount::CURRENCIES[$currency]), 404);
         if ($this->projectId !== null) {

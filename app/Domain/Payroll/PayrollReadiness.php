@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Payroll;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 
@@ -299,7 +299,7 @@ final class PayrollReadiness
         $firstDay = [];
         foreach ($coreLogs as $index => $log) {
             if (self::dateKey($log) === $start) {
-                $firstDay[] = ['ms' => ManilaClock::ms(self::instantOf($log)), 'index' => $index, 'log' => $log];
+                $firstDay[] = ['ms' => LocalClock::ms(self::instantOf($log)), 'index' => $index, 'log' => $log];
             }
         }
         // Integer milliseconds, as sortByInstant(): PHP's sort is stable, so
@@ -357,27 +357,27 @@ final class PayrollReadiness
     /**
      * TS: intervalHasNightWork().
      *
-     * Whether a worked interval touches 22:00-06:00 on the Manila day the punch
+     * Whether a worked interval touches 22:00-06:00 on the local day the punch
      * started, the day before, or the day after — enough for any pair that does
      * not run longer than about two days.
      *
-     * The reference does this in fixed +08:00 milliseconds; here the Manila
-     * midnight of the start day is resolved through ManilaClock and the offsets
+     * The reference does this in fixed-offset milliseconds; here the local
+     * midnight of the start day is resolved through LocalClock and the offsets
      * are added to it, which is the same arithmetic with the timezone boundary in
      * its sanctioned place. All of it is integer milliseconds: no float
      * comparison, and no comparator whose return could be truncated to 0.
      */
     private static function intervalHasNightWork(CarbonImmutable $start, CarbonImmutable $end): bool
     {
-        $startMs = ManilaClock::ms($start);
-        $endMs = ManilaClock::ms($end);
+        $startMs = LocalClock::ms($start);
+        $endMs = LocalClock::ms($end);
         if (! ($startMs < $endMs)) {
             return false;
         }
 
-        // The instant of midnight, Manila, on the day the pair opened. In the
+        // The instant of midnight, local, on the day the pair opened. In the
         // reference this is `localDay - MANILA_OFFSET_MS`.
-        $midnightMs = ManilaClock::ms(ManilaClock::instant(ManilaClock::dayKey($start).'T00:00:00.000'));
+        $midnightMs = LocalClock::ms(LocalClock::instant(LocalClock::dayKey($start).'T00:00:00.000'));
 
         foreach ([-1, 0, 1] as $dayOffset) {
             $nightStart = $midnightMs + $dayOffset * self::DAY_MS + self::NIGHT_START_MS;
@@ -462,15 +462,15 @@ final class PayrollReadiness
     }
 
     /**
-     * TS: dateKey() — the Manila calendar day a punch belongs to.
+     * TS: dateKey() — the local calendar day a punch belongs to.
      *
-     * The reference adds a fixed eight hours; ManilaClock reads the zone database,
+     * The reference adds a fixed eight hours; LocalClock reads the zone database,
      * which is the same answer for every instant since the Philippines last moved
      * its clocks in 1990 and matches what dtr.ts's Intl formatter does.
      */
     private static function dateKey(mixed $log): string
     {
-        return ManilaClock::dayKey(self::instantOf($log));
+        return LocalClock::dayKey(self::instantOf($log));
     }
 
     private static function logType(mixed $log): string
@@ -479,8 +479,8 @@ final class PayrollReadiness
     }
 
     /**
-     * An offset-less `logged_at` is Manila wall clock, never UTC — the reference
-     * appends '+08:00' for exactly that reason, and so does ManilaClock::instant.
+     * An offset-less `logged_at` is local wall clock, never UTC — the reference
+     * appends '+08:00' for exactly that reason, and so does LocalClock::instant.
      * A DateTimeInterface (an Eloquent cast) already carries its own zone.
      */
     private static function instantOf(mixed $log): CarbonImmutable
@@ -494,7 +494,7 @@ final class PayrollReadiness
             return CarbonImmutable::instance($value);
         }
 
-        return ManilaClock::instant((string) $value);
+        return LocalClock::instant((string) $value);
     }
 
     /**
@@ -513,7 +513,7 @@ final class PayrollReadiness
     {
         $decorated = [];
         foreach ($logs as $log) {
-            $decorated[] = ['ms' => ManilaClock::ms(self::instantOf($log)), 'log' => $log];
+            $decorated[] = ['ms' => LocalClock::ms(self::instantOf($log)), 'log' => $log];
         }
 
         usort($decorated, static fn (array $a, array $b): int => $a['ms'] <=> $b['ms']);

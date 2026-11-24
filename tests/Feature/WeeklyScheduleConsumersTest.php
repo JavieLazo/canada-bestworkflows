@@ -22,7 +22,7 @@ use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
@@ -71,7 +71,7 @@ function wscSetup(string $dayStart = '08:00:00'): array
 
 function wscPunch(Access $actor, EmployeeProfile $employee, string $type, string $at): void
 {
-    CarbonImmutable::setTestNow(ManilaClock::instant($at));
+    CarbonImmutable::setTestNow(LocalClock::instant($at));
     app(RecordPunch::class)->handle($actor, new PunchInput($employee->id, '', 'WEB_GPS', false, '', ''), $type);
 }
 
@@ -79,7 +79,7 @@ function wscStoredPunch(EmployeeProfile $employee, string $type, string $at): At
 {
     return AttendanceLog::query()->create([
         'employee_id' => $employee->id, 'log_type' => $type, 'source' => 'WEB_GPS',
-        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant($at)->utc(),
+        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant($at)->utc(),
     ]);
 }
 
@@ -91,7 +91,7 @@ it('uses Monday home night windows through Tuesday morning and then opens Tuesda
     [$actor, $employee, $site] = wscSetup('07:00:00');
     wscPunch($actor, $employee, 'TIME_IN', '2026-09-21T22:00:00');
     wscPunch($actor, $employee, 'TIME_OUT', '2026-09-22T02:00:00');
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-22T02:29:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-22T02:29:00'));
     expect(fn () => app(RecordPunch::class)->handle($actor, new PunchInput($employee->id, '', 'WEB_GPS', false, '', ''), 'TIME_IN'))
         ->toThrow(RuntimeException::class, 'Earliest allowed is 2:30 AM next day');
     expect(AttendanceLog::query()->count())->toBe(2);
@@ -143,7 +143,7 @@ it('closes a flexible home night before opening the next fixed onsite shift', fu
 it('uses the new night window after a regular day without inventing an earlier night', function () {
     [$actor, $employee] = wscSetup();
     RosterShift::query()->where('employee_id', $employee->id)->firstOrFail()->update(['weekday' => 2]);
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-22T05:30:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-22T05:30:00'));
     expect(fn () => app(RecordPunch::class)->handle($actor, new PunchInput($employee->id, '', 'WEB_GPS', false, '', ''), 'TIME_IN'))
         ->toThrow(RuntimeException::class, 'Earliest allowed is 9:00 PM');
     expect(AttendanceLog::query()->count())->toBe(0);
@@ -171,7 +171,7 @@ it('opens a different weekday shift after the previous night was fully punched o
         wscPunch($actor, $employee, 'TIME_IN', '2026-09-22T03:00:00');
     }
     wscPunch($actor, $employee, 'TIME_OUT', '2026-09-22T07:00:00');
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-22T07:30:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-22T07:30:00'));
     $preview = app(RosterLocations::class)->forStation($actor, $employee->id);
     expect($preview?->date)->toBe('2026-09-22')->and($preview?->site_id)->toBe($site->id);
     wscPunch($actor, $employee, 'TIME_IN', '2026-09-22T07:30:00');
@@ -189,7 +189,7 @@ it('opens a different weekday shift after the previous night was fully punched o
 
 it('keeps Monday night tail punches when Tuesday regular hours are corrected', function () {
     [$actor, $employee] = wscSetup();
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-28T12:00:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-28T12:00:00'));
     $night = [];
     foreach ([['TIME_IN', '2026-09-21T22:00:00'], ['TIME_OUT', '2026-09-22T02:00:00'], ['TIME_IN', '2026-09-22T03:00:00'], ['TIME_OUT', '2026-09-22T06:00:00']] as [$type, $at]) {
         $night[] = wscStoredPunch($employee, $type, $at)->id;
@@ -264,7 +264,7 @@ it('uses one specified date night and home location without changing the followi
 
     $nextWeek = app(AttendanceSource::class)->forDtr($actor, $employee->id, '2026-09-29', '2026-09-29');
     expect($nextWeek->shift?->forDate('2026-09-29')->startTime)->toBe('08:00:00');
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-29T08:00:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-29T08:00:00'));
     expect(app(RosterLocations::class)->forStation($actor, $employee->id)?->kind)->toBe('ONSITE');
 });
 
@@ -298,7 +298,7 @@ it('names an exact date for a one-date site mismatch and keeps recurring weekday
         'employee_id' => $employee->id, 'date' => '2026-09-22', 'location_kind' => 'ONSITE',
         'site_id' => $other->id, 'is_rest_day' => false,
     ]);
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-22T08:00:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-22T08:00:00'));
     $input = new PunchInput($employee->id, $assigned->id, 'WEB_GPS', false, '', '');
     expect(fn () => app(RecordPunch::class)->handle($actor, $input, 'TIME_IN'))
         ->toThrow(RuntimeException::class, 'works at Special office on '.HrisFormat::date('2026-09-22').'.');
@@ -327,7 +327,7 @@ it('loads two previous dates so an unfinished night does not make a flexible day
         $nightPunches[] = wscStoredPunch($employee, $type, $at)->id;
     }
     $stray = wscStoredPunch($employee, 'TIME_OUT', '2026-09-23T09:00:00');
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-28T12:00:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-28T12:00:00'));
 
     $inputs = app(AttendanceSource::class)->forDtr($actor, $employee->id, '2026-09-23', '2026-09-23');
     expect($inputs->logs)->toHaveCount(4)
@@ -348,7 +348,7 @@ it('loads two previous dates so an unfinished night does not make a flexible day
 it('does not extend live pairing to a two-days-old open punch when reading extra schedule context', function () {
     [$actor, $employee] = wscSetup();
     wscStoredPunch($employee, 'TIME_IN', '2026-09-21T22:00:00');
-    CarbonImmutable::setTestNow(ManilaClock::instant('2026-09-23T09:00:00'));
+    CarbonImmutable::setTestNow(LocalClock::instant('2026-09-23T09:00:00'));
 
     expect(fn () => app(RecordPunch::class)->handle($actor, new PunchInput($employee->id, '', 'WEB_GPS', false, '', ''), 'TIME_OUT'))
         ->toThrow(RuntimeException::class, 'TIME_OUT with no open TIME_IN.');

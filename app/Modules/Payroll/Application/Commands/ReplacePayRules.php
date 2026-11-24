@@ -17,7 +17,7 @@ use App\Platform\Audit\RequiredAudit;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -82,7 +82,7 @@ final class ReplacePayRules
             // Round-trips exactly: what the engine will read is what is saved.
             $figures = PayRulesVersions::figures($figures);
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $scope, $scopeType, $figures, $name, $today): string {
             PayrollData::lockMembership();

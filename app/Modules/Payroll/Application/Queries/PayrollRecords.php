@@ -21,19 +21,17 @@ use Illuminate\Support\Collection;
 final class PayrollRecords
 {
     /**
-     * Every run, or only one kind's — the sidebar's "Basic Payroll" and
-     * "13th Month Payroll" lists.
+     * Every run, whatever its kind: the Payroll list.
      *
      * @return Collection<int, PayrollRunView>
      */
-    public function list(Access $actor, ?string $kind = null): Collection
+    public function list(Access $actor): Collection
     {
         if (! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
             return collect();
         }
 
         return PayrollRun::query()->withCount('members')
-            ->when($kind !== null, static fn (Builder $query) => $query->where('kind', $kind))
             ->orderByDesc('period_start')->get()
             ->map(static fn (PayrollRun $row): PayrollRunView => Snapshot::of($row, PayrollRunView::class));
     }

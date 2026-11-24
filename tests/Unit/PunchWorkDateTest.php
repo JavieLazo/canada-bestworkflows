@@ -7,7 +7,7 @@ use App\Domain\Attendance\Shift;
 use App\Domain\Attendance\ShiftGeometry;
 use App\Domain\Attendance\ShiftResolver;
 use App\Modules\Timekeeping\Domain\Attendance\PunchWorkDate;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -31,7 +31,7 @@ use Carbon\CarbonImmutable;
 /** A Manila wall-clock instant. */
 function pwdAt(string $manila): CarbonImmutable
 {
-    return ManilaClock::instant($manila);
+    return LocalClock::instant($manila);
 }
 
 /** A punch at a Manila wall-clock instant, shaped as the command reads it back from a row. */

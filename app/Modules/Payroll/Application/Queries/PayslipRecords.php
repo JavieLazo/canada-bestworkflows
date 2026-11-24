@@ -15,6 +15,7 @@ use App\Models\PayslipIncentive;
 use App\Models\PayslipSettlement;
 use App\Modules\Payroll\Application\AdvanceSettlements;
 use App\Modules\Payroll\Application\DeductionColumns;
+use App\Modules\Payroll\Application\PayStatements;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayslipDeductionView;
 use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
@@ -22,10 +23,13 @@ use App\Modules\Payroll\Contracts\Views\PayslipSettlementView;
 use App\Modules\Payroll\Contracts\Views\PayslipView;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
-/** Posted amounts are read as stored; self-service remains pinned even for payroll administrators. */
+/**
+ * Posted amounts are read as stored; self-service remains pinned even for payroll administrators.
+ *
+ * @phpstan-import-type Statement from PayStatements
+ */
 final class PayslipRecords
 {
     /** @return Collection<int, PayslipView> */
@@ -63,24 +67,26 @@ final class PayslipRecords
     }
 
     /**
-     * The employee's regular payslips whose period starts in the same calendar
-     * month as the given one, oldest first: the cut-offs one payslip sheet
-     * prints together. The employee comes from a payslip the caller already
-     * read through its own scope, so a self-service caller stays pinned; the
-     * scope is applied again here. A 13th month payslip is never a cut-off.
+     * Posted payslips as pay statements (PayStatements), keyed by payslip
+     * id. Only payslips the actor may see: the ids are scoped first, exactly
+     * as the payslips themselves are. `$own` pins the read to the actor's
+     * own employee, whatever else the role may see, and leaves out what the
+     * employer pays.
      *
-     * @return Collection<int, PayslipView>
+     * @param  list<string>  $payslipIds
+     * @return array<string, Statement>
      */
-    public function month(Access $actor, PayslipView $payslip): Collection
+    public function statements(Access $actor, array $payslipIds, bool $own = false): array
     {
-        return Payslip::query()->with('run:id,code')->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)
-            ->where('employee_id', '=', $payslip->employee_id)
-            ->whereBetween('period_start', [$payslip->period_start->format('Y-m-01'), $payslip->period_start->format('Y-m-t')])
-            ->where(static fn (Builder $query) => $query
-                ->whereNull('run_id')
-                ->orWhereHas('run', static fn (Builder $run) => $run->where('kind', PayrollRunKind::REGULAR)))
-            ->orderBy('period_start')->orderBy('id')->get()
-            ->map(self::view(...));
+        if ($payslipIds === [] || ($own && ! $actor->hasEmployeeLink())) {
+            return [];
+        }
+        $query = Payslip::query()->toEmployee($actor, 'employee_id', ModuleCode::PAYROLL)->whereKey($payslipIds);
+        if ($own) {
+            $query->where('employee_id', '=', $actor->ownEmployeeId());
+        }
+
+        return PayStatements::build($query->get(), $own);
     }
 
     /** The document's payroll reference comes only from its already-scoped parent run. */
@@ -256,7 +262,10 @@ final class PayslipRecords
 
     /**
      * The `deduction_columns` a run's finalization evidence recorded, or
-     * null for a run whose evidence has no such key.
+     * null for a run whose evidence has no such key. A 13th month payroll
+     * recorded an empty list whatever the Payroll Deductions list held, so
+     * its evidence reads as no key: its payslips show the statutory columns
+     * under their default labels.
      *
      * @return list<mixed>|null
      */
@@ -267,6 +276,9 @@ final class PayslipRecords
             return null;
         }
         $decoded = json_decode($payload, true);
+        if (is_array($decoded) && ($decoded['kind'] ?? null) === PayrollRunKind::THIRTEENTH_MONTH) {
+            return null;
+        }
         $columns = is_array($decoded) ? ($decoded['deduction_columns'] ?? null) : null;
 
         return is_array($columns) ? array_values($columns) : null;

@@ -19,7 +19,7 @@ use App\Modules\Timekeeping\Application\Commands\DecidePendingOvertime;
 use App\Modules\Timekeeping\Application\OvertimeDecisionRefused;
 use App\Modules\Timekeeping\Application\Queries\DayCorrections;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 
 /**
@@ -75,7 +75,7 @@ function otdecWorked(EmployeeProfile $employee, string $date, string $out = '19:
         $punch->forceFill([
             'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
             'is_geofenced' => true, 'is_anomaly' => false,
-            'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc(),
+            'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc(),
         ])->save();
     }
 }

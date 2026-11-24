@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Modules\Workforce\Application\SalaryRates;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Console\Command;
 
 /**
@@ -24,7 +24,7 @@ final class ApplySalaryChangesCommand extends Command
 
     public function handle(): int
     {
-        $applied = SalaryRates::applyDue(ManilaClock::todayKey());
+        $applied = SalaryRates::applyDue(LocalClock::todayKey());
         $this->info(sprintf('Salary versions applied to %d employee records.', count($applied)));
 
         return self::SUCCESS;

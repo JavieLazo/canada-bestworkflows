@@ -31,7 +31,7 @@
 --}}
 @php
     use App\Domain\Projects\TaskPolicy;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
 
     // Keyed on the actor's own state: an INDIVIDUAL member reaches
     // IN_PROGRESS here only while they have no response yet.
@@ -69,7 +69,7 @@
                 @if ($individual && $myResponse !== null)<div class="ppm-property-row" role="group" aria-label="Your response: {{ $myResponse->label() }}"><dt>Your response</dt><dd><x-work.task-state :status="$myResponse->status" :label="$myResponse->label()" /></dd></div>
                 @endif
             </dl>
-            <details class="text-xs text-muted-foreground"><summary class="w-fit cursor-pointer">Assignment</summary><dl class="mt-3 grid grid-cols-2 gap-3"><div><dt>Assigned by</dt><dd class="mt-1 text-foreground">{{ $assignedBy ?? '—' }}</dd></div><div><dt>Assigned</dt><dd class="num mt-1 text-foreground">{{ $open->assigned_at?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') ?? '—' }}</dd></div></dl>
+            <details class="text-xs text-muted-foreground"><summary class="w-fit cursor-pointer">Assignment</summary><dl class="mt-3 grid grid-cols-2 gap-3"><div><dt>Assigned by</dt><dd class="mt-1 text-foreground">{{ $assignedBy ?? '—' }}</dd></div><div><dt>Assigned</dt><dd class="num mt-1 text-foreground">{{ $open->assigned_at?->setTimezone(LocalClock::zone())->format('M d, Y, g:i A') ?? '—' }}</dd></div></dl>
                 @if ($coAssignees !== '')<p class="mt-3">Working with: <span class="text-foreground">{{ $coAssignees }}</span></p>@endif
             </details>
             @if ($returned)
@@ -147,7 +147,7 @@
                     @elseif ($myState === 'APPROVED')
                         Approved — waiting for the rest of the team.
                     @elseif ($myState === 'COMPLETED')
-                        {{ $individual ? 'Completed' : 'Accepted' }}{{ $open->completed_at ? ' on '.$open->completed_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') : '' }} — nothing further is needed.
+                        {{ $individual ? 'Completed' : 'Accepted' }}{{ $open->completed_at ? ' on '.$open->completed_at->setTimezone(LocalClock::zone())->format('M d, Y, g:i A') : '' }} — nothing further is needed.
                     @elseif ($myState === 'CANCELLED')
                         Management cancelled this task — nothing further is needed.
                     @endif

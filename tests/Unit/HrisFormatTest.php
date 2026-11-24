@@ -15,7 +15,7 @@ use App\Modules\Timekeeping\Contracts\Views\ShiftTypeView;
 use App\Modules\Timekeeping\Contracts\Views\ShiftView;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -243,12 +243,12 @@ it('describes a request type identically in Records, eDTR, Portal and Leaves', f
     }
 });
 
-it('reads today from ManilaClock in every module', function () {
+it('reads today from LocalClock in every module', function () {
     // 20:00 UTC is already the 18th in Manila; a copy on the UTC clock would say the 17th.
     CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-17 20:00:00', 'UTC'));
 
     try {
-        expect(ManilaClock::todayKey())->toBe('2026-09-18');
+        expect(LocalClock::todayKey())->toBe('2026-09-18');
 
         foreach ([
             'eDTR' => EdtrHris::todayKey(),
@@ -258,7 +258,7 @@ it('reads today from ManilaClock in every module', function () {
             'Projects' => ProjectsData::todayKey(),
             'Records' => RecordsHris::todayKey(),
         ] as $module => $key) {
-            expect($key)->toBe('2026-09-18', "{$module} does not read today through ManilaClock");
+            expect($key)->toBe('2026-09-18', "{$module} does not read today through LocalClock");
         }
     } finally {
         CarbonImmutable::setTestNow();

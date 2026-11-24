@@ -15,7 +15,7 @@ use App\Modules\Workforce\Application\Queries\EmployeeReport;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Locked;
@@ -92,7 +92,7 @@ class Index extends Component
     {
         $actor = app(Access::class);
         abort_unless($actor->hasModule(ModuleCode::REPORTS), 403);
-        $this->to = ManilaClock::todayKey();
+        $this->to = LocalClock::todayKey();
         $this->from = substr($this->to, 0, 8).'01';
         if ($report !== null) {
             abort_unless(isset(ReportCatalog::all()[$report]), 404);
@@ -387,10 +387,10 @@ class Index extends Component
         $this->updated();
     }
 
-    /** @return array<string, array{label: string, from: string, to: string}> Manila calendar dates, including today. */
+    /** @return array<string, array{label: string, from: string, to: string}> local calendar dates, including today. */
     private function periods(): array
     {
-        $today = ManilaClock::instant(ManilaClock::todayKey().'T00:00:00')->setTimezone(ManilaClock::TZ);
+        $today = LocalClock::instant(LocalClock::todayKey().'T00:00:00')->setTimezone(LocalClock::zone());
         $previous = $today->subMonthNoOverflow();
         $latest = $this->latestPayroll();
 
@@ -492,7 +492,7 @@ class Index extends Component
                 ? app(EmployeeReport::class)->options($actor) : [],
             'loanTypes' => $this->type === 'loan-summary' && $allowed
                 ? app(PayrollReports::class)->loanTypes($actor) : [],
-            'generatedAt' => ManilaClock::instant(now()->toIso8601String())->setTimezone(ManilaClock::TZ)->format('d M Y, g:i A'),
+            'generatedAt' => LocalClock::instant(now()->toIso8601String())->setTimezone(LocalClock::zone())->format('d M Y, g:i A'),
         ]);
     }
 }

@@ -93,6 +93,12 @@ class IncentiveTypesPage extends Component
 
     public string $formApprovalReference = '';
 
+    /**
+     * The rule's stored basic-pay flag, carried through an edit as it
+     * stands: no field shows or changes it, and a new type starts with it
+     * off. #[Locked], so only the row opened for editing sets it.
+     */
+    #[Locked]
     public bool $formCountsToward13th = false;
 
     /** Whether leave credit cash-outs are paid as this type (one type at most; the command moves the flag). */
@@ -481,7 +487,7 @@ class IncentiveTypesPage extends Component
         }
         $amount = $rule->amountFor(30000.0, 22.0, 22.0, 22, 12);
 
-        return ['text' => 'At ₱30,000 a month with every day paid: '.Hris::peso($amount).' when due.'];
+        return ['text' => 'At $30,000 a month with every day paid: '.Hris::money($amount).' when due.'];
     }
 
     /**

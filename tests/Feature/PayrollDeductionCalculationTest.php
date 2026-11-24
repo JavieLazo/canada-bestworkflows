@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Livewire\Records\ReferenceListPage;
-use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\PayrollDeduction;
 use App\Models\PayrollRun;
@@ -16,13 +15,7 @@ use App\Modules\Payroll\Application\Catalogs\Deductions;
 use App\Modules\Payroll\Application\DeductionColumns;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
-use App\Modules\Payroll\Domain\DeductionCalculation;
-use App\Platform\Records\CatalogImport;
-use App\Platform\Transfer\ImportOutcome;
-use App\Platform\Transfer\ImportRow;
 use App\Support\Access;
-use Database\Seeders\ReferenceListSeeder;
-use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -122,98 +115,6 @@ it('tags the seeded rows once, by id or by the seeded name, puts a missing one b
     $m->down();
     expect(Schema::hasColumn('payroll_deductions', 'calculation'))->toBeFalse();
     $m->up();
-});
-
-it('lets a payroll manager rename a computed row, delete it to switch the deduction off, and add it back by name', function () {
-    $actor = pdcActor();
-    $sss = PayrollDeduction::query()->findOrFail('ded-1');
-    $catalog = app(Deductions::class);
-
-    // The shared save renames and leaves the calculation as it is.
-    expect($catalog->save($actor, $sss->id, 'SSS Contribution', ''))->toBe('SSS Contribution updated.')
-        ->and($sss->refresh()->calculation)->toBe('SSS')
-        ->and($sss->name)->toBe('SSS Contribution');
-
-    // The dialog offers no calculation: a new row is typed per employee,
-    // unless it is named exactly as a computed deduction that has no row.
-    $page = Livewire::test(ReferenceListPage::class, ['slug' => 'payroll-deductions']);
-    expect($page->html())->not->toContain('>Calculation</th>')
-        ->not->toContain('data-calculation-field')
-        ->toContain('Delete · switches the deduction off');
-    $page->call('openAdd')->set('formName', 'Cash Advance')->call('save');
-    expect(PayrollDeduction::query()->where('name', 'Cash Advance')->sole()->calculation)->toBeNull();
-    $page->call('openAdd')->set('formName', 'Pag-IBIG Loan')->call('save');
-    expect(PayrollDeduction::query()->where('name', 'Pag-IBIG Loan')->sole()->calculation)->toBeNull();
-
-    // A CSV import renames through the shared save and leaves the calculation as it is.
-    $import = new CatalogImport('payroll-deductions', ReferenceListPage::LISTS['payroll-deductions']);
-    $outcome = $import->row($actor, 'records.payroll-deductions', new ImportRow(2, ['ID' => '1', 'Name' => 'SSS']));
-    expect($outcome)->toBe(ImportOutcome::UPDATED)
-        ->and($sss->refresh()->name)->toBe('SSS')
-        ->and($sss->calculation)->toBe('SSS');
-
-    // Deleting a computed row: the typed figures drafts held over its
-    // column are cleared with a required audit row per draft, the row goes,
-    // and the deduction is off.
-    $line = pdcCharge(PayrollDeduction::query()->where('name', 'Cash Advance')->sole());
-    $member = $line->member;
-    $member?->forceFill(['deduction_sss' => 12.5])->save();
-    $page->call('confirmDelete', 'ded-1');
-    expect($page->html())->toContain('switches the SSS deduction off')->toContain('named exactly "SSS"');
-    $page->call('deleteConfirmed');
-    expect(PayrollDeduction::query()->whereKey('ded-1')->exists())->toBeFalse()
-        ->and($member?->refresh()->deduction_sss)->toBeNull()
-        ->and(AuditLog::query()->where('action', 'REFERENCE_DELETED')->count())->toBe(1)
-        ->and(AuditLog::query()->where('action', 'PAYROLL_RUN_UPDATED')->value('details'))
-        ->toContain('1 typed SSS figure cleared because the deduction was deleted in Records and is switched off')
-        ->and(PayrollData::activeCalculations())->toBe(['PHILHEALTH', 'PAGIBIG', 'WITHHOLDING_TAX', 'LATE_UNDERTIME']);
-
-    // Adding a row named as the deduction is known (case aside) switches it
-    // back on — while its calculation is free; a computed row that exists
-    // keeps a same-named newcomer typed.
-    $page->call('openAdd')->set('formName', ' sss ')->call('save');
-    expect(PayrollDeduction::query()->where('name', 'sss')->sole()->calculation)->toBe('SSS')
-        ->and(PayrollData::activeCalculations())->toBe(DeductionCalculation::all());
-    expect($catalog->save($actor, null, 'Pag-IBIG Contribution', ''))->toBe('Pag-IBIG Contribution added.')
-        ->and(PayrollDeduction::query()->where('name', 'Pag-IBIG Contribution')->sole()->calculation)->toBeNull();
-
-    // The database keeps each calculation on one row, whatever writes it.
-    expect(fn () => PayrollDeduction::query()->where('name', 'Pag-IBIG Contribution')->update(['calculation' => DeductionCalculation::PAGIBIG]))
-        ->toThrow(UniqueConstraintViolationException::class);
-});
-
-it('refuses every delete to an actor without organization-wide Payroll access', function () {
-    $loan = PayrollDeduction::create(['code' => '7', 'name' => 'SSS Loan']);
-    $actor = pdcActor(['PAYROLL'], allData: false);
-
-    expect(fn () => app(Deductions::class)->delete($actor, $loan->id))
-        ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');
-    expect(fn () => app(Deductions::class)->delete($actor, 'ded-1'))
-        ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.');
-    expect(PayrollDeduction::query()->count())->toBe(6)
-        ->and(AuditLog::query()->count())->toBe(0);
-
-    $records = pdcActor();
-    expect(app(Deductions::class)->delete($records, $loan->id))->toBe('SSS Loan deleted.')
-        ->and(PayrollDeduction::query()->count())->toBe(5);
-});
-
-it('seeds the five statutory rows with their calculation on a fresh install, twice over', function () {
-    $this->seed(ReferenceListSeeder::class);
-    $this->seed(ReferenceListSeeder::class);
-
-    expect(PayrollDeduction::query()->orderBy('code')->pluck('calculation', 'id')->all())->toBe([
-        seededId(PayrollDeduction::class, 'ded-1') => 'SSS', seededId(PayrollDeduction::class, 'ded-2') => 'PHILHEALTH', seededId(PayrollDeduction::class, 'ded-3') => 'PAGIBIG', seededId(PayrollDeduction::class, 'ded-4') => 'WITHHOLDING_TAX', seededId(PayrollDeduction::class, 'ded-5') => 'LATE_UNDERTIME',
-        seededId(PayrollDeduction::class, 'ded-6') => null, seededId(PayrollDeduction::class, 'ded-7') => null, seededId(PayrollDeduction::class, 'ded-8') => null,
-    ]);
-    // Eight rows: five computed (the Late / Undertime one heads no column)
-    // and three typed, every one a real row.
-    $columns = DeductionColumns::fromCatalog();
-    expect($columns->count())->toBe(8)
-        ->and($columns->filter(static fn (DeductionColumnView $c): bool => $c->id === null)->count())->toBe(0)
-        ->and($columns->filter(static fn (DeductionColumnView $c): bool => $c->isAutomatic())->count())->toBe(5)
-        ->and($columns->filter(static fn (DeductionColumnView $c): bool => $c->headsColumn())->count())->toBe(7)
-        ->and(PayrollData::activeCalculations())->toBe(DeductionCalculation::all());
 });
 
 it('keeps the other reference lists unaware of payroll usage', function () {

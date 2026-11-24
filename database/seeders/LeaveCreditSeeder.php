@@ -9,7 +9,7 @@ use App\Models\LeaveCreditEntry;
 use App\Modules\Timekeeping\Application\LeaveCreditWriter;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\DB;
  * 2026_09_26_0003). This seeder restates the same two numbers in that shape
  * so the feature can be walked through on the demo data without first typing
  * them in: Vacation Leave 15 and Sick Leave 15 for each of the eight demo
- * employees, in the CURRENT Manila year — the year the demo requests fall in,
+ * employees, in the CURRENT local year — the year the demo requests fall in,
  * since LeaveSeeder dates them from today.
  *
  * Keys are the same tokens requests store (`HrisFormat::normalizeRequestType`
@@ -51,7 +51,7 @@ final class LeaveCreditSeeder extends PortSeeder
 
     public function run(): void
     {
-        $year = LeaveCreditPolicy::yearOf(ManilaClock::todayKey());
+        $year = LeaveCreditPolicy::yearOf(LocalClock::todayKey());
         $keys = array_map(HrisFormat::normalizeRequestType(...), self::TYPES);
 
         foreach ($this->employeeIdsByIndex() as $employeeId) {

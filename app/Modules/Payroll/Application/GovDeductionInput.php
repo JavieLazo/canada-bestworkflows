@@ -112,7 +112,7 @@ final class GovDeductionInput
             foreach (['ee' => 'employee', 'er' => 'employer'] as $share => $whose) {
                 $amount = self::amount($form["{$key}_fixed_{$share}"] ?? '');
                 if ($amount === null) {
-                    return "Fixed {$name} ({$whose} share): enter an amount up to ₱99,999,999.00, or leave it blank to use the table.";
+                    return "Fixed {$name} ({$whose} share): enter an amount up to $99,999,999.00, or leave it blank to use the table.";
                 }
                 $figures["fixed_{$key}_{$share}"] = $amount;
             }
@@ -136,7 +136,7 @@ final class GovDeductionInput
                 : ($taxAmount === null || $taxAmount <= 0.0 || $taxAmount > 100.0);
             if ($invalid && $deducted) {
                 return $method === self::METHOD_FIXED
-                    ? 'Enter the fixed tax per payslip, up to ₱99,999,999.00.'
+                    ? 'Enter the fixed tax per payslip, up to $99,999,999.00.'
                     : 'Enter the percent of taxable compensation, above 0 and at most 100.';
             }
             // With withholding off the form disables these fields, so a blank

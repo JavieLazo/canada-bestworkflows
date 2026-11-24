@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Database\Seeders;
 
 use App\Models\Holiday;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
  * The Philippine holiday calendar from seed.ts:1539-1561, dated in the current
- * Manila year exactly as the reference used `new Date().getFullYear()`.
+ * local year exactly as the reference used `new Date().getFullYear()`.
  *
  * `percent` is the WHOLE day's rate, not a premium added to an ordinary day:
  * 200 pays double for working a regular holiday, 130 pays the special
@@ -36,7 +36,7 @@ final class HolidaySeeder extends PortSeeder
 
     public function run(): void
     {
-        $year = CarbonImmutable::now(ManilaClock::TZ)->year;
+        $year = CarbonImmutable::now(LocalClock::zone())->year;
 
         foreach (self::HOLIDAYS as $i => [$name, $monthDay, $type, $percent]) {
             $this->upsert(Holiday::class, $this->codeMatch(Holiday::class, 'code', $i + 1, 'HOL'), [

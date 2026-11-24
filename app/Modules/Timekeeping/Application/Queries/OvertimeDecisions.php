@@ -15,7 +15,7 @@ use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Contracts\Views\OvertimeDayView;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * The overtime decisions behind a Daily Time Record, per day, as its OT
@@ -84,7 +84,7 @@ final class OvertimeDecisions
                 payable_minutes: OvertimeApprovalPolicy::payable($row?->decision, OvertimeApprovalPolicy::paidMinutes($row?->approved_minutes, $credited), $ceiling),
                 note: $row?->note,
                 reviewer_name: $row?->reviewed_by !== null ? $reviewers->get($row->reviewed_by)?->name : null,
-                decided_at: ($row->updated_at ?? $row?->created_at)?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A'),
+                decided_at: ($row->updated_at ?? $row?->created_at)?->setTimezone(LocalClock::zone())->format('M d, Y, g:i A'),
                 posted: $posted,
                 category: $category,
                 credited_minutes: $credited,

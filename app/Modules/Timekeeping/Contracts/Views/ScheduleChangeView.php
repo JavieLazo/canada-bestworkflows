@@ -26,7 +26,7 @@ final readonly class ScheduleChangeView
         public string $state,
         public array $sets,
         public ?string $made_by,
-        /** Manila wall-clock 'M d, Y, g:i A'. */
+        /** Local wall-clock 'M d, Y, g:i A'. */
         public ?string $made_at,
         public ?string $cancelled_by,
         public ?string $cancelled_at,

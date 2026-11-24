@@ -24,7 +24,7 @@ use App\Modules\WorkManagement\Domain\Tasks\TaskInbox;
 use App\Support\Access;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
@@ -429,7 +429,7 @@ class MyTasksPage extends Component
     {
         $access = $this->actor();
         $linked = $access->hasEmployeeLink();
-        $today = ManilaClock::dayKey(CarbonImmutable::now());
+        $today = LocalClock::dayKey(CarbonImmutable::now());
 
         $this->queue = array_key_exists($this->queue, TaskInbox::QUEUES) ? $this->queue : 'ALL';
         $this->taskView = in_array($this->taskView, ['list', 'gantt', 'capacity'], true) ? $this->taskView : 'list';
@@ -594,7 +594,7 @@ class MyTasksPage extends Component
             $this->sortDir,
             (int) $this->getPage(),
             $this->perPage,
-            ManilaClock::todayKey(),
+            LocalClock::todayKey(),
         );
     }
 

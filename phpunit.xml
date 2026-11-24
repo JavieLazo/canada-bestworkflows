@@ -28,6 +28,11 @@
              command line. -->
         <ini name="memory_limit" value="512M"/>
         <env name="APP_ENV" value="testing"/>
+        <!-- The suite was written on the reference clock: its timestamps,
+             golden vectors and day boundaries are Manila wall clock. It keeps
+             that zone until each area's tests are rewritten for the zone the
+             application ships with; LocalClockTest covers that one. -->
+        <env name="BESTWORKFLOWS_TIMEZONE" value="Asia/Manila"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

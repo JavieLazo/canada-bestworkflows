@@ -19,7 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * `unpaid_leave_days` (5,2)); the CAST is `'float'` and the COMPUTE is plain
  * PHP doubles through `Money::round()`. Those are three separate decisions and
  * all three are deliberate. `decimal:2` is banned — it returns a PHP string,
- * which is the exact ₱NaN/concatenation defect `src/lib/api/respond.ts:5-8`
+ * which is the exact $NaN/concatenation defect `src/lib/api/respond.ts:5-8`
  * exists to fix.
  *
  * Quirks carried over verbatim from `PayslipDraft` (src/lib/payroll.ts:223-276):
@@ -44,10 +44,10 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  *    (`taxable_benefits_excess`); the tax-exempt part is `exempt_benefits`,
  *    added to gross and net after the tax. The lines themselves are itemised
  *    in `payslip_incentives`. `thirteenth_month` is 0 on every regular
- *    payslip and holds the amount on a 13th month run's payslip
- *    (ThirteenthMonthData): there `gross_pay` equals it, no contributions are
- *    taken, and its tax-exempt part and excess are `exempt_benefits` /
- *    `taxable_benefits_excess`.
+ *    payslip and holds the amount on the payslip of a 13th month payroll, a
+ *    kind of run no screen creates: there `gross_pay` equals it, no
+ *    contributions are taken, and its tax-exempt part and excess are
+ *    `exempt_benefits` / `taxable_benefits_excess`.
  *  - `absence_deduction`, `unpaid_leave_deduction` and
  *    `late_undertime_deduction` are the pre-additive engine's lines: late and
  *    undertime charged as one line, and a monthly base reduced for absence.
@@ -121,6 +121,16 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int|null $tax_year the tax year the withholding counts in (the year of the pay date); null on a payslip posted before 2026_11_02_0011
  * @property string|null $tax_method how the withholding was worked out (TABLE, ANNUALIZED, FIXED, PERCENT, WHOLE_YEAR, NONE); null before the column
  * @property float $tax_refund the refund the year's last payslip paid back (divergence 20); 0 elsewhere
+ * @property float $cpp the employee's Canada Pension Plan contribution, inside total_deductions; 0 on a payslip posted before 2026_11_24_0002
+ * @property float $cpp2 the employee's second Canada Pension Plan contribution, on pay above the year's first ceiling
+ * @property float $ei the employee's Employment Insurance premium
+ * @property float $federal_tax federal income tax deducted, any extra tax the employee asked for included
+ * @property float $provincial_tax provincial income tax deducted
+ * @property float $cpp_er what the employer pays to the pension plan for this pay; never deducted
+ * @property float $cpp2_er the employer's second pension contribution; never deducted
+ * @property float $ei_er the employer's insurance premium; never deducted
+ * @property float $pensionable_earnings the pay the pension contribution was worked out on
+ * @property float $insurable_earnings the pay the insurance premium was worked out on
  * @property CarbonImmutable $created_at
  * @property-read PayrollRun|null $run
  * @property-read EmployeeProfile|null $employee
@@ -206,6 +216,17 @@ class Payslip extends BaseModel
         'tax_year',
         'tax_method',
         'tax_refund',
+        // The source deductions and what they were worked out on (2026_11_24_0002).
+        'cpp',
+        'cpp2',
+        'ei',
+        'federal_tax',
+        'provincial_tax',
+        'cpp_er',
+        'cpp2_er',
+        'ei_er',
+        'pensionable_earnings',
+        'insurable_earnings',
     ];
 
     /**
@@ -270,6 +291,16 @@ class Payslip extends BaseModel
             'tax_year' => 'integer',
             'tax_method' => 'string',
             'tax_refund' => 'float',
+            'cpp' => 'float',
+            'cpp2' => 'float',
+            'ei' => 'float',
+            'federal_tax' => 'float',
+            'provincial_tax' => 'float',
+            'cpp_er' => 'float',
+            'cpp2_er' => 'float',
+            'ei_er' => 'float',
+            'pensionable_earnings' => 'float',
+            'insurable_earnings' => 'float',
             'created_at' => 'immutable_datetime',
         ];
     }

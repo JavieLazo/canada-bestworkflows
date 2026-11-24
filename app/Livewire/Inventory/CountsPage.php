@@ -11,7 +11,7 @@ use App\Modules\Inventory\Application\Commands\ResolveCount;
 use App\Modules\Inventory\Application\Queries\InventoryLifecycle;
 use App\Modules\Inventory\Application\Queries\InventoryRecords;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -71,7 +71,7 @@ class CountsPage extends Component
     public function mount(): void
     {
         abort_unless(app(Access::class)->mayReadAllData(ModuleCode::INVENTORY), 403);
-        $this->countedOn = ManilaClock::dayKey(now());
+        $this->countedOn = LocalClock::dayKey(now());
     }
 
     public function openAdd(): void

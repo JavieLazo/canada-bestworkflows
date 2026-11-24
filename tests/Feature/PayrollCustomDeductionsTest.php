@@ -2,7 +2,6 @@
 
 declare(strict_types=1);
 
-use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Payroll\PayslipDraft;
 use App\Livewire\Records\ReferenceListPage;
 use App\Models\AuditLog;
@@ -41,8 +40,8 @@ function pcdType(string $code, string $name): PayrollDeduction
     return PayrollDeduction::create(['code' => $code, 'name' => $name]);
 }
 
-/** A row payroll computes itself: the seeded SSS row the migration put in place. */
-function pcdAutomatic(string $id = 'ded-1'): PayrollDeduction
+/** A row payroll computes itself: the seeded Late / Undertime row the migration put in place. */
+function pcdAutomatic(string $id = 'ded-5'): PayrollDeduction
 {
     return PayrollDeduction::query()->findOrFail($id);
 }
@@ -141,8 +140,8 @@ it('saves and replaces named lines with members inside the audited draft', funct
 
 it('rejects invalid or computed catalog ids directly in the save command without changing its draft', function (string $id, mixed $amount, string $message) {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run, 'member' => $member] = PayrollEvidenceFixture::make();
-    if ($id === 'ded-1') {
-        expect(pcdAutomatic()->calculation)->toBe('SSS'); // the engine's own SSS line
+    if ($id === 'ded-5') {
+        expect(pcdAutomatic()->calculation)->toBe('LATE_UNDERTIME'); // priced from the Daily Time Record
     }
     $before = $run->name;
     expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($run->id, 'Should roll back',
@@ -155,7 +154,7 @@ it('rejects invalid or computed catalog ids directly in the save command without
         ->and(AuditLog::query()->count())->toBe(0);
 })->with([
     'missing type' => ['removed-type', 100, 'A deduction type on this payroll no longer exists.'],
-    'computed statutory id' => ['ded-1', 100, 'Computed payroll deductions cannot be added twice.'],
+    'computed row id' => ['ded-5', 100, 'Computed payroll deductions cannot be added twice.'],
     'zero amount' => ['removed-type', 0, 'Every custom deduction amount must be more than zero.'],
     'negative amount' => ['removed-type', -5, 'Every custom deduction amount must be more than zero.'],
     'not a number' => ['removed-type', 'lots', 'Every custom deduction amount must be more than zero.'],
@@ -308,17 +307,4 @@ it('rolls the catalog delete back when the draft audit cannot be written', funct
     expect(PayrollDeduction::query()->whereKey($cash->id)->exists())->toBeTrue()
         ->and(PayrollRunMemberDeduction::query()->count())->toBe(1)
         ->and(AuditLog::query()->count())->toBe(0);
-});
-
-it('refuses custom deductions on a 13th-month run', function () {
-    ['actor' => $actor, 'employee' => $employee] = PayrollEvidenceFixture::make();
-    $cash = pcdType('6', 'Cash Advance');
-
-    expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft(null, 'Yearly run',
-        '2026-01-01', '2026-12-31', [$employee->id], [], [], [],
-        kind: PayrollRunKind::THIRTEENTH_MONTH,
-        customDeductions: [$employee->id => [$cash->id => 100]])))
-        ->toThrow(RuntimeException::class, 'Custom deductions belong on a regular payroll');
-    expect(PayrollRun::query()->where('name', 'Yearly run')->exists())->toBeFalse()
-        ->and(PayrollRunMemberDeduction::query()->count())->toBe(0);
 });

@@ -121,7 +121,7 @@ final class FigureSources
             $own = self::ownSource($employee, $cell);
             $table = $inputs->statutoryTables[self::STATUTORY[$cell]] ?? null;
             $steps = [
-                self::step('Typed on this payroll', $typed ? Hris::peso(Money::round($draftDeductions[$id][$cell])).' typed in the cell.' : 'Nothing typed in this cell.', $typed),
+                self::step('Typed on this payroll', $typed ? Hris::money(Money::round($draftDeductions[$id][$cell])).' typed in the cell.' : 'Nothing typed in this cell.', $typed),
                 self::step('Their own pay settings', self::ownText($employee, $cell), $own !== null),
                 self::step('Company: the '.$label.' table', $table !== null && $table['effective_from'] !== null ? 'The version from '.PayrollPeriodText::day((string) $table['effective_from']).'.' : 'The built-in figures.', true),
             ];
@@ -133,7 +133,7 @@ final class FigureSources
         }
         $typeId = substr($cell, 4);
         $typed = isset($draftCustomDeductions[$id][$typeId]);
-        $steps = [self::step('Typed on this payroll', $typed ? Hris::peso(Money::round($draftCustomDeductions[$id][$typeId])).' typed in the cell.' : 'Nothing typed in this cell.', $typed)];
+        $steps = [self::step('Typed on this payroll', $typed ? Hris::money(Money::round($draftCustomDeductions[$id][$typeId])).' typed in the cell.' : 'Nothing typed in this cell.', $typed)];
         $line = null;
         foreach ($customDeductionLines[$id] ?? [] as $candidate) {
             if ($candidate['type_id'] === $typeId) {
@@ -148,8 +148,8 @@ final class FigureSources
         }
         if ($recurring !== null) {
             $left = $recurring['total'] === null ? null : Money::round(max(0.0, $recurring['total'] - $recurring['paid_before']));
-            $steps[] = self::step('Their recurring deduction or allowance', Hris::peso($recurring['amount']).' a payroll'
-                .($left !== null ? ', '.Hris::peso($left).' balance before this one' : ', no total').'.', true);
+            $steps[] = self::step('Their recurring deduction or allowance', Hris::money($recurring['amount']).' a payroll'
+                .($left !== null ? ', '.Hris::money($left).' balance before this one' : ', no total').'.', true);
         } elseif ($column->isPercent() && is_array($column->percent)) {
             $steps[] = self::step('Company: the '.$column->name.' rule', DeductionText::percent($column->percent).'.', true);
         }
@@ -182,7 +182,7 @@ final class FigureSources
         if ($field === 'withholding_tax') {
             return match (true) {
                 ! $employee->allow_withholding_tax => 'Withholding tax is switched off for them.',
-                $employee->fixed_tax > 0.0 => Hris::peso($employee->fixed_tax).' on every payslip.',
+                $employee->fixed_tax > 0.0 => Hris::money($employee->fixed_tax).' on every payslip.',
                 $employee->percent_tax > 0.0 => Hris::percentText($employee->percent_tax / 100).' of taxable compensation.',
                 $employee->annualize_tax => 'Annualized per cut-off (×24).',
                 default => 'None: the company\'s way.',
@@ -193,10 +193,10 @@ final class FigureSources
         }
         $parts = [];
         if ($employee->{"fixed_{$field}_ee"} > 0.0) {
-            $parts[] = Hris::peso($employee->{"fixed_{$field}_ee"}).' a month, employee share';
+            $parts[] = Hris::money($employee->{"fixed_{$field}_ee"}).' a month, employee share';
         }
         if ($employee->{"fixed_{$field}_er"} > 0.0) {
-            $parts[] = Hris::peso($employee->{"fixed_{$field}_er"}).' employer share';
+            $parts[] = Hris::money($employee->{"fixed_{$field}_er"}).' employer share';
         }
         $mode = $employee->{"{$field}_mode"};
         if ($mode !== null && $mode !== GovDeductionSettings::MODE_SEMI_MONTHLY) {

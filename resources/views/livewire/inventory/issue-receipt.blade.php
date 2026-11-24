@@ -20,7 +20,7 @@
                                 <label wire:key="issue-stock-{{ $stockItem->id }}" class="flex cursor-pointer items-center gap-3 px-4 py-3 hover:bg-muted/50">
                                     <flux:checkbox wire:model.live="selectedIds" value="{{ $stockItem->id }}" aria-label="Select {{ $stockItem->name }}" />
                                     <span class="min-w-0 flex-1 text-sm"><span class="block break-words font-medium">{{ $stockItem->name }}</span><span class="block break-words text-xs text-muted-foreground">Item {{ $stockItem->code }} · {{ $stockItem->serial_no ?: 'No Serial Number' }}</span></span>
-                                    <span class="num whitespace-nowrap text-xs text-muted-foreground">₱{{ number_format($stockItem->cost, 2) }}</span>
+                                    <span class="num whitespace-nowrap text-xs text-muted-foreground">${{ number_format($stockItem->cost, 2) }}</span>
                                 </label>
                             @empty
                                 <p class="p-4 text-sm text-muted-foreground">No serviceable items in stock match your search.</p>

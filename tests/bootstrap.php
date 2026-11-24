@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Support\LocalClock;
 use Tests\Support\TestDatabaseGuard;
 
 /** Runs before Laravel can resolve a database or invoke destructive test setup. */
@@ -18,3 +19,13 @@ if ($environment['DB_CONNECTION'] === 'mysql') {
 }
 
 require_once __DIR__.'/../vendor/autoload.php';
+
+/*
+ * The zone the suite runs on, which the PHPUnit configuration names. Unit
+ * tests never boot the application, so nothing else would set it for them; a
+ * Feature test's boot reads the same setting through `copems.timezone`.
+ */
+$suiteZone = $_ENV['BESTWORKFLOWS_TIMEZONE'] ?? getenv('BESTWORKFLOWS_TIMEZONE');
+if (is_string($suiteZone) && $suiteZone !== '') {
+    LocalClock::useZone($suiteZone);
+}

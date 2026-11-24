@@ -13,7 +13,7 @@
 @php
     use App\Livewire\Audit\Index as AuditIndex;
     use App\Platform\Audit\AuditLabels;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
 
 @endphp
 
@@ -81,8 +81,8 @@
                     @endif
                     @foreach ($rows as $r)
                         <tr wire:key="log-{{ $r->id }}">
-                            {{-- fmtDateTime (hris.ts:199-207), stored UTC and shown in Manila: the day, the time under it. --}}
-                            @php($loggedAt = $r->created_at->setTimezone(ManilaClock::TZ))
+                            {{-- fmtDateTime (hris.ts:199-207), stored UTC and shown in local time: the day, the time under it. --}}
+                            @php($loggedAt = $r->created_at->setTimezone(LocalClock::zone()))
                             <td class="num whitespace-nowrap">
                                 <p>{{ $loggedAt->format('M d, Y') }}</p>
                                 <p class="text-xs text-muted-foreground">{{ $loggedAt->format('g:i A') }}</p>

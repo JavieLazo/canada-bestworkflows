@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Attendance;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /** A completed overnight row can hand the clock to a different weekday's early Time In. */
 final class ShiftDayBoundary
@@ -29,26 +29,26 @@ final class ShiftDayBoundary
                 && $previousBreak === ShiftResolver::scheduledBreakWindow($current, $currentGeometry))) {
             return false;
         }
-        $instant = ManilaClock::instant($candidate->loggedAt);
-        if (ManilaClock::dayKey($instant) !== $date) {
+        $instant = LocalClock::instant($candidate->loggedAt);
+        if (LocalClock::dayKey($instant) !== $date) {
             return false;
         }
-        $minute = ManilaClock::minutesOfDay($instant);
+        $minute = LocalClock::minutesOfDay($instant);
         if (! $current->isFlexible()
             && ($minute < $currentGeometry->start - ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES
                 || $minute >= $currentGeometry->end)) {
             return false;
         }
 
-        $opens = ManilaClock::ms(ManilaClock::instant(CalendarDays::previous($date).'T'.$previous->startTime))
+        $opens = LocalClock::ms(LocalClock::instant(CalendarDays::previous($date).'T'.$previous->startTime))
             - (ShiftResolver::EARLY_PUNCH_WINDOW_MINUTES * 60000);
-        $until = ManilaClock::ms($instant);
-        usort($logs, static fn (AttendanceLog $a, AttendanceLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-            <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)));
+        $until = LocalClock::ms($instant);
+        usort($logs, static fn (AttendanceLog $a, AttendanceLog $b): int => LocalClock::ms(LocalClock::instant($a->loggedAt))
+            <=> LocalClock::ms(LocalClock::instant($b->loggedAt)));
         $pairs = 0;
         $open = false;
         foreach ($logs as $log) {
-            $at = ManilaClock::ms(ManilaClock::instant($log->loggedAt));
+            $at = LocalClock::ms(LocalClock::instant($log->loggedAt));
             if ($at < $opens || $at >= $until) {
                 continue;
             }

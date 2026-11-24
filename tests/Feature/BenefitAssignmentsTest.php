@@ -112,14 +112,14 @@ it('keeps one tax-free ceiling on the Incentives page: Change replaces it at onc
 
     Livewire::test(IncentiveTypesPage::class)
         ->assertSeeHtml('data-benefit-ceiling')
-        ->assertSee('₱90,000.00')
+        ->assertSee('$90,000.00')
         ->assertDontSee('In force')->assertDontSee('Upcoming')->assertDontSee('Takes Effect')
         ->call('openCeiling')
         ->assertSet('ceilingForm', ['amount' => '90000'])
         ->set('ceilingForm.amount', '100,000')
         ->call('saveCeiling')
         ->assertSet('ceilingOpen', false)
-        ->assertSee('₱100,000.00');
+        ->assertSee('$100,000.00');
 
     // One row is left, covering every date the list covered; the change is in the audit trail.
     $row = PayrollBenefitCeiling::query()->sole();

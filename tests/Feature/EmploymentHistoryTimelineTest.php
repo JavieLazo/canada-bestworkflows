@@ -19,7 +19,7 @@ use App\Modules\Workforce\Application\Queries\EmploymentHistoryRecords;
 use App\Modules\Workforce\Contracts\Views\EmploymentHistoryView;
 use App\Modules\Workforce\Contracts\Views\EmploymentSubjectView;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -229,7 +229,7 @@ it('returns no subject or starting record to unlinked, foreign and payroll-only 
 
 it('marks only the newest stored row as the latest record under any filter or page', function () {
     ehtlActor();
-    $this->travelTo(CarbonImmutable::parse('2026-10-01 09:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-01 09:00:00', LocalClock::zone()));
     $ana = ehtlEmployee();
     for ($i = 1; $i <= 21; $i++) {
         $this->travel(1)->minutes();
@@ -264,10 +264,10 @@ it('marks only the newest stored row as the latest record under any filter or pa
 it('dates every entry by when it was saved and never by a stored effective date', function () {
     ehtlActor();
     // Both instants fall on the PREVIOUS day in UTC, so a date read off the stored value is caught.
-    $this->travelTo(CarbonImmutable::parse('2026-10-02 02:15:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-02 02:15:00', LocalClock::zone()));
     $ana = ehtlEmployee(hired: false);
     ehtlBaseline($ana, '2019-05-05');
-    $this->travelTo(CarbonImmutable::parse('2026-10-03 00:30:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-03 00:30:00', LocalClock::zone()));
     ehtlChange($ana, ['position_level' => 'Senior']);
     EmployeeEmploymentHistory::query()->where('event_type', EmploymentHistoryRecorder::UPDATED)->update(['effective_date' => '2099-01-01']);
 
@@ -284,7 +284,7 @@ it('dates every entry by when it was saved and never by a stored effective date'
 
 it('closes an unfiltered timeline with the starting record and hides it under a field or date filter', function () {
     ehtlActor();
-    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', LocalClock::zone()));
     $ana = ehtlEmployee();
     $this->travel(1)->hours();
     ehtlChange($ana, ['position_level' => 'Senior']);
@@ -329,7 +329,7 @@ it('lists a starting record as facts and never as changes', function () {
         ->and(ehtlCount($page, EHTL_START.'//*[@data-field]'))->toBe(0)
         ->and(ehtlTexts($page, EHTL_START.'//*[@data-fact]/@data-fact'))->toBe(EmploymentHistoryRecorder::FIELDS)
         // What the record held at the start is told there, in the stored spelling.
-        ->and(ehtlTexts($page, EHTL_START)[0])->toContain('Junior', 'Timeline site', '₱25,000.00', '₱1,000.00', '01 Jan 2024')
+        ->and(ehtlTexts($page, EHTL_START)[0])->toContain('Junior', 'Timeline site', '$25,000.00', '$1,000.00', '01 Jan 2024')
         ->and(ehtlTexts($page, EHTL_CHANGE)[0])->not->toContain('Timeline site')->not->toContain('1,000.00');
 });
 
@@ -406,7 +406,7 @@ it('keeps the all-employees list free of headers, latest marks and starting reco
 
 it('keeps folded comparisons in the server HTML with only the first single-employee entry open', function () {
     ehtlActor();
-    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', LocalClock::zone()));
     $ana = ehtlEmployee();
     $this->travel(1)->hours();
     ehtlChange($ana, ['position_level' => 'Senior']);
@@ -500,7 +500,7 @@ it('shows a starting worksite whose name was not stored as not recorded and neve
 
 it('explains a value that was never captured only on the entry that shows one', function () {
     ehtlActor();
-    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', LocalClock::zone()));
     $ana = ehtlEmployee(hired: false);
     ehtlChange($ana, ['position_level' => 'Senior']);
     $this->travel(1)->hours();
@@ -536,7 +536,7 @@ it('marks an inactive employee in the header and says nothing for an active one'
 
 it('keys each fold by whether the server opens it so a change of view starts it afresh', function () {
     ehtlActor();
-    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-02 10:00:00', LocalClock::zone()));
     $ana = ehtlEmployee();
     $this->travel(1)->hours();
     ehtlChange($ana, ['position_level' => 'Senior']);

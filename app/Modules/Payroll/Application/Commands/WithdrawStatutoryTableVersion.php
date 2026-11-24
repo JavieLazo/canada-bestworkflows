@@ -11,7 +11,7 @@ use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Application\StatutoryVersionGuard;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -32,7 +32,7 @@ final class WithdrawStatutoryTableVersion
         if (! PayrollSettingsAccess::mayManage($access)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $id, $today): string {
             $row = PayrollStatutoryTable::query()->whereKey($id)->lockForUpdate()->first();

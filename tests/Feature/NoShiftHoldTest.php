@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 use App\Livewire\Leaves\Index as LeavesPage;
 use App\Livewire\Payroll\RunWorkspace;
-use App\Livewire\Payroll\ThirteenthMonthWorkspace;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\LeaveTravelRequest;
@@ -36,8 +35,8 @@ use Tests\Support\ScheduleFixture;
  * (ScheduleHold, in FinalizePayroll), and approving a leave or official
  * business that covers it (LeaveScheduleHold, in ReviewAbsence). Each is
  * refused by the command itself, called without a screen, and shown on the
- * screen before the click; a 13th month payroll, a disapproval and a
- * recommendation are never held. A rest day is a schedule, not a hold.
+ * screen before the click; a disapproval and a recommendation are never
+ * held. A rest day is a schedule, not a hold.
  */
 /** @param list<string> $modules */
 function nshActor(array $modules = ['PAYROLL', 'ROSTER', 'LEAVES'], bool $allData = true): Access
@@ -174,24 +173,6 @@ it('finalizes a member whose only dates with no shift fall before they were hire
 
     $run = nshRun([$hired], start: '2026-09-01', end: '2026-09-15');
     expect(app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id)))->toBe(1);
-});
-
-it('never holds a 13th month payroll, which prices no attendance', function () {
-    $this->travelTo(new DateTimeImmutable('2026-12-20T12:00:00+08:00'));
-    $employee = nshEmployee('Tess', 'Trese');
-    $regular = new PayrollRun;
-    $regular->forceFill(['code' => 'PR-R', 'name' => 'Posted', 'period_start' => '2026-08-01', 'period_end' => '2026-08-15', 'status' => 'FINALIZED', 'kind' => 'REGULAR'])->save();
-    $payslip = new Payslip;
-    $payslip->forceFill(['run_id' => $regular->id, 'employee_id' => $employee->id, 'period_start' => '2026-08-01', 'period_end' => '2026-08-15',
-        'work_days_pay' => 120_000, 'leave_pay' => 0, 'gross_pay' => 120_000, 'total_deductions' => 0, 'net_pay' => 120_000, 'taxable_compensation' => 0, 'exempt_benefits' => 0])->save();
-    nshActor(['PAYROLL']);
-    $run = nshRun([$employee], 'THIRTEENTH_MONTH', '2026-01-01', '2026-12-31');
-
-    Livewire::test(ThirteenthMonthWorkspace::class, ['id' => $run->id])
-        ->assertDontSee('have no shift for')
-        ->call('finalize');
-
-    expect($run->fresh()->status)->toBe('FINALIZED');
 });
 
 it('shows the hold on the payroll workspace and keeps Finalize off until the schedule is set', function () {

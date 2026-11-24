@@ -29,7 +29,7 @@ use App\Support\Access;
 use App\Support\EmployeeIdentity;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Validator;
@@ -279,7 +279,7 @@ final class TimekeepingReports
      */
     private function analysisDays(Access $actor, string $employeeId, string $from, string $to, array $context, array $holidays, float $openPunchHours, CarbonImmutable $now): array
     {
-        $through = min($to, ManilaClock::dayKey($now));
+        $through = min($to, LocalClock::dayKey($now));
         $days = [];
         $schedule = null;
         if ($from <= $through) {
@@ -300,7 +300,7 @@ final class TimekeepingReports
     private function employeeAttendance(Access $actor, ReportCriteria $criteria, DirectoryEmployee $employee, array $holidays, float $openPunchHours, CarbonImmutable $now): array
     {
         $details = $criteria->view !== 'summary';
-        $lastComputed = min($criteria->to, ManilaClock::todayKey());
+        $lastComputed = min($criteria->to, LocalClock::todayKey());
         $days = [];
         $schedule = null;
         if ($criteria->from <= $lastComputed) {
@@ -519,9 +519,9 @@ final class TimekeepingReports
         if ($instant === null || $instant === '') {
             return '—';
         }
-        $at = ManilaClock::instant($instant);
-        $time = $at->setTimezone(ManilaClock::TZ)->format('g:i A');
+        $at = LocalClock::instant($instant);
+        $time = $at->setTimezone(LocalClock::zone())->format('g:i A');
 
-        return $time.(ManilaClock::dayKey($at) > $date ? ' next day' : '');
+        return $time.(LocalClock::dayKey($at) > $date ? ' next day' : '');
     }
 }

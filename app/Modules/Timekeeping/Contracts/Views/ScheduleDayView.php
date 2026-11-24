@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Modules\Timekeeping\Contracts\Views;
 
 /**
- * The schedule ONE Manila calendar date was measured against, and how far it
+ * The schedule ONE local calendar date was measured against, and how far it
  * can be trusted as history — the Daily Time Record's Shift column,
  * resolved through the same per-date seam the engine's inputs come from
  * (Infrastructure\ShiftRoster), so the label and the figures beside it can

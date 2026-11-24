@@ -19,7 +19,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
 use App\Platform\Files\AttachmentUsage;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
@@ -169,7 +169,7 @@ it('serializes two decisions on one overtime day behind the payroll membership l
         'requires_break_punch' => false, 'work_days' => [1, 2, 3, 4, 5]]);
     foreach (['TIME_IN' => '08:00', 'TIME_OUT' => '19:30'] as $type => $at) {
         AttendanceLog::create(['employee_id' => $employee->id, 'source' => 'MANUAL', 'log_type' => $type,
-            'logged_at' => ManilaClock::instant("2026-09-08T{$at}:00")->utc()]);
+            'logged_at' => LocalClock::instant("2026-09-08T{$at}:00")->utc()]);
     }
 
     $results = databaseRace('overtime', 'copems:payroll-membership', $user, $employee);
@@ -192,7 +192,7 @@ it('lets a bulk overtime decision see a payslip posted while it waited for the p
         'requires_break_punch' => false, 'work_days' => [1, 2, 3, 4, 5]]);
     foreach (['TIME_IN' => '08:00', 'TIME_OUT' => '19:30'] as $type => $at) {
         AttendanceLog::create(['employee_id' => $employee->id, 'source' => 'MANUAL', 'log_type' => $type,
-            'logged_at' => ManilaClock::instant("2026-09-08T{$at}:00")->utc()]);
+            'logged_at' => LocalClock::instant("2026-09-08T{$at}:00")->utc()]);
     }
 
     // The test plays the finalize: holding payroll's membership lock, it
@@ -224,7 +224,7 @@ it('serializes corrections of two back-to-back nights that share a morning', fun
     // Time In, so each correction reads — and locks — the other's rows.
     foreach ([['TIME_IN', '2026-09-23T22:04'], ['TIME_OUT', '2026-09-24T06:03'], ['TIME_IN', '2026-09-24T21:57'], ['TIME_OUT', '2026-09-25T06:08']] as [$type, $at]) {
         AttendanceLog::create(['employee_id' => $employee->id, 'source' => 'MANUAL', 'log_type' => $type,
-            'logged_at' => ManilaClock::instant("{$at}:00")->utc()]);
+            'logged_at' => LocalClock::instant("{$at}:00")->utc()]);
     }
 
     // Worker 1 corrects Wednesday, worker 2 Thursday: each night to 10:00 PM
@@ -239,7 +239,7 @@ it('serializes corrections of two back-to-back nights that share a morning', fun
     $night = DomainShift::fromArray(Shift::query()->whereKey($shift->id)->sole()->toArray());
     // What the DTR reads as each date's row, in Manila wall clock.
     $row = static fn (string $date): array => array_map(
-        static fn (DomainLog $log): string => $log->logType.' '.ManilaClock::instant($log->loggedAt)->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i'),
+        static fn (DomainLog $log): string => $log->logType.' '.LocalClock::instant($log->loggedAt)->setTimezone(LocalClock::zone())->format('Y-m-d H:i'),
         DtrCalculator::rowPunches($domain, $night, $date),
     );
 

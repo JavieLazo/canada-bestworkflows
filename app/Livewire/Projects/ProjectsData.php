@@ -22,7 +22,7 @@ use App\Support\Access;
 use App\Support\CodeSequence;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
@@ -545,10 +545,10 @@ final class ProjectsData
 
     /* ------------------------------ formatting ----------------------------- */
 
-    /** hris.ts `todayKey()` — today's Manila calendar day, ManilaClock's one clock read. */
+    /** hris.ts `todayKey()` — today's local calendar day, LocalClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::todayKey();
+        return LocalClock::todayKey();
     }
 
     /** hris.ts `fmtDate` — "Aug 05, 2026", shared through HrisFormat. Date columns carry no zone to shift. */
@@ -557,16 +557,16 @@ final class ProjectsData
         return WorkRules::fmtDate($value);
     }
 
-    /** As fmtDate, but for a UTC timestamp — displayed on the Manila wall clock. */
+    /** As fmtDate, but for a UTC timestamp — displayed on the local wall clock. */
     public static function fmtDateManila(?CarbonImmutable $value): string
     {
-        return $value === null ? '—' : $value->setTimezone(ManilaClock::TZ)->format('M d, Y');
+        return $value === null ? '—' : $value->setTimezone(LocalClock::zone())->format('M d, Y');
     }
 
-    /** hris.ts `fmtDateTime` — "Aug 31, 2026, 2:05 PM", Manila. */
+    /** hris.ts `fmtDateTime` — "Aug 31, 2026, 2:05 PM", local. */
     public static function fmtDateTime(?CarbonImmutable $value): string
     {
-        return $value === null ? '—' : $value->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+        return $value === null ? '—' : $value->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
     }
 
     /** A date column (or 'Y-m-d' string) as the key the policies compare. */

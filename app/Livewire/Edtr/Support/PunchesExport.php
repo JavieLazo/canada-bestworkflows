@@ -12,14 +12,14 @@ use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
  * A punch feed as CSV — the rows its card shows, newest first, through the
  * same {@see PunchFeed::list()} read as the eDTR Live Feed (the actor's
  * attendance scope, corrections left out, latest {@see LiveFeed}'s 300).
- * Timestamps are Manila wall-clock. Export only: punches are captured at the
+ * Timestamps are local wall-clock. Export only: punches are captured at the
  * station and corrected on the DTR, never imported.
  */
 final class PunchesExport implements TableExport
@@ -35,7 +35,7 @@ final class PunchesExport implements TableExport
                 yield [
                     $punch->employee->employee_code ?? '',
                     $punch->employee === null ? '' : EmployeeName::display($punch->employee),
-                    $punch->logged_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
+                    $punch->logged_at->setTimezone(LocalClock::zone())->format('Y-m-d H:i:s'),
                     LocationKind::label($punch->location_kind, $punch->site?->name),
                     str_replace('_', ' ', $punch->log_type),
                     str_replace('_', ' ', $punch->source),
@@ -46,6 +46,6 @@ final class PunchesExport implements TableExport
 
         $headers = ['ID', 'Employee', 'Timestamp', 'Site', 'Type', 'Source', 'Distance (m)'];
 
-        return new CsvExport('punches-'.ManilaClock::todayKey().'.csv', $headers, $rows);
+        return new CsvExport('punches-'.LocalClock::todayKey().'.csv', $headers, $rows);
     }
 }

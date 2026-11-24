@@ -22,7 +22,7 @@ use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Modules\Timekeeping\Domain\Roster\ScheduleBasis;
 use App\Modules\Timekeeping\Infrastructure\ScheduleDayReader;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
@@ -45,7 +45,7 @@ final class OwnAttendance
             throw ValidationException::withMessages(['period' => 'Choose no more than 31 days of attendance.']);
         }
 
-        $lastComputed = min($end, ManilaClock::todayKey());
+        $lastComputed = min($end, LocalClock::todayKey());
         if ($start > $lastComputed) {
             return new OwnAttendanceView([], DtrSummary::of([]), 0, [], ['days' => 0, 'late' => 0.0, 'undertime' => 0.0, 'absences' => 0]);
         }

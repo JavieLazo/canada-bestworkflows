@@ -28,7 +28,7 @@ use App\Modules\Timekeeping\Application\LeaveRules;
 use App\Modules\Timekeeping\Application\PostLeaveEarnings;
 use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Once;
@@ -110,7 +110,7 @@ function lrulTypeParams(array $overrides = []): array
 
 function lrulFreeze(string $manilaDay): void
 {
-    test()->travelTo(CarbonImmutable::parse($manilaDay.' 09:00:00', ManilaClock::TZ)->utc());
+    test()->travelTo(CarbonImmutable::parse($manilaDay.' 09:00:00', LocalClock::zone())->utc());
 }
 
 /**
@@ -142,7 +142,7 @@ function lrulPresent(EmployeeProfile $employee, array $dates): void
             $punch = new AttendanceLog;
             $punch->forceFill([
                 'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-                'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant("{$date}T{$time}:00")->utc(),
+                'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant("{$date}T{$time}:00")->utc(),
             ])->save();
         }
     }

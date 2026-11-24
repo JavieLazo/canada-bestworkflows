@@ -9,7 +9,7 @@ use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -33,7 +33,7 @@ final class MyTasksExport implements TableExport
         $sort = in_array($query['sort'] ?? '', ['code', 'task', 'priority', 'start', 'due', 'status', 'focus'], true) ? (string) $query['sort'] : 'priority';
         $direction = ($query['dir'] ?? '') === 'desc' ? 'desc' : 'asc';
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $rows = static function () use ($actor, $filters, $sort, $direction, $today): Generator {
             $records = app(WorkRecords::class);
             foreach (CsvExport::pages(static fn (int $page, int $perPage) => $records->ownPage($actor, $filters, $sort, $direction, $page, $perPage, $today)) as $task) {
@@ -44,6 +44,6 @@ final class MyTasksExport implements TableExport
             }
         };
 
-        return new CsvExport('my-tasks-'.ManilaClock::todayKey().'.csv', ['Code', 'Task', 'Project', 'Priority', 'Start date', 'Due date', 'Status'], $rows);
+        return new CsvExport('my-tasks-'.LocalClock::todayKey().'.csv', ['Code', 'Task', 'Project', 'Priority', 'Start date', 'Due date', 'Status'], $rows);
     }
 }

@@ -9,7 +9,7 @@ use App\Modules\Inventory\Application\Queries\InventoryLifecycle;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /** Exports the lifecycle table through the same scoped, filtered page query. */
@@ -27,6 +27,6 @@ final class CountsExport implements TableExport
             }
         };
 
-        return new CsvExport('inventory-counts-'.ManilaClock::todayKey().'.csv', ['Reference', 'Date', 'Location', 'Recorded by', 'Status', 'Notes', 'Review reference', 'Resolution'], $rows);
+        return new CsvExport('inventory-counts-'.LocalClock::todayKey().'.csv', ['Reference', 'Date', 'Location', 'Recorded by', 'Status', 'Notes', 'Review reference', 'Resolution'], $rows);
     }
 }

@@ -16,7 +16,7 @@ use App\Modules\Inventory\Application\Commands\ResolveIncident;
 use App\Modules\Inventory\Application\Commands\SaveItem;
 use App\Modules\Inventory\Application\InventoryWrite;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Str;
@@ -97,7 +97,7 @@ it('refuses disposal when an open inspection commits while its upload waits for 
     $actor = Access::forActor($manager);
     $reviewer = Access::forActor(invDisposalRaceUser());
     $authority = invDisposalRaceAuthority();
-    $date = ManilaClock::todayKey();
+    $date = LocalClock::todayKey();
     $itemId = app(SaveItem::class)->handle($actor, null, ['code' => 'DISPOSAL-001', 'name' => 'Disposal race printer', 'acquired_on' => '2026-01-01', 'cost' => '100']);
     $initial = app(RecordIncident::class)->save($actor, ['item_id' => $itemId, 'kind' => 'INSPECTION', 'reported_on' => $date, 'reference' => 'RACE-INITIAL', 'details' => 'Initial inspection.']);
     app(ResolveIncident::class)->save($reviewer, $initial, ['condition' => 'UNSERVICEABLE', 'resolution_reference' => 'RACE-REVIEW', 'resolution' => 'Verified unserviceable.']);

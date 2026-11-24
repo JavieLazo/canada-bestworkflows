@@ -13,9 +13,9 @@ use DateTimeZone;
  *
  * Every one of them builds its date as `new Date(`${date}T00:00:00.000Z`)` —
  * UTC MIDNIGHT, deliberately, so that the weekday and the day-stepping are
- * independent of the ambient zone. That is NOT a Manila conversion and must
- * not be routed through ManilaClock: a calendar day here is a bare 'Y-m-d'
- * label, not an instant. Only punch timestamps go through ManilaClock.
+ * independent of the ambient zone. That is NOT a local conversion and must
+ * not be routed through LocalClock: a calendar day here is a bare 'Y-m-d'
+ * label, not an instant. Only punch timestamps go through LocalClock.
  *
  * Pure: 'Y-m-d' strings in, 'Y-m-d' strings out.
  */

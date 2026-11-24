@@ -95,7 +95,7 @@ final class PostLeaveEarnings
     }
 
     /**
-     * Posts every month that is due as of `$today` (Manila, 'Y-m-d').
+     * Posts every month that is due as of `$today` (local, 'Y-m-d').
      *
      * @param  list<string>|null  $employeeIds  null for everyone the job walks
      * @return array{posted: int, employees: int, skipped: list<string>, acquired: int}

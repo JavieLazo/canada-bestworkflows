@@ -7,8 +7,8 @@
     Reads: $celebrations.
 --}}
 @php
-    // The date is a Manila calendar day, so "today" has to be too.
-    $todayKey = \App\Support\ManilaClock::todayKey();
+    // The date is a local calendar day, so "today" has to be too.
+    $todayKey = \App\Support\LocalClock::todayKey();
 @endphp
 
 <ul class="mt-2 space-y-0.5">

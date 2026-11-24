@@ -20,7 +20,7 @@ use App\Modules\Timekeeping\Application\PunchInput;
 use App\Modules\Timekeeping\Application\Queries\PunchFeed;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -128,7 +128,7 @@ function edtrPunch(EmployeeProfile $employee, ?WorkSite $site, string $type, str
         'accuracy_meters' => null,
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ], $overrides))->save();
 
     return $punch;
@@ -402,7 +402,7 @@ it('blocks a time in before the one-hour early shift window', function () {
     edtrRosterShift($employee);
     edtrActor(['EDTR'], allData: true);
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 08:59:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 08:59:00', LocalClock::zone()));
 
     try {
         Livewire::test(PunchStation::class)
@@ -421,7 +421,7 @@ it('allows a time in exactly one hour before the shift starts', function () {
     edtrRosterShift($employee);
     edtrActor(['EDTR'], allData: true);
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 09:00:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 09:00:00', LocalClock::zone()));
 
     try {
         Livewire::test(PunchStation::class)
@@ -447,19 +447,19 @@ it('uses the one-hour early window for the first time out slot', function () {
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T10:00:00')->utc(),
     ]);
 
     $station = Livewire::test(PunchStation::class)
         ->call('employeePicked', 'punch-employee', (string) $employee->getKey());
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 10:59:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 10:59:00', LocalClock::zone()));
 
     try {
         $station->call('punch', 'TIME_OUT');
         expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_OUT')->count())->toBe(0);
 
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 11:00:00', ManilaClock::TZ));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 11:00:00', LocalClock::zone()));
         $station->call('punch', 'TIME_OUT');
         expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_OUT')->count())->toBe(1);
     } finally {
@@ -480,7 +480,7 @@ it('opens the second time in slot at the break midpoint', function () {
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T10:00:00')->utc(),
     ]);
     AttendanceLog::query()->create([
         'employee_id' => (string) $employee->getKey(),
@@ -489,19 +489,19 @@ it('opens the second time in slot at the break midpoint', function () {
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T12:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T12:00:00')->utc(),
     ]);
 
     $station = Livewire::test(PunchStation::class)
         ->call('employeePicked', 'punch-employee', (string) $employee->getKey());
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 12:29:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 12:29:00', LocalClock::zone()));
 
     try {
         $station->call('punch', 'TIME_IN');
         expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(1);
 
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 12:30:00', ManilaClock::TZ));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 12:30:00', LocalClock::zone()));
         $station->call('punch', 'TIME_IN');
         expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(2);
     } finally {
@@ -522,10 +522,10 @@ it('lets the final time out land when middle punches were missed', function () {
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T10:00:00')->utc(),
     ]);
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 17:00:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 17:00:00', LocalClock::zone()));
 
     try {
         Livewire::test(PunchStation::class)
@@ -557,10 +557,10 @@ it('does not apply middle slot windows when the shift has no break', function ()
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T10:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T10:00:00')->utc(),
     ]);
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 10:59:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 10:59:00', LocalClock::zone()));
 
     try {
         Livewire::test(PunchStation::class)
@@ -592,7 +592,7 @@ it('maps an overnight second time in window to the shift start date', function (
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T20:00:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T20:00:00')->utc(),
     ]);
     AttendanceLog::query()->create([
         'employee_id' => (string) $employee->getKey(),
@@ -601,19 +601,19 @@ it('maps an overnight second time in window to the shift start date', function (
         'source' => 'WEB_GPS',
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant('2026-09-02T23:30:00')->utc(),
+        'logged_at' => LocalClock::instant('2026-09-02T23:30:00')->utc(),
     ]);
 
     $station = Livewire::test(PunchStation::class)
         ->call('employeePicked', 'punch-employee', (string) $employee->getKey());
 
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 23:59:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-02 23:59:00', LocalClock::zone()));
 
     try {
         $station->call('punch', 'TIME_IN');
         expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(1);
 
-        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-03 00:00:00', ManilaClock::TZ));
+        CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-03 00:00:00', LocalClock::zone()));
         $station->call('punch', 'TIME_IN');
         expect(AttendanceLog::query()->where('employee_id', $employee->getKey())->where('log_type', 'TIME_IN')->count())->toBe(2);
     } finally {
@@ -918,7 +918,7 @@ it('keeps DTR corrections out of the live feed, but not station punches', functi
     // definition and is not news. Corrected on a day well before the station
     // punch: a correction SUPERSEDES its own day, so correcting today would
     // delete the punch above rather than sit alongside it, and prove nothing.
-    $pastDay = ManilaClock::dayKey(CarbonImmutable::now()->subDays(5));
+    $pastDay = LocalClock::dayKey(CarbonImmutable::now()->subDays(5));
 
     Livewire::test(EdtrPage::class)
         ->set('tab', 'dtr')

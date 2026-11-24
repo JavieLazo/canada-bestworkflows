@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Livewire\Payroll;
 
-use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Enums\PayrollRunStatus;
 use App\Livewire\Concerns\WithSorting;
 use App\Livewire\Concerns\WithTableFilters;
@@ -36,10 +35,9 @@ use Livewire\Component;
  * delete button is disabled — so a posted payslip can never silently vanish
  * from an employee's portal. Only DRAFT runs delete.
  *
- * It lists ONE kind of run: the sidebar's "Basic Payroll" (/payroll,
- * REGULAR) or "13th Month Payroll" (/payroll/thirteenth-month,
- * THIRTEENTH_MONTH — the route passes the kind), each opening and creating
- * its own workspace.
+ * It lists EVERY run, whatever its kind: the cut-off payrolls made here, and
+ * any finalized 13th month payroll an installation already holds, which
+ * opens read-only in the same workspace. Only a cut-off payroll is created.
  */
 #[Layout('layouts.app')]
 #[Title('Payroll')]
@@ -57,10 +55,6 @@ class Index extends Component
     /** Status filter. Plain filter state, deliberately unlocked. */
     public string $status = 'ALL';
 
-    /** Which runs this list shows — from the route, never the client. #[Locked]. */
-    #[Locked]
-    public string $kind = PayrollRunKind::REGULAR;
-
     /** The run the delete dialog is asking about. Id-bearing → #[Locked]. */
     #[Locked]
     public ?string $deletingId = null;
@@ -68,10 +62,8 @@ class Index extends Component
     /** Whether the delete dialog is showing. Flipping it reveals nothing. */
     public bool $confirmingDelete = false;
 
-    public function mount(string $kind = PayrollRunKind::REGULAR): void
+    public function mount(): void
     {
-        $this->kind = in_array($kind, PayrollRunKind::all(), true) ? $kind : PayrollRunKind::REGULAR;
-
         // useSort<SortKey>("from", "desc") — payroll-page.tsx:48.
         $this->sortKey = 'from';
         $this->sortDir = 'desc';
@@ -155,7 +147,7 @@ class Index extends Component
 
         // GET /api/payroll/runs requires all_data + PAYROLL; without it the
         // reference page's fetch 403s and the table stays empty. Same here.
-        $runs = app(PayrollRecords::class)->list($actor, $this->kind);
+        $runs = app(PayrollRecords::class)->list($actor);
 
         // The filter pipeline and sort (payroll-page.tsx:53-76): one copy,
         // shared with the CSV export.
@@ -167,16 +159,10 @@ class Index extends Component
             ? $runs->firstWhere('id', $this->deletingId)
             : null;
 
-        $yearly = $this->kind === PayrollRunKind::THIRTEENTH_MONTH;
-
         return view('livewire.payroll.index', [
             'rows' => $paginator,
             'total' => $sorted->count(),
             'deleting' => $deleting,
-            'yearly' => $yearly,
-            'heading' => PayrollRunKind::LABELS[$this->kind],
-            'createRoute' => $yearly ? 'payroll.thirteenth.new' : 'payroll.new',
-            'showRoute' => $yearly ? 'payroll.thirteenth.show' : 'payroll.show',
-        ])->title(PayrollRunKind::LABELS[$this->kind]);
+        ]);
     }
 }

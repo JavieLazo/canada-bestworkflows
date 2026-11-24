@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Attendance;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * A literal port of `computeDtr` — copems/src/lib/dtr.ts:252-447.
@@ -15,22 +15,22 @@ use App\Support\ManilaClock;
  * output, so a one-minute divergence here is a peso divergence on a payslip.
  *
  * Pure: 'Y-m-d' strings and value objects in, `DayRecord`s out. No Eloquent,
- * no config(), no DB. The only framework dependency is `ManilaClock`, which is
+ * no config(), no DB. The only framework dependency is `LocalClock`, which is
  * the single timezone boundary.
  *
  * ── THE FOUR PRECISION RULES, EACH DIFFERENT ────────────────────────────────
  *
- *  1. `ManilaClock::minutesOfDay()` is SECOND-GRANULAR. The reference reads an
+ *  1. `LocalClock::minutesOfDay()` is SECOND-GRANULAR. The reference reads an
  *     `Intl.DateTimeFormat` that emits a 2-digit `second` field (dtr.ts:194-218),
  *     so sub-second precision is discarded BEFORE the grace comparison. Against
  *     an 08:00 shift with 15 minutes of grace: 08:15:00 is not late, 08:15:00.500
  *     is not late, 08:15:01 IS late by 15 minutes. Building minute-of-day from
- *     `format('s.u')` once `logged_at` is DATETIME(3) is a ₱31.25 error on a
+ *     `format('s.u')` once `logged_at` is DATETIME(3) is a $31.25 error on a
  *     punch that is, to the second, exactly on time.
  *
  *  2. PAIR DURATIONS keep FULL MILLISECOND precision — dtr.ts:351-354 and
  *     :372-375 divide a raw millisecond difference by 60000 and round. They are
- *     computed here from `ManilaClock::ms()`, never from `minutesOfDay()`.
+ *     computed here from `LocalClock::ms()`, never from `minutesOfDay()`.
  *
  *  3. `ShiftResolver::clockMinutes()` DROPS a shift's configured seconds
  *     entirely — the mirror image of rule 1.
@@ -39,7 +39,7 @@ use App\Support\ManilaClock;
  *     `Minutes::round()`. It is NOT `Money::round()`, which is the two-decimal
  *     PESO boundary, and it is NOT PHP's `round()`, which is
  *     half-away-from-zero. See the note in Minutes on why
- *     `ManilaClock::minutesBetween()` is not used.
+ *     `LocalClock::minutesBetween()` is not used.
  *
  * ── SORTING ─────────────────────────────────────────────────────────────────
  * dtr.ts:294-296 sorts the merged day logs with a comparator that returns a
@@ -294,12 +294,12 @@ final class DtrCalculator
              * `start_time` is only filler (see ShiftResolver's header).
              * `lateMinutes` skips FLEXIBLE for the same reason.
              *
-             * `"{$date}T{$s->startTime}"` carries no offset, so ManilaClock
+             * `"{$date}T{$s->startTime}"` carries no offset, so LocalClock
              * reads it as MANILA WALL CLOCK — which is what it is.
              */
             $clockOpensAt = $s->isFlexible()
                 ? null
-                : ManilaClock::ms(ManilaClock::instant($date.'T'.$s->startTime));
+                : LocalClock::ms(LocalClock::instant($date.'T'.$s->startTime));
 
             /*
              * Sum each in→out pair rather than measuring first-in to last-out: a
@@ -405,7 +405,7 @@ final class DtrCalculator
                     $breakMinutes = max(0.0, $spanMinutes - $workedMinutes);
 
                     // QUIRK, PRESERVED: a flat +1440 whenever the two punches land
-                    // on different Manila days — even if they are two days apart.
+                    // on different local days — even if they are two days apart.
                     $outM = $this->minutesOfDay($punchOut)
                         + ($this->dayKey($punchOut) !== $this->dayKey($punchIn) ? (float) self::MINUTES_PER_DAY : 0.0);
 
@@ -608,7 +608,7 @@ final class DtrCalculator
     }
 
     /**
-     * The punches the DTR reads as ONE date's row: that Manila calendar day's
+     * The punches the DTR reads as ONE date's row: that local calendar day's
      * punches less the ones the previous date carries back, then the ones
      * this date carries from the next — the SAME objects it was handed, never
      * copies, the date's own first (in input order), then the carried ones.
@@ -637,7 +637,7 @@ final class DtrCalculator
      * Final Time Out can SHOW the next row a Time In it does not own. A
      * correction replaces what a row owns.
      *
-     * @param  list<AttendanceLog>  $logs  the two preceding, own and next Manila days at least, any order
+     * @param  list<AttendanceLog>  $logs  the two preceding, own and next local days at least, any order
      * @return list<AttendanceLog>
      */
     public static function rowPunches(array $logs, ?Shift $shift, string $date): array
@@ -1121,27 +1121,27 @@ final class DtrCalculator
     /** Integer milliseconds since the epoch — never a float, see the class header. */
     private function ms(string $iso): int
     {
-        return $this->msCache[$iso] ??= ManilaClock::ms(ManilaClock::instant($iso));
+        return $this->msCache[$iso] ??= LocalClock::ms(LocalClock::instant($iso));
     }
 
-    /** The Manila calendar day a punch belongs to. */
+    /** The local calendar day a punch belongs to. */
     private function dayKey(string $iso): string
     {
-        return $this->dayCache[$iso] ??= ManilaClock::dayKey(ManilaClock::instant($iso));
+        return $this->dayCache[$iso] ??= LocalClock::dayKey(LocalClock::instant($iso));
     }
 
-    /** Minutes past Manila midnight, SECOND-granular. See rule 1 in the header. */
+    /** Minutes past local midnight, SECOND-granular. See rule 1 in the header. */
     private function minutesOfDay(string $iso): float
     {
-        return $this->minuteCache[$iso] ??= ManilaClock::minutesOfDay(ManilaClock::instant($iso));
+        return $this->minuteCache[$iso] ??= LocalClock::minutesOfDay(LocalClock::instant($iso));
     }
 
-    /** Minutes from the Manila midnight of the DTR row's date. */
+    /** Minutes from the local midnight of the DTR row's date. */
     private function timelineMinute(string $date, string $iso): float
     {
-        $base = ManilaClock::ms(ManilaClock::instant($date.'T00:00:00'));
+        $base = LocalClock::ms(LocalClock::instant($date.'T00:00:00'));
 
-        return (ManilaClock::ms(ManilaClock::instant($iso)) - $base) / 60000;
+        return (LocalClock::ms(LocalClock::instant($iso)) - $base) / 60000;
     }
 
     /**

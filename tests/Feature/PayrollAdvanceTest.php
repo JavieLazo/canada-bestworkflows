@@ -2,10 +2,8 @@
 
 declare(strict_types=1);
 
-use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Payroll\PayrollValidation;
 use App\Livewire\Payroll\RunWorkspace;
-use App\Livewire\Payroll\Support\PayslipDocument;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
@@ -32,7 +30,7 @@ use App\Modules\Timekeeping\Domain\Attendance\CorrectionWindow;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Modules\Workforce\Contracts\EmployeePayContexts;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -51,7 +49,7 @@ use Tests\Support\PayrollReviewFixture;
  * presumed days and every settlement are in the evidence and the audit.
  *
  * September 2026 starts on a Tuesday: 22 scheduled Monday-to-Friday days,
- * so PHP 30,000 a month is PHP 1,363.636… a day. The advance payroll
+ * so CAD 30,000 a month is CAD 1,363.636… a day. The advance payroll
  * covers 1 to 15 September and is processed on Tuesday the 15th, counted
  * through Monday the 14th.
  */
@@ -72,7 +70,7 @@ function padvActor(array $modules = ['PAYROLL', 'EDTR', 'LEAVES'], bool $allData
 }
 
 /**
- * Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, PHP 30,000 a month.
+ * Monday to Friday, 08:00-17:00 with a 60-minute unpaid break, CAD 30,000 a month.
  *
  * @param  array<string, mixed>  $overrides
  */
@@ -98,7 +96,7 @@ function padvPunch(EmployeeProfile $employee, string $type, string $manilaStamp)
     $punch = new AttendanceLog;
     $punch->forceFill([
         'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ])->save();
 }
 
@@ -169,7 +167,7 @@ it('counts a draft through yesterday while the period runs, and through nothing 
     Livewire::test(RunWorkspace::class)->assertSet('attendanceThrough', '2026-09-11')
         ->assertSee('Attendance is counted through')->assertDontSeeHtml('data-attendance-through');
 
-    $this->travelTo(new DateTimeImmutable('2026-09-20T10:00:00+08:00'));
+    $this->travelTo(new DateTimeImmutable('2026-09-15T10:00:00+08:00'));
     Livewire::test(RunWorkspace::class)->assertSet('attendanceThrough', '');
 
     // A draft saved on one day and opened on a later one follows the later day, and needs saving again.
@@ -181,7 +179,7 @@ it('counts a draft through yesterday while the period runs, and through nothing 
     Livewire::test(RunWorkspace::class, ['id' => $run->id])->assertSet('attendanceThrough', '');
 });
 
-it('refuses a counted date that is today, outside the period, or on a 13th month run', function () {
+it('refuses a counted date that is today or outside the period', function () {
     $this->travelTo(new DateTimeImmutable('2026-09-15T10:00:00+08:00'));
     $actor = padvActor();
     $employee = padvEmployee();
@@ -191,8 +189,6 @@ it('refuses a counted date that is today, outside the period, or on a 13th month
         ->toThrow(RuntimeException::class, 'yesterday at the latest');
     expect(fn () => padvDraft($actor, '2026-09-01', '2026-09-15', '2026-08-31', [$employee]))
         ->toThrow(RuntimeException::class, 'inside the payroll period');
-    expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft(null, 'Yearly', '2026-01-01', '2026-12-31', [], [], [], [], kind: PayrollRunKind::THIRTEENTH_MONTH, attendanceThrough: '2026-06-30')))
-        ->toThrow(RuntimeException::class, 'no attendance cut-off');
     expect(PayrollRun::query()->count())->toBe(0)
         ->and(AuditLog::query()->where('action', 'PAYROLL_RUN_CREATED')->count())->toBe(0);
 });
@@ -270,7 +266,7 @@ it('lists open attendance only among the counted days', function () {
     $employee = padvEmployee();
     padvWorkedThroughFourteenth($employee);
     // Overtime awaiting a decision on the 10th (counted) and the 14th (counted), punches on the 15th (presumed).
-    AttendanceLog::query()->where('employee_id', $employee->id)->whereDate('logged_at', '2026-09-10')->where('log_type', 'TIME_OUT')->update(['logged_at' => ManilaClock::instant('2026-09-10T19:30:00')->utc()]);
+    AttendanceLog::query()->where('employee_id', $employee->id)->whereDate('logged_at', '2026-09-10')->where('log_type', 'TIME_OUT')->update(['logged_at' => LocalClock::instant('2026-09-10T19:30:00')->utc()]);
     padvWorked($employee, '2026-09-15', '19:30');
     foreach ([['LR-C', '2026-09-11', '2026-09-11'], ['LR-P', '2026-09-15', '2026-09-15']] as [$code, $start, $end]) {
         $request = new LeaveTravelRequest;
@@ -420,7 +416,7 @@ it('settles the presumed days on the next payroll from their finished attendance
     expect($next->refresh()->status)->toBe('FINALIZED');
 
     $slips = Payslip::query()->where('run_id', $next->id)->get()->keyBy('employee_id');
-    // Absent: the presumed day (PHP 1,363.64) was worth nothing, so it is charged back.
+    // Absent: the presumed day (CAD 1,363.64) was worth nothing, so it is charged back.
     expect($slips[$absent->id]->settlement)->toBe(-1363.64)
         ->and($slips[$absent->id]->work_days)->toBe(11.0)
         ->and($slips[$absent->id]->gross_pay)->toBe(round(15000.0 - 1363.64, 2))
@@ -453,11 +449,8 @@ it('settles the presumed days on the next payroll from their finished attendance
     expect(app(PayslipRecords::class)->unsettledAdvances($actor))->toBe([]);
     expect(fn () => CorrectPunches::apply($actor, $absent->id, '2026-09-15', ['time_in' => '08:00', 'break_out' => null, 'break_in' => null, 'time_out' => '17:00'], PunchSlots::SAME_DAY, 'Late filing'))
         ->toThrow(RuntimeException::class, CorrectionWindow::PAID_DAY);
-    $settlements = app(PayslipRecords::class)->settlements($actor, [$slips[$absent->id]->id])[$slips[$absent->id]->id];
-    $document = PayslipDocument::issued(app(PayslipRecords::class)->find($actor, $next->id, $absent->id), $absent, false, [], [], collect(), settlements: $settlements);
-    expect(array_column($document['earnings'], 'label'))->toContain('Prior cut-off adjustment for 15 Sep 2026 · '.$advance->code);
-    $advanceDocument = PayslipDocument::issued(app(PayslipRecords::class)->find($actor, $advance->id, $absent->id), $absent, false, [], [], collect());
-    expect(array_column($advanceDocument['basis'], 'label'))->toContain('Paid as scheduled · days');
+    $statement = app(PayslipRecords::class)->statements($actor, [$slips[$absent->id]->id])[$slips[$absent->id]->id];
+    expect(array_column($statement['earnings'], 'amount', 'label')['Earlier Period Adjustment'] ?? null)->toBe(-1363.64);
 });
 
 it('freezes the presumed days\' figures in the advance payroll\'s evidence and settles from them, not from a new computation', function () {
@@ -540,7 +533,7 @@ it('prices a holiday proclaimed after the advance payroll posted on the settleme
     $this->travelTo(new DateTimeImmutable('2026-10-01T10:00:00+08:00'));
     padvWorkedSecondHalf($employee);
 
-    // Presumed as an ordinary day (PHP 1,363.64); worked, it is a regular holiday at 200% (PHP 2,727.27): the difference is owed.
+    // Presumed as an ordinary day (CAD 1,363.64); worked, it is a regular holiday at 200% (CAD 2,727.27): the difference is owed.
     $line = PayrollData::calculateDrafts([$employee->id], '2026-09-16', '2026-09-30', actor: $actor)['settlementLines'][$employee->id][0];
     expect($line['presumed']['basic_pay'])->toBe(1363.64)
         ->and($line['actual']['basic_pay'])->toBe(2727.27)

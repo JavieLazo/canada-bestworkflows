@@ -6,7 +6,7 @@ use App\Models\AttendanceLog;
 use App\Models\EmployeeProfile;
 use App\Models\RosterLocation;
 use App\Models\WorkSite;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\EmployeeSeeder;
@@ -56,7 +56,7 @@ function rlocseedPunchesOn(string $employeeId, int $weekday): array
         ->where('employee_id', $employeeId)
         ->orderBy('logged_at')
         ->get()
-        ->filter(static fn (AttendanceLog $log): bool => CarbonImmutable::parse(ManilaClock::dayKey($log->logged_at))->dayOfWeek === $weekday)
+        ->filter(static fn (AttendanceLog $log): bool => CarbonImmutable::parse(LocalClock::dayKey($log->logged_at))->dayOfWeek === $weekday)
         ->all());
 }
 

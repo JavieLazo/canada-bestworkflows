@@ -8,7 +8,7 @@ use App\Models\EdtrMobilePunchReceipt;
 use App\Modules\Timekeeping\Application\PunchInput;
 use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -59,7 +59,7 @@ final class SyncMobilePunches
     private function one(Access $actor, string $clientId, array $row): array
     {
         try {
-            $at = ManilaClock::instant((string) ($row['logged_at'] ?? ''));
+            $at = LocalClock::instant((string) ($row['logged_at'] ?? ''));
         } catch (Throwable) {
             return $this->rejected($clientId, 'That punch time could not be read.');
         }
@@ -154,7 +154,7 @@ final class SyncMobilePunches
     private function sortKey(mixed $value): int
     {
         try {
-            return ManilaClock::instant((string) $value)->getTimestamp();
+            return LocalClock::instant((string) $value)->getTimestamp();
         } catch (Throwable) {
             return PHP_INT_MAX;
         }

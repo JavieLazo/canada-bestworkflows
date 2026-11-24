@@ -7,7 +7,7 @@ namespace App\Modules\Timekeeping\Domain\Attendance;
 use App\Domain\Attendance\DayRecord;
 use App\Domain\Attendance\Shift;
 use App\Domain\Attendance\ShiftResolver;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -62,13 +62,13 @@ final class DayClose
             $workEnds = 2.0 * self::MINUTES_PER_DAY;
         }
 
-        return ManilaClock::instant($date.'T00:00:00')->addSeconds((int) floor(($workEnds + $overtime) * 60));
+        return LocalClock::instant($date.'T00:00:00')->addSeconds((int) floor(($workEnds + $overtime) * 60));
     }
 
     /** Whether `$date`'s attendance day is over at `$now`. */
     public static function isOver(string $date, Shift $shift, float $maxOvertimeHours, CarbonImmutable $now): bool
     {
-        return ManilaClock::ms($now) >= ManilaClock::ms(self::at($date, $shift, $maxOvertimeHours));
+        return LocalClock::ms($now) >= LocalClock::ms(self::at($date, $shift, $maxOvertimeHours));
     }
 
     /**

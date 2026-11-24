@@ -27,7 +27,7 @@ final readonly class OvertimeDayView
         public int $payable_minutes,
         public ?string $note,
         public ?string $reviewer_name,
-        /** When it was decided, Manila wall-clock 'M d, Y, g:i A', or null. */
+        /** When it was decided, local wall-clock 'M d, Y, g:i A', or null. */
         public ?string $decided_at,
         /** Already covered by posted regular payroll; display only, writes recheck under lock. */
         public bool $posted = false,

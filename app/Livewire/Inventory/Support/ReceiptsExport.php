@@ -8,7 +8,7 @@ use App\Domain\Enums\ModuleCode;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /** Exports frozen MR identities and original totals through the receipt table's query. */
@@ -23,6 +23,6 @@ final class ReceiptsExport implements TableExport
             }
         };
 
-        return new CsvExport('inventory-receipts-'.ManilaClock::todayKey().'.csv', ['MR No.', 'Issued on', 'Received by', 'Issued by', 'Status', 'Original cost', 'Office', 'Remarks'], $rows);
+        return new CsvExport('inventory-receipts-'.LocalClock::todayKey().'.csv', ['MR No.', 'Issued on', 'Received by', 'Issued by', 'Status', 'Original cost', 'Office', 'Remarks'], $rows);
     }
 }

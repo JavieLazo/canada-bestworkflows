@@ -31,13 +31,11 @@ use App\Modules\Payroll\Application\Queries\PayScheduleRecords;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
 use App\Modules\Payroll\Application\Queries\RecurringLineRecords;
 use App\Modules\Payroll\Application\ScheduleHold;
-use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Contracts\Views\PayrollRunView;
 use App\Modules\Payroll\Contracts\Views\PayslipView as Payslip;
 use App\Modules\Payroll\Contracts\Views\RecurringLineView;
-use App\Modules\Payroll\Domain\CutoffAdvice;
-use App\Modules\Payroll\Domain\DeductionCalculation;
+use App\Modules\Payroll\Domain\Canada\TaxDetails;
 use App\Modules\Payroll\Domain\PayrollAdvance;
 use App\Modules\Payroll\Domain\Recurring\RecurringLine;
 use App\Modules\Timekeeping\Contracts\ScheduleNotices;
@@ -48,7 +46,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use App\Support\Csv;
 use App\Support\EmployeeIdentity;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
@@ -278,15 +276,17 @@ class RunWorkspace extends Component
     public function mount(?string $id = null): mixed
     {
         if ($id === null) {
-            // thisMonth() defaults (run-workspace.tsx:47-50, 141-142) — the
-            // first cut-off of the current Manila month.
-            $month = substr(PayrollData::todayKey(), 0, 7);
-            $this->start = "{$month}-01";
-            $this->end = "{$month}-15";
-            $this->followTodayCountedThrough();
-            // The company's default pay schedule, and the pay date it gives
-            // these dates (PaySchedules).
+            // The company's pay schedule sets the dates: the period whose
+            // pay day comes next, and that pay day. With no schedule the
+            // dates start on the first half of the current month, to be
+            // typed over.
+            $today = PayrollData::todayKey();
             $default = app(PayScheduleRecords::class)->default(app(Access::class));
+            $period = $default === null ? null : PaySchedules::nextToPayForView($default, $today);
+            $month = substr($today, 0, 7);
+            $this->start = $period['start'] ?? "{$month}-01";
+            $this->end = $period['end'] ?? "{$month}-15";
+            $this->followTodayCountedThrough();
             $this->scheduleId = $default === null ? '' : $default->id;
             $this->fillPayDate();
 
@@ -301,9 +301,12 @@ class RunWorkspace extends Component
             return null;
         }
 
-        // A 13th month run has its own workspace.
-        if (($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH) {
-            return $this->redirectRoute('payroll.thirteenth.show', ['id' => $run->id], navigate: true);
+        // A 13th month payroll opens only once it is FINALIZED, to show what
+        // it posted. A draft of one posted nothing and is not worked on here.
+        if (($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH && $run->status !== PayrollRunStatus::FINALIZED) {
+            $this->missing = true;
+
+            return null;
         }
 
         $this->runId = $run->id;
@@ -383,6 +386,35 @@ class RunWorkspace extends Component
         }
 
         return PaySchedules::periodForView($schedule, $this->start, $this->end);
+    }
+
+    /**
+     * The line under the title: how long the period is, when it is paid
+     * and which pay of the year that is. Null without a pay date.
+     *
+     * @return array{length: string, pay_date: string, number: int|null, of: int|null}|null
+     */
+    private function payLine(?string $payDate): ?array
+    {
+        if ($payDate === null) {
+            return null;
+        }
+        $schedule = $this->scheduleId === '' || ! PaySchedules::ready() ? null : app(PayScheduleRecords::class)->find(app(Access::class), $this->scheduleId);
+        $onPeriod = $schedule !== null && PaySchedules::periodForView($schedule, $this->start, $this->end) !== null;
+        $place = $onPeriod ? PaySchedules::payOfYearForView($schedule, $payDate) : null;
+
+        return [
+            'length' => match (true) {
+                $place === null => 'Pay period',
+                $place['days'] === 14 => 'Two-week pay period',
+                $place['days'] === 7 => 'One-week pay period',
+                $place['per_month'] === 1 => 'Monthly pay period',
+                default => 'Twice-monthly pay period',
+            },
+            'pay_date' => $payDate,
+            'number' => $place['number'] ?? null,
+            'of' => $place['of'] ?? null,
+        ];
     }
 
     private function fillPayDate(): void
@@ -695,7 +727,7 @@ class RunWorkspace extends Component
                 continue;
             }
             if (! is_numeric($value) || ! is_finite((float) $value) || (float) $value < 0) {
-                $this->incentiveError = 'Enter each amount as a peso figure, or leave it empty.';
+                $this->incentiveError = 'Enter each amount as a dollar amount, or leave it empty.';
 
                 return;
             }
@@ -985,13 +1017,7 @@ class RunWorkspace extends Component
             return null;
         }
 
-        // The four statutory headers read as the Payroll Deductions list
-        // names them; their positions are the reference's.
-        $statutoryHeader = static function (string $calculation) use ($deductionColumns): string {
-            $column = $deductionColumns->first(static fn (DeductionColumnView $c): bool => $c->calculation === $calculation);
-
-            return $column->name ?? DeductionCalculation::defaultLabel($calculation);
-        };
+        $provinceName = TaxDetails::PROVINCES[TaxDetails::DEFAULT_PROVINCE];
         $typedColumns = $deductionColumns->filter(static fn (DeductionColumnView $c): bool => ! $c->isAutomatic())->values();
         $typedAmounts = PayrollData::typedDeductionAmounts($customDeductionLines);
 
@@ -1008,17 +1034,17 @@ class RunWorkspace extends Component
             'Work days pay', 'Holiday pay', 'Rest day pay', 'Basic pay', 'Allowance', 'Subtotal',
             'Overtime hours', 'Overtime pay', 'Overtime approved', 'NSD', 'Leave pay',
             'Other earnings', 'Gross pay',
-            $statutoryHeader(DeductionCalculation::SSS), $statutoryHeader(DeductionCalculation::PHILHEALTH),
-            $statutoryHeader(DeductionCalculation::PAGIBIG), $statutoryHeader(DeductionCalculation::WITHHOLDING_TAX),
+            // The source deductions, as the grid shows them, the second
+            // pension contribution in a column of its own.
+            'CPP', 'Second CPP', 'EI', 'Federal tax', "{$provinceName} tax",
             'Other deductions', 'Undertime minutes', 'Undertime deduction', 'Late minutes',
             'Late deduction', 'Total deductions', 'Net pay',
-            // After the reference's columns, so each of those keeps its
-            // position: the employer shares, reported and never deducted.
-            ...array_values(PayrollData::EMPLOYER_LABELS),
-            // And the incentives and bonuses: the taxed part (taxable lines
-            // plus any excess over the PHP 90,000 ceiling), the tax-exempt
-            // part, and how much of the taxed part is excess.
-            'Incentives taxed', 'Incentives tax-exempt', 'Excess over PHP 90,000',
+            // What the employer pays on top, reported and never deducted,
+            // and the earnings the pension plan and the insurance counted.
+            'Employer CPP', 'Employer second CPP', 'Employer EI', 'Pensionable earnings', 'Insurable earnings',
+            // And the incentives and bonuses: the taxed part and the part
+            // that is not income.
+            'Incentives taxed', 'Incentives not taxed',
             // And the advance payroll: the days paid ahead of attendance and
             // the prior cut-off adjustment of earlier ones, inside Gross pay.
             'Days paid as scheduled', 'Prior cut-off adjustment',
@@ -1045,11 +1071,12 @@ class RunWorkspace extends Component
                 $p->work_days_pay, $p->holiday_pay, $p->rest_day_pay, $p->basic_pay, $p->allowances, $p->total_base_pay,
                 $p->overtime_hours, $p->overtime_pay, $p->overtime_acknowledged ? 'Yes' : 'No',
                 $p->night_differential, $p->leave_pay, $p->other_earnings, $p->gross_pay,
-                $p->sss, $p->philhealth, $p->pagibig, $p->withholding_tax, $p->other_deductions,
+                (float) ($p->cpp ?? 0.0), (float) ($p->cpp2 ?? 0.0), (float) ($p->ei ?? 0.0), (float) ($p->federal_tax ?? 0.0), (float) ($p->provincial_tax ?? 0.0),
+                $p->other_deductions,
                 $p->undertime_minutes, $p->undertime_deduction, $p->late_minutes, $p->late_deduction,
                 $p->total_deductions, $p->net_pay,
-                $p->sss_er, $p->philhealth_er, $p->pagibig_er,
-                $p->bonus, $p->exempt_benefits, $p->taxable_benefits_excess,
+                (float) ($p->cpp_er ?? 0.0), (float) ($p->cpp2_er ?? 0.0), (float) ($p->ei_er ?? 0.0), (float) ($p->pensionable_earnings ?? 0.0), (float) ($p->insurable_earnings ?? 0.0),
+                $p->bonus, $p->exempt_benefits,
                 (float) ($p->presumed_days ?? 0.0), (float) ($p->settlement ?? 0.0),
                 (float) ($p->leave_charged_days ?? 0.0),
                 ...$typedColumns->map(static fn (DeductionColumnView $c): string|float => $typedAmounts[$p->employee_id][$c->key()] ?? '')->all(),
@@ -1083,6 +1110,8 @@ class RunWorkspace extends Component
 
         $run = $this->runId !== null ? app(PayrollRecords::class)->find($actor, $this->runId) : null;
         $finalized = $run?->status === PayrollRunStatus::FINALIZED;
+        // A finalized 13th month payroll: the grid names its one earning.
+        $yearly = $finalized && ($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH;
 
         $cutoffError = $finalized
             ? null
@@ -1126,13 +1155,14 @@ class RunWorkspace extends Component
         $schedulePeriod = $finalized ? null : $this->schedulePeriod();
         $payDate = $finalized ? ($run->pay_date?->format('Y-m-d') ?? null) : (PayrollPeriod::isPayrollDate($this->payDate) ? $this->payDate : null);
         $contributionMonth = $finalized ? ($run->contribution_month ?? null) : ($schedulePeriod['contribution_month'] ?? null);
-        // Non-blocking (Modules\Payroll\Domain\CutoffAdvice): shown beside the
-        // grid, never part of what disables Finalize. A period the schedule
-        // names is a cut-off by definition, so the advice stays silent.
-        $cutoffWarning = $finalized || $cutoffError !== null || $schedulePeriod !== null ? null : CutoffAdvice::warning($this->start, $this->end);
-        // Also non-blocking: a Contribution & Tax Table whose figures are not
-        // confirmed as far as this period reaches — a reminder to check them.
-        $statutoryWarning = $finalized || $cutoffError !== null ? null : app(StatutoryTables::class)->cutoffWarning($this->start, $this->end);
+        // Non-blocking: shown beside the grid, never part of what disables
+        // Finalize. Dates that are not one of the pay schedule's periods are
+        // said, because the source deductions treat every payroll as one
+        // regular pay of that schedule.
+        $cutoffWarning = $finalized || $cutoffError !== null || $schedulePeriod !== null || $this->scheduleId === '' ? null : 'off-schedule';
+        // The deduction figures are published sets a payroll reads by its pay
+        // date, so there is nothing to confirm and nothing to warn about.
+        $statutoryWarning = null;
 
         if ($finalized) {
             /** A finalised run shows what it posted, not a fresh computation. */
@@ -1250,6 +1280,9 @@ class RunWorkspace extends Component
         return view('livewire.payroll.run-workspace', [
             'run' => $run,
             'finalized' => $finalized,
+            'yearly' => $yearly,
+            // A footing of the posted 13th month pay, never a recalculation.
+            'thirteenthMonthTotal' => $yearly ? Money::round(array_sum(array_map(static fn (Payslip|PayslipDraft $line): float => (float) $line->thirteenth_month, $lines))) : 0.0,
             'lines' => $lines,
             'employees' => $employees,
             'totals' => $totals,
@@ -1258,6 +1291,8 @@ class RunWorkspace extends Component
             'readinessIssue' => $readinessIssue,
             'cutoffWarning' => $cutoffWarning,
             'statutoryWarning' => $statutoryWarning,
+            'payLine' => $this->payLine($payDate),
+            'provinceName' => TaxDetails::PROVINCES[TaxDetails::DEFAULT_PROVINCE],
             // The pay schedules to pick from, the period the chosen one
             // gives these dates (its deadlines).
             'schedules' => PaySchedules::ready() ? app(PayScheduleRecords::class)->list($actor)->map(static fn ($s): array => ['id' => $s->id, 'name' => $s->name, 'default' => (bool) $s->is_default])->values()->all() : [],
@@ -1669,7 +1704,7 @@ class RunWorkspace extends Component
         return [
             'noShift' => $noShift,
             'changed' => $changed,
-            'since' => $savedAt?->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') ?? '',
+            'since' => $savedAt?->setTimezone(LocalClock::zone())->format('M d, Y, g:i A') ?? '',
         ];
     }
 }

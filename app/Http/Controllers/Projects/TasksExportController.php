@@ -7,7 +7,7 @@ namespace App\Http\Controllers\Projects;
 use App\Http\Controllers\Controller;
 use App\Modules\WorkManagement\Application\Queries\WorkExports;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -35,6 +35,6 @@ class TasksExportController extends Controller
             'group' => (string) $request->query('group', 'ALL'),
             'groups' => $selection['groups'] ?? [],
             'parent' => (string) $request->query('parent', 'ALL'),
-        ], $sort, $request->query('dir') === 'desc' ? 'desc' : 'asc', ManilaClock::todayKey(), $request->boolean('grouped'));
+        ], $sort, $request->query('dir') === 'desc' ? 'desc' : 'asc', LocalClock::todayKey(), $request->boolean('grouped'));
     }
 }

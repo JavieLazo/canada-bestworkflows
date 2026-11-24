@@ -31,7 +31,7 @@
             @unless ($ceilingReady)
                 <p class="text-sm text-muted-foreground">The built-in figure applies until this installation's upgrade finishes.</p>
             @else
-                <p class="num text-lg font-semibold" data-ceiling-amount>{{ $ceiling === null ? 'Not set' : \App\Livewire\Records\Support\Hris::peso($ceiling->ceiling) }}</p>
+                <p class="num text-lg font-semibold" data-ceiling-amount>{{ $ceiling === null ? 'Not set' : \App\Livewire\Records\Support\Hris::money($ceiling->ceiling) }}</p>
                 @if ($canEdit)
                     <flux:button variant="outline" icon="pencil" wire:click="openCeiling">Change</flux:button>
                 @endif
@@ -342,14 +342,6 @@
                             @if ($errorAt('reference') !== null)
                                 <p class="text-xs text-danger">{{ $errorAt('reference') }}</p>
                             @endif
-                        </div>
-
-                        <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-4">
-                            <flux:switch id="benefit-13th" wire:model.live="formCountsToward13th" />
-                            <div>
-                                <flux:label for="benefit-13th">Counts toward the 13th month</flux:label>
-                                <p class="text-xs text-muted-foreground">Off for bonuses and allowances; on only for pay that is part of basic salary.</p>
-                            </div>
                         </div>
 
                         @if (\App\Modules\Payroll\Application\PayrollData::cashOutTypeReady())

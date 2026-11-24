@@ -16,7 +16,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
@@ -160,7 +160,7 @@ function lctabCreditsLine(string $html): string
 const LCTAB_NO_ROW = '<span class="text-muted-foreground">—</span>';
 
 beforeEach(function (): void {
-    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-26 12:00:00', ManilaClock::TZ));
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-09-26 12:00:00', LocalClock::zone()));
 });
 
 afterEach(function (): void {
@@ -469,7 +469,7 @@ it('reads the books as they stood on the chosen day: later entries taken back, l
     $entry = static function (EmployeeProfile $employee, string $key, string $kind, float $days, string $manila): void {
         $row = new LeaveCreditEntry;
         $row->forceFill(['employee_id' => (string) $employee->getKey(), 'year' => 2026, 'request_type' => $key, 'kind' => $kind,
-            'days' => $days, 'note' => 'Fixture', 'created_at' => ManilaClock::instant($manila)->utc()])->save();
+            'days' => $days, 'note' => 'Fixture', 'created_at' => LocalClock::instant($manila)->utc()])->save();
     };
     // Ana's Vacation Leave: 15 on the books before movements were kept, 1.25 earned on 1 Sep, 0.077 charged on 16 Sep.
     lctabCredit($ana, 'VACATION_LEAVE', 16.173);
@@ -479,7 +479,7 @@ it('reads the books as they stood on the chosen day: later entries taken back, l
     // Her Sick Leave: 15 with no movement, and two days of sick leave approved with pay on 20 Aug.
     lctabCredit($ana, 'SICK_LEAVE', 15.0);
     lctabRequest($ana, 'LR-APPROVED', ['status' => 'APPROVED', 'is_paid' => true,
-        'reviewed_at' => ManilaClock::instant('2026-08-20T09:00:00')->utc()->format('Y-m-d H:i:s.v')]);
+        'reviewed_at' => LocalClock::instant('2026-08-20T09:00:00')->utc()->format('Y-m-d H:i:s.v')]);
     // Ben's Vacation Leave was first entered on 5 Sep.
     lctabCredit($ben, 'VACATION_LEAVE', 5.0);
     $entry($ben, 'VACATION_LEAVE', 'OPENING', 5.0, '2026-09-05T09:00:00');

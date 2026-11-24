@@ -58,19 +58,19 @@ final class EmployeePayProfile
         $divisor = (float) ($figures['daily_rate']['value'] ?? 0.0);
 
         if ((float) ($settings->daily_rate ?? 0.0) > 0.0) {
-            $daily = ['text' => Hris::peso((float) $settings->daily_rate), 'note' => 'Rate Per Day, as entered', 'from' => self::FROM_OWN];
+            $daily = ['text' => Hris::money((float) $settings->daily_rate), 'note' => 'Rate Per Day, as entered', 'from' => self::FROM_OWN];
         } elseif ($monthly <= 0.0) {
             $daily = ['text' => '—', 'note' => 'No Rate Per Month or Rate Per Day: payroll pays nothing', 'from' => self::FROM_OWN];
         } elseif ($method === PayRules::METHOD_FACTOR && $divisor > 0.0) {
-            $daily = ['text' => Hris::peso($monthly * 12 / $divisor), 'note' => 'Monthly rate × 12 ÷ '.Hris::moneyText($divisor), 'from' => $rulesFrom];
+            $daily = ['text' => Hris::money($monthly * 12 / $divisor), 'note' => 'Monthly rate × 12 ÷ '.Hris::moneyText($divisor), 'from' => $rulesFrom];
         } elseif ($method === PayRules::METHOD_DIVISOR && $divisor > 0.0) {
-            $daily = ['text' => Hris::peso($monthly / $divisor), 'note' => 'Monthly rate ÷ '.Hris::moneyText($divisor), 'from' => $rulesFrom];
+            $daily = ['text' => Hris::money($monthly / $divisor), 'note' => 'Monthly rate ÷ '.Hris::moneyText($divisor), 'from' => $rulesFrom];
         } else {
             $daily = ['text' => 'Changes each month', 'note' => 'Monthly rate ÷ the month\'s working days on their schedule', 'from' => $rulesFrom];
         }
 
         $hourly = $settings->hourly_rate > 0.0
-            ? ['text' => Hris::peso($settings->hourly_rate).' an hour', 'note' => 'In place of the daily rate ÷ the shift\'s hours', 'from' => self::FROM_OWN]
+            ? ['text' => Hris::money($settings->hourly_rate).' an hour', 'note' => 'In place of the daily rate ÷ the shift\'s hours', 'from' => self::FROM_OWN]
             : ['text' => 'From the shift', 'note' => 'The daily rate ÷ the shift\'s paid hours', 'from' => self::FROM_COMPANY];
 
         $rules = [

@@ -69,14 +69,14 @@ function pctdRow(string $code, string $name, array $changes = []): PayrollDeduct
 
 it('saves a percentage rule from the Payroll Deductions page and names each row\'s computation', function () {
     pctdPayrollActor();
-    // The computed rows are seeded by the migration; the typed one is this test's.
-    $sss = PayrollDeduction::query()->where('calculation', DeductionCalculation::SSS)->firstOrFail();
+    // The computed row is seeded by the migration; the typed one is this test's.
+    $computed = PayrollDeduction::query()->where('calculation', DeductionCalculation::LATE_UNDERTIME)->firstOrFail();
     $typed = new PayrollDeduction;
     $typed->forceFill(['code' => '6', 'name' => 'Cash Advance'])->save();
 
     Livewire::test(ReferenceListPage::class, ['slug' => 'payroll-deductions'])
         ->assertSee('Computation')
-        ->assertSee('SSS table')
+        ->assertSee('Daily Time Record')
         ->assertSee('Set per employee')
         ->call('openAdd')
         ->assertSet('formComputation', 'TYPED')
@@ -85,7 +85,7 @@ it('saves a percentage rule from the Payroll Deductions page and names each row\
         ->set('formPercentEmployee', '3')
         ->set('formPercentEmployer', '3')
         ->set('formFrequency', PercentDeduction::FREQUENCY_EVERY)
-        ->assertSee('At ₱30,000 a month: employee ₱450.00, employer ₱450.00 each payroll (half of the monthly figure).')
+        ->assertSee('At $30,000 a month: employee $450.00, employer $450.00 each payroll (half of the monthly figure).')
         ->set('formBeforeTax', true)
         ->call('save')
         ->assertSet('formError', null)
@@ -114,7 +114,7 @@ it('saves a percentage rule from the Payroll Deductions page and names each row\
         ->call('save')
         ->assertSet('formError', null);
     expect($row->fresh()?->percent)->toBeNull();
-    expect(fn () => app(Deductions::class)->save(app(Access::class), $sss->id, 'SSS', '', ['percent' => ['employee' => 1.0, 'employer' => 0.0, 'base' => 'MONTHLY', 'frequency' => 'EVERY', 'cap' => null, 'before_tax' => false]]))
+    expect(fn () => app(Deductions::class)->save(app(Access::class), $computed->id, $computed->name, '', ['percent' => ['employee' => 1.0, 'employer' => 0.0, 'base' => 'MONTHLY', 'frequency' => 'EVERY', 'cap' => null, 'before_tax' => false]]))
         ->toThrow(RuntimeException::class, 'A computed deduction prices itself');
 });
 
@@ -136,7 +136,7 @@ it('shows a viewer the list and the rule details without any way to change them'
     Livewire::test(ReferenceListPage::class, ['slug' => 'payroll-deductions'])
         ->assertSee('Your role can view this list.')
         ->assertSee('3% of monthly rate + 3% employer')
-        ->assertSee('2nd cut-off only · cap ₱1,500.00 a month per share · before tax')
+        ->assertSee('2nd cut-off only · cap $1,500.00 a month per share · before tax')
         ->assertDontSee('wire:click="openAdd"', false)
         ->assertDontSee('>Action<', false);
 });
@@ -170,7 +170,7 @@ it('prices the shares on every draft, halving a monthly base, honouring the cut-
         ->and($typed['drafts'][0]->custom_deductions)->toBe(372.73);
 });
 
-it('takes a before-tax share off the withholding base and posts the employer share with the line', function () {
+it('takes a before-tax share off the income that is taxed, leaves the contributions alone and posts the employer share with the line', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
     PayrollEvidenceFixture::sourceFacts($employee);
     $before = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor)['drafts'][0];
@@ -178,10 +178,14 @@ it('takes a before-tax share off the withholding base and posts the employer sha
 
     $calc = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
     $draft = $calc['drafts'][0];
+    $taxBefore = $before->federal_tax + $before->provincial_tax;
+    $taxAfter = $draft->federal_tax + $draft->provincial_tax;
     expect($draft->taxable_compensation)->toBe(round($before->taxable_compensation - 450.0, 2))
-        ->and($calc['statutory'][$employee->id]['withholding_rederived'])->toBeTrue()
-        ->and($draft->withholding_tax)->toBeLessThanOrEqual($before->withholding_tax)
-        ->and($draft->net_pay)->toBe(round($before->net_pay - 450.0 + ($before->withholding_tax - $draft->withholding_tax), 2));
+        ->and($taxBefore)->toBeGreaterThan(0.0)
+        ->and($taxAfter)->toBeLessThan($taxBefore)
+        ->and($draft->cpp)->toBe($before->cpp)
+        ->and($draft->ei)->toBe($before->ei)
+        ->and($draft->net_pay)->toBe(round($before->net_pay - 450.0 + ($taxBefore - $taxAfter), 2));
 
     Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->assertSee('3% of monthly rate + 3% employer')
@@ -238,7 +242,7 @@ it('refuses a typed zero on a row priced by hand, through the command', function
     $typedRow = new PayrollDeduction;
     $typedRow->forceFill(['code' => '9', 'name' => 'Union dues'])->save();
 
-    expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($run->id, $run->name, '2026-09-01', '2026-09-15', [$employee->id], [], [], [], [], 'REGULAR', [], [$employee->id => [$typedRow->id => 0]])))
+    expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($run->id, $run->name, '2026-09-01', '2026-09-15', [$employee->id], [], [], [], [], [$employee->id => [$typedRow->id => 0]])))
         ->toThrow(RuntimeException::class, 'Every custom deduction amount must be more than zero.');
 });
 

@@ -14,7 +14,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -70,7 +70,7 @@ function edtrotWorked(EmployeeProfile $employee, string $date, string $out = '19
         $punch->forceFill([
             'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
             'is_geofenced' => true, 'is_anomaly' => false,
-            'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc(),
+            'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc(),
         ])->save();
     }
 }
@@ -524,7 +524,7 @@ it('never silently increases the displayed inline approval after punches change'
     edtrotActor(['EDTR']);
     $page = edtrotPage($employee);
     AttendanceLog::query()->where('log_type', 'TIME_OUT')->update([
-        'logged_at' => ManilaClock::instant("2026-09-08T{$out}:00")->utc(),
+        'logged_at' => LocalClock::instant("2026-09-08T{$out}:00")->utc(),
     ]);
 
     $page->call('approveDayOvertime', $employee->id, '2026-09-08', 150);

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Domain\Attendance\CalendarDays;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
@@ -57,7 +57,7 @@ return new class extends Migration
             return;
         }
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $lastEvidence = $this->employeeEvidence();
         foreach ($this->patternEvidence() as $employeeId => $day) {
             $lastEvidence[$employeeId] = max($lastEvidence[$employeeId] ?? $day, $day);
@@ -133,6 +133,6 @@ return new class extends Migration
 
     private function manilaDay(string $utc): string
     {
-        return ManilaClock::dayKey(CarbonImmutable::parse($utc, 'UTC'));
+        return LocalClock::dayKey(CarbonImmutable::parse($utc, 'UTC'));
     }
 };

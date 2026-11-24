@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Database\Seeders\LocalDemoSeeder;
 use Illuminate\Console\Command;
 use Illuminate\Database\QueryException;
 
 final class SeedLocalDemoCommand extends Command
 {
-    protected $signature = 'ems:demo {--days=90 : Calendar days of sample history, from 1 to 366} {--through= : Last Manila date, default today}';
+    protected $signature = 'ems:demo {--days=90 : Calendar days of sample history, from 1 to 366} {--through= : Last local date, default today}';
 
     protected $description = 'Add repeatable local attendance, leave and discussion samples without rewriting existing rows';
 
@@ -23,7 +23,7 @@ final class SeedLocalDemoCommand extends Command
 
             return self::FAILURE;
         }
-        $through = (string) ($this->option('through') ?? ManilaClock::todayKey());
+        $through = (string) ($this->option('through') ?? LocalClock::todayKey());
         try {
             $added = app(LocalDemoSeeder::class)->run($through, $days);
         } catch (QueryException $error) {

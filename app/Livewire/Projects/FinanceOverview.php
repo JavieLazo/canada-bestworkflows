@@ -8,7 +8,7 @@ use App\Livewire\Concerns\WithTableFilters;
 use App\Modules\WorkManagement\Application\Queries\ProjectFinancials;
 use App\Modules\WorkManagement\Domain\Projects\FinanceAmount;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
@@ -29,7 +29,7 @@ class FinanceOverview extends Component
     public bool $sourcesOpen = false;
 
     #[Locked]
-    public string $sourceCurrency = 'PHP';
+    public string $sourceCurrency = 'CAD';
 
     public function openSource(string $currency): void
     {
@@ -47,7 +47,7 @@ class FinanceOverview extends Component
     public function render(): View
     {
         return view('livewire.projects.finance-overview', [
-            'financialTotals' => app(ProjectFinancials::class)->totals(Access::forActor(auth()->user()), ManilaClock::todayKey(), $this->projectId, $this->portfolio, $this->client),
+            'financialTotals' => app(ProjectFinancials::class)->totals(Access::forActor(auth()->user()), LocalClock::todayKey(), $this->projectId, $this->portfolio, $this->client),
             'sourceProjects' => $this->sourcesOpen ? $this->acceptPage(app(ProjectFinancials::class)->sourceProjects(app(Access::class), $this->sourceCurrency, $this->portfolio, $this->client, (int) $this->getPage('financeSourcePage')), 'financeSourcePage') : null,
         ]);
     }

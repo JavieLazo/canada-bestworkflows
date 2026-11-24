@@ -17,7 +17,7 @@ use App\Modules\Timekeeping\Contracts\Views\DayCorrectionView;
 use App\Modules\Timekeeping\Domain\Attendance\PunchSlots;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -125,7 +125,7 @@ function daycorrPunch(EmployeeProfile $employee, ?WorkSite $site, string $type, 
         'accuracy_meters' => null,
         'is_geofenced' => true,
         'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant($manilaStamp)->utc(),
+        'logged_at' => LocalClock::instant($manilaStamp)->utc(),
     ], $overrides))->save();
 
     return $punch;

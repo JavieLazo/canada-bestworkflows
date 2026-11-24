@@ -82,7 +82,7 @@ final class ReviewAdjustment
                 throw new RuntimeException('The adjustment could not be reviewed.');
             }
             $name = EmployeeName::display($employee);
-            $what = "{$row->category->name} ".($row->category->kind === AdjustmentRule::KIND_DEDUCTION ? 'deduction' : 'earning').' of '.AdjustmentRule::peso($row->amount);
+            $what = "{$row->category->name} ".($row->category->kind === AdjustmentRule::KIND_DEDUCTION ? 'deduction' : 'earning').' of '.AdjustmentRule::money($row->amount);
             RequiredAudit::record($access, $approve ? AuditEvent::ADJUSTMENT_APPROVED : AuditEvent::ADJUSTMENT_REJECTED, 'payroll_adjustments', $row->id,
                 "{$name} · {$what} ".($approve ? 'approved' : 'rejected').' (prepared by '.($row->prepared_by_name ?? 'an unnamed account').')'
                 .($target === null ? '' : " for payroll {$target->code}").($note === '' ? '' : ": {$note}"));

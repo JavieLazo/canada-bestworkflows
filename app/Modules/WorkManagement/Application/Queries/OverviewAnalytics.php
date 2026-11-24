@@ -11,7 +11,7 @@ use App\Modules\WorkManagement\Contracts\Views\TaskTotals;
 use App\Modules\WorkManagement\Infrastructure\WorkScope;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -96,8 +96,8 @@ final class OverviewAnalytics
                 }
                 $completed[$side][$bucket]++;
                 if ($dueDate !== null) {
-                    // Finished before the Manila midnight that ends its due day.
-                    $deadlines[$dueDate] ??= CarbonImmutable::parse($dueDate, ManilaClock::TZ)->addDay()->utc()->format('Y-m-d H:i:s');
+                    // Finished before the local midnight that ends its due day.
+                    $deadlines[$dueDate] ??= CarbonImmutable::parse($dueDate, LocalClock::zone())->addDay()->utc()->format('Y-m-d H:i:s');
                     $due[$side][$bucket]++;
                     $onTime[$side][$bucket] += $done < $deadlines[$dueDate] ? 1 : 0;
                 }
@@ -213,7 +213,7 @@ final class OverviewAnalytics
      */
     private function aheadColumns(string $today): array
     {
-        $day = CarbonImmutable::parse($today, ManilaClock::TZ);
+        $day = CarbonImmutable::parse($today, LocalClock::zone());
         $sunday = $day->endOfWeek(CarbonInterface::SUNDAY)->startOfDay();
         $span = static fn (CarbonImmutable $from, CarbonImmutable $to): string => $from->format('M j').' to '.($from->isSameMonth($to) ? $to->format('j') : $to->format('M j'));
         $columns = [['key' => 'overdue', 'label' => 'Overdue', 'title' => 'Overdue', 'from' => $today, 'to' => null]];

@@ -69,13 +69,14 @@ it('shows the rates at a glance with where each comes from, and edits the hourly
 
     $page = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->assertSee('Pay at a Glance')
-        ->assertSee('₱32,000.00')
+        ->assertSee('$32,000.00')
         ->assertSee('Changes each month')
-        ->assertSee('₱210.00 an hour')
+        ->assertSee('$210.00 an hour')
         ->assertSee('The company rule')
-        ->assertSee('Contributions &amp; Tax', false)
-        ->assertSee('Allowances &amp; incentives', false)
-        ->assertSee('Loans &amp; other deductions', false);
+        ->assertSee('Tax and Statutory Deductions')
+        ->assertSee('This Year So Far (2026)')
+        ->assertSee('Allowances &amp; Incentives', false)
+        ->assertSee('Loans &amp; Other Deductions', false);
 
     $page->call('startEditHourly')
         ->assertSet('hourlyEditing', true)
@@ -159,7 +160,7 @@ it('says why no incentive can be assigned while the catalog lists none paid on a
         ->assertDontSeeHtml('wire:click="openAssign"');
 });
 
-it('keeps the salary in Pay at a glance, shows no start date for the rules, and closes the page with the Tax year', function () {
+it('keeps the salary in Pay at a Glance, shows no start date for the rules, and puts the tax cards before the allowances and loans', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-31 04:00:00', 'UTC'));
     eppActor();
     $employee = eppEmployee();
@@ -173,7 +174,10 @@ it('keeps the salary in Pay at a glance, shows no start date for the rules, and 
 
     expect(substr_count($html, 'data-salary-card'))->toBe(1)
         ->and(strpos($html, 'pay-glance-heading'))->toBeLessThan((int) strpos($html, 'data-salary-rates'))
-        ->and(strpos($html, 'pay-recurring-heading'))->toBeLessThan((int) strpos($html, 'pay-tax-year-heading'));
+        ->and(strpos($html, 'pay-tax-heading'))->toBeLessThan((int) strpos($html, 'pay-year-heading'))
+        ->and(strpos($html, 'pay-year-heading'))->toBeLessThan((int) strpos($html, 'pay-allowances-heading'))
+        ->and(strpos($html, 'pay-allowances-heading'))->toBeLessThan((int) strpos($html, 'pay-recurring-heading'))
+        ->and($html)->not->toContain('pay-tax-year-heading');
 });
 
 it('words a recurring allowance\'s tax for people, never the stored code', function () {
@@ -188,14 +192,15 @@ it('words a recurring allowance\'s tax for people, never the stored code', funct
         ->assertDontSee('EXEMPT');
 });
 
-it('links each of the five cards from the bar under the employee\'s name', function () {
+it('links each card from the bar under the employee\'s name, the percentage deductions only while the company lists any', function () {
     eppActor();
     $employee = eppEmployee();
 
     $html = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])->html();
 
     expect(substr_count($html, 'data-pay-sections'))->toBe(1);
-    foreach (['pay-glance', 'pay-contributions', 'pay-allowances', 'pay-recurring', 'pay-tax-year'] as $anchor) {
+    expect($html)->not->toContain('href="#pay-contributions"');
+    foreach (['pay-glance', 'pay-tax', 'pay-year', 'pay-allowances', 'pay-recurring'] as $anchor) {
         // A link in the bar, and the one card it leads to, named by the card's own heading.
         expect(substr_count($html, 'href="#'.$anchor.'"'))->toBe(1)
             ->and(substr_count($html, 'id="'.$anchor.'"'))->toBe(1)
@@ -219,7 +224,7 @@ it('opens another employee from the search in the head, and ignores an unknown i
         ->assertRedirect(route('records.employee-pay-settings.show', ['employee' => $other->id]));
 });
 
-it('lists a percentage deduction once, among the contributions, with what it takes', function () {
+it('lists a percentage deduction once, on its own card before the allowances, with what it takes', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-31 04:00:00', 'UTC'));
     eppActor();
     PayrollDeduction::create(['code' => '9', 'name' => 'Provident Fund', 'percent' => ['base' => 'MONTHLY', 'employee' => 2.0, 'employer' => 2.0, 'frequency' => 'EVERY', 'cap' => null, 'before_tax' => true]]);
@@ -227,7 +232,7 @@ it('lists a percentage deduction once, among the contributions, with what it tak
 
     $html = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
         ->assertSee('No loan or deduction yet.')
-        ->assertSee('₱320.00')
+        ->assertSee('$320.00')
         ->html();
 
     expect(substr_count($html, 'Provident Fund'))->toBe(1)
@@ -267,7 +272,7 @@ it('opens the dialog as the card it came from, and previews when a loan is paid 
         ->set('lineStartsOn', '2026-09-01')
         ->set('lineAmount', '1,000')
         ->set('lineTotal', '12000')
-        ->assertSee('12 payrolls, up to ₱1,000.00 each')
+        ->assertSee('12 payrolls, up to $1,000.00 each')
         ->assertSeeHtml('Paid off on the payroll from <span class="num">16 Feb 2027</span>')
         ->set('lineFrequency', 'SECOND')
         ->assertSeeHtml('Paid off on the payroll from <span class="num">16 Aug 2027</span>')

@@ -6,7 +6,7 @@ namespace App\Modules\Timekeeping\Domain\Attendance;
 
 use App\Domain\Attendance\CalendarDays;
 use App\Domain\Attendance\Minutes;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * Port of `copems/src/lib/attendance-correction.ts` — turning a corrected day
@@ -160,7 +160,7 @@ final class PunchSlots
 
     /**
      * TS: `punchesFromSlots(date, slots)` — the punches a corrected day
-     * becomes, in slot order, as OFFSET-LESS Manila wall-clock timestamps:
+     * becomes, in slot order, as OFFSET-LESS local wall-clock timestamps:
      * a slot on `$date`, or — ticked Next day — on the calendar day after it
      * (`2026-01-05` + `01:00` ticked → `2026-01-06T01:00:00`). Call it on
      * slots error() accepted; that is what makes slot order time order.
@@ -187,10 +187,10 @@ final class PunchSlots
 
     /**
      * Whether a punch reads as the NEXT day of the DTR row keyed on `$date` —
-     * its Manila calendar day is after the row's. THE one definition of "next
+     * its local calendar day is after the row's. THE one definition of "next
      * day": the DTR table's tag, the dialog's prefilled ticks and the audit
      * sentence all ask here. Never compare the first ten characters of a
-     * stored `Z` stamp: a 06:00 Manila punch is 22:00 the previous UTC day.
+     * stored `Z` stamp: a 06:00 local punch is 22:00 the previous UTC day.
      */
     public static function isNextDay(?string $iso, string $date): bool
     {
@@ -198,22 +198,22 @@ final class PunchSlots
             return false;
         }
 
-        return strcmp(ManilaClock::dayKey(ManilaClock::instant($iso)), $date) > 0;
+        return strcmp(LocalClock::dayKey(LocalClock::instant($iso)), $date) > 0;
     }
 
     /**
-     * The Manila calendar minute a punch reads as — `Y-m-d\TH:i`, seconds
+     * The local calendar minute a punch reads as — `Y-m-d\TH:i`, seconds
      * and sub-seconds floored, never rounded.
      *
      * ONE definition, used on both sides of a correction: the dialog prefills
      * a slot from it (slotOf), and CorrectionWindow::reconcile decides from it
      * whether a stored row still IS that slot and may be kept. Accepts the
-     * offset-less Manila stamps punches() emits (instant() reads them as
-     * Manila) and the `Z` stamps DomainLog::isoFromUtc emits (converted).
+     * offset-less local stamps punches() emits (instant() reads them as
+     * local) and the `Z` stamps DomainLog::isoFromUtc emits (converted).
      */
     public static function minuteKey(string $iso): string
     {
-        return ManilaClock::instant($iso)->setTimezone(ManilaClock::TZ)->format('Y-m-d\TH:i');
+        return LocalClock::instant($iso)->setTimezone(LocalClock::zone())->format('Y-m-d\TH:i');
     }
 
     /**

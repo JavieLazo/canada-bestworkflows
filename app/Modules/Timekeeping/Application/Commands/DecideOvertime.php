@@ -20,7 +20,7 @@ use App\Modules\Workforce\Contracts\EmployeeDirectory;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
 
@@ -66,7 +66,7 @@ final class DecideOvertime
         if (! $actor->mayReadAllData(ModuleCode::EDTR)) {
             throw new OvertimeDecisionRefused('You are not allowed to decide overtime.');
         }
-        if (! PayrollPeriod::isPayrollDate($date) || $date > ManilaClock::todayKey()) {
+        if (! PayrollPeriod::isPayrollDate($date) || $date > LocalClock::todayKey()) {
             throw new OvertimeDecisionRefused('That day has not happened yet.');
         }
 

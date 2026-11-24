@@ -42,7 +42,7 @@ final class DiscardAdjustment
             }
             $employee = app(EmployeePayContexts::class)->get($access, [$row->employee_id])[0] ?? null;
             $name = $employee === null ? 'a removed employee' : EmployeeName::display($employee);
-            $what = "{$row->category->name} of ".AdjustmentRule::peso($row->amount);
+            $what = "{$row->category->name} of ".AdjustmentRule::money($row->amount);
             if (! $row->delete()) {
                 throw new RuntimeException('The adjustment could not be discarded.');
             }

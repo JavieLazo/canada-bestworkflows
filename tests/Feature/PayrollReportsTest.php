@@ -197,7 +197,7 @@ it('aggregates stored contribution shares separately without recalculating chang
         'Pag-IBIG employee' => '20.00', 'Pag-IBIG employer' => '20.00', 'Withholding tax' => '30.00',
     ]])->and($report->totals)->toBe(['Totals', '', '120.00', '250.00', '50.00', '50.00', '20.00', '20.00', '30.00'])
         ->and(array_column($report->summary, 'value', 'label'))->toBe([
-            'Employees' => '1', 'Employee contributions' => 'PHP 190.00', 'Employer contributions' => 'PHP 320.00', 'Withholding tax' => 'PHP 30.00',
+            'Employees' => '1', 'Employee contributions' => 'CAD 190.00', 'Employer contributions' => 'CAD 320.00', 'Withholding tax' => 'CAD 30.00',
         ]);
 });
 
@@ -300,7 +300,7 @@ it('prints stored complete payslip figures and copied incentive and deduction de
         $statement[$item['label']] = $item['value'];
     }
     foreach ($section['highlights'] ?? [] as $item) {
-        $statement[$item['label']] = str_replace(['PHP ', ','], '', $item['value']);
+        $statement[$item['label']] = str_replace(['CAD ', ','], '', $item['value']);
     }
     foreach ($section['groups'] ?? [] as $group) {
         foreach ($group['rows'] as $line) {
@@ -309,7 +309,7 @@ it('prints stored complete payslip figures and copied incentive and deduction de
     }
     expect($section['kind'] ?? '')->toBe('payslip')
         ->and(array_column($section['groups'] ?? [], 'title'))->toBe(['Earnings', 'Deductions', 'Time and rate details', 'Tax treatment', 'Employer contributions'])
-        ->and(array_column($section['highlights'] ?? [], 'value', 'label')['Net pay'])->toBe('PHP 1,000.00')
+        ->and(array_column($section['highlights'] ?? [], 'value', 'label')['Net pay'])->toBe('CAD 1,000.00')
         ->and($statement)->toEqual($details);
 
     $groups = collect($section['groups'] ?? [])->keyBy('title');
@@ -333,7 +333,7 @@ it('counts employees and selected loan payslips once across repeated report grou
     expect($payroll->totals)->toBe(['Totals', '', '', '', '2', '1', '2469.12', '469.12', '2000.00', '270.00'])
         ->and($loans->totals)->toBe(['Totals', '', '', '', '2', '250.00'])
         ->and(array_column($loans->summary, 'value', 'label'))->toBe([
-            'Employees with Deductions' => '1', 'Payslips with Deductions' => '2', 'Selected Deduction Types' => '2', 'Amount Deducted' => 'PHP 250.00',
+            'Employees with Deductions' => '1', 'Payslips with Deductions' => '2', 'Selected Deduction Types' => '2', 'Amount Deducted' => 'CAD 250.00',
         ]);
 });
 

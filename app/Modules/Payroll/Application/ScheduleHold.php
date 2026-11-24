@@ -22,8 +22,7 @@ use App\Support\EmployeeName;
  * Only dates inside the member's employment count (hired to resigned): a
  * payslip leaves the others out. Every date of the period counts, the days
  * still ahead too, because a payroll counted through an earlier day pays
- * them as scheduled. A 13th month payroll prices no attendance and is never
- * held. The dates come from Timekeeping (`ScheduleNotices::noShiftDates`);
+ * them as scheduled. The dates come from Timekeeping (`ScheduleNotices::noShiftDates`);
  * the workspace shows the hold and `FinalizePayroll` refuses by it.
  */
 final class ScheduleHold

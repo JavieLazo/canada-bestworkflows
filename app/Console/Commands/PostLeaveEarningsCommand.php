@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Modules\Timekeeping\Application\PostLeaveEarnings;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Console\Command;
 
 /**
@@ -24,7 +24,7 @@ final class PostLeaveEarningsCommand extends Command
 
     public function handle(): int
     {
-        $result = app(PostLeaveEarnings::class)->run(ManilaClock::todayKey());
+        $result = app(PostLeaveEarnings::class)->run(LocalClock::todayKey());
         // The schedule is the only thing that posts, so the leave screens
         // say when it last ran.
         PostLeaveEarnings::markRun();

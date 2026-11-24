@@ -10,7 +10,7 @@ use App\Models\InventoryItem;
 use App\Modules\Inventory\Application\InventoryWrite;
 use App\Support\Access;
 use App\Support\AuditService;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -43,7 +43,7 @@ final class ResolveIncident
             $row->reviewed_by = (int) $access->userId;
             $row->reviewer_name = mb_substr($access->fullName, 0, 200);
             $row->save();
-            InventoryWrite::movement($access, $item, 'CONDITION_REVIEWED', ManilaClock::dayKey(now()), $item->current_receipt_id, $item->employee_id, $item->employee_id, $data['resolution_reference'].' — '.$data['resolution']);
+            InventoryWrite::movement($access, $item, 'CONDITION_REVIEWED', LocalClock::dayKey(now()), $item->current_receipt_id, $item->employee_id, $item->employee_id, $data['resolution_reference'].' — '.$data['resolution']);
             AuditService::record($access, AuditEvent::INVENTORY_INCIDENT_RESOLVED, 'inventory_incidents', $row->id, "Condition reviewed for {$item->code}; custody retained.");
         });
     }

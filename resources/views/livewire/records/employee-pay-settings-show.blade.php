@@ -1,13 +1,15 @@
 {{--
     One employee's pay, on one page: Pay at a glance (their salary and the
     rules that price their days, each figure marked Company, their status
-    or Own), Contributions & tax (read as payroll applies them, the
-    percentage deductions among them, and edited in place by an all-data
-    PAYROLL holder), Allowances & incentives (ONE table: the company
-    benefits they qualify for, the incentives assigned to them and their
-    own recurring allowances), Loans & other deductions (their own
-    recurring deductions), and last the Tax year. A row of links to the five
-    cards, drawn as the system's view switch, sits under the employee's name
+    or Own, how often they are paid and their province), Tax and Statutory
+    Deductions (what payroll needs to deduct CPP, EI and income tax, edited
+    in a dialog by an all-data PAYROLL holder), This Year So Far (the
+    year's posted payslips against each yearly limit), Percentage
+    Deductions while the company lists any (edited in place), Allowances &
+    incentives (ONE table: the company benefits they qualify for, the
+    incentives assigned to them and their own recurring allowances) and
+    Loans & other deductions (their own recurring deductions). A row of
+    links to the cards, drawn as the system's view switch, sits under the employee's name
     and holds under the app's top bar while the page scrolls. "Set by" is
     the column
     that says whose a line is; "From" is only ever a date. The cards'
@@ -76,13 +78,14 @@
              backdrop. Plain links to the cards' own ids. --}}
         <nav aria-label="Sections of this page" class="sticky top-14 z-10 -mx-4 bg-background/95 px-4 py-2 backdrop-blur sm:-mx-6 sm:px-6 print:hidden" data-pay-sections>
             <div class="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-lg bg-muted p-1 text-sm text-muted-foreground [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                @foreach ([
+                @foreach (array_filter([
                     'pay-glance' => 'Pay at a Glance',
-                    'pay-contributions' => 'Contributions & Tax',
+                    'pay-tax' => 'Tax and Deductions',
+                    'pay-year' => 'This Year So Far',
+                    'pay-contributions' => $percentDeductions !== [] || $percentRows !== [] ? 'Percentage Deductions' : null,
                     'pay-allowances' => 'Allowances & Incentives',
                     'pay-recurring' => 'Loans & Other Deductions',
-                    'pay-tax-year' => 'Tax Year',
-                ] as $anchor => $anchorLabel)
+                ]) as $anchor => $anchorLabel)
                     <a href="#{{ $anchor }}" class="inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 font-medium transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">{{ $anchorLabel }}</a>
                 @endforeach
             </div>
@@ -94,7 +97,7 @@
             $ownRates = $source === EmployeeRates::OWN || $next !== null;
         @endphp
         <section id="pay-glance" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-glance-heading" data-salary-card>
-            <x-payroll.settings.head title="Pay at a glance" heading-id="pay-glance-heading">
+            <x-payroll.settings.head title="Pay at a Glance" heading-id="pay-glance-heading">
                 <x-slot:note>
                     <span class="flex flex-wrap items-center gap-x-1.5 gap-y-1">
                         Each figure says where it comes from:
@@ -117,7 +120,7 @@
                 <div class="min-w-0">
                     <dt class="{{ $dt }}">Monthly Rate</dt>
                     <dd class="mt-1">
-                        <span class="num text-lg font-semibold">{{ $glance['monthly'] === null ? 'Not set' : Hris::peso($glance['monthly']) }}</span>
+                        <span class="num text-lg font-semibold">{{ $glance['monthly'] === null ? 'Not set' : Hris::money($glance['monthly']) }}</span>
                         @unless ($salaryReady)
                             <span class="mt-1 block text-xs text-muted-foreground">Rate Per Month on Employee Details ·
                                 <flux:link :href="route('employees.show', ['employee' => $settings->id])" wire:navigate>Change</flux:link>
@@ -131,7 +134,7 @@
                     <dt class="{{ $dt }}">Daily Rate</dt>
                     <dd class="mt-1">
                         <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span @class(['text-lg font-semibold', 'num' => str_starts_with($glance['daily']['text'], '₱')])>{{ $glance['daily']['text'] }}</span>
+                            <span @class(['text-lg font-semibold', 'num' => str_starts_with($glance['daily']['text'], '$')])>{{ $glance['daily']['text'] }}</span>
                             @include('livewire.records.partials.pay-source', ['from' => $glance['daily']['from'], 'status' => $status])
                         </span>
                         <span class="mt-1 block text-xs text-muted-foreground">{{ $glance['daily']['note'] }}</span>
@@ -141,7 +144,7 @@
                     <dt class="{{ $dt }}">Hourly Rate</dt>
                     <dd class="mt-1">
                         <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span @class(['text-lg font-semibold', 'num' => str_starts_with($glance['hourly']['text'], '₱')])>{{ $glance['hourly']['text'] }}</span>
+                            <span @class(['text-lg font-semibold', 'num' => str_starts_with($glance['hourly']['text'], '$')])>{{ $glance['hourly']['text'] }}</span>
                             @include('livewire.records.partials.pay-source', ['from' => $glance['hourly']['from'], 'status' => $status])
                         </span>
                         <span class="mt-1 block text-xs text-muted-foreground">{{ $glance['hourly']['note'] }}</span>
@@ -174,6 +177,20 @@
                                 {{ $ownRates ? 'Open Own Rates' : 'Set Own Rates' }}
                             </flux:link>
                         @endif
+                    </dd>
+                </div>
+                <div class="min-w-0" data-glance-paid>
+                    <dt class="{{ $dt }}">Paid</dt>
+                    <dd class="mt-1">
+                        <span class="text-lg font-semibold">{{ \App\Livewire\Records\Support\DeductionTablesText::payFrequency($tax['pays']) }}</span>
+                        <span class="mt-1 block text-xs text-muted-foreground">{{ $tax['pays'] }} pays this year, on the company's pay schedule.</span>
+                    </dd>
+                </div>
+                <div class="min-w-0" data-glance-province>
+                    <dt class="{{ $dt }}">Province of Employment</dt>
+                    <dd class="mt-1">
+                        <span class="text-lg font-semibold">{{ $tax['provinceName'] }}</span>
+                        <span class="mt-1 block text-xs text-muted-foreground">Decides which provincial tax applies.</span>
                     </dd>
                 </div>
             </dl>
@@ -225,11 +242,240 @@
             </form>
         </flux:modal>
 
+        {{-- What payroll needs to know about the employee to deduct the pension plan, the insurance and income tax.
+             Read here; changed in the dialog, which shows a sample pay before anything is saved. --}}
+        @php
+            $taxDetails = $tax['details'];
+            $claim = static fn (?float $amount, ?float $basic): array => $amount === null
+                ? ['text' => $basic === null ? 'Not set up' : Hris::money($basic), 'basic' => true]
+                : ['text' => Hris::money($amount), 'basic' => false];
+            $federalClaim = $claim($taxDetails->federalClaim, $tax['basic']['federal']);
+            $provincialClaim = $claim($taxDetails->provincialClaim, $tax['basic']['provincial']);
+        @endphp
+        <section id="pay-tax" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-tax-heading" data-tax-details-card>
+            <x-payroll.settings.head
+                title="Tax and Statutory Deductions"
+                heading-id="pay-tax-heading"
+                description="What the system needs to know about this employee to deduct CPP, EI and income tax."
+            >
+                @if ($tax['ready'])
+                    <flux:button variant="outline" icon="pencil" wire:click="openTaxDetails">Edit</flux:button>
+                @endif
+            </x-payroll.settings.head>
+            @unless ($tax['ready'])
+                <p class="border-b border-border px-5 py-3 text-xs text-muted-foreground">These details can be edited once this installation's upgrade finishes. Until then every employee is on the basic amounts.</p>
+            @endunless
+            <dl class="grid gap-x-6 gap-y-5 p-5 sm:grid-cols-2 xl:grid-cols-3">
+                <div class="min-w-0">
+                    <dt class="{{ $dt }}">Federal Claim Amount</dt>
+                    <dd class="mt-1">
+                        <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span class="num text-lg font-semibold" data-federal-claim>{{ $federalClaim['text'] }}</span>
+                            @if ($federalClaim['basic'])
+                                <span class="pill pill-muted">Basic Amount</span>
+                            @endif
+                        </span>
+                        <span class="mt-1 block text-xs text-muted-foreground">From the employee's federal TD1 form. Yearly income up to this amount is not taxed.</span>
+                    </dd>
+                </div>
+                <div class="min-w-0">
+                    <dt class="{{ $dt }}">{{ $tax['provinceName'] }} Claim Amount</dt>
+                    <dd class="mt-1">
+                        <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span class="num text-lg font-semibold" data-provincial-claim>{{ $provincialClaim['text'] }}</span>
+                            @if ($provincialClaim['basic'])
+                                <span class="pill pill-muted">Basic Amount</span>
+                            @endif
+                        </span>
+                        <span class="mt-1 block text-xs text-muted-foreground">From the employee's {{ $tax['provinceName'] }} TD1 form.</span>
+                    </dd>
+                </div>
+                <div class="min-w-0">
+                    <dt class="{{ $dt }}">Extra Tax Each Pay</dt>
+                    <dd class="mt-1">
+                        <span @class(['text-lg font-semibold', 'num' => $taxDetails->additionalTax > 0.0]) data-extra-tax>{{ $taxDetails->additionalTax > 0.0 ? Hris::money($taxDetails->additionalTax) : 'None' }}</span>
+                        <span class="mt-1 block text-xs text-muted-foreground">An employee can ask for more tax to be deducted each pay.</span>
+                    </dd>
+                </div>
+                <div class="min-w-0">
+                    <dt class="{{ $dt }}">Canada Pension Plan</dt>
+                    <dd class="mt-1">
+                        <span class="text-lg font-semibold" data-deduct-pension>{{ $taxDetails->deductPension ? 'Deducted' : 'Not Deducted' }}</span>
+                        <span class="mt-1 block text-xs text-muted-foreground">Turn off only for an employee who is exempt, such as under 18 or over 70.</span>
+                    </dd>
+                </div>
+                <div class="min-w-0">
+                    <dt class="{{ $dt }}">Employment Insurance</dt>
+                    <dd class="mt-1">
+                        <span class="text-lg font-semibold" data-deduct-insurance>{{ $taxDetails->deductInsurance ? 'Deducted' : 'Not Deducted' }}</span>
+                        <span class="mt-1 block text-xs text-muted-foreground">Turn off only for an employee whose work is not insurable.</span>
+                    </dd>
+                </div>
+            </dl>
+            <p class="border-t border-border px-5 py-3 text-xs text-muted-foreground">A new employee starts with the basic amounts, with CPP and EI deducted. Change them only when the employee gives a TD1 form that says otherwise.</p>
+        </section>
+
+        <flux:modal wire:model.self="taxOpen" class="w-full max-w-xl" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'tax-details-heading')">
+            {{-- The form and its sample render only while the dialog is open. --}}
+            @if ($taxOpen)
+            <form wire:submit="saveTaxDetails" class="space-y-5" data-tax-details-form>
+                <div class="space-y-1">
+                    <flux:heading size="lg" level="2" id="tax-details-heading">Edit Tax Details</flux:heading>
+                    <p class="text-sm text-muted-foreground">{{ EmployeeName::display($settings) }} · Copy these from the employee's TD1 forms. Leave the basic amounts if no form was given.</p>
+                </div>
+
+                <div class="space-y-2">
+                    <x-kit.select label="Province of Employment" wire:model.live="taxForm.province">
+                        @foreach ($tax['provinces'] as $code => $name)
+                            <flux:select.option value="{{ $code }}">{{ $name }}</flux:select.option>
+                        @endforeach
+                    </x-kit.select>
+                    <p class="text-xs text-muted-foreground">Where the employee reports for work. Only Alberta is set up for now.</p>
+                </div>
+
+                @foreach ([
+                    'federal' => ['legend' => 'Federal Claim Amount', 'form' => 'TD1', 'basic' => $tax['formBasic']['federal'] ?? null, 'hint' => 'The Total Claim Amount on the federal TD1 form. A higher amount means less tax each pay.'],
+                    'provincial' => ['legend' => $tax['formProvinceName'].' Claim Amount', 'form' => $tax['formProvinceName'].' TD1', 'basic' => $tax['formBasic']['provincial'] ?? null, 'hint' => 'The Total Claim Amount on the employee\'s '.$tax['formProvinceName'].' TD1 form.'],
+                ] as $side => $field)
+                    <fieldset class="min-w-0 space-y-2" wire:key="tax-claim-{{ $side }}">
+                        <legend class="text-sm font-medium">{{ $field['legend'] }}</legend>
+                        <div class="grid gap-2">
+                            <label class="flex items-center gap-2 text-sm">
+                                <input type="radio" wire:model.live="taxForm.{{ $side }}_mode" value="basic" class="accent-primary" />
+                                <span>Basic amount @if ($field['basic'] !== null)<span class="num text-muted-foreground">{{ Hris::money($field['basic']) }}</span>@endif</span>
+                            </label>
+                            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+                                <label class="flex items-center gap-2 text-sm">
+                                    <input type="radio" wire:model.live="taxForm.{{ $side }}_mode" value="form" class="accent-primary" />
+                                    <span>Amount from the {{ $field['form'] }} form</span>
+                                </label>
+                                <div class="w-40">
+                                    <x-kit.money-input id="tax-{{ $side }}-claim" wire:model.live="taxForm.{{ $side }}_claim" aria-label="{{ $field['legend'] }} from the {{ $field['form'] }} form" :disabled="($taxForm[$side.'_mode'] ?? 'basic') !== 'form'" />
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-xs text-muted-foreground">{{ $field['hint'] }}</p>
+                    </fieldset>
+                @endforeach
+
+                <div class="space-y-2">
+                    <flux:label for="tax-extra">Extra Tax Each Pay<span class="ms-1 font-normal text-muted-foreground">(optional)</span></flux:label>
+                    <div class="w-40">
+                        <x-kit.money-input id="tax-extra" wire:model.live="taxForm.additional_tax" aria-label="Extra tax each pay" />
+                    </div>
+                    <p class="text-xs text-muted-foreground">Fill this only if the employee asked for more tax to be taken off each pay.</p>
+                </div>
+
+                <div class="grid gap-3 sm:grid-cols-2">
+                    <flux:checkbox wire:model.live="taxForm.deduct_pension" label="Deduct CPP" description="Turn off only if the employee is exempt." />
+                    <flux:checkbox wire:model.live="taxForm.deduct_insurance" label="Deduct EI" description="Turn off only if the work is not insurable." />
+                </div>
+
+                <section class="rounded-md border border-border" aria-labelledby="tax-sample-heading" data-tax-sample>
+                    <div class="border-b border-border px-4 py-3">
+                        <h3 id="tax-sample-heading" class="text-sm font-bold">Sample: A Pay of <span class="num">{{ Hris::money($tax['samplePay']) }}</span></h3>
+                        <p class="mt-0.5 text-xs text-muted-foreground">What these details deduct, so you can check before saving.</p>
+                    </div>
+                    <div class="hris-table-wrap">
+                        <table class="hris-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Deduction</th>
+                                    <th scope="col" class="text-right">Now</th>
+                                    <th scope="col" class="text-right">After Saving</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (['federal' => 'Federal Tax', 'provincial' => $tax['formProvinceName'].' Tax', 'pension' => 'CPP', 'insurance' => 'EI'] as $sampleKey => $sampleLabel)
+                                    @php
+                                        $now = $tax['sampleNow'][$sampleKey] ?? null;
+                                        $after = $tax['sampleAfter'][$sampleKey] ?? null;
+                                    @endphp
+                                    <tr wire:key="tax-sample-{{ $sampleKey }}">
+                                        <td>{{ $sampleLabel }}</td>
+                                        <td class="num text-right" data-sample-now="{{ $sampleKey }}">{{ $now === null ? '—' : Hris::money($now) }}</td>
+                                        <td @class(['num text-right', 'font-semibold' => $after !== null && $now !== null && abs($after - $now) >= 0.005]) data-sample-after="{{ $sampleKey }}">{{ $after === null ? '—' : Hris::money($after) }}</td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                @if ($taxError !== null)
+                    <p role="alert" class="text-sm text-danger">{{ $taxError }}</p>
+                @endif
+
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+                    <p class="text-xs text-muted-foreground">The change is used from the next payroll. Finalized payrolls stay as they are.</p>
+                    <div class="flex gap-2">
+                        <flux:button type="button" variant="outline" wire:click="$set('taxOpen', false)">Cancel</flux:button>
+                        <flux:button type="submit" variant="primary">Save</flux:button>
+                    </div>
+                </div>
+            </form>
+            @endif
+        </flux:modal>
+
+        {{-- The year's posted payslips, added up: where each contribution stands against the most an employee pays in a year. --}}
+        @php
+            $year = $tax['year'];
+            $meters = [
+                'pension' => ['label' => 'CPP Paid', 'name' => 'CPP', 'paid' => $year['pension'], 'max' => $year['pension_max']],
+                'insurance' => ['label' => 'EI Paid', 'name' => 'EI', 'paid' => $year['insurance'], 'max' => $year['insurance_max']],
+            ];
+        @endphp
+        <section id="pay-year" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-year-heading" data-year-so-far>
+            <x-payroll.settings.head
+                :title="'This Year So Far ('.$year['year'].')'"
+                heading-id="pay-year-heading"
+                description="Totals from the payrolls paid this year. CPP and EI stop when they reach the most an employee pays in a year."
+            />
+            <div class="grid gap-x-6 gap-y-5 p-5 sm:grid-cols-2 xl:grid-cols-4">
+                @foreach ($meters as $meterKey => $meter)
+                    @php
+                        $share = $meter['max'] > 0.0 ? (int) min(100, floor($meter['paid'] / $meter['max'] * 100)) : 0;
+                        $left = max(0.0, $meter['max'] - $meter['paid']);
+                    @endphp
+                    <div class="min-w-0" wire:key="year-{{ $meterKey }}" data-year-meter="{{ $meterKey }}">
+                        <p class="{{ $dt }}">{{ $meter['label'] }}</p>
+                        <p class="mt-1"><span class="num text-lg font-semibold">{{ Hris::money($meter['paid']) }}</span> <span class="num text-sm text-muted-foreground">of {{ Hris::money($meter['max']) }}</span></p>
+                        <div class="mt-2 h-2 overflow-hidden rounded-full bg-muted" role="img" aria-label="{{ $share }} percent of the yearly limit">
+                            <div class="h-full rounded-full bg-primary" style="width: {{ $share }}%"></div>
+                        </div>
+                        <p class="mt-2 text-xs text-muted-foreground">
+                            @if ($left <= 0.0)
+                                {{ $meter['name'] }} has reached the yearly limit. No more is deducted this year.
+                            @else
+                                <span class="num">{{ Hris::money($left) }}</span> left before {{ $meter['name'] }} stops for the year.
+                            @endif
+                        </p>
+                        @if ($meterKey === 'pension' && $year['second_pension'] > 0.0)
+                            <p class="mt-1 text-xs text-muted-foreground">Second CPP contribution: <span class="num">{{ Hris::money($year['second_pension']) }}</span> of <span class="num">{{ Hris::money($year['second_pension_max']) }}</span>.</p>
+                        @endif
+                    </div>
+                @endforeach
+                <div class="min-w-0" data-year-tax>
+                    <p class="{{ $dt }}">Income Tax Deducted</p>
+                    <p class="num mt-1 text-lg font-semibold">{{ Hris::money($year['federal'] + $year['provincial']) }}</p>
+                    <p class="mt-2 text-xs text-muted-foreground">Federal <span class="num">{{ Hris::money($year['federal']) }}</span> · {{ $tax['provinceName'] }} <span class="num">{{ Hris::money($year['provincial']) }}</span></p>
+                </div>
+                <div class="min-w-0" data-year-gross>
+                    <p class="{{ $dt }}">Gross Pay</p>
+                    <p class="num mt-1 text-lg font-semibold">{{ Hris::money($year['gross']) }}</p>
+                    <p class="mt-2 text-xs text-muted-foreground">{{ $year['pays'] === 0 ? 'No pays yet this year.' : ($year['pays'] === 1 ? '1 pay so far.' : $year['pays'].' pays so far.') }}</p>
+                </div>
+            </div>
+            <p class="border-t border-border px-5 py-3 text-xs text-muted-foreground">These totals are what the year-end T4 slip is made from.</p>
+        </section>
+
+        {{-- The company's percentage deductions, at the listed rate or a rate of the employee's own. --}}
+        @if ($percentDeductions !== [] || $percentRows !== [])
         <section id="pay-contributions" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-contributions-heading" data-contributions-card>
             <x-payroll.settings.head
-                title="Contributions & tax"
+                title="Percentage Deductions"
                 heading-id="pay-contributions-heading"
-                description="How SSS, PhilHealth, Pag-IBIG and withholding tax are deducted for this employee."
+                description="Company deductions taken as a percentage of pay, at the listed rate or a rate of this employee's own."
             >
                 @if (! $editing && $govReady)
                     <flux:button variant="outline" icon="pencil" wire:click="startEdit">Edit</flux:button>
@@ -237,42 +483,14 @@
             </x-payroll.settings.head>
 
             @unless ($govReady)
-                <p class="border-b border-border px-5 py-3 text-xs text-muted-foreground">These settings can be edited once this installation's upgrade finishes. Until then the settings on the record apply.</p>
+                <p class="border-b border-border px-5 py-3 text-xs text-muted-foreground">These rates can be edited once this installation's upgrade finishes. Until then the listed rates apply.</p>
             @endunless
 
             @unless ($editing)
-                @php
-                    // How many of the rows below are the employee's own, by the same test as each row's pill.
-                    $ownRows = ($differs(PaySettingsText::withholdingKeys()) ? 1 : 0)
-                        + count(array_filter(array_keys(GovSettings::CONTRIBUTIONS), static fn (string $key): bool => $differs(PaySettingsText::contributionKeys($key))))
-                        + count(array_filter($percentDeductions, static fn (array $deduction): bool => $deduction['own'] !== null));
-                    $allRows = count(GovSettings::CONTRIBUTIONS) + 1 + count($percentDeductions);
-                @endphp
-                <p class="px-5 py-3 text-xs text-muted-foreground" data-gov-in-force>
-                    @if ($ownRows === 0)
-                        The standard settings apply.
-                    @elseif ($ownRows === $allRows)
-                        All {{ $allRows }} set for this employee.
-                    @else
-                        {{ $ownRows }} of {{ $allRows }} set for this employee. The rest follow the company settings.
-                    @endif
-                </p>
                 <div class="hris-table-wrap">
                     <table class="hris-table">
                         <thead><tr><th>Deduction</th><th>How It Is Deducted</th><th>Set By</th></tr></thead>
                         <tbody>
-                            @foreach (GovSettings::CONTRIBUTIONS as $key => $name)
-                                <tr wire:key="read-{{ $key }}">
-                                    <td class="font-medium">{{ $name }}</td>
-                                    <td>{{ PaySettingsText::contribution($gov, $key) }}</td>
-                                    <td>@include('livewire.records.partials.pay-source', ['from' => $differs(PaySettingsText::contributionKeys($key)) ? 'own' : 'company', 'status' => $status])</td>
-                                </tr>
-                            @endforeach
-                            <tr wire:key="read-withholding">
-                                <td class="font-medium">Withholding Tax</td>
-                                <td>{{ PaySettingsText::withholding($gov) }}</td>
-                                <td>@include('livewire.records.partials.pay-source', ['from' => $differs(PaySettingsText::withholdingKeys()) ? 'own' : 'company', 'status' => $status])</td>
-                            </tr>
                             @foreach ($percentDeductions as $deduction)
                                 <tr wire:key="read-percent-{{ $deduction['id'] }}">
                                     <td class="font-medium">{{ $deduction['name'] }}</td>
@@ -285,7 +503,7 @@
                                             Own rate {{ Hris::moneyText($deduction['own']) }}% · listed: {{ $deduction['detail'] }}
                                         @endif
                                         @if (($deduction['amount'] ?? 0.0) > 0.0)
-                                            <span class="block text-xs text-muted-foreground"><span class="num">{{ Hris::peso($deduction['amount']) }}</span> this cut-off</span>
+                                            <span class="block text-xs text-muted-foreground"><span class="num">{{ Hris::money($deduction['amount']) }}</span> this pay</span>
                                         @endif
                                     </td>
                                     <td>@include('livewire.records.partials.pay-source', ['from' => $deduction['own'] === null ? 'company' : 'own', 'status' => $status])</td>
@@ -296,87 +514,19 @@
                 </div>
             @else
                 <form class="grid gap-5 p-5" wire:submit="save" data-gov-form>
-                    <p class="text-xs text-muted-foreground">A fixed share is the month's figure in place of the table's; leave it blank to use the table.</p>
-                    <div class="grid gap-5 xl:grid-cols-3">
-                    @foreach (GovSettings::CONTRIBUTIONS as $key => $name)
-                        @php $on = (bool) ($form["{$key}_deduct"] ?? false); @endphp
-                        <fieldset class="min-w-0 rounded-md border border-border p-4" wire:key="edit-{{ $key }}">
-                            <legend class="px-1 text-sm font-semibold">{{ $name }}</legend>
-                            <div class="flex items-center gap-3">
-                                <flux:switch id="pay-{{ $key }}-deduct" wire:model.live="form.{{ $key }}_deduct" />
-                                <flux:label for="pay-{{ $key }}-deduct">Deduct {{ $name }}</flux:label>
-                            </div>
-                            <div class="mt-3 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-                                <div class="space-y-2">
-                                    <flux:label for="pay-{{ $key }}-ee">Fixed Employee Share</flux:label>
-                                    <x-kit.money-input id="pay-{{ $key }}-ee" wire:model="form.{{ $key }}_fixed_ee" aria-label="Fixed {{ $name }} employee share" placeholder="From the table" :disabled="! $on" />
-                                </div>
-                                <div class="space-y-2">
-                                    <flux:label for="pay-{{ $key }}-er">Fixed Employer Share</flux:label>
-                                    <x-kit.money-input id="pay-{{ $key }}-er" wire:model="form.{{ $key }}_fixed_er" aria-label="Fixed {{ $name }} employer share" placeholder="From the table" :disabled="! $on" />
-                                </div>
-                                <x-kit.select label="Deducted" wire:model="form.{{ $key }}_mode" :disabled="! $on">
-                                    @foreach (GovInput::MODES as $value => $label)
-                                        <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                                    @endforeach
-                                </x-kit.select>
-                            </div>
-                        </fieldset>
-                    @endforeach
-                    </div>
-
-                    @php
-                        $taxOn = (bool) ($form['tax_deduct'] ?? false);
-                        $method = (string) ($form['tax_method'] ?? GovInput::METHOD_TABLE);
-                    @endphp
-                    <div class="grid gap-5 xl:grid-cols-2 xl:items-start">
                     <fieldset class="min-w-0 rounded-md border border-border p-4">
-                        <legend class="px-1 text-sm font-semibold">Withholding Tax</legend>
-                        <div class="flex items-center gap-3">
-                            <flux:switch id="pay-tax-deduct" wire:model.live="form.tax_deduct" />
-                            <flux:label for="pay-tax-deduct">Deduct Withholding Tax</flux:label>
-                        </div>
+                        <legend class="px-1 text-sm font-semibold">Percentage Deductions</legend>
+                        <p class="text-xs text-muted-foreground">A rate replaces the employee share only. Blank uses the listed rate. 0 means not a member, so neither share is taken.</p>
                         <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                            <x-kit.select label="Tax Method" wire:model.live="form.tax_method" :disabled="! $taxOn">
-                                @foreach (GovInput::METHODS as $value => $label)
-                                    <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                                @endforeach
-                            </x-kit.select>
-                            <div class="space-y-2">
-                                @if ($method === GovInput::METHOD_FIXED)
-                                    <flux:label for="pay-tax-amount">Tax per Payslip</flux:label>
-                                    <x-kit.money-input id="pay-tax-amount" wire:model="form.tax_amount" aria-label="Tax per payslip" :disabled="! $taxOn" />
-                                @elseif ($method === GovInput::METHOD_PERCENT)
-                                    <flux:label for="pay-tax-amount">Percent of Taxable Compensation</flux:label>
-                                    <flux:input id="pay-tax-amount" type="number" min="0" max="100" step="0.01" class:input="num" wire:model="form.tax_amount" aria-label="Percent of taxable compensation" :disabled="! $taxOn" />
-                                @elseif ($method === GovInput::METHOD_WHOLE_YEAR)
-                                    <x-kit.select label="Remaining Tax Spread" wire:model="form.tax_spread" :disabled="! $taxOn">
-                                        @foreach (GovInput::SPREADS as $value => $label)
-                                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                                        @endforeach
-                                    </x-kit.select>
-                                    <p class="text-xs text-muted-foreground">The year's tax is projected from pay posted so far and the payrolls left; the year's last payroll makes the year-end adjustment: it withholds the exact remainder or refunds any excess.</p>
-                                @endif
-                            </div>
+                            @foreach ($percentRows as $rowId => $row)
+                                <div class="space-y-2" wire:key="percent-{{ $rowId }}">
+                                    <flux:label for="pay-percent-{{ $rowId }}">{{ $row['name'] }} (%)</flux:label>
+                                    <flux:input id="pay-percent-{{ $rowId }}" type="number" min="0" max="100" step="0.01" class:input="num" wire:model="form.percent.{{ $rowId }}" aria-label="{{ $row['name'] }} employee share percent" placeholder="Listed rate" />
+                                    <p class="text-xs text-muted-foreground">Listed: {{ $row['detail'] }}</p>
+                                </div>
+                            @endforeach
                         </div>
                     </fieldset>
-
-                    @if ($percentRows !== [])
-                        <fieldset class="min-w-0 rounded-md border border-border p-4">
-                            <legend class="px-1 text-sm font-semibold">Percentage Deductions</legend>
-                            <p class="text-xs text-muted-foreground">A rate replaces the employee share only. Blank uses the listed rate. 0 means not a member, so neither share is taken.</p>
-                            <div class="mt-3 grid gap-3 sm:grid-cols-2">
-                                @foreach ($percentRows as $rowId => $row)
-                                    <div class="space-y-2" wire:key="percent-{{ $rowId }}">
-                                        <flux:label for="pay-percent-{{ $rowId }}">{{ $row['name'] }} (%)</flux:label>
-                                        <flux:input id="pay-percent-{{ $rowId }}" type="number" min="0" max="100" step="0.01" class:input="num" wire:model="form.percent.{{ $rowId }}" aria-label="{{ $row['name'] }} employee share percent" placeholder="Listed rate" />
-                                        <p class="text-xs text-muted-foreground">Listed: {{ $row['detail'] }}</p>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </fieldset>
-                    @endif
-                    </div>
 
                     @include('livewire.payroll.partials.settings-applies-note')
 
@@ -385,7 +535,7 @@
                     @endif
 
                     <div class="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-                        <flux:button variant="outline" icon="arrow-uturn-left" wire:click="useStandard">Reset to Standard</flux:button>
+                        <flux:button variant="outline" icon="arrow-uturn-left" wire:click="useStandard">Reset to Listed Rates</flux:button>
                         <div class="flex gap-2">
                             <flux:button variant="ghost" icon="x-mark" wire:click="cancelEdit">Cancel</flux:button>
                             <flux:button type="submit" variant="primary">Save</flux:button>
@@ -393,8 +543,8 @@
                     </div>
                 </form>
             @endunless
-
         </section>
+        @endif
 
         @php
             $allowances = $lines->filter(static fn ($line): bool => $line->kind === RecurringLine::KIND_INCENTIVE);
@@ -404,7 +554,7 @@
              the incentives assigned to them for a span of dates, and their own repeating allowances. --}}
         <section id="pay-allowances" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-allowances-heading" data-assigned-benefits>
             <x-payroll.settings.head
-                title="Allowances & incentives"
+                title="Allowances & Incentives"
                 heading-id="pay-allowances-heading"
                 description="What payroll adds to their pay on its own."
             >
@@ -467,7 +617,7 @@
                                         @if ($row->amount === null)
                                             <span class="text-muted-foreground">The type's</span>
                                         @else
-                                            <span class="num">{{ Hris::peso($row->amount) }}</span>
+                                            <span class="num">{{ Hris::money($row->amount) }}</span>
                                         @endif
                                     </td>
                                     <td class="text-sm">
@@ -583,7 +733,7 @@
 
         <section id="pay-recurring" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-recurring-heading">
             <x-payroll.settings.head
-                title="Loans & other deductions"
+                title="Loans & Other Deductions"
                 heading-id="pay-recurring-heading"
                 description="Loans and other amounts taken from their pay. A loan stops once it is paid off."
             >
@@ -651,7 +801,7 @@
                                             @endif
                                         </span>
                                     </td>
-                                    <td class="num text-right">{{ Hris::peso($entry->amount) }}</td>
+                                    <td class="num text-right">{{ Hris::money($entry->amount) }}</td>
                                     <td class="num whitespace-nowrap">{{ $entry->entry_date->format('d M Y') }}</td>
                                     <td>
                                         {{ $entry->prepared_by_name ?? 'System' }}
@@ -715,132 +865,6 @@
                 @endif
                 <div class="flex justify-end gap-2">
                     <flux:button type="button" variant="outline" wire:click="$set('entryOpen', false)">Cancel</flux:button>
-                    <flux:button type="submit" variant="primary">Save</flux:button>
-                </div>
-            </form>
-            @endif
-        </flux:modal>
-
-        <section id="pay-tax-year" class="hris-card scroll-mt-28 overflow-hidden" aria-labelledby="pay-tax-year-heading" data-tax-year>
-            <x-payroll.settings.head
-                :title="'Tax year '.$taxYear['year']"
-                heading-id="pay-tax-year-heading"
-                description="Year-to-date taxable compensation and tax withheld."
-            >
-                @if ($balancesReady)
-                    <flux:button variant="outline" icon="plus" wire:click="openBalance">Record Balance</flux:button>
-                @endif
-            </x-payroll.settings.head>
-            <dl class="grid gap-4 px-5 py-4 sm:grid-cols-2">
-                <div class="min-w-0">
-                    <dt class="{{ $dt }}">Taxable Compensation (YTD)</dt>
-                    <dd class="num mt-1 text-lg font-semibold" data-tax-year-taxable>{{ Hris::peso($taxYear['taxable']) }}</dd>
-                </div>
-                <div class="min-w-0">
-                    <dt class="{{ $dt }}">Tax Withheld (YTD)</dt>
-                    <dd class="num mt-1 text-lg font-semibold" data-tax-year-withheld>{{ Hris::peso($taxYear['withheld']) }}</dd>
-                </div>
-            </dl>
-            @unless ($balancesReady)
-                <p class="px-5 pb-4 text-xs text-muted-foreground">Balances can be recorded once this installation's upgrade finishes.</p>
-            @endunless
-            @if ($balancesReady && $taxBalances->isNotEmpty())
-                <div class="hris-table-wrap" data-tax-balances>
-                    <table class="hris-table">
-                        <thead>
-                            <tr>
-                                <th>Year</th>
-                                <th>Kind</th>
-                                <th class="text-right">Taxable Compensation</th>
-                                <th class="text-right">Tax Withheld</th>
-                                <th>Recorded By</th>
-                                <th>Status</th>
-                                <th class="text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($taxBalances as $balance)
-                                <tr wire:key="tax-balance-{{ $balance->id }}" data-tax-balance="{{ $balance->id }}">
-                                    <td class="num">{{ $balance->tax_year }}</td>
-                                    <td>
-                                        <p class="font-medium">{{ \App\Modules\Payroll\Application\Queries\TaxYearRecords::KINDS[$balance->kind] ?? $balance->kind }}</p>
-                                        <p class="text-xs text-muted-foreground">
-                                            {{ $balance->reason }}
-                                            @if ($balance->reference !== null)
-                                                <span class="block">Ref. {{ $balance->reference }}</span>
-                                            @endif
-                                        </p>
-                                    </td>
-                                    <td class="num text-right">{{ Hris::peso($balance->taxable_income) }}</td>
-                                    <td class="num text-right">{{ Hris::peso($balance->tax_withheld) }}</td>
-                                    <td>
-                                        {{ $balance->prepared_by_name ?? 'System' }}
-                                        @if ($balance->status === 'APPROVED' && $balance->approved_by_name !== null)
-                                            <span class="block text-xs text-muted-foreground">Approved by {{ $balance->approved_by_name }}</span>
-                                        @endif
-                                    </td>
-                                    <td>
-                                        @if ($balance->status === 'DRAFT')
-                                            <span class="pill pill-caution">Awaiting approval</span>
-                                        @else
-                                            <span class="pill pill-success">Approved</span>
-                                        @endif
-                                    </td>
-                                    <td class="text-right">
-                                        @if ($balance->status === 'DRAFT')
-                                            <x-kit.row-actions :label="'Tax Balance for '.$balance->tax_year">
-                                                <flux:menu.item icon="check" wire:click="approveBalance('{{ $balance->id }}')">Approve</flux:menu.item>
-                                                <flux:menu.item icon="trash" variant="danger" wire:click="discardBalance('{{ $balance->id }}')">Discard Draft</flux:menu.item>
-                                            </x-kit.row-actions>
-                                        @endif
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            @endif
-        </section>
-
-        <flux:modal wire:model.self="balanceOpen" class="w-full max-w-lg" x-init="$el.querySelector('dialog')?.setAttribute('aria-labelledby', 'tax-balance-heading')">
-            {{-- The form, with both kinds, renders only while the dialog is open. --}}
-            @if ($balanceOpen)
-            <form wire:submit="saveBalance" class="space-y-4">
-                <flux:heading size="lg" level="2" id="tax-balance-heading">Record Tax Balance</flux:heading>
-                <div class="grid gap-3 sm:grid-cols-2">
-                    <div class="space-y-2">
-                        <flux:label for="balance-year">Tax Year</flux:label>
-                        <flux:input id="balance-year" type="number" min="2000" max="2100" step="1" class:input="num" wire:model="balanceForm.tax_year" aria-label="Tax year" />
-                    </div>
-                    <x-kit.select label="Kind" wire:model="balanceForm.kind">
-                        @foreach (\App\Modules\Payroll\Application\Queries\TaxYearRecords::KINDS as $value => $label)
-                            <flux:select.option value="{{ $value }}">{{ $label }}</flux:select.option>
-                        @endforeach
-                    </x-kit.select>
-                </div>
-                <div class="grid gap-3 sm:grid-cols-2">
-                    <div class="space-y-2">
-                        <flux:label for="balance-taxable">Taxable Compensation</flux:label>
-                        <x-kit.money-input id="balance-taxable" wire:model="balanceForm.taxable_income" aria-label="Taxable compensation" />
-                    </div>
-                    <div class="space-y-2">
-                        <flux:label for="balance-withheld">Tax Withheld</flux:label>
-                        <x-kit.money-input id="balance-withheld" wire:model="balanceForm.tax_withheld" aria-label="Tax withheld" />
-                    </div>
-                </div>
-                <div class="space-y-2">
-                    <flux:label for="balance-reason">Reason</flux:label>
-                    <flux:input id="balance-reason" wire:model="balanceForm.reason" maxlength="160" placeholder="Where these figures come from" aria-required="true" />
-                </div>
-                <div class="space-y-2">
-                    <flux:label for="balance-reference">Reference (optional)</flux:label>
-                    <flux:input id="balance-reference" wire:model="balanceForm.reference" maxlength="120" placeholder="e.g. BIR Form 2316 from the previous employer" />
-                </div>
-                @if ($balanceError !== null)
-                    <p role="alert" class="text-sm text-danger">{{ $balanceError }}</p>
-                @endif
-                <div class="flex justify-end gap-2">
-                    <flux:button type="button" variant="outline" wire:click="$set('balanceOpen', false)">Cancel</flux:button>
                     <flux:button type="submit" variant="primary">Save</flux:button>
                 </div>
             </form>
@@ -917,7 +941,7 @@
                     </div>
                     @if ($payoff !== null)
                         <div class="rounded-md border border-border bg-muted px-4 py-3 text-sm" data-payoff>
-                            <p class="font-medium">{{ $payoff['payrolls'] === 1 ? '1 payroll' : $payoff['payrolls'].' payrolls' }}, up to {{ Hris::peso($payoff['amount']) }} each</p>
+                            <p class="font-medium">{{ $payoff['payrolls'] === 1 ? '1 payroll' : $payoff['payrolls'].' payrolls' }}, up to {{ Hris::money($payoff['amount']) }} each</p>
                             <p class="mt-1 text-xs text-muted-foreground">
                                 Paid off on the payroll from <span class="num">{{ PayrollPeriodText::day($payoff['last']) }}</span>, if none is skipped. A skipped payroll moves the last one later.
                             </p>

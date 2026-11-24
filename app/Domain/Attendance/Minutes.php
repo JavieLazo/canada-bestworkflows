@@ -20,9 +20,9 @@ namespace App\Domain\Attendance;
  *     dtr.ts:390  Math.round(shiftEnd - outM)                        undertime
  *     dtr.ts:421  Math.round(shiftLength / 2)                        half day
  *
- * WHY THIS CLASS EXISTS AND `ManilaClock::minutesBetween()` IS NOT USED HERE
+ * WHY THIS CLASS EXISTS AND `LocalClock::minutesBetween()` IS NOT USED HERE
  * ------------------------------------------------------------------------
- * `ManilaClock::minutesBetween()` is documented as
+ * `LocalClock::minutesBetween()` is documented as
  * `Math.max(0, Math.round((outMs - inMs) / 60000))` but is implemented as
  * `max(0, (int) Money::round($ms / 60000))`. `Money::round()` rounds to TWO
  * DECIMALS and the `(int)` cast then TRUNCATES, so a pair 480.5 minutes long
@@ -32,7 +32,7 @@ namespace App\Domain\Attendance;
  *
  * This class does the integer half-up rounding the reference actually
  * performs, while still taking its millisecond inputs from
- * `ManilaClock::ms()`, which is the part of `ManilaClock` that is correct and
+ * `LocalClock::ms()`, which is the part of `LocalClock` that is correct and
  * which remains the single timestamp boundary.
  *
  * NB: `Money::round()` is untouched and remains THE peso boundary. This is a

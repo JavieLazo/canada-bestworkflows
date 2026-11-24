@@ -14,7 +14,7 @@ use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /** Exports the same scoped ledger balances and filtered credit history shown in Leave Management. */
@@ -46,7 +46,7 @@ final class LeaveLedgerExport implements TableExport
                 return;
             }
             foreach ($records->entries($actor, $employeeId, $year, $type) as $entry) {
-                yield [...$identity, $entry->id, $entry->recorded_at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i:s'),
+                yield [...$identity, $entry->id, $entry->recorded_at->setTimezone(LocalClock::zone())->format('Y-m-d H:i:s'),
                     $year, $entry->label, RecordLeaveCredit::LABELS[$entry->kind] ?? $entry->kind,
                     $entry->days, $entry->source_year ?? '', $entry->note];
             }
@@ -54,8 +54,8 @@ final class LeaveLedgerExport implements TableExport
         $headers = $summary
             ? ['Leave type', 'Year', 'Opening balance', 'Manual accrual', 'Carried forward', 'Adjustments',
                 'Credits used', 'Unpaid leave days', 'Closing balance', 'Booked paid leave', 'Booked unpaid leave', 'Available balance']
-            : ['Entry ID', 'Recorded (Manila)', 'Year', 'Leave type', 'Entry', 'Days', 'Source year', 'Note'];
+            : ['Entry ID', 'Recorded (local time)', 'Year', 'Leave type', 'Entry', 'Days', 'Source year', 'Note'];
 
-        return new CsvExport('leave-ledger-'.($summary ? 'balances-' : 'history-').$year.'-'.ManilaClock::todayKey().'.csv', ['Employee ID', 'Employee', ...$headers], $rows);
+        return new CsvExport('leave-ledger-'.($summary ? 'balances-' : 'history-').$year.'-'.LocalClock::todayKey().'.csv', ['Employee ID', 'Employee', ...$headers], $rows);
     }
 }

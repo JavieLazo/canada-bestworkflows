@@ -16,7 +16,7 @@ use App\Modules\Timekeeping\Application\Commands\SaveAssignment;
 use App\Modules\Timekeeping\Application\Queries\ScheduleDays;
 use App\Modules\Timekeeping\Application\ShiftPolicy;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -63,7 +63,7 @@ function dscPunch(EmployeeProfile $employee, string $type, string $manilaStamp):
 {
     $log = new AttendanceLog;
     $log->forceFill(['employee_id' => $employee->id, 'log_type' => $type, 'source' => 'WEB',
-        'logged_at' => ManilaClock::instant($manilaStamp)->utc()])->save();
+        'logged_at' => LocalClock::instant($manilaStamp)->utc()])->save();
 }
 
 /** One DTR row's markup. */
@@ -215,7 +215,7 @@ it('labels the day dialog’s place as assigned and each punch’s as captured',
     Shift::query()->create(ShiftPolicy::attributesFromPattern(dscPattern('Day', '08:00:00', '17:00:00')) + ['employee_id' => $sol->id]);
     $log = new AttendanceLog;
     $log->forceFill(['employee_id' => $sol->id, 'log_type' => 'TIME_IN', 'source' => 'WEB', 'location_kind' => 'WFH',
-        'latitude' => 14.5995, 'longitude' => 120.9842, 'logged_at' => ManilaClock::instant('2026-10-06T08:00:00')->utc()])->save();
+        'latitude' => 14.5995, 'longitude' => 120.9842, 'logged_at' => LocalClock::instant('2026-10-06T08:00:00')->utc()])->save();
     dscActor();
 
     Livewire::test(EdtrPage::class)->set('tab', 'dtr')

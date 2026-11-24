@@ -18,7 +18,7 @@ use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -70,7 +70,7 @@ final class CancelAssignment
         if ($saved === null || $employee === null) {
             throw new RuntimeException('That temporary schedule no longer exists.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $first = $saved->date->format('Y-m-d');
         $last = RosterVersions::appliesThrough($saved);
         if ($last < $first) {

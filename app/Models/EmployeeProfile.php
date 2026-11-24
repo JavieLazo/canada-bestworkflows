@@ -255,7 +255,7 @@ class EmployeeProfile extends BaseModel
 
     /**
      * Every DECIMAL is cast to 'float', never decimal:2 — that cast returns a
-     * PHP string and reproduces the ₱NaN defect respond.ts:5-8 exists to fix.
+     * PHP string and reproduces the $NaN defect respond.ts:5-8 exists to fix.
      *
      * @return array<string, string>
      */

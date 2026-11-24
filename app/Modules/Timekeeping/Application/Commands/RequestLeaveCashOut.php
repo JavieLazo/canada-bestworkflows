@@ -19,7 +19,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveCashOutPolicy;
 use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Support\Access;
 use App\Support\AuditService;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -29,7 +29,7 @@ use RuntimeException;
  * (LeaveCashOutPolicy): their own employee only, a type Leave Settings
  * allows, whole or half days, no more than the live balance less the days
  * already spoken for, and within the limits HR set on the type
- * (LeaveCashOutLimits) — counted per type over the Manila calendar year.
+ * (LeaveCashOutLimits) — counted per type over the local calendar year.
  * A request at or above the share of the balance the type asks a reason
  * for is LARGE: its note is that reason, and it is kept marked so the
  * reviewer sees it. One pending request per type at a time. The request
@@ -64,11 +64,11 @@ final class RequestLeaveCashOut
         // Credits of a type the employee may not use (LeaveEligibilities)
         // stay where they are: they are not converted to cash. Terminal
         // leave still pays them out (FileTerminalLeave).
-        $refusal = LeaveEligibilities::refusal($employeeId, $token, ManilaClock::todayKey());
+        $refusal = LeaveEligibilities::refusal($employeeId, $token, LocalClock::todayKey());
         if ($refusal !== null) {
             throw new RuntimeException($refusal.' Its credits cannot be converted to cash.');
         }
-        $year = (int) substr(ManilaClock::todayKey(), 0, 4);
+        $year = (int) substr(LocalClock::todayKey(), 0, 4);
 
         return DB::transaction(static function () use ($access, $employeeId, $token, $days, $note, $entry, $year): string {
             LeaveCreditWriter::lock();

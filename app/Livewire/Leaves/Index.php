@@ -34,7 +34,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveTypeCredits;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -319,7 +319,7 @@ class Index extends Component
         if (! $actor->mayReadAllData(ModuleCode::LEAVES)) {
             return;
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $this->fileForm = [...self::BLANK_FILE_FORM, 'start' => $today, 'end' => $today];
         $this->fileEmployeeId = null;
         $this->fileError = null;

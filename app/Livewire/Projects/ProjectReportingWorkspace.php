@@ -26,7 +26,7 @@ use App\Modules\WorkManagement\Application\Queries\ProjectTaskGroups;
 use App\Modules\WorkManagement\Application\ResultEntryDraft;
 use App\Modules\WorkManagement\Domain\Projects\ResultValue;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Str;
@@ -173,7 +173,7 @@ class ProjectReportingWorkspace extends Component
         abort_if($entryId !== null && ($entry === null || $entry->indicator_id !== $indicator->id || $entry->voided_at !== null), 404);
         $this->indicatorId = $indicator->id;
         $this->requestId = (string) Str::ulid();
-        $this->begin('result', $entryId, 0, ['occurredOn' => $entry->occurred_on ?? ManilaClock::todayKey(), 'value' => $entry?->value_scaled === null ? '' : ResultValue::input($entry->value_scaled),
+        $this->begin('result', $entryId, 0, ['occurredOn' => $entry->occurred_on ?? LocalClock::todayKey(), 'value' => $entry?->value_scaled === null ? '' : ResultValue::input($entry->value_scaled),
             'valueText' => $entry->value_text ?? '', 'state' => $entry->state ?? 'IN_PROGRESS', 'narrative' => $entry->narrative ?? '', 'issues' => $entry->issues ?? '', 'correctiveAction' => $entry->corrective_action ?? '', 'reference' => $entry->reference ?? '', 'reason' => '']);
     }
 
@@ -337,7 +337,7 @@ class ProjectReportingWorkspace extends Component
         $fields = $permissions['view'] ? $query->fields($actor, $this->projectId, true) : collect();
         $period = $periods->firstWhere('id', $this->periodChoice);
         $from = $period?->starts_on;
-        $to = $period === null ? ManilaClock::todayKey() : min($period->ends_on, ManilaClock::todayKey());
+        $to = $period === null ? LocalClock::todayKey() : min($period->ends_on, LocalClock::todayKey());
         $results = app(ProjectResults::class);
         $indicator = $this->indicatorId === null ? null : $results->indicator($actor, $this->projectId, $this->indicatorId, $from, $to);
         $report = $this->reportId === null ? null : $query->report($actor, $this->projectId, $this->reportId);

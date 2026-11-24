@@ -8,7 +8,7 @@
 @php
     use App\Livewire\Records\Support\Hris;
     use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
 
     $pill = static fn (string $status): string => match ($status) {
         AdjustmentRule::PENDING => 'pill pill-caution',
@@ -87,13 +87,13 @@
                                     {{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? 'Deduction' : ($row->tax === AdjustmentRule::TAX_TAXABLE ? 'Earning, taxable' : 'Earning, not compensation') }}
                                 </span>
                             </td>
-                            <td class="num whitespace-nowrap text-right">{{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? '−' : '' }}{{ Hris::peso($row->amount) }}</td>
+                            <td class="num whitespace-nowrap text-right">{{ $row->kind === AdjustmentRule::KIND_DEDUCTION ? '−' : '' }}{{ Hris::money($row->amount) }}</td>
                             <td>
                                 {{ $row->reason }}
                                 @if ($row->reference)
                                     <span class="block text-xs text-muted-foreground">Ref. {{ $row->reference }}</span>
                                 @endif
-                                <span class="block text-xs text-muted-foreground">Prepared by {{ $row->prepared_by_name ?? 'an unnamed account' }} · <span class="num">{{ $row->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y') }}</span></span>
+                                <span class="block text-xs text-muted-foreground">Prepared by {{ $row->prepared_by_name ?? 'an unnamed account' }} · <span class="num">{{ $row->created_at->setTimezone(LocalClock::zone())->format('M d, Y') }}</span></span>
                             </td>
                             <td class="whitespace-nowrap text-sm">
                                 @if ($row->status === AdjustmentRule::POSTED)
@@ -190,7 +190,7 @@
                 <dl class="grid gap-2 text-sm sm:grid-cols-2">
                     <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee</dt><dd>{{ $reviewing->employee_name }}</dd></div>
                     <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Category</dt><dd>{{ $reviewing->category_name }}</dd></div>
-                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</dt><dd class="num">{{ $reviewing->kind === AdjustmentRule::KIND_DEDUCTION ? '−' : '' }}{{ Hris::peso($reviewing->amount) }}</dd></div>
+                    <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Amount</dt><dd class="num">{{ $reviewing->kind === AdjustmentRule::KIND_DEDUCTION ? '−' : '' }}{{ Hris::money($reviewing->amount) }}</dd></div>
                     <div><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Prepared By</dt><dd>{{ $reviewing->prepared_by_name ?? 'an unnamed account' }}</dd></div>
                     <div class="sm:col-span-2"><dt class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Reason</dt><dd>{{ $reviewing->reason }}@if ($reviewing->reference) · Ref. {{ $reviewing->reference }}@endif</dd></div>
                 </dl>
@@ -225,7 +225,7 @@
     >
         <div class="space-y-4">
             <flux:heading size="lg" id="adjustment-discard-heading">Discard this adjustment?</flux:heading>
-            <flux:text>{{ $discarding === null ? 'The pending line' : $discarding->employee_name.'\'s '.$discarding->category_name.' of '.Hris::peso($discarding->amount) }} is removed before review. A reviewed line stays on record.</flux:text>
+            <flux:text>{{ $discarding === null ? 'The pending line' : $discarding->employee_name.'\'s '.$discarding->category_name.' of '.Hris::money($discarding->amount) }} is removed before review. A reviewed line stays on record.</flux:text>
             <div class="flex justify-end gap-2">
                 <flux:modal.close>
                     <flux:button variant="outline">Cancel</flux:button>

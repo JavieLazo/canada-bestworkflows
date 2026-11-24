@@ -28,7 +28,7 @@ use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -114,7 +114,7 @@ final class WorkRecords
      */
     public function ownPage(Access $actor, array $filters, string $sort, string $direction, int $page, int $perPage, ?string $today = null): LengthAwarePaginator
     {
-        $today ??= ManilaClock::todayKey();
+        $today ??= LocalClock::todayKey();
         $query = $this->taskQuery($actor, true)->select('project_tasks.*')->selectRaw(WorkScope::TASK_GROUP_NAME_SQL.' AS group_name')
             ->leftJoin('projects', 'projects.id', '=', 'project_tasks.project_id');
         WorkScope::joinOwnResponse($query, $actor)->selectRaw(WorkScope::MY_STATUS_SQL.' AS my_status')->addSelect('project_task_submissions.status AS my_response_status');
@@ -180,7 +180,7 @@ final class WorkRecords
      */
     public function ownSummary(Access $actor, ?string $today = null): array
     {
-        $today ??= ManilaClock::todayKey();
+        $today ??= LocalClock::todayKey();
         $rows = WorkScope::joinOwnResponse($this->taskQuery($actor, true), $actor)
             ->selectRaw(WorkScope::MY_STATUS_SQL.' AS k, COUNT(*) AS n, SUM(CASE WHEN project_tasks.due_date < ? THEN 1 ELSE 0 END) AS overdue_n', [$today])->groupBy('k')->get();
         $counts = $rows->pluck('n', 'k');

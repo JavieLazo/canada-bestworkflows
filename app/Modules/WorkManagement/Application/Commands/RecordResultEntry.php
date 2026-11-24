@@ -12,7 +12,7 @@ use App\Modules\WorkManagement\Domain\Projects\ResultValue;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSchedule;
 use App\Support\Access;
 use App\Support\AuditService;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -32,7 +32,7 @@ final class RecordResultEntry
                 'state' => [$indicator->kind === 'QUALITATIVE' ? 'required' : 'nullable', Rule::in(array_keys(ReportingRules::STATES))],
                 'narrative' => 'nullable|string|max:4000', 'issues' => 'nullable|string|max:4000', 'correctiveAction' => 'nullable|string|max:4000',
                 'reference' => 'nullable|string|max:200', 'requestId' => 'nullable|ulid', 'correctionReason' => [$input->replacesId === null ? 'nullable' : 'required', 'string', 'max:1000']])->validate();
-            if (! TaskSchedule::isDateKey($input->occurredOn) || $input->occurredOn > ManilaClock::todayKey()) {
+            if (! TaskSchedule::isDateKey($input->occurredOn) || $input->occurredOn > LocalClock::todayKey()) {
                 throw ValidationException::withMessages(['occurredOn' => 'Choose an actual date through today.']);
             }
             $value = $indicator->kind === 'NUMERIC' ? ResultValue::parse($input->value) : null;

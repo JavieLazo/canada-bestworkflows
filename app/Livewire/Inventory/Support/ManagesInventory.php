@@ -13,7 +13,7 @@ use App\Modules\Inventory\Application\Commands\TransferItems;
 use App\Modules\Inventory\Application\Queries\InventoryRecords;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Database\QueryException;
 use Illuminate\Validation\ValidationException;
@@ -65,7 +65,7 @@ trait ManagesInventory
         abort_unless(app(Access::class)->mayReadAllData(ModuleCode::INVENTORY), 403);
         $this->resetValidation();
         $this->editingId = null;
-        $this->form = ['code' => '', 'name' => '', 'serial_no' => '', 'acquired_on' => ManilaClock::todayKey(), 'cost' => '', 'category_id' => '', 'location_id' => '', 'remarks' => ''];
+        $this->form = ['code' => '', 'name' => '', 'serial_no' => '', 'acquired_on' => LocalClock::todayKey(), 'cost' => '', 'category_id' => '', 'location_id' => '', 'remarks' => ''];
         $this->itemDialog = true;
     }
 
@@ -163,7 +163,7 @@ trait ManagesInventory
         $this->movement = $movement;
         $this->employeeId = '';
         $this->issuerId = '';
-        $this->movementDate = ManilaClock::todayKey();
+        $this->movementDate = LocalClock::todayKey();
         $this->movementRemarks = '';
         $this->mrNumber = '';
         $this->movementDialog = true;

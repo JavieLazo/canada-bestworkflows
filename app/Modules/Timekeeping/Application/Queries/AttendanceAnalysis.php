@@ -18,7 +18,7 @@ use App\Platform\Reports\ReportDocument;
 use App\Support\EmployeeIdentity;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -74,7 +74,7 @@ final class AttendanceAnalysis
             $byDate[$day->date] = $day;
         }
         $facts = [];
-        $today = ManilaClock::dayKey($now);
+        $today = LocalClock::dayKey($now);
         foreach (CalendarDays::each($from, $to) as $date) {
             $day = $byDate[$date] ?? null;
             $scheduleDay = $scheduleDays[$date] ?? null;

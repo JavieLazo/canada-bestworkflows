@@ -10,7 +10,7 @@
 @php
     use App\Modules\Timekeeping\Application\LeaveCashOuts;
     use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
 
     $columns = $canManage ? 7 : 6;
     $pill = static fn (string $status): string => match ($status) {
@@ -64,7 +64,7 @@
                                 </td>
                                 <td class="num text-right">{{ LeaveQuantity::credits($row->days) }}</td>
                                 <td class="text-sm">
-                                    <span class="num">{{ $row->requested_at->setTimezone(ManilaClock::TZ)->format('M d, Y') }}</span>
+                                    <span class="num">{{ $row->requested_at->setTimezone(LocalClock::zone())->format('M d, Y') }}</span>
                                     @if ($row->note !== null)
                                         <p class="text-xs text-muted-foreground">{{ $row->note }}</p>
                                     @endif
@@ -72,17 +72,17 @@
                                 <td><span class="{{ $pill($row->status) }}">{{ ucfirst(strtolower($row->status)) }}</span></td>
                                 <td class="text-sm">
                                     @if ($row->reviewed_at !== null)
-                                        {{ $row->reviewed_by_name ?? '—' }} · <span class="num">{{ $row->reviewed_at->setTimezone(ManilaClock::TZ)->format('M d, Y') }}</span>
+                                        {{ $row->reviewed_by_name ?? '—' }} · <span class="num">{{ $row->reviewed_at->setTimezone(LocalClock::zone())->format('M d, Y') }}</span>
                                         @if ($row->review_note !== null)
                                             <p class="text-xs text-muted-foreground">{{ $row->review_note }}</p>
                                         @endif
                                     @elseif ($row->amount !== null)
-                                        <span class="num">₱{{ number_format($row->amount, 2) }}</span>
+                                        <span class="num">${{ number_format($row->amount, 2) }}</span>
                                     @else
                                         <span class="text-muted-foreground">—</span>
                                     @endif
                                     @if ($row->status === 'PAID' && $row->amount !== null && $row->reviewed_at !== null)
-                                        <p class="num text-xs text-muted-foreground">Paid ₱{{ number_format($row->amount, 2) }}</p>
+                                        <p class="num text-xs text-muted-foreground">Paid ${{ number_format($row->amount, 2) }}</p>
                                     @endif
                                 </td>
                                 @if ($canManage)

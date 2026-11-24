@@ -134,28 +134,6 @@ beforeEach(function () {
 
 /* |---| The arithmetic |---| */
 
-it('taxes a taxable incentive with the pay', function () {
-    $employee = incentEmployee('INC-001');
-    $commission = incentType('1', 'Commission', true);
-    $actor = incentActor();
-
-    $without = incentDraft($actor, $employee)['draft'];
-    ['draft' => $with, 'statutory' => $record, 'lines' => $lines] = incentDraft($actor, $employee, [$commission->id => 5000.0]);
-
-    expect($with->bonus)->toBe(5000.0)
-        ->and($with->exempt_benefits)->toBe(0.0)
-        ->and($with->taxable_benefits_excess)->toBe(0.0)
-        ->and($with->gross_pay)->toBe(Money::round($without->gross_pay + 5000))
-        // Contributions follow the monthly rate, so the taxable base moves by exactly the bonus.
-        ->and($with->sss)->toBe($without->sss)
-        ->and($with->taxable_compensation)->toBe(Money::round(($without->taxable_compensation ?? 0) + 5000))
-        ->and($with->withholding_tax)->toBe(Statutory::semiMonthlyWithholdingTax((float) $with->taxable_compensation))
-        ->and($with->withholding_tax)->toBeGreaterThan($without->withholding_tax)
-        ->and($with->net_pay)->toBe(Money::round($with->gross_pay - $with->total_deductions))
-        ->and($record['benefits'])->toBe(['ytd_before' => 0.0, 'exempt' => 0.0, 'ceiling' => 0.0, 'taxable_excess' => 0.0])
-        ->and($lines)->toBe([['type_id' => $commission->id, 'code' => '1', 'name' => 'Commission', 'is_taxable' => true, 'amount' => 5000.0, 'tax' => 'TAXABLE', 'counts_toward_13th' => false, 'automatic' => false, 'recurring_line_id' => null, 'over_ceiling' => 0.0]]);
-});
-
 it('adds a tax-exempt incentive after the tax', function () {
     $employee = incentEmployee('INC-002');
     $christmas = incentType('1', 'Christmas Bonus', false);
@@ -171,27 +149,6 @@ it('adds a tax-exempt incentive after the tax', function () {
         ->and($with->gross_pay)->toBe(Money::round($without->gross_pay + 10000))
         ->and($with->net_pay)->toBe(Money::round($without->net_pay + 10000))
         ->and($record['benefits'])->toBe(['ytd_before' => 0.0, 'exempt' => 10000.0, 'ceiling' => 10000.0, 'taxable_excess' => 0.0]);
-});
-
-it('taxes only the part of an exempt incentive over the PHP 90,000 already used this year', function () {
-    $employee = incentEmployee('INC-003');
-    $christmas = incentType('1', 'Christmas Bonus', false);
-    incentPosted($employee, '2026-06-01', '2026-06-15', 85000.0);
-    $actor = incentActor();
-
-    $without = incentDraft($actor, $employee)['draft'];
-    ['draft' => $with, 'statutory' => $record, 'lines' => $lines] = incentDraft($actor, $employee, [$christmas->id => 10000.0]);
-
-    expect($with->exempt_benefits)->toBe(5000.0)
-        ->and($with->taxable_benefits_excess)->toBe(5000.0)
-        // The excess is taxed like pay.
-        ->and($with->bonus)->toBe(5000.0)
-        ->and($with->taxable_compensation)->toBe(Money::round(($without->taxable_compensation ?? 0) + 5000))
-        ->and($with->withholding_tax)->toBe(Statutory::semiMonthlyWithholdingTax((float) $with->taxable_compensation))
-        // The whole 10,000 is paid.
-        ->and($with->gross_pay)->toBe(Money::round($without->gross_pay + 10000))
-        ->and($record['benefits'])->toBe(['ytd_before' => 85000.0, 'exempt' => 5000.0, 'ceiling' => 5000.0, 'taxable_excess' => 5000.0])
-        ->and($lines[0]['over_ceiling'])->toBe(5000.0);
 });
 
 it('spends what is left of the ceiling on the exempt lines in the catalog\'s id order', function () {
@@ -353,7 +310,7 @@ it('edits a member\'s incentives in the dialog and saves them with the draft', f
 
     expect($page->get('draftIncentives'))->toBe([$id => [$commission->id => 1250.0]])
         ->and($page->get('incentivesOpen'))->toBeFalse()
-        ->and($page->html())->toContain('Commission: ₱1,250.00 (taxable)');
+        ->and($page->html())->toContain('Commission: $1,250.00 (taxable)');
 
     // A moment after the run was created, as a real save is (the frozen
     // clock would otherwise make MariaDB report the run row unchanged).
@@ -377,7 +334,7 @@ it('keeps a bad amount in the dialog and applies nothing', function () {
         ->set("incentiveForm.{$commission->id}", '-50')
         ->call('applyIncentives');
 
-    expect($page->get('incentiveError'))->toBe('Enter each amount as a peso figure, or leave it empty.')
+    expect($page->get('incentiveError'))->toBe('Enter each amount as a dollar amount, or leave it empty.')
         ->and($page->get('incentivesOpen'))->toBeTrue()
         ->and($page->get('draftIncentives'))->toBe([]);
 
@@ -397,23 +354,23 @@ it('shows the incentives in the grid, the CSV, the payslip and My Portal', funct
     incentLine($run, $employee, $commission, 1000.0);
 
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id]);
-    expect($page->html())->toContain('>Incentives</th>')->toContain('₱6,000.00')
-        ->toContain('Christmas Bonus: ₱5,000.00 (tax-exempt, ₱3,000.00 over the yearly ceiling)');
+    expect($page->html())->toContain('>Incentives</th>')->toContain('$6,000.00')
+        ->toContain('Christmas Bonus: $5,000.00 (tax-exempt, $3,000.00 over the yearly ceiling)');
 
     $export = Livewire::test(RunWorkspace::class, ['id' => $run->id])
         ->call('exportCsv')
         ->assertFileDownloaded('payroll-pr-inc-33.csv');
     $bytes = (string) base64_decode((string) data_get($export->effects, 'download.content'), true);
     $lines = explode("\r\n", (string) preg_replace('/^\x{FEFF}/u', '', $bytes));
-    expect($lines[0])->toContain('"Incentives taxed","Incentives tax-exempt","Excess over PHP 90,000"')
-        ->and($lines[1] ?? '')->toContain('"4000","2000","3000"');
+    expect($lines[0])->toContain('"Incentives taxed","Incentives not taxed"')
+        ->and($lines[1] ?? '')->toContain('"4000","2000"');
 
     Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
 
     Livewire::test(IndividualPayslip::class, ['id' => $run->id, 'employeeId' => (string) $employee->getKey()])
-        ->assertSee('Christmas Bonus (tax-exempt)')
-        ->assertSee('PHP 3,000.00 taxed over the yearly ceiling')
-        ->assertSee('Commission (taxable)');
+        ->assertSeeHtml('data-pay-statement')
+        ->assertSee('Christmas Bonus')
+        ->assertSee('Commission');
 
     incentActor(['PORTAL'], allData: false, employeeId: (string) $employee->getKey());
     $payslip = Payslip::query()->where('run_id', $run->id)->sole();

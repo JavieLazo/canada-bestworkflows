@@ -9,7 +9,7 @@ use App\Modules\Timekeeping\Application\Queries\TimekeepingReports;
 use App\Platform\Reports\ReportCriteria;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Validation\ValidationException;
 
@@ -29,7 +29,7 @@ final class HomeCharts
      */
     public static function for(Access $actor): array
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $charts = [];
         foreach ([self::netPay($actor, $today), self::leave($actor, $today), self::departments($actor, $today)] as $chart) {
             if ($chart !== null) {

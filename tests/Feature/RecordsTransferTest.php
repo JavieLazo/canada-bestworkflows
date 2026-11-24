@@ -128,12 +128,12 @@ it('lets an all-data payroll officer import incentive types by their tax label',
     app(SaveIncentiveType::class)->handle(app(Access::class), null, 'Rice subsidy', null, false);
     $code = (string) PayrollIncentiveType::query()->value('code');
 
-    expect(rxferRows('/records/payroll-settings/incentive-types/export'))->toBe([[$code, 'Rice subsidy', 'Tax-exempt', '', 'Typed per payroll', '', 'One-time', '', '0', 'None', '', '', '', 'No']]);
+    expect(rxferRows('/records/payroll-settings/incentive-types/export'))->toBe([[$code, 'Rice subsidy', 'Tax-exempt', '', 'Typed per payroll', '', 'One-time', '', '0', 'None', '', '', '']]);
 
     // The rule's columns left blank keep what the row holds; filled, they set it.
     $report = rxferImport('records.incentive-types', ImportIncentiveTypes::COLUMNS, [
-        [$code, 'Rice subsidy', 'tax-exempt', 'Monthly rice', '', '', '', '', '', '', '', '', '', ''],
-        ['', 'Performance bonus', 'Taxable', '', 'Fixed amount', '1,500', 'Monthly 1st cut-off', '', '4', 'None', '', '', 'Memo 7', 'No'],
+        [$code, 'Rice subsidy', 'tax-exempt', 'Monthly rice', '', '', '', '', '', '', '', '', ''],
+        ['', 'Performance bonus', 'Taxable', '', 'Fixed amount', '1,500', 'Monthly 1st cut-off', '', '4', 'None', '', '', 'Memo 7'],
     ]);
 
     expect([$report->created, $report->updated, $report->errors])->toBe([1, 1, []])

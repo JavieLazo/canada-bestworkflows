@@ -16,11 +16,11 @@ use App\Domain\Payroll\PayrollPeriod;
  * worth is settled on the employee's next regular payroll.
  *
  * The date must lie inside the period and must be a day that is over —
- * yesterday at the latest, in Manila — so every counted day is read from
+ * yesterday at the latest, in local time — so every counted day is read from
  * finished attendance. Blank, or the period's last day, means no advance:
  * the whole period is read from attendance, as the reference reads it.
  *
- * Pure: the caller passes today (ManilaClock::todayKey()).
+ * Pure: the caller passes today (LocalClock::todayKey()).
  */
 final class PayrollAdvance
 {

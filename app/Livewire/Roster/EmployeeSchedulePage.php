@@ -31,7 +31,7 @@ use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Closure;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
@@ -246,11 +246,11 @@ class EmployeeSchedulePage extends Component
         }
         $day = $this->day($access, $date);
         $employee = app(OperationalDirectory::class)->find($access, $this->employeeId);
-        if ($day === null || $employee === null || ! self::pickable($date, $day, ManilaClock::todayKey(), $employee)) {
+        if ($day === null || $employee === null || ! self::pickable($date, $day, LocalClock::todayKey(), $employee)) {
             return;
         }
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $picked = $this->pickedDates();
         if ($picked !== [] && ($picked[0] < $today) !== ($date < $today)) {
             $picked = [];
@@ -500,7 +500,7 @@ class EmployeeSchedulePage extends Component
         $employee = $directory->find($access, $this->employeeId);
         abort_if($employee === null, 404);
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $first = RosterDayText::monthStart($this->month);
         $last = PayrollPeriod::calendarMonthRange($first)['to'];
         $calendar = app(RosterCalendar::class);
@@ -765,7 +765,7 @@ class EmployeeSchedulePage extends Component
 
             return;
         }
-        $this->dayShift = $day->date < ManilaClock::todayKey() ? '' : $day->shift_choice;
+        $this->dayShift = $day->date < LocalClock::todayKey() ? '' : $day->shift_choice;
         $this->dayCustom = $day->custom_hours ?? CustomHours::BLANK;
         $this->dayLocation = $day->location_choice;
     }
@@ -794,7 +794,7 @@ class EmployeeSchedulePage extends Component
         $first = RosterDayText::monthStart($this->month);
         $days = $dates === [] ? [] : app(RosterCalendar::class)->forEmployees($access, [$this->employeeId], $first, PayrollPeriod::calendarMonthRange($first)['to'])[$this->employeeId] ?? [];
         $employee = app(OperationalDirectory::class)->find($access, $this->employeeId);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $past = $dates !== [] && $dates[0] < $today;
         $changed = [];
         foreach ($dates as $date) {

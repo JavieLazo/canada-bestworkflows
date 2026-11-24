@@ -14,11 +14,12 @@ use App\Modules\Workforce\Contracts\Views\EmployeeProfileView;
 use App\Modules\Workforce\Domain\Contact\PhoneRule;
 use App\Platform\Files\UploadLimits;
 use App\Support\CodeSequence;
+use App\Support\Currency;
 use App\Support\DateText;
 use App\Support\EmailRule;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\TextSort;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
@@ -1802,7 +1803,7 @@ final class EmployeeFields
         if ($type === 'number' || $type === 'money') {
             // The source also has a "N days" face here for keys containing
             // "credit", and this record has no such key (see sections()).
-            return self::peso((float) $raw);
+            return self::money((float) $raw);
         }
 
         if ($type === 'select') {
@@ -1896,7 +1897,7 @@ final class EmployeeFields
         return EmployeeName::initials($employee);
     }
 
-    /** ageFrom() (employee-fields.tsx:224-236), on the Manila calendar. */
+    /** ageFrom() (employee-fields.tsx:224-236), on the local calendar. */
     public static function ageFrom(?CarbonImmutable $birth): string
     {
         if ($birth === null) {
@@ -1983,20 +1984,16 @@ final class EmployeeFields
         return self::BUILT_IN_CATEGORIES[$value] ?? $value;
     }
 
-    /** Today's Manila calendar day, `YYYY-MM-DD` (hris.ts todayKey) — ManilaClock's one clock read. */
+    /** Today's local calendar day, `YYYY-MM-DD` (hris.ts todayKey) — LocalClock's one clock read. */
     public static function todayKey(): string
     {
-        return ManilaClock::todayKey();
+        return LocalClock::todayKey();
     }
 
-    /** peso() (hris.ts:180-186): ₱ + en-PH grouping, always two decimals. */
-    public static function peso(float $n): string
+    /** `$1,234.50`, always two decimals: the one figure format, Currency::format(). */
+    public static function money(float $n): string
     {
-        if (! is_finite($n)) {
-            $n = 0.0;
-        }
-
-        return "\u{20B1}".number_format($n, 2);
+        return Currency::format($n);
     }
 
     /** humanSize() (attachments.ts:25-28), shared through HrisFormat — one spelling on every upload surface. */

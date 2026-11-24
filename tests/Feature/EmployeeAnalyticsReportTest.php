@@ -183,8 +183,8 @@ it('excludes future training end dates from completed records while retaining mi
     expect($summary['Training Records'])->toBe('1')->and($summary['Training Participants'])->toBe('1')
         ->and($summary['Known Training Hours'])->toBe('0.00')->and($summary['Hours Not Recorded'])->toBe('1')
         ->and($training['totals'] ?? [])->toBe(['Total', '1', '1', '0.00', '1'])
-        ->and(implode(' ', $training['notes'] ?? []))->toContain('Completion cutoff: 2026-10-09 (Manila)', 'future end dates are excluded')
-        ->and(implode(' ', $report->notes))->toContain('recorded end date through 2026-10-09 (Manila)', 'Future end dates are excluded');
+        ->and(implode(' ', $training['notes'] ?? []))->toContain('Completion cutoff: 2026-10-09 (local time)', 'future end dates are excluded')
+        ->and(implode(' ', $report->notes))->toContain('recorded end date through 2026-10-09 (local time)', 'Future end dates are excluded');
 });
 
 it('counts recorded joinings regularizations and resignations within partial months without inventing historical headcount', function () {

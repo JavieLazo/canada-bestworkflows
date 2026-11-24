@@ -26,7 +26,7 @@ use DateTimeInterface;
  * daily hours, which the Timekeeping module's audit sentence and the roster's
  * cells and dialogs share so they cannot drift.
  *
- * Pure: no container and no clock. `todayKey()` lives on ManilaClock. Bare
+ * Pure: no container and no clock. `todayKey()` lives on LocalClock. Bare
  * `round()` is banned under app/Support by PayrollArchitectureTest; the
  * kilobyte branch rounds with intdiv() for that reason.
  */

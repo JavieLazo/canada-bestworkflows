@@ -26,7 +26,7 @@ use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\Process\Process;
@@ -97,7 +97,7 @@ it('rolls pattern and standing hours back if copying onto a weekday fails', func
         DB::unprepared('DROP TRIGGER IF EXISTS reject_weekly_copy');
     }
     app(SaveShiftType::class)->handle($actor, $pattern->id, rshiftcommitDraft());
-    $week = app(RosterVersions::class)->weekdaysAsOf([$employee->id], ManilaClock::todayKey())[$employee->id] ?? [];
+    $week = app(RosterVersions::class)->weekdaysAsOf([$employee->id], LocalClock::todayKey())[$employee->id] ?? [];
     expect($week[1]->shift_data['start_time'] ?? null)->toBe('21:00:00')
         ->and(RosterShift::query()->count())->toBe(2);
 });

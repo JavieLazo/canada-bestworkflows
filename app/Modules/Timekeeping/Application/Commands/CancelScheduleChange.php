@@ -16,7 +16,7 @@ use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -71,7 +71,7 @@ final class CancelScheduleChange
             throw new RuntimeException('That change moved the rest days onto this employee. Change a rest day in the weekly schedule instead.');
         }
         $from = $saved->effective_from->format('Y-m-d');
-        if ($from < ManilaClock::todayKey()) {
+        if ($from < LocalClock::todayKey()) {
             throw new RuntimeException('That change is already in effect. Make a new change instead of cancelling it.');
         }
         $name = EmployeeName::display($employee);

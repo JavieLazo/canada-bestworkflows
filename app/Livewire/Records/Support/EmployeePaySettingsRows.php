@@ -17,7 +17,7 @@ use App\Modules\Workforce\Application\Queries\EmployeePaySettingsRecords;
 use App\Modules\Workforce\Contracts\Views\EmployeePaySettingsView;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * The Employee Pay Settings rows as the table lists them: searched on name,
@@ -36,7 +36,7 @@ final class EmployeePaySettingsRows
     public static function list(Access $access, string $search, bool $onlyCustomized, bool $activeOnly, string $sortKey, string $sortDir): array
     {
         $needle = mb_strtolower(trim($search));
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $records = app(PayRuleRecords::class);
         $own = $records->employeeVersions($access);
         $company = $records->versions($access, PayRulesStore::COMPANY)->values()->all();

@@ -44,7 +44,7 @@ final class ColleagueDirectoryQuery implements ColleagueDirectory
         }
 
         // Compared as calendar days: DATE columns carry no zone, and `$today`
-        // is already the Manila day the caller means.
+        // is already the local day the caller means.
         $first = CarbonImmutable::createFromFormat('!Y-m-d', $today->format('Y-m-d'), 'UTC');
         if ($first === null) {
             return collect();

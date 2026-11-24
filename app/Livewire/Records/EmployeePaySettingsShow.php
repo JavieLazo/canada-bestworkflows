@@ -22,13 +22,16 @@ use App\Modules\Payroll\Application\Commands\DiscardTaxBalance;
 use App\Modules\Payroll\Application\Commands\EndRecurringLine;
 use App\Modules\Payroll\Application\Commands\ReplaceGovDeductionPolicy;
 use App\Modules\Payroll\Application\Commands\SaveBenefitAssignment;
+use App\Modules\Payroll\Application\Commands\SaveEmployeeTaxDetails;
 use App\Modules\Payroll\Application\Commands\SaveRecurringLine;
 use App\Modules\Payroll\Application\Commands\SaveRecurringLineEntry;
 use App\Modules\Payroll\Application\Commands\SaveTaxBalance;
+use App\Modules\Payroll\Application\EmployeeTaxDetails;
 use App\Modules\Payroll\Application\GovDeductionInput;
 use App\Modules\Payroll\Application\GovDeductionPolicyStore;
 use App\Modules\Payroll\Application\PayRulesStore;
 use App\Modules\Payroll\Application\Queries\BenefitAssignmentRecords;
+use App\Modules\Payroll\Application\Queries\EmployeeTaxDetailRecords;
 use App\Modules\Payroll\Application\Queries\GovDeductionPolicyRecords;
 use App\Modules\Payroll\Application\Queries\IncentiveTypeRecords;
 use App\Modules\Payroll\Application\Queries\PayRuleRecords;
@@ -47,6 +50,7 @@ use App\Modules\Payroll\Contracts\Views\RecurringLineEntryView;
 use App\Modules\Payroll\Contracts\Views\RecurringLineView;
 use App\Modules\Payroll\Contracts\Views\TaxBalanceView;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
+use App\Modules\Payroll\Domain\Canada\TaxDetails;
 use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
 use App\Modules\Payroll\Domain\Recurring\RecurringLine;
 use App\Modules\Workforce\Application\Commands\ReplaceSalary;
@@ -56,8 +60,9 @@ use App\Modules\Workforce\Application\Queries\EmployeePaySettingsRecords;
 use App\Modules\Workforce\Application\SalaryRates;
 use App\Modules\Workforce\Contracts\Views\EmployeePaySettingsView;
 use App\Support\Access;
+use App\Support\Currency;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
@@ -175,6 +180,21 @@ class EmployeePaySettingsShow extends Component
 
     public ?string $balanceError = null;
 
+    /** Whether the tax details dialog is open. */
+    public bool $taxOpen = false;
+
+    /**
+     * The tax details dialog's draft: the province, each claim as the basic
+     * amount or an amount from the employee's form, the extra tax, and
+     * whether the pension plan and the insurance are deducted. No id in it,
+     * so not #[Locked]; SaveEmployeeTaxDetails reads and checks it again.
+     *
+     * @var array<string, mixed>
+     */
+    public array $taxForm = ['province' => TaxDetails::DEFAULT_PROVINCE, 'federal_mode' => 'basic', 'federal_claim' => '', 'provincial_mode' => 'basic', 'provincial_claim' => '', 'additional_tax' => '', 'deduct_pension' => true, 'deduct_insurance' => true];
+
+    public ?string $taxError = null;
+
     /** The Change salary dialog. Plain UI state. */
     public bool $salaryOpen = false;
 
@@ -283,7 +303,7 @@ class EmployeePaySettingsShow extends Component
         $this->lineAmount = '';
         $this->lineTotal = '';
         $this->lineFrequency = RecurringLine::FREQUENCY_EVERY;
-        $this->lineStartsOn = self::nextCutoffStart(ManilaClock::todayKey());
+        $this->lineStartsOn = self::nextCutoffStart(LocalClock::todayKey());
         $this->lineEndsOn = '';
         $this->lineNote = '';
         $this->lineError = null;
@@ -321,7 +341,7 @@ class EmployeePaySettingsShow extends Component
             'ends_on' => trim($this->lineEndsOn) === '' ? null : trim($this->lineEndsOn),
         ];
         if (trim($this->lineTotal) !== '' && $figures['total'] === null) {
-            $this->lineError = 'Enter the total loan payable as a peso figure, or leave it blank.';
+            $this->lineError = 'Enter the total loan payable as a dollar amount, or leave it blank.';
 
             return;
         }
@@ -354,7 +374,7 @@ class EmployeePaySettingsShow extends Component
             return;
         }
         $this->endingId = $line->id;
-        $this->endLastDay = ManilaClock::todayKey();
+        $this->endLastDay = LocalClock::todayKey();
         $this->endReason = '';
         $this->endError = null;
         $this->endOpen = true;
@@ -401,7 +421,7 @@ class EmployeePaySettingsShow extends Component
     private function ownLine(string $id): ?RecurringLineView
     {
         $access = app(Access::class);
-        $line = $access->mayReadAllData(ModuleCode::PAYROLL) ? app(RecurringLineRecords::class)->find($access, $id, ManilaClock::todayKey()) : null;
+        $line = $access->mayReadAllData(ModuleCode::PAYROLL) ? app(RecurringLineRecords::class)->find($access, $id, LocalClock::todayKey()) : null;
         if ($line === null || $line->employee_id !== $this->employeeId) {
             Flux::toast(variant: 'danger', text: 'That loan or allowance no longer exists.');
 
@@ -450,7 +470,7 @@ class EmployeePaySettingsShow extends Component
 
             return;
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $versions = app(GovDeductionPolicyRecords::class)->versions($access, $this->employeeId);
         $inForce = self::govInForce($versions, $today);
         $this->form = GovDeductionInput::toForm(EmployeePaySettingsRows::effective($settings, $inForce), array_keys($this->percentRows($access, $settings)));
@@ -517,7 +537,7 @@ class EmployeePaySettingsShow extends Component
         if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
             return;
         }
-        $this->assignForm = ['type_id' => '', 'starts_on' => ManilaClock::todayKey(), 'ends_on' => '', 'amount' => '', 'reason' => '', 'reference' => ''];
+        $this->assignForm = ['type_id' => '', 'starts_on' => LocalClock::todayKey(), 'ends_on' => '', 'amount' => '', 'reason' => '', 'reference' => ''];
         $this->assignError = null;
         $this->assignOpen = true;
     }
@@ -645,14 +665,14 @@ class EmployeePaySettingsShow extends Component
         if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
             return;
         }
-        $line = app(RecurringLineRecords::class)->find($access, $lineId, ManilaClock::todayKey());
+        $line = app(RecurringLineRecords::class)->find($access, $lineId, LocalClock::todayKey());
         if ($line === null || $line->employee_id !== $this->employeeId || $line->total === null) {
             Flux::toast(variant: 'danger', text: 'Entries are recorded only on a deduction with a total loan payable.');
 
             return;
         }
         $this->entryLineId = $line->id;
-        $this->entryForm = ['kind' => 'OUTSIDE_PAYMENT', 'amount' => '', 'entry_date' => ManilaClock::todayKey(), 'reason' => '', 'reference' => ''];
+        $this->entryForm = ['kind' => 'OUTSIDE_PAYMENT', 'amount' => '', 'entry_date' => LocalClock::todayKey(), 'reason' => '', 'reference' => ''];
         $this->entryError = null;
         $this->entryOpen = true;
     }
@@ -749,7 +769,7 @@ class EmployeePaySettingsShow extends Component
         if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
             return;
         }
-        $this->balanceForm = ['tax_year' => substr(ManilaClock::todayKey(), 0, 4), 'kind' => 'OPENING', 'taxable_income' => '', 'tax_withheld' => '', 'reason' => '', 'reference' => ''];
+        $this->balanceForm = ['tax_year' => substr(LocalClock::todayKey(), 0, 4), 'kind' => 'OPENING', 'taxable_income' => '', 'tax_withheld' => '', 'reason' => '', 'reference' => ''];
         $this->balanceError = null;
         $this->balanceOpen = true;
     }
@@ -922,6 +942,135 @@ class EmployeePaySettingsShow extends Component
         return $text === '' ? null : $text;
     }
 
+    /* ---- Tax details ---- */
+
+    /** Opens the tax details dialog on what is saved for the employee. */
+    public function openTaxDetails(): void
+    {
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
+            return;
+        }
+        $details = app(EmployeeTaxDetailRecords::class)->details($access, $this->employeeId);
+        $this->taxForm = [
+            'province' => $details->province,
+            'federal_mode' => $details->federalClaim === null ? 'basic' : 'form',
+            'federal_claim' => $details->federalClaim === null ? '' : number_format($details->federalClaim, 2, '.', ''),
+            'provincial_mode' => $details->provincialClaim === null ? 'basic' : 'form',
+            'provincial_claim' => $details->provincialClaim === null ? '' : number_format($details->provincialClaim, 2, '.', ''),
+            'additional_tax' => $details->additionalTax > 0.0 ? number_format($details->additionalTax, 2, '.', '') : '',
+            'deduct_pension' => $details->deductPension,
+            'deduct_insurance' => $details->deductInsurance,
+        ];
+        $this->taxError = null;
+        $this->taxOpen = true;
+    }
+
+    public function updatedTaxOpen(bool $value): void
+    {
+        if (! $value) {
+            $this->taxError = null;
+        }
+    }
+
+    /** Saves the tax details through the audited command. */
+    public function saveTaxDetails(): void
+    {
+        $access = app(Access::class);
+        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
+            Flux::toast(variant: 'danger', text: 'Your role cannot manage employee pay settings.');
+
+            return;
+        }
+        foreach (['federal' => 'Federal claim amount', 'provincial' => 'Provincial claim amount'] as $side => $label) {
+            if (($this->taxForm[$side.'_mode'] ?? 'basic') === 'form' && trim((string) ($this->taxForm[$side.'_claim'] ?? '')) === '') {
+                $this->taxError = "{$label}: enter the amount from the employee's form, or choose the basic amount.";
+
+                return;
+            }
+        }
+        try {
+            $message = app(SaveEmployeeTaxDetails::class)->handle(
+                $access, $this->employeeId, (string) ($this->taxForm['province'] ?? ''),
+                $this->typedClaim('federal'), $this->typedClaim('provincial'), (string) ($this->taxForm['additional_tax'] ?? ''),
+                (bool) ($this->taxForm['deduct_pension'] ?? true), (bool) ($this->taxForm['deduct_insurance'] ?? true),
+            );
+        } catch (QueryException $e) {
+            report($e);
+            $this->taxError = 'The tax details could not be saved. Nothing was changed. Please try again.';
+
+            return;
+        } catch (RuntimeException $e) {
+            $this->taxError = $e->getMessage();
+
+            return;
+        }
+        $this->taxOpen = false;
+        $this->taxError = null;
+        Flux::toast(variant: 'success', text: $message ?? 'Nothing was changed.');
+    }
+
+    /** A claim as the form holds it: null for the basic amount, else what was typed. */
+    private function typedClaim(string $side): ?string
+    {
+        return ($this->taxForm[$side.'_mode'] ?? 'basic') === 'form' ? (string) ($this->taxForm[$side.'_claim'] ?? '') : null;
+    }
+
+    /**
+     * The details the open form would save, for the dialog's sample only;
+     * null while a typed figure does not read as an amount. The command
+     * checks the real save.
+     */
+    private function draftTaxDetails(): ?TaxDetails
+    {
+        $amounts = [];
+        foreach (['federal' => $this->typedClaim('federal'), 'provincial' => $this->typedClaim('provincial'), 'extra' => (string) ($this->taxForm['additional_tax'] ?? '')] as $key => $typed) {
+            $text = $typed === null ? '' : trim(Currency::strip($typed));
+            if ($text !== '' && (! is_numeric($text) || (float) $text < 0.0 || (float) $text > TaxDetails::AMOUNT_CAP)) {
+                return null;
+            }
+            $amounts[$key] = $text === '' ? null : (float) $text;
+        }
+
+        return new TaxDetails(
+            (string) ($this->taxForm['province'] ?? ''), $amounts['federal'], $amounts['provincial'], $amounts['extra'] ?? 0.0,
+            (bool) ($this->taxForm['deduct_pension'] ?? true), (bool) ($this->taxForm['deduct_insurance'] ?? true),
+        );
+    }
+
+    /**
+     * What the tax cards and the dialog show: the saved details, the basic
+     * amounts, the pay schedule's pays in the year, the year so far and,
+     * while the dialog is open, a sample pay now and after saving.
+     *
+     * @return array<string, mixed>
+     */
+    private function taxCard(Access $access, EmployeePaySettingsView $settings, string $today): array
+    {
+        $records = app(EmployeeTaxDetailRecords::class);
+        $year = (int) substr($today, 0, 4);
+        $details = $records->details($access, $settings->id);
+        $pays = $records->paysInYear($access, $year);
+        $monthly = (float) ($settings->monthly_rate ?? 0.0);
+        $samplePay = $monthly > 0.0 && $pays > 0 ? (float) number_format($monthly * 12 / $pays, 2, '.', '') : 2000.00;
+        $draft = $this->taxOpen ? $this->draftTaxDetails() : null;
+
+        return [
+            'ready' => EmployeeTaxDetails::ready(),
+            'details' => $details,
+            'provinces' => TaxDetails::PROVINCES,
+            'provinceName' => TaxDetails::PROVINCES[$details->province] ?? $details->province,
+            'basic' => $records->basicAmounts($access, $details->province, $today),
+            'formBasic' => $this->taxOpen ? $records->basicAmounts($access, (string) ($this->taxForm['province'] ?? ''), $today) : null,
+            'formProvinceName' => TaxDetails::PROVINCES[(string) ($this->taxForm['province'] ?? '')] ?? 'Provincial',
+            'pays' => $pays,
+            'year' => $records->yearSoFar($access, $settings->id, $year, $today),
+            'samplePay' => $samplePay,
+            'sampleNow' => $this->taxOpen ? $records->sample($access, $details, $samplePay, $pays, $today) : null,
+            'sampleAfter' => $draft === null ? null : $records->sample($access, $draft, $samplePay, $pays, $today),
+        ];
+    }
+
     /* ---- The hourly rate ---- */
 
     /** The hourly rate is edited from Pay at a glance: the one in-place setting, with its reason. */
@@ -973,7 +1122,7 @@ class EmployeePaySettingsShow extends Component
             abort(404);
         }
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $lines = $settings === null ? new Collection : app(RecurringLineRecords::class)->forEmployee($access, $settings->id, $today);
         $rates = $settings === null ? null : $this->rates($access, $settings);
         $govVersions = $settings === null ? new Collection : app(GovDeductionPolicyRecords::class)->versions($access, $settings->id);
@@ -991,6 +1140,7 @@ class EmployeePaySettingsShow extends Component
             'salaryReady' => SalaryRates::ready(),
             'assignReady' => BenefitAssignments::ready(),
             'balancesReady' => TaxYearToDate::balancesReady(),
+            'tax' => $settings === null ? null : $this->taxCard($access, $settings, $today),
             'taxYear' => $settings === null ? ['year' => (int) substr($today, 0, 4), 'taxable' => 0.0, 'withheld' => 0.0] : app(TaxYearRecords::class)->summary($access, $settings->id, (int) substr($today, 0, 4)),
             'taxBalances' => $settings === null ? new Collection : app(TaxYearRecords::class)->balances($access, $settings->id),
             'assignments' => $assignments,
@@ -1011,7 +1161,7 @@ class EmployeePaySettingsShow extends Component
             'payoffs' => self::payoffs($lines, $today),
             'incentiveTaxes' => $settings === null ? [] : app(IncentiveTypeRecords::class)->list($access)->mapWithKeys(static fn (IncentiveTypeView $type): array => [$type->id => BenefitText::TAXES[BenefitText::tax($type)]])->all(),
             'lineOptions' => $this->lineOpen && $settings !== null ? $this->lineOptions($access) : [],
-            'editingLine' => $this->lineId !== null && $settings !== null ? app(RecurringLineRecords::class)->find($access, $this->lineId, ManilaClock::todayKey()) : null,
+            'editingLine' => $this->lineId !== null && $settings !== null ? app(RecurringLineRecords::class)->find($access, $this->lineId, LocalClock::todayKey()) : null,
             'today' => $today,
         ])->title($settings === null ? 'Employee Pay Settings' : EmployeeName::display($settings).' · Pay Settings');
     }
@@ -1035,7 +1185,7 @@ class EmployeePaySettingsShow extends Component
     private function percentRows(Access $access, EmployeePaySettingsView $settings): array
     {
         $rows = [];
-        foreach (EmployeePayProfile::percentDeductions($access, $settings, ManilaClock::todayKey()) as $row) {
+        foreach (EmployeePayProfile::percentDeductions($access, $settings, LocalClock::todayKey()) as $row) {
             $rows[$row['id']] = ['name' => $row['name'], 'detail' => $row['detail']];
         }
 
@@ -1083,8 +1233,8 @@ class EmployeePaySettingsShow extends Component
         $paid = 0.0;
         $from = null;
         if ($this->lineId !== null && $access->mayReadAllData(ModuleCode::PAYROLL)) {
-            $paid = app(RecurringLineRecords::class)->find($access, $this->lineId, ManilaClock::todayKey())->paid ?? 0.0;
-            $from = self::nextCutoffStart(ManilaClock::todayKey());
+            $paid = app(RecurringLineRecords::class)->find($access, $this->lineId, LocalClock::todayKey())->paid ?? 0.0;
+            $from = self::nextCutoffStart(LocalClock::todayKey());
         }
         $payoff = RecurringLinePayoff::of($line, $paid, $from);
 
@@ -1156,7 +1306,7 @@ class EmployeePaySettingsShow extends Component
             $records->versions($access, $settings->id)->values()->all(),
             $statusId === null ? [] : $records->versions($access, $statusId)->values()->all(),
             $records->versions($access, PayRulesStore::COMPANY)->values()->all(),
-            ManilaClock::todayKey(),
+            LocalClock::todayKey(),
         );
     }
 }

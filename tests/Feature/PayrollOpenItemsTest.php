@@ -21,7 +21,7 @@ use App\Modules\Payroll\Application\OpenAttendanceItems;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\PayrollReviewFixture;
@@ -81,7 +81,7 @@ function openItemsWorked(EmployeeProfile $employee, string $date, string $out = 
         $punch = new AttendanceLog;
         $punch->forceFill([
             'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc(),
+            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc(),
         ])->save();
     }
 }

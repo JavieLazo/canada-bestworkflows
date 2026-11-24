@@ -17,7 +17,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -95,7 +95,7 @@ class LeaveCredits extends Component
     public function mount(): void
     {
         $this->sortKey = 'employee';
-        $this->asOf = ManilaClock::todayKey();
+        $this->asOf = LocalClock::todayKey();
         $this->year = self::currentYear();
     }
 
@@ -105,10 +105,10 @@ class LeaveCredits extends Component
         return ['employee'];
     }
 
-    /** The current Manila year — credits are entered per calendar year. */
+    /** The current local year — credits are entered per calendar year. */
     public static function currentYear(): int
     {
-        return LeaveCreditPolicy::yearOf(ManilaClock::todayKey());
+        return LeaveCreditPolicy::yearOf(LocalClock::todayKey());
     }
 
     /**
@@ -135,7 +135,7 @@ class LeaveCredits extends Component
             && checkdate((int) substr($date, 5, 2), (int) substr($date, 8, 2), (int) substr($date, 0, 4))
             && in_array(LeaveCreditPolicy::yearOf($date), self::yearOptions(), true);
 
-        return $valid ? $date : ManilaClock::todayKey();
+        return $valid ? $date : LocalClock::todayKey();
     }
 
     /** Anything but a date inside the offered years collapses to today; the page starts over. */

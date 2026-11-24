@@ -14,7 +14,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveTypeRule;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -75,7 +75,7 @@ final class SaveLeaveRule
         $stored = $rule->toArray();
         $label = $types[$scope]['name'].' rule';
         $summary = $rule->describe(array_map(static fn (array $entry): string => $entry['name'], $types));
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $current = LeaveRules::book()->version($scope, $today);
         if ($current !== null && LeaveTypeRule::fromParams($current['params'])->toArray() === $stored) {
             return null;

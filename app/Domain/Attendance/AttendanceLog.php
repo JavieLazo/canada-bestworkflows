@@ -14,7 +14,7 @@ use DateTimeInterface;
  * `DayRecord.timeIn` / `.timeOut` / `.breakOut` / `.breakIn`. Converting on
  * the way in would change what the DTR reports.
  *
- * ⚠ THE STRING MUST CARRY ITS ZONE. `ManilaClock::instant()` reads an
+ * ⚠ THE STRING MUST CARRY ITS ZONE. `LocalClock::instant()` reads an
  * offset-less string as MANILA WALL CLOCK (dtr.ts:206-208 does the same). The
  * `attendance_logs.logged_at` column is DATETIME(3) in UTC, so a row rendered
  * as 'Y-m-d H:i:s.v' with no offset would be read eight hours late. Build the
@@ -34,7 +34,7 @@ final readonly class AttendanceLog
     public function __construct(
         /** Free text in the source, not an enum — see the pseudo-enum note in the starter pack. */
         public string $logType,
-        /** ISO 8601 WITH an offset or 'Z'. Offset-less is read as Manila wall clock. */
+        /** ISO 8601 WITH an offset or 'Z'. Offset-less is read as local wall clock. */
         public string $loggedAt,
         public ?string $id = null,
         public ?string $employeeId = null,

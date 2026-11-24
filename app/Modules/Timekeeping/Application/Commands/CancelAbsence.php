@@ -21,7 +21,7 @@ use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
 use App\Platform\Notifications\Notifier;
 use App\Support\Access;
 use App\Support\AuditService;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -75,7 +75,7 @@ final class CancelAbsence
                 throw new RuntimeException('Only approved leave can be cancelled.');
             }
 
-            $today = ManilaClock::todayKey();
+            $today = LocalClock::todayKey();
             $start = $request->start_date->format('Y-m-d');
             $end = $request->end_date->format('Y-m-d');
             $request->load('cancellations:id,leave_travel_request_id,date');
@@ -95,7 +95,7 @@ final class CancelAbsence
                 }
             }
 
-            $at = CarbonImmutable::now(ManilaClock::TZ)->utc();
+            $at = CarbonImmutable::now(LocalClock::zone())->utc();
             foreach ($dates as $date) {
                 $row = new LeaveRequestCancellation;
                 $row->fill(['leave_travel_request_id' => $id, 'date' => $date, 'reason' => $reason]);

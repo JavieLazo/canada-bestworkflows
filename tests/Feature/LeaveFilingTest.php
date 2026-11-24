@@ -27,7 +27,7 @@ use App\Modules\Timekeeping\Application\Queries\LeaveCreditRecords;
 use App\Modules\Timekeeping\Application\Queries\LeaveLedgerRecords;
 use App\Modules\Timekeeping\Infrastructure\AttendanceInputQuery;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -136,7 +136,7 @@ function lfilDtrPay(EmployeeProfile $employee, string $from, string $to): array
 
 beforeEach(function () {
     // A Sunday before every date the tests file: all of them are ahead.
-    $this->travelTo(CarbonImmutable::parse('2026-09-20 09:00:00', ManilaClock::TZ)->utc());
+    $this->travelTo(CarbonImmutable::parse('2026-09-20 09:00:00', LocalClock::zone())->utc());
 });
 
 /*

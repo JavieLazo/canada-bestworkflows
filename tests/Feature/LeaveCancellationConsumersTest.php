@@ -33,7 +33,7 @@ use App\Modules\Timekeeping\Application\ScheduleGuard;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Platform\Reports\ReportCriteria;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\Support\PayrollEvidenceFixture;
@@ -93,7 +93,7 @@ function cancellationConsumerCancel(Access $actor, LeaveTravelRequest $request, 
     $row = new LeaveRequestCancellation;
     $row->forceFill([
         'leave_travel_request_id' => $request->id, 'date' => $date,
-        'cancelled_by' => $actor->userId, 'cancelled_at' => ManilaClock::instant('2026-10-10T10:00:00+08:00')->utc(),
+        'cancelled_by' => $actor->userId, 'cancelled_at' => LocalClock::instant('2026-10-10T10:00:00+08:00')->utc(),
         'reason' => 'Private cancellation reason',
     ])->save();
 }

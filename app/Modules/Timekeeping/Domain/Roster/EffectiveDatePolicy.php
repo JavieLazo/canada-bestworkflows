@@ -14,7 +14,7 @@ use App\Domain\Payroll\PayrollPeriod;
  * until today's shift has begun, and never in a way that leaves one shift
  * still running when the next one starts.
  *
- * Three rules, all pure — 'Y-m-d' strings, minutes past Manila midnight and
+ * Three rules, all pure — 'Y-m-d' strings, minutes past local midnight and
  * resolved schedules in, a sentence or a list out:
  *
  *   1. dateError(): a change starts today or later. Backdating is refused.
@@ -51,7 +51,7 @@ final class EffectiveDatePolicy
      *
      * @param  DomainShift|null  $before  the schedule as it stands, resolved around today
      * @param  DomainShift|null  $after  the schedule the change would leave
-     * @param  float  $nowMinutes  minutes past Manila midnight, now
+     * @param  float  $nowMinutes  minutes past local midnight, now
      * @param  bool  $punched  whether a punch already belongs to today's shift
      */
     public static function todayCutoff(?DomainShift $before, ?DomainShift $after, string $today, float $nowMinutes, bool $punched): ?string

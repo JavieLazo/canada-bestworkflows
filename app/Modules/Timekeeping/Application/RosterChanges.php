@@ -8,7 +8,7 @@ use App\Models\RosterDayOverride;
 use App\Models\RosterScheduleChange;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -62,13 +62,13 @@ final class RosterChanges
     /** " It takes effect on Oct 12, 2026." for a later date; nothing for today. */
     public static function takesEffect(string $from): string
     {
-        return $from === ManilaClock::todayKey() ? '' : ' It takes effect on '.HrisFormat::date($from).'.';
+        return $from === LocalClock::todayKey() ? '' : ' It takes effect on '.HrisFormat::date($from).'.';
     }
 
     /** " · from Oct 12, 2026" on an audit sentence for a later date; nothing for today. */
     public static function fromDate(string $from): string
     {
-        return $from === ManilaClock::todayKey() ? '' : ' · from '.HrisFormat::date($from);
+        return $from === LocalClock::todayKey() ? '' : ' · from '.HrisFormat::date($from);
     }
 
     public static function accountId(Access $actor): ?int

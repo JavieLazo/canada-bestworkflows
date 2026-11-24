@@ -13,7 +13,7 @@ use App\Platform\Transfer\TableExport;
 use App\Support\Access;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -53,7 +53,7 @@ final class LeaveRequestsExport implements TableExport
                     : '';
                 yield [
                     $r->code ?? '', EmployeeName::display($r->employee), $r->employee->position ?? '',
-                    ManilaClock::dayKey($r->created_at), $r->start_date->format('Y-m-d'), $r->end_date->format('Y-m-d'),
+                    LocalClock::dayKey($r->created_at), $r->start_date->format('Y-m-d'), $r->end_date->format('Y-m-d'),
                     $described[$r->id], LeaveLabels::dayTypeLabel($r->day_type), HrisFormat::requestStatus($r->status), $pay,
                     implode(', ', $r->cancelled_dates),
                 ];
@@ -61,7 +61,7 @@ final class LeaveRequestsExport implements TableExport
         };
 
         return new CsvExport(
-            'leave-requests-'.ManilaClock::todayKey().'.csv',
+            'leave-requests-'.LocalClock::todayKey().'.csv',
             ['ID', 'Employee', 'Position', 'Date filed', 'Start date', 'End date', 'Description', 'Day type', 'Status', 'Pay', 'Cancelled dates'],
             $rows,
         );

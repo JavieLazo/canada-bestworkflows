@@ -6,7 +6,7 @@ namespace App\Livewire\Concerns;
 
 use App\Modules\WorkManagement\Application\TaskTimeline;
 use App\Modules\WorkManagement\Contracts\Views\ProjectTaskView;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Livewire\Attributes\Url;
 
 trait WithTaskTimeline
@@ -21,7 +21,7 @@ trait WithTaskTimeline
 
     protected function timelineWindow(): TaskTimeline
     {
-        return TaskTimeline::window($this->timelineFrom, $this->timelineScale, ManilaClock::todayKey());
+        return TaskTimeline::window($this->timelineFrom, $this->timelineScale, LocalClock::todayKey());
     }
 
     public function shiftTimeline(int $direction): void

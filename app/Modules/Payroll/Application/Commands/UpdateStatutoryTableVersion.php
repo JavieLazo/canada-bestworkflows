@@ -13,7 +13,7 @@ use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Application\StatutoryVersionGuard;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -49,7 +49,7 @@ final class UpdateStatutoryTableVersion
         if (mb_strlen($reference) > 160) {
             throw new RuntimeException('The reference must be at most 160 characters.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         if ($effectiveFrom <= $today) {
             throw new RuntimeException('The effective date must be after today. A version that takes effect today or earlier is added as a new version.');
         }

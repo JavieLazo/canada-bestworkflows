@@ -6,7 +6,7 @@ namespace App\Modules\Timekeeping\Application;
 
 use App\Models\LeaveCashOut;
 use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -96,10 +96,10 @@ final class LeaveCashOuts
         if (! self::ready()) {
             return ['days' => 0.0, 'requests' => 0];
         }
-        // The Manila year, as a UTC span: the clock's instant of its first
+        // The local year, as a UTC span: the clock's instant of its first
         // midnight up to the next year's.
-        $from = ManilaClock::instant(sprintf('%04d-01-01T00:00:00', $year))->utc();
-        $to = ManilaClock::instant(sprintf('%04d-01-01T00:00:00', $year + 1))->utc();
+        $from = LocalClock::instant(sprintf('%04d-01-01T00:00:00', $year))->utc();
+        $to = LocalClock::instant(sprintf('%04d-01-01T00:00:00', $year + 1))->utc();
         $query = LeaveCashOut::query()->where('employee_id', $employeeId)->where('request_type', $token)
             ->whereIn('status', [LeaveCashOut::PENDING, LeaveCashOut::APPROVED, LeaveCashOut::PAID])
             ->where('requested_at', '>=', $from->format('Y-m-d H:i:s.v'))

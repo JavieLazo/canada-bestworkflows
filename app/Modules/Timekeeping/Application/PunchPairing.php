@@ -11,7 +11,7 @@ use App\Domain\Attendance\ShiftResolver;
 use App\Modules\Timekeeping\Contracts\OpenPunchLimit;
 use App\Modules\Timekeeping\Domain\Attendance\AttendancePolicy;
 use App\Modules\Timekeeping\Domain\Attendance\PunchWorkDate;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -42,7 +42,7 @@ final class PunchPairing
         // Extra ownership context must not widen the established live
         // pairing window to accept a two-days-old open Time In.
         $pairingFrom = CalendarDays::previous($today);
-        $pairingLogs = array_values(array_filter($windowLogs, static fn (DomainLog $log): bool => ManilaClock::dayKey(ManilaClock::instant($log->loggedAt)) >= $pairingFrom));
+        $pairingLogs = array_values(array_filter($windowLogs, static fn (DomainLog $log): bool => LocalClock::dayKey(LocalClock::instant($log->loggedAt)) >= $pairingFrom));
 
         return AttendancePolicy::pairingAnomaly($pairingLogs, $logType, $nowIso, ShiftResolver::openPunchExpiryMinutes($expiryShift, $maxOtHours));
     }

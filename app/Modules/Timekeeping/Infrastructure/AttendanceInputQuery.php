@@ -18,7 +18,7 @@ use App\Modules\Timekeeping\Contracts\AttendanceInputs;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Collection;
 
 /** Loads consistent calculation facts after authorizing the requested employees. */
@@ -165,19 +165,19 @@ final class AttendanceInputQuery implements AttendanceSource
     {
         $firstTimeIn = [];
         foreach ($logs as $log) {
-            if ($log->log_type === 'TIME_IN' && ManilaClock::dayKey($log->logged_at) === $nextDate) {
-                $at = ManilaClock::ms($log->logged_at);
+            if ($log->log_type === 'TIME_IN' && LocalClock::dayKey($log->logged_at) === $nextDate) {
+                $at = LocalClock::ms($log->logged_at);
                 $firstTimeIn[$log->employee_id] = min($firstTimeIn[$log->employee_id] ?? $at, $at);
             }
         }
 
         return $logs->filter(static function (AttendanceLog $log) use ($nextDate, $firstTimeIn): bool {
-            if (ManilaClock::dayKey($log->logged_at) !== $nextDate) {
+            if (LocalClock::dayKey($log->logged_at) !== $nextDate) {
                 return true;
             }
             $cutoff = $firstTimeIn[$log->employee_id] ?? null;
 
-            return $cutoff === null || ManilaClock::ms($log->logged_at) < $cutoff;
+            return $cutoff === null || LocalClock::ms($log->logged_at) < $cutoff;
         })->values();
     }
 }

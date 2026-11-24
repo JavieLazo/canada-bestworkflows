@@ -253,8 +253,8 @@ it('appends employment history only when employee details change', function () {
         ->assertSee('Previous Value')
         ->assertSee('New Value')
         ->assertSee('01 Jul 2024')
-        ->assertSee('₱36,000.00')
-        ->assertSee('₱1,500.00');
+        ->assertSee('$36,000.00')
+        ->assertSee('$1,500.00');
     // The timeline's header names today's position too, so the CHANGE is read from its own row.
     $document = new DOMDocument;
     @$document->loadHTML('<?xml encoding="UTF-8">'.$page->html());
@@ -532,7 +532,7 @@ it('keeps a Rate Per Day beside Rate Per Month on the record, and saves a blank 
         ->set('form.daily_rate', '1250.50')
         ->call('saveSection', 'employment')
         ->assertSet('editingSection', null)
-        ->assertSee("\u{20B1}1,250.50");
+        ->assertSee('$1,250.50');
 
     expect($employee->refresh()->daily_rate)->toBe(1250.5)
         ->and($employee->monthly_rate)->toBe(30000.0);

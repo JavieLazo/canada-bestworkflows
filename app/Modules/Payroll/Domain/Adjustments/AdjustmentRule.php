@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Modules\Payroll\Domain\Adjustments;
 
+use App\Support\Currency;
 use App\Support\Money;
 
 /**
@@ -84,10 +85,10 @@ final class AdjustmentRule
         return $amount <= 0.0 || $amount > self::AMOUNT_CAP ? null : $amount;
     }
 
-    /** "₱1,234.50", for an audit sentence. */
-    public static function peso(float $amount): string
+    /** "$1,234.50", for an audit sentence. */
+    public static function money(float $amount): string
     {
-        return '₱'.number_format(Money::round($amount), 2, '.', ',');
+        return Currency::format(Money::round($amount));
     }
 
     /** Why a line's evidence entry cannot be read, or null. */

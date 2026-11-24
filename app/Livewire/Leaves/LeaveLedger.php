@@ -13,7 +13,7 @@ use App\Modules\Timekeeping\Application\Queries\LeaveLedgerRecords;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -186,7 +186,7 @@ class LeaveLedger extends Component
                 (int) $this->getPage('ledgerPage'), $this->perPage), 'ledgerPage'),
             'canPick' => $access->mayReadAllData(ModuleCode::LEAVES),
             'canEdit' => $this->canEdit($access),
-            'today' => ManilaClock::todayKey(),
+            'today' => LocalClock::todayKey(),
         ]);
     }
 }

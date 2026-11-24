@@ -18,7 +18,7 @@ use App\Modules\Timekeeping\Contracts\PostedPayrollDates;
 use App\Modules\Timekeeping\Domain\Roster\EffectiveDatePolicy;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -62,7 +62,7 @@ final class ScheduleGuard
         if (DB::transactionLevel() === 0) {
             throw new LogicException('Schedule changes are guarded inside their own transaction.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $error = EffectiveDatePolicy::dateError($from, $today) ?? ($to === null ? null : EffectiveDatePolicy::dateError($to, $today));
         if ($error !== null) {
             throw new ScheduleChangeRefused($error);
@@ -135,8 +135,8 @@ final class ScheduleGuard
         if ($before->from === $before->today && $this->changesToday($before, $after)) {
             $punched = DtrCalculator::rowPunches($before->logs, $before->schedule, $before->today) !== []
                 || DtrCalculator::rowPunches($before->logs, $after, $before->today) !== [];
-            $now = CarbonImmutable::now(ManilaClock::TZ);
-            $reason = EffectiveDatePolicy::todayCutoff($before->schedule, $after, $before->today, ManilaClock::minutesOfDay($now), $punched);
+            $now = CarbonImmutable::now(LocalClock::zone());
+            $reason = EffectiveDatePolicy::todayCutoff($before->schedule, $after, $before->today, LocalClock::minutesOfDay($now), $punched);
             if ($reason !== null) {
                 throw new TodayNotEligible($reason);
             }
@@ -173,7 +173,7 @@ final class ScheduleGuard
         if (DB::transactionLevel() === 0) {
             throw new LogicException('Schedule changes are guarded inside their own transaction.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $first = $dates[0];
         $last = $dates[count($dates) - 1];
         $paid = array_values(array_intersect(app(PostedPayrollDates::class)->lockAndPaidDates($employeeId, $first, $last), $dates));

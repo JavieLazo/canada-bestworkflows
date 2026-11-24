@@ -13,7 +13,7 @@ use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Modules\Payroll\Application\StatutoryTables;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -63,7 +63,7 @@ final class ReplaceStatutoryTable
         $figures = StatutorySchedule::fromArrays([...StatutorySchedule::BUILT_IN, $kind => $figures])->toArray()[$kind];
 
         $label = StatutoryTables::label($kind);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $yearEnd = CarbonImmutable::parse($today, 'UTC')->endOfYear()->format('Y-m-d');
 
         DB::transaction(static function () use ($access, $kind, $reference, $figures, $label, $today, $yearEnd): void {

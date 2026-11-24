@@ -12,7 +12,7 @@ use App\Modules\Inventory\Application\Queries\InventoryLifecycle;
 use App\Modules\Inventory\Application\Queries\InventoryRecords;
 use App\Platform\Files\UploadLimits;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\QueryException;
@@ -62,7 +62,7 @@ class DisposalsPage extends Component
     public function mount(): void
     {
         abort_unless(app(Access::class)->mayReadAllData(ModuleCode::INVENTORY), 403);
-        $this->disposedOn = ManilaClock::dayKey(now());
+        $this->disposedOn = LocalClock::dayKey(now());
     }
 
     public function openAdd(): void

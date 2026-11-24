@@ -21,7 +21,7 @@ use App\Modules\Payroll\Domain\PayrollAdvance;
  * zero, the engine is the reference's, which the golden vectors hold.
  *
  * September 2026 starts on a Tuesday: 22 scheduled Monday-to-Friday days, so
- * a PHP 30,000 monthly rate is PHP 1,363.636… a day. The period is 1 to 15
+ * a CAD 30,000 monthly rate is CAD 1,363.636… a day. The period is 1 to 15
  * September; the 11th is a Friday, the 14th a Monday.
  */
 /** Monday to Friday, 08:00-17:00 with a 60-minute unpaid break: 8 paid hours. */

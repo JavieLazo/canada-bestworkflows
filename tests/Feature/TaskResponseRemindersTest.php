@@ -14,7 +14,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Platform\Notifications\Inbox;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
@@ -283,7 +283,7 @@ it('stops reminding a member whose response is submitted or approved, and still 
         $users[$name] = tremUser(['TASKS'], $member->id);
     }
     $crew = [[$ana, 'SUBMITTED'], [$ben, 'APPROVED'], [$cid, null], [$dee, 'RETURNED']];
-    $today = CarbonImmutable::now(ManilaClock::TZ)->startOfDay();
+    $today = CarbonImmutable::now(LocalClock::zone())->startOfDay();
     $project = tremProject();
     tremTask($project, 'TSK-LATE', TaskPolicy::MODE_INDIVIDUAL, 'IN_PROGRESS', $crew, ['due_date' => $today->subDays(3)->format('Y-m-d')]);
     tremTask($project, 'TSK-SOON', TaskPolicy::MODE_INDIVIDUAL, 'IN_PROGRESS', $crew, ['due_date' => $today->addDay()->format('Y-m-d')]);

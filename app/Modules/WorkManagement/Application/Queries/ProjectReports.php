@@ -31,7 +31,7 @@ use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\Snapshot;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -227,7 +227,7 @@ final class ProjectReports
     public function totals(Access $actor, ?string $projectId = null, string $portfolio = 'ALL', string $client = 'ALL'): array
     {
         $rows = ReportAccess::reports($actor, $projectId, $portfolio, $client)->select('status')->selectRaw('COUNT(*) AS total')->groupBy('status')->pluck('total', 'status');
-        $overdue = ReportAccess::reports($actor, $projectId, $portfolio, $client)->whereIn('status', ['DRAFT', 'RETURNED'])->whereIn('period_id', ProjectReportingPeriod::query()->where('due_on', '<', ManilaClock::todayKey())->select('id'))->count();
+        $overdue = ReportAccess::reports($actor, $projectId, $portfolio, $client)->whereIn('status', ['DRAFT', 'RETURNED'])->whereIn('period_id', ProjectReportingPeriod::query()->where('due_on', '<', LocalClock::todayKey())->select('id'))->count();
 
         return ['draft' => (int) ($rows['DRAFT'] ?? 0), 'submitted' => (int) ($rows['SUBMITTED'] ?? 0), 'returned' => (int) ($rows['RETURNED'] ?? 0), 'accepted' => (int) ($rows['ACCEPTED'] ?? 0), 'overdue' => $overdue];
     }

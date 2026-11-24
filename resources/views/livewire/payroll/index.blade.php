@@ -24,11 +24,9 @@
 
 <div class="space-y-6">
     <div>
-        <h1 class="text-2xl font-bold tracking-tight">{{ $heading }}</h1>
+        <h1 class="text-2xl font-bold tracking-tight">Payroll</h1>
         <p class="text-sm text-muted-foreground">
-            {{ $yearly
-                ? 'Every 13th month run, draft or finalized. Each pays one twelfth of the basic pay earned in its year.'
-                : 'Every payroll, draft or finalized. Open one to work on it, or create a new cut-off.' }}
+            Every payroll, draft or finalized. Open one to work on it, or create a new cut-off.
         </p>
     </div>
 
@@ -50,10 +48,10 @@
                 @endforeach
             </x-kit.filter-select>
 
-            <x-kit.export-button :href="route($yearly ? 'payroll.thirteenth.export' : 'payroll.export', array_filter(['q' => $search, 'status' => $status, 'sort' => $sortKey, 'dir' => $sortDir]))" />
+            <x-kit.export-button :href="route('payroll.export', array_filter(['q' => $search, 'status' => $status, 'sort' => $sortKey, 'dir' => $sortDir]))" />
 
-            <flux:button variant="primary" icon="plus" :href="route($createRoute)" wire:navigate>
-                {{ $yearly ? 'Create 13th Month Payroll' : 'Create Payroll' }}
+            <flux:button variant="primary" icon="plus" :href="route('payroll.new')" wire:navigate>
+                Create Payroll
             </flux:button>
         </header>
 
@@ -82,9 +80,9 @@
                             tabindex="0"
                             aria-label="Open {{ $r->name }}"
                             class="cursor-pointer focus:outline-none focus-visible:bg-accent"
-                            x-on:click="Livewire.navigate('{{ route($showRoute, ['id' => $r->id]) }}')"
-                            x-on:keydown.enter.prevent="Livewire.navigate('{{ route($showRoute, ['id' => $r->id]) }}')"
-                            x-on:keydown.space.prevent="Livewire.navigate('{{ route($showRoute, ['id' => $r->id]) }}')"
+                            x-on:click="Livewire.navigate('{{ route('payroll.show', ['id' => $r->id]) }}')"
+                            x-on:keydown.enter.prevent="Livewire.navigate('{{ route('payroll.show', ['id' => $r->id]) }}')"
+                            x-on:keydown.space.prevent="Livewire.navigate('{{ route('payroll.show', ['id' => $r->id]) }}')"
                         >
                             <td class="num whitespace-nowrap align-middle">{{ $r->code }}</td>
                             <td class="font-medium">{{ $r->name }}</td>

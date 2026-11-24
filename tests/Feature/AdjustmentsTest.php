@@ -172,7 +172,7 @@ it('prepares a line, lets the preparer review it, and discards a pending one, au
     $save = app(SaveAdjustment::class);
     $category = adjCategory('Correction of salary');
 
-    expect(fn () => $save->handle($preparer, null, $employee->id, $category->id, '0', 'Nothing', null, null))->toThrow(RuntimeException::class, 'Enter the amount as a peso figure above zero.')
+    expect(fn () => $save->handle($preparer, null, $employee->id, $category->id, '0', 'Nothing', null, null))->toThrow(RuntimeException::class, 'Enter the amount as a dollar amount above zero.')
         ->and(fn () => $save->handle($preparer, null, $employee->id, $category->id, '1,250.50', ' ', null, null))->toThrow(RuntimeException::class, 'Say why')
         ->and(fn () => $save->handle($preparer, null, $employee->id, (string) Str::ulid(), '100', 'Why', null, null))->toThrow(RuntimeException::class, 'Choose the adjustment category.')
         ->and(fn () => $save->handle($preparer, null, $employee->id, $category->id, '100', 'Why', null, (string) Str::ulid()))->toThrow(RuntimeException::class, 'Choose an open regular payroll')
@@ -187,7 +187,7 @@ it('prepares a line, lets the preparer review it, and discards a pending one, au
         ->and($row->amount)->toBe(1250.5)
         ->and($row->reference)->toBe('Memo 12')
         ->and($row->prepared_by)->toBe((int) $preparer->userId)
-        ->and(AuditLog::query()->where('action', AuditEvent::ADJUSTMENT_SAVED->value)->sole()->details)->toBe('Ada Lined · Correction of salary earning of ₱1,250.50 prepared: Short on the October payroll');
+        ->and(AuditLog::query()->where('action', AuditEvent::ADJUSTMENT_SAVED->value)->sole()->details)->toBe('Ada Lined · Correction of salary earning of $1,250.50 prepared: Short on the October payroll');
 
     // Corrected in place while pending; a rejection needs a note.
     $save->handle($preparer, $id, $employee->id, $category->id, '1,300', 'Short on the October payroll', 'Memo 12', null);
@@ -198,7 +198,7 @@ it('prepares a line, lets the preparer review it, and discards a pending one, au
 
     // The preparer approves their own line: one administrator runs the whole flow.
     $approver = $preparer;
-    expect($review->handle($approver, $id, true, 'Checked against the October register'))->toBe("Adjustment approved: Ada Lined's Correction of salary earning of ₱1,300.00 goes on their next payroll.");
+    expect($review->handle($approver, $id, true, 'Checked against the October register'))->toBe("Adjustment approved: Ada Lined's Correction of salary earning of $1,300.00 goes on their next payroll.");
     $row->refresh();
     expect($row->status)->toBe(AdjustmentRule::APPROVED)
         ->and($row->approved_by)->toBe((int) $approver->userId)
@@ -210,12 +210,12 @@ it('prepares a line, lets the preparer review it, and discards a pending one, au
 
     // A rejection and a discard.
     $rejected = $save->handle($approver, null, $employee->id, adjCategory('Tax shortfall')->id, '200', 'Under-withheld', null, null);
-    expect($review->handle($preparer, $rejected, false, 'Already settled'))->toBe("Adjustment rejected: Ada Lined's Tax shortfall deduction of ₱200.00.")
+    expect($review->handle($preparer, $rejected, false, 'Already settled'))->toBe("Adjustment rejected: Ada Lined's Tax shortfall deduction of $200.00.")
         ->and(PayrollAdjustment::query()->whereKey($rejected)->sole()->status)->toBe(AdjustmentRule::REJECTED);
     $discarded = $save->handle($approver, null, $employee->id, adjCategory('Tax refund')->id, '50', 'Oops', null, null);
     expect(app(DiscardAdjustment::class)->handle($approver, $discarded))->toBe('Adjustment discarded.')
         ->and(PayrollAdjustment::query()->whereKey($discarded)->exists())->toBeFalse()
-        ->and(AuditLog::query()->where('action', AuditEvent::ADJUSTMENT_DISCARDED->value)->sole()->details)->toBe('Ada Lined · Tax refund of ₱50.00 discarded before review (Oops)');
+        ->and(AuditLog::query()->where('action', AuditEvent::ADJUSTMENT_DISCARDED->value)->sole()->details)->toBe('Ada Lined · Tax refund of $50.00 discarded before review (Oops)');
 
     // Pay data: a linked PAYROLL holder reads their own, a Records manager nothing.
     $own = adjActor(['PAYROLL'], allData: false, employeeId: $employee->id);
@@ -273,7 +273,7 @@ it('pays approved lines on the next payroll from the evidence, holds a pending o
 
     // The evidence replays the lines, whatever the ledger holds later.
     $json = PayrollInputs::json($after['inputs']->toArray());
-    expect(json_decode($json, true)['schema_version'])->toBe(24);
+    expect(json_decode($json, true)['schema_version'])->toBe(25);
     $restored = PayrollInputs::restore($json);
     expect($restored->fingerprint())->toBe($after['inputs']->fingerprint());
     $data = json_decode($json, true);

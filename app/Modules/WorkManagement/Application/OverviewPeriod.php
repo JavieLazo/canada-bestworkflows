@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 namespace App\Modules\WorkManagement\Application;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
  * The date range the overview's trend cards read, split into the buckets each
  * line draws, plus the same buckets one period earlier for the dashed line.
- * Every date is a Manila calendar day, and both ends of a bucket are included.
+ * Every date is a local calendar day, and both ends of a bucket are included.
  *
  * Days and weeks compare with the stretch right before. Months compare with
  * the same months one period earlier, so "Nov 1 to 13" always sits against
@@ -193,7 +193,7 @@ final readonly class OverviewPeriod
 
     private static function day(string $value): CarbonImmutable
     {
-        return CarbonImmutable::parse($value, ManilaClock::TZ)->startOfDay();
+        return CarbonImmutable::parse($value, LocalClock::zone())->startOfDay();
     }
 
     /** A real calendar day in the stored spelling, so "2026-02-30" is refused rather than rolled over. */

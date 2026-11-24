@@ -14,7 +14,7 @@ use App\Domain\Payroll\PayRulesTimeline;
 use App\Domain\Payroll\PayslipCalculator;
 use App\Domain\Payroll\PayslipDraft;
 use App\Domain\Payroll\Statutory;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 
 /**
@@ -226,8 +226,8 @@ function vectorHasOpenTimeIn(array $logs): bool
 {
     usort(
         $logs,
-        static fn (AttendanceLog $a, AttendanceLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-            <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+        static fn (AttendanceLog $a, AttendanceLog $b): int => LocalClock::ms(LocalClock::instant($a->loggedAt))
+            <=> LocalClock::ms(LocalClock::instant($b->loggedAt)),
     );
 
     $openIn = null;
@@ -265,7 +265,7 @@ function vectorUsesFlexibleCrossMidnightCarry(array $input): bool
     /** @var array<string, list<AttendanceLog>> $byDay */
     $byDay = [];
     foreach (AttendanceLog::listFromArrays($input['logs'] ?? []) as $log) {
-        $byDay[ManilaClock::dayKey(ManilaClock::instant($log->loggedAt))][] = $log;
+        $byDay[LocalClock::dayKey(LocalClock::instant($log->loggedAt))][] = $log;
     }
 
     $dates = array_merge(
@@ -281,8 +281,8 @@ function vectorUsesFlexibleCrossMidnightCarry(array $input): bool
         $next = $byDay[CalendarDays::next($date)] ?? [];
         usort(
             $next,
-            static fn (AttendanceLog $a, AttendanceLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+            static fn (AttendanceLog $a, AttendanceLog $b): int => LocalClock::ms(LocalClock::instant($a->loggedAt))
+                <=> LocalClock::ms(LocalClock::instant($b->loggedAt)),
         );
 
         foreach ($next as $log) {

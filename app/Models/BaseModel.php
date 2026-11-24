@@ -43,7 +43,7 @@ use Illuminate\Support\Str;
  *
  * Money is cast to `'float'`, never `decimal:2` — `decimal:2` returns a PHP
  * *string*, which is the exact defect `src/lib/api/respond.ts:5-8` exists to
- * fix (`peso("31000")` renders ₱NaN and every total concatenates). DECIMAL(n,2)
+ * fix (`peso("31000")` renders $NaN and every total concatenates). DECIMAL(n,2)
  * stays the storage type; float is the compute type. Both are deliberate.
  */
 abstract class BaseModel extends Model

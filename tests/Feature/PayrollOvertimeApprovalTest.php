@@ -22,7 +22,7 @@ use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\PayrollReviewRequired;
 use App\Modules\Timekeeping\Application\Commands\DecideOvertime;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Tests\Support\PayrollEvidenceFixture;
@@ -82,7 +82,7 @@ function payotWorked(EmployeeProfile $employee, string $date, string $out = '19:
         $punch->forceFill([
             'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
             'is_geofenced' => true, 'is_anomaly' => false,
-            'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc(),
+            'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc(),
         ])->save();
     }
 }

@@ -28,7 +28,7 @@ use App\Modules\Workforce\Contracts\EmployeeDirectory;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Collection;
 
 /**
@@ -96,7 +96,7 @@ final class DayCorrections
         // instants the row owns. A slot shown but not owned is borrowed.
         $ownedAt = [];
         foreach ($owned as $log) {
-            $ownedAt[ManilaClock::ms(ManilaClock::instant($log->loggedAt))] = true;
+            $ownedAt[LocalClock::ms(LocalClock::instant($log->loggedAt))] = true;
         }
         $slots = ['time_in' => '', 'break_out' => '', 'break_in' => '', 'time_out' => ''];
         $nextDay = PunchSlots::SAME_DAY;
@@ -106,7 +106,7 @@ final class DayCorrections
             if ($iso === null || $iso === '') {
                 continue;
             }
-            $at = ManilaClock::ms(ManilaClock::instant($iso));
+            $at = LocalClock::ms(LocalClock::instant($iso));
             $shownAt[$at] = true;
             if (! isset($ownedAt[$at])) {
                 $borrowed[$key] = $iso;
@@ -123,7 +123,7 @@ final class DayCorrections
         }
         $previousDayPunches = 0;
         foreach ($rows as $row) {
-            if (! isset($ownedIds[(string) $row->id]) && ManilaClock::dayKey($row->logged_at) === $date) {
+            if (! isset($ownedIds[(string) $row->id]) && LocalClock::dayKey($row->logged_at) === $date) {
                 $previousDayPunches++;
             }
         }
@@ -160,7 +160,7 @@ final class DayCorrections
      */
     public function computedDay(Access $actor, string $employeeId, string $date): ?DayRecord
     {
-        if (! PayrollPeriod::isPayrollDate($date) || $date > ManilaClock::todayKey()) {
+        if (! PayrollPeriod::isPayrollDate($date) || $date > LocalClock::todayKey()) {
             return null;
         }
 
@@ -267,7 +267,7 @@ final class DayCorrections
                 'site_name' => $row->site_id === null ? null : $sites->get($row->site_id)?->name,
                 'slot' => PunchSlots::slotOf($iso),
                 'is_carried' => PunchSlots::isNextDay($iso, $date),
-                'in_dtr_slot' => isset($shownAt[ManilaClock::ms(ManilaClock::instant($iso))]),
+                'in_dtr_slot' => isset($shownAt[LocalClock::ms(LocalClock::instant($iso))]),
                 // An admin's MANUAL punch at the station, or a row a saved
                 // correction inserted: the dialog says "Manually Entered" for
                 // these, with no place.

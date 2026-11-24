@@ -10,6 +10,7 @@ use App\Models\Holiday;
 use App\Models\LeaveTravelRequest;
 use App\Models\Notification;
 use App\Models\OvertimeApproval;
+use App\Models\PayrollEmployeeTaxDetail;
 use App\Models\PayrollFinalizationSnapshot;
 use App\Models\PayrollFormula;
 use App\Models\PayrollIncentiveType;
@@ -128,8 +129,8 @@ it('refuses stale reviews even when a changed input leaves the total unchanged',
         'deduction' => $member->update(['deduction_sss' => 0]),
         // An overtime decision on the DTR changes what the payroll pays.
         'overtime-approval' => payrollEvidenceOvertimeDecision($employee->id, '2026-09-04', 30),
-        // The statutory settings are calculation inputs.
-        'statutory-switch' => $employee->update(['allow_sss' => false]),
+        // An employee's tax details are calculation inputs.
+        'tax-details' => (new PayrollEmployeeTaxDetail)->forceFill(['employee_id' => $employee->id, 'province' => 'AB', 'additional_tax' => 10, 'deduct_pension' => true, 'deduct_insurance' => true])->save(),
         // Rate Per Day prices every day once entered.
         'day-rate' => $employee->update(['daily_rate' => 1363.64]),
         'fixed-share' => $employee->update(['fixed_sss_ee' => 250.05]),
@@ -153,7 +154,7 @@ it('refuses stale reviews even when a changed input leaves the total unchanged',
         ->and(Payslip::query()->where('run_id', $run->id)->count())->toBe(0)
         ->and(AuditLog::query()->count())->toBe(0)
         ->and(Notification::query()->count())->toBe(0);
-})->with(['salary', 'employee-name', 'punch', 'shift', 'leave', 'holiday', 'formula', 'allowance', 'deduction', 'overtime-approval', 'statutory-switch', 'day-rate', 'fixed-share', 'mode', 'annualize', 'tax-override', 'name', 'period', 'incentive', 'incentive-flag', 'incentive-name', 'ledger']);
+})->with(['salary', 'employee-name', 'punch', 'shift', 'leave', 'holiday', 'formula', 'allowance', 'deduction', 'overtime-approval', 'tax-details', 'day-rate', 'fixed-share', 'mode', 'annualize', 'tax-override', 'name', 'period', 'incentive', 'incentive-flag', 'incentive-name', 'ledger']);
 
 it('prices and posts the payslip from the Rate Per Day and captures it in the evidence', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
@@ -164,29 +165,14 @@ it('prices and posts the payslip from the Rate Per Day and captures it in the ev
     $payload = json_decode(PayrollFinalizationSnapshot::query()->sole()->payload, true, 512, JSON_THROW_ON_ERROR);
     $slip = Payslip::query()->sole();
 
-    // Both rates are captured; the monthly one still sets the contributions.
+    // Both rates are captured, and the pay priced from the day rate is what the pension plan counts.
     expect($payload['inputs']['employees'][0]['daily_rate'])->toEqual(1250)
         ->and($payload['inputs']['employees'][0]['monthly_rate'])->toEqual(30000)
         ->and($slip->daily_rate)->toBe(1250.0)
         ->and($slip->work_days)->toBeGreaterThan(0.0)
         ->and($slip->work_days_pay)->toBe(Money::round($slip->work_days * 1250))
-        ->and($slip->sss)->toBe(750.0)
-        ->and($slip->philhealth)->toBe(375.0);
-});
-
-it('bases the contributions of an employee with only a Rate Per Day on it times the month\'s working days', function () {
-    ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();
-    PayrollEvidenceFixture::sourceFacts($employee);
-    $employee->update(['monthly_rate' => 0, 'daily_rate' => 1000]);
-
-    app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id));
-    $slip = Payslip::query()->sole();
-
-    // 1,000 x 22 September weekdays = 22,000 a month, halved on this payslip.
-    expect($slip->daily_rate)->toBe(1000.0)
-        ->and($slip->sss)->toBe(550.0)
-        ->and($slip->philhealth)->toBe(275.0)
-        ->and($slip->pagibig)->toBe(100.0);
+        ->and($slip->cpp)->toBeGreaterThan(0.0)
+        ->and($slip->pensionable_earnings)->toBe($slip->gross_pay);
 });
 
 it('refuses to restore evidence written under the previous schema', function () {

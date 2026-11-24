@@ -10,7 +10,7 @@ use App\Domain\Attendance\DtrCalculator;
 use App\Domain\Attendance\Shift as DomainShift;
 use App\Domain\Attendance\ShiftResolver;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * Which stored punches a DTR correction of one day stands in for, which of
@@ -21,7 +21,7 @@ use App\Support\ManilaClock;
  * dialog (Queries\DayCorrections, a plain read that SHOWS the rows a save
  * would supersede) and the correction itself (Commands\CorrectPunches, the
  * same rows read FOR UPDATE). Both hand in the rows of the previous, the
- * corrected and the next Manila day and get the same answer back.
+ * corrected and the next local day and get the same answer back.
  *
  * DELIBERATE DIVERGENCE: a save replaces EXACTLY the punches the DTR reads
  * as that date's row — DtrCalculator::rowPunches, the engine's own
@@ -35,7 +35,7 @@ use App\Support\ManilaClock;
  * shows, so a re-save would insert them twice.
  *
  * DELIBERATE DIVERGENCE: the reference deletes and re-inserts the whole day
- * on every save. `reconcile()` instead keeps a row whose type and Manila
+ * on every save. `reconcile()` instead keeps a row whose type and local
  * floor-minute still equal one of the corrected slots, so a correction of
  * one slot never launders the day's WEB_GPS punches — and their captured
  * coordinates, distance and accuracy — into location-less CORRECTION rows.
@@ -56,7 +56,7 @@ final class CorrectionWindow
      * ignored, so the caller may pass the four-day span it selected
      * without trimming it.
      *
-     * @param  list<DomainLog>  $logs  the two previous, corrected and next Manila days, ids set, any order
+     * @param  list<DomainLog>  $logs  the two previous, corrected and next local days, ids set, any order
      * @param  DomainShift|null  $shift  the full weekday schedule; null when not rostered (the engine's default)
      * @return list<DomainLog>
      */
@@ -110,7 +110,7 @@ final class CorrectionWindow
      * desired punches it has to insert.
      *
      * A desired punch claims the first still-unclaimed existing row (in time
-     * order) of the same log type that reads as the same Manila minute —
+     * order) of the same log type that reads as the same local minute —
      * seconds ignored, exactly as the dialog's prefill floors them
      * (PunchSlots::slotOf). The day key is part of the minute, so a Next day
      * slot (`06:01` ticked on a 22:00 night → `2026-09-03T06:01`) matches the
@@ -243,9 +243,9 @@ final class CorrectionWindow
         }
 
         foreach ($inserted as $log) {
-            $at = ManilaClock::ms(ManilaClock::instant($log->loggedAt));
+            $at = LocalClock::ms(LocalClock::instant($log->loggedAt));
             foreach ($staying as $row) {
-                if (ManilaClock::ms(ManilaClock::instant($row->loggedAt)) === $at) {
+                if (LocalClock::ms(LocalClock::instant($row->loggedAt)) === $at) {
                     return self::describe($date, $log, $wanted[(string) $log->id]['slot'])
                         .' is the exact moment of another punch on record. Use a different minute.';
                 }
@@ -310,12 +310,12 @@ final class CorrectionWindow
 
     /**
      * "Final Time Out 6:00 AM next day" for a slot, "the Time Out at 6:00 AM"
-     * for a row no slot names — the Manila clock time, never its seconds, and
+     * for a row no slot names — the local clock time, never its seconds, and
      * "next day" where it falls after the corrected date.
      */
     private static function describe(string $date, DomainLog $log, ?string $slot): string
     {
-        $time = ManilaClock::instant($log->loggedAt)->setTimezone(ManilaClock::TZ)->format('g:i A')
+        $time = LocalClock::instant($log->loggedAt)->setTimezone(LocalClock::zone())->format('g:i A')
             .(PunchSlots::isNextDay($log->loggedAt, $date) ? ' next day' : '');
 
         if ($slot !== null && isset(PunchSlots::LABELS[$slot])) {
@@ -336,8 +336,8 @@ final class CorrectionWindow
     {
         usort(
             $logs,
-            static fn (DomainLog $a, DomainLog $b): int => [ManilaClock::ms(ManilaClock::instant($a->loggedAt)), (string) $a->id]
-                <=> [ManilaClock::ms(ManilaClock::instant($b->loggedAt)), (string) $b->id],
+            static fn (DomainLog $a, DomainLog $b): int => [LocalClock::ms(LocalClock::instant($a->loggedAt)), (string) $a->id]
+                <=> [LocalClock::ms(LocalClock::instant($b->loggedAt)), (string) $b->id],
         );
 
         return $logs;

@@ -15,6 +15,7 @@ use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
+use App\Modules\Payroll\Application\StatutoryTables;
 use App\Support\Access;
 
 /** Synthetic facts shared by snapshot, commit and concurrency tests; never imports live data. */
@@ -142,6 +143,15 @@ final class PayrollEvidenceFixture
             }
             if (is_array($inputs['cash_out_type'] ?? null)) {
                 unset($inputs['cash_out_type']['day_value'], $inputs['cash_out_type']['factor']);
+            }
+        }
+        if ($schema < 25) {
+            unset($inputs['source_deductions']);
+            // Evidence before 25 always captured the four contribution and
+            // withholding tables; a capture made now holds none, so the
+            // ones in force on its period stand in for them.
+            if ($schema >= 8 && ($inputs['statutory_tables'] ?? null) === []) {
+                $inputs['statutory_tables'] = app(StatutoryTables::class)->resolve((string) $inputs['period_start'], (string) $inputs['period_end'])->tables;
             }
         }
         if ($schema < 22) {

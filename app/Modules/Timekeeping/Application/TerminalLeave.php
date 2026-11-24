@@ -8,7 +8,7 @@ use App\Models\LeaveCashOut;
 use App\Models\LeaveCredit;
 use App\Modules\Timekeeping\Application\Queries\LeaveTypeCreditRecords;
 use App\Modules\Timekeeping\Domain\Credits\LeaveQuantity;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 
 /**
  * TERMINAL LEAVE: when an employee leaves, HR pays out the whole remaining
@@ -38,7 +38,7 @@ final class TerminalLeave
      */
     public static function plan(string $employeeId): array
     {
-        $year = LeaveCharges::liveYear($employeeId, (int) substr(ManilaClock::todayKey(), 0, 4));
+        $year = LeaveCharges::liveYear($employeeId, (int) substr(LocalClock::todayKey(), 0, 4));
         $rules = LeaveTypeCreditRecords::rules();
         $lines = [];
         foreach (LeaveTypeCreditRecords::paidOnSeparation() as $token) {

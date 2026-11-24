@@ -182,7 +182,7 @@
                                     @if ($row['recurring'] === null)
                                         None
                                     @else
-                                        {{ $row['recurring']['count'] }} {{ $row['recurring']['count'] === 1 ? 'line' : 'lines' }}{{ $row['recurring']['left'] !== null ? ', '.Hris::peso($row['recurring']['left']).' left' : '' }}
+                                        {{ $row['recurring']['count'] }} {{ $row['recurring']['count'] === 1 ? 'line' : 'lines' }}{{ $row['recurring']['left'] !== null ? ', '.Hris::money($row['recurring']['left']).' left' : '' }}
                                     @endif
                                 </td>
                             </tr>

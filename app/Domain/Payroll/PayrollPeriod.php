@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Domain\Payroll;
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Closure;
 use DateTimeInterface;
@@ -13,7 +13,7 @@ use DateTimeZone;
 /**
  * A literal port of copems/src/lib/payroll-period.ts.
  *
- * Payroll dates are calendar days in the company's Manila timezone, carried
+ * Payroll dates are calendar days in the company's local timezone, carried
  * everywhere as 'YYYY-MM-DD' strings. Lexicographic comparison of that format
  * IS chronological comparison, which is why the reference compares periods with
  * `<`/`>` on strings and this port does the same rather than parsing first.
@@ -23,7 +23,7 @@ use DateTimeZone;
  * precisely so that the server's ambient timezone cannot move a boundary; doing
  * it on integers is the same guarantee with nothing left to configure. The only
  * place a wall clock appears is attendanceInstants(), which routes through
- * ManilaClock — the one sanctioned Asia/Manila boundary.
+ * LocalClock — the one sanctioned local-time boundary.
  */
 final class PayrollPeriod
 {
@@ -193,25 +193,25 @@ final class PayrollPeriod
     }
 
     /**
-     * TS: attendanceInstants(). Instants for a Manila calendar-day range.
+     * TS: attendanceInstants(). Instants for a local calendar-day range.
      *
      * The reference builds `${from}T00:00:00.000+08:00` and `${to}T23:59:59.999+08:00`
-     * and hands Prisma the resulting instants. ManilaClock::instant() appends the
+     * and hands Prisma the resulting instants. LocalClock::instant() appends the
      * same +08:00 to an offset-less string, so these are the identical instants.
      *
      * Returned already converted to UTC — same instant, different presentation.
      * That is a MySQL requirement, not a change of meaning: Laravel binds a
      * DateTimeInterface by calling format() on it, which would otherwise write the
-     * Manila wall clock into a comparison against UTC DATETIME(3) columns and
-     * shift every attendance window by eight hours.
+     * local wall clock into a comparison against UTC DATETIME(3) columns and
+     * shift every attendance window by the zone's offset.
      *
      * @return array{gte: CarbonImmutable, lte: CarbonImmutable}
      */
     public static function attendanceInstants(string $from, string $to): array
     {
         return [
-            'gte' => ManilaClock::instant($from.'T00:00:00.000')->utc(),
-            'lte' => ManilaClock::instant($to.'T23:59:59.999')->utc(),
+            'gte' => LocalClock::instant($from.'T00:00:00.000')->utc(),
+            'lte' => LocalClock::instant($to.'T23:59:59.999')->utc(),
         ];
     }
 
@@ -220,10 +220,10 @@ final class PayrollPeriod
      *
      * The UTC calendar day, matching respond.ts's `toDay`. Applied ONLY to DATE
      * columns (date_hired, date_resigned), which are stored at midnight, so the
-     * UTC day and the Manila day of that instant are the same string.
+     * UTC day and the local day of that instant are the same string.
      *
-     * NEVER call this on a timestamp column. A 20:00 UTC punch is the 21st in
-     * Manila and the 20th here; for those rows the answer is ManilaClock::dayKey().
+     * NEVER call this on a timestamp column. A punch late in the UTC day can fall on a different
+     * local day than the one read here; for those rows the answer is LocalClock::dayKey().
      */
     public static function dateKeyFromDate(DateTimeInterface $date): string
     {

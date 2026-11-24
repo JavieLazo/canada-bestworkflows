@@ -18,7 +18,7 @@ use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Collection;
 
 /** Absence screens share the same scoped dataset; own mode can never widen a portal list. */
@@ -101,7 +101,7 @@ final class AbsenceRecords
         $employees = app(OperationalDirectory::class)->list($actor, array_values(array_unique($employeeIds)))->keyBy('id');
         $reviewers = app(AccountNames::class)->list($actor, array_values(array_unique($reviewerIds)))->keyBy('id');
 
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return $rows->map(static function (LeaveTravelRequest $row) use ($employees, $reviewers, $actor, $today): LeaveTravelRequestView {
             $cancelled = $row->cancellations->map(static fn (LeaveRequestCancellation $item): string => $item->date->format('Y-m-d'))->all();

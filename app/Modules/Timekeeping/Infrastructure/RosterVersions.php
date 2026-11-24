@@ -12,7 +12,7 @@ use App\Models\RosterScheduleChange;
 use App\Models\RosterShift;
 use App\Models\Shift;
 use App\Modules\Timekeeping\Domain\Roster\ScheduleTimeline;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -169,10 +169,10 @@ final class RosterVersions
             ->when($lock, static fn ($q) => $q->lockForUpdate())->get();
     }
 
-    /** `$date` when it is a real calendar day, else today in Manila: the "as of" every roster read defaults to. */
+    /** `$date` when it is a real calendar day, else today in local time: the "as of" every roster read defaults to. */
     public static function dateOrToday(?string $date): string
     {
-        return PayrollPeriod::isPayrollDate($date) ? (string) $date : ManilaClock::todayKey();
+        return PayrollPeriod::isPayrollDate($date) ? (string) $date : LocalClock::todayKey();
     }
 
     /** The last date an assignment applies: where it was cut short, else its end, else its one day. */

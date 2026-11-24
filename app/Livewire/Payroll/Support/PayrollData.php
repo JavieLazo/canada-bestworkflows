@@ -17,7 +17,7 @@ use App\Support\Access;
 use App\Support\CodeSequence;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use Illuminate\Support\Collection;
 
@@ -58,7 +58,7 @@ final class PayrollData
     /* ------------------------------------------------------------------ */
     /* hris.ts helpers */
     /* ------------------------------------------------------------------ */
-    /** hris.ts todayKey() — today's Manila calendar day, 'YYYY-MM-DD', ManilaClock's one clock read. */
+    /** hris.ts todayKey() — today's local calendar day, 'YYYY-MM-DD', LocalClock's one clock read. */
     public static function todayKey(): string
     {
         return \App\Modules\Payroll\Application\PayrollData::todayKey();
@@ -85,10 +85,10 @@ final class PayrollData
         return \App\Modules\Payroll\Application\PayrollData::scheduledBenefitTypes($actor, $employeeId, $periodStart, $periodEnd);
     }
 
-    /** peso() (hris.ts:184-189): ₱ + en-PH grouping, always two decimals. */
-    public static function peso(mixed $n): string
+    /** `$1,234.50`, always two decimals: the one figure format, Currency::format(). */
+    public static function money(mixed $n): string
     {
-        return \App\Modules\Payroll\Application\PayrollData::peso($n);
+        return \App\Modules\Payroll\Application\PayrollData::money($n);
     }
 
     /**
@@ -179,8 +179,7 @@ final class PayrollData
      * Assembles the inputs — employees, punches (±1 day for overnight
      * shifts), shifts, leaves, formulas, holidays — and hands each employee to
      * PayslipCalculator::compute + PayrollReadiness::issues. Every amount on
-     * every REGULAR (cut-off) payroll screen comes out of here; the 13th month
-     * run's come out of ThirteenthMonthData::calculateDrafts.
+     * every payroll screen comes out of here.
      *
      * `$strict` is the server/client split of the reference collapsed into a
      * flag: finalize (`true`) refuses when a selected employee no longer
@@ -270,7 +269,6 @@ final class PayrollData
      *     earnings: array<string, array<string, mixed>>,
      *     incentives: array<string, array<string, float>>,
      *     customDeductions: array<string, array<string, float>>,
-     *     additional: array<string, float>,
      *     skippedRecurring: array<string, list<string>>,
      * }
      */

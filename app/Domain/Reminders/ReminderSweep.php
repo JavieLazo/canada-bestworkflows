@@ -6,7 +6,7 @@ namespace App\Domain\Reminders;
 
 use App\Domain\Projects\TaskPolicy;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use DateTimeInterface;
 
@@ -56,7 +56,7 @@ use DateTimeInterface;
  * shows the hiring and regularisation dates.
  *
  * Pure: no Eloquent, no DB, no config(). Calendar days are 'Y-m-d' STRINGS,
- * rows arrive as plain arrays, timestamps go through ManilaClock.
+ * rows arrive as plain arrays, timestamps go through LocalClock.
  */
 final class ReminderSweep
 {
@@ -123,7 +123,7 @@ final class ReminderSweep
      *   $documents id, employee_id, name, expires_on ('Y-m-d')
      *   $leaves    id, code, employee_id, status, created_at (UTC instant)
      *
-     * @param  string  $today  Manila calendar day, 'Y-m-d'.
+     * @param  string  $today  local calendar day, 'Y-m-d'.
      * @param  string  $userId  The signed-in ACCOUNT (user_accounts.id).
      * @param  list<string>  $modules  Module codes the account holds.
      * @param  string|null  $employeeId  Their employee record, when linked.
@@ -483,11 +483,10 @@ final class ReminderSweep
      * date has passed.
      *
      * The reference builds both ends with `new Date(`${key}T00:00:00`)`, i.e.
-     * LOCAL midnight, and local is Manila for every user of this system. So
-     * both ends go through ManilaClock rather than being treated as UTC.
-     * (The reference's DST rationale for the Math.round does not apply in
-     * Manila, which has had no DST since 1978, but the rounding is ported
-     * anyway — it is what makes the function total.)
+     * LOCAL midnight, and local is the installation's zone for every user. So
+     * both ends go through LocalClock rather than being treated as UTC.
+     * (The Math.round absorbs the hour a daylight saving change adds to or
+     * takes from a span of days; it is also what makes the function total.)
      *
      * NOT the same function as ProjectPolicy::daysUntilDate(), which does the
      * same job from UTC components. They agree on every well-formed key; the
@@ -605,24 +604,24 @@ final class ReminderSweep
         };
     }
 
-    /** TS: atMidnight() — local (Manila) midnight of a date key, in ms. */
+    /** TS: atMidnight() — local midnight of a date key, in ms. */
     private static function atMidnight(string $key): int
     {
-        return ManilaClock::ms(ManilaClock::instant($key.'T00:00:00'));
+        return LocalClock::ms(LocalClock::instant($key.'T00:00:00'));
     }
 
     /**
-     * Which Manila calendar day an instant belongs to.
+     * Which local calendar day an instant belongs to.
      *
      * ⚠ A raw DATETIME(3) string read back from MySQL is UTC and carries no
-     * offset, and ManilaClock::instant() reads an offset-less string as MANILA
+     * offset, and LocalClock::instant() reads an offset-less string as MANILA
      * WALL CLOCK. Hand this a CarbonImmutable (which is what Eloquent gives
      * you) or a string that carries 'Z' or an offset. Passing a bare
      * '2026-08-19 02:33:44' from a raw query is wrong by eight hours.
      */
     private static function dayKeyOf(DateTimeInterface|string $at): string
     {
-        return ManilaClock::dayKey(self::instantOf($at));
+        return LocalClock::dayKey(self::instantOf($at));
     }
 
     /**
@@ -631,12 +630,12 @@ final class ReminderSweep
      * THE FORMAT IS FROZEN, quirk included. The key is an opaque token matched
      * against rows already written, so the value minted for a given submission
      * must never change. The stamp is minted from submitted_at's UTC digits
-     * as an offset-less 'Y-m-d H:i:s' string, which ManilaClock::instant()
-     * reads as Manila wall clock — so every TASK_REVIEW_PENDING row in the
-     * table carries a stamp eight hours BEFORE the true instant, at whole
+     * as an offset-less 'Y-m-d H:i:s' string, which LocalClock::instant()
+     * reads as local wall clock — so every TASK_REVIEW_PENDING row in the
+     * table carries a stamp offset from the true instant by the zone, at whole
      * seconds. An instant arriving here is reduced to those digits and sent
      * down that path, byte for byte; a string is read as-is with a zone, as
-     * Manila without. Minting from the true instant instead would re-chase
+     * local wall clock without. Minting from the true instant instead would re-chase
      * every submission already chased once.
      * The day arithmetic ({@see self::dayKeyOf()}) is separate and reads the
      * instant itself, so it is NOT eight hours out.
@@ -650,7 +649,7 @@ final class ReminderSweep
             ? CarbonImmutable::instance($at)->utc()->format('Y-m-d H:i:s')
             : $at;
 
-        return ManilaClock::instant($digits)->utc()->format('Y-m-d\TH:i:s.v\Z');
+        return LocalClock::instant($digits)->utc()->format('Y-m-d\TH:i:s.v\Z');
     }
 
     /**
@@ -671,7 +670,7 @@ final class ReminderSweep
     {
         return $at instanceof DateTimeInterface
             ? CarbonImmutable::instance($at)
-            : ManilaClock::instant($at);
+            : LocalClock::instant($at);
     }
 
     /**

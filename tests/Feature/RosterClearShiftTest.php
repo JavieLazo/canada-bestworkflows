@@ -36,7 +36,7 @@ use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Domain\Roster\ScheduleBasis;
 use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Once;
@@ -120,7 +120,7 @@ it('clears the default shift and weekday hours from today, keeping every earlier
     $sol = rcsEmployee($day);
     rcsWeekday($sol, 6, rcsPattern('Saturday half', '08:00:00', '12:00:00', [6]));
     foreach (['TIME_IN' => '2026-10-05T09:20:00', 'TIME_OUT' => '2026-10-05T18:00:00'] as $type => $at) {
-        AttendanceLog::query()->create(['employee_id' => $sol->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant($at)->utc()]);
+        AttendanceLog::query()->create(['employee_id' => $sol->id, 'log_type' => $type, 'source' => 'MANUAL', 'logged_at' => LocalClock::instant($at)->utc()]);
     }
     $before = rcsDtr($sol, '2026-10-01', '2026-10-06');
 
@@ -300,7 +300,7 @@ it('still takes a Time Out that closes a Time In already open on a date with no 
     $ana = rcsEmployee(null, 'Ana');
     rcsFromHome($ana);
     // Entered by a DTR correction, which a date with no shift still allows.
-    AttendanceLog::query()->create(['employee_id' => $ana->id, 'log_type' => 'TIME_IN', 'source' => 'MANUAL', 'logged_at' => ManilaClock::instant('2026-10-07T04:00:00')->utc()]);
+    AttendanceLog::query()->create(['employee_id' => $ana->id, 'log_type' => 'TIME_IN', 'source' => 'MANUAL', 'logged_at' => LocalClock::instant('2026-10-07T04:00:00')->utc()]);
 
     rcsPunch($actor, $ana, 'TIME_OUT');
 

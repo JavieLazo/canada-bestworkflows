@@ -16,6 +16,7 @@ use App\Domain\Payroll\StatutorySchedule;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Modules\Payroll\Domain\Benefits\LeaveCashOutValue;
+use App\Modules\Payroll\Domain\Canada\DeductionRates;
 use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
@@ -24,6 +25,7 @@ use App\Modules\Timekeeping\Contracts\AttendanceInputs;
 use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
 use App\Modules\Workforce\Contracts\EmployeePayData;
 use Carbon\CarbonImmutable;
+use InvalidArgumentException;
 use RuntimeException;
 
 /**
@@ -147,10 +149,17 @@ use RuntimeException;
  * leave, the `salary` it is priced from (the highest on record: from,
  * monthly and daily rate; null otherwise). Older evidence restores as it
  * was priced: every request a monetization at the daily rate.
+ * Schema 25 captures what the source deductions are worked out from
+ * (`source_deductions`: the pay date and its tax year, the pay dates the
+ * year has on the payroll's schedule, the published rates in force, and
+ * each member's tax details with what the year's posted payslips already
+ * took from them), so a saved tax detail or a payslip posted meanwhile
+ * stales the preview and a replay never reads the live tables. Older
+ * evidence restores with none and deducts none.
  */
 final readonly class PayrollInputs
 {
-    public const int SCHEMA_VERSION = 24;
+    public const int SCHEMA_VERSION = 25;
 
     /**
      * @param  list<string>  $employeeIds
@@ -183,6 +192,7 @@ final readonly class PayrollInputs
      * @param  array{version_id: string, effective_from: string, ceiling: float}|null  $benefitCeiling  the yearly tax-free ceiling version in force, as captured; null = the constant
      * @param  array<string, list<array{id: string, type_id: string, starts_on: string, ends_on: ?string, amount: ?float}>>  $benefitAssignments  each member's approved benefit assignments reaching the period (BenefitAssignments::entry); absent when none
      * @param  array{year: int, payrolls_left: int, posted: array<string, array{taxable: float, withheld: float}>}|null  $taxYear  the tax year, the regular payrolls left in it after this one and each whole-year member's posted figures (TaxYearToDate::entry); null when no member is priced by the whole-year estimate
+     * @param  array{pay_date: string, tax_year: int, periods: int, rates_from: string, rates: array<string, mixed>, members: array<string, array{details: array<string, mixed>, to_date: array{pensionable: float, pension: float, second_pension: float, insurance: float}}>}|null  $sourceDeductions  what the source deductions are worked out from (SourceDeductionFacts::entry); null on evidence from before they existed
      */
     public function __construct(
         public array $employeeIds,
@@ -218,6 +228,7 @@ final readonly class PayrollInputs
         public ?array $benefitCeiling = null,
         public array $benefitAssignments = [],
         public ?array $taxYear = null,
+        public ?array $sourceDeductions = null,
         private int $schemaVersion = self::SCHEMA_VERSION,
     ) {}
 
@@ -327,6 +338,7 @@ final readonly class PayrollInputs
             ...($this->schemaVersion >= 20 ? ['contribution_month' => $this->contributionMonth, 'contribution_posted' => $this->contributionPosted] : []),
             ...($this->schemaVersion >= 21 ? ['benefit_ceiling' => $this->benefitCeiling, 'benefit_assignments' => $this->benefitAssignments] : []),
             ...($this->schemaVersion >= 22 ? ['tax_year' => $this->taxYear] : []),
+            ...($this->schemaVersion >= 25 ? ['source_deductions' => $this->sourceDeductions] : []),
         ];
     }
 
@@ -421,7 +433,7 @@ final readonly class PayrollInputs
     {
         $data = self::map(json_decode($json, true, 512, JSON_THROW_ON_ERROR));
         $schemaVersion = $data['schema_version'] ?? null;
-        if (! in_array($schemaVersion, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, self::SCHEMA_VERSION], true)) {
+        if (! in_array($schemaVersion, [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, self::SCHEMA_VERSION], true)) {
             throw new RuntimeException('Unsupported payroll evidence schema.');
         }
         $employees = array_map(self::employeeFromArray(...), self::rows($data['employees'] ?? null));
@@ -445,7 +457,10 @@ final readonly class PayrollInputs
             self::moneyMap($data['exempt_benefits_ytd'] ?? null, $ids),
             self::customDeductionMap($data['custom_deductions'] ?? null, $ids),
             self::calculationList($data['active_calculations'] ?? null),
-            $schemaVersion >= 8 ? self::statutoryTableMap($data['statutory_tables'] ?? null) : [],
+            // From schema 25 a payroll captures no contribution or withholding
+            // table: its source deductions come from `source_deductions`. An
+            // empty map is that capture; anything else is still read strictly.
+            $schemaVersion >= 8 && ! ($schemaVersion >= 25 && ($data['statutory_tables'] ?? null) === []) ? self::statutoryTableMap($data['statutory_tables'] ?? null) : [],
             $schemaVersion >= 8 ? self::payRuleMap($data['pay_rules'] ?? null, $ids, $schemaVersion >= 18) : [],
             $schemaVersion >= 9 ? self::benefitRuleMap($data['benefit_rules'] ?? null) : [],
             $schemaVersion >= 9 ? self::deductionRuleMap($data['deduction_rules'] ?? null) : [],
@@ -463,6 +478,7 @@ final readonly class PayrollInputs
             $schemaVersion >= 21 ? self::benefitCeilingEntry($data['benefit_ceiling'] ?? null) : null,
             $schemaVersion >= 21 ? self::benefitAssignmentMap($data['benefit_assignments'] ?? null, $ids) : [],
             $schemaVersion >= 22 ? self::taxYearEntry($data['tax_year'] ?? null, $ids) : null,
+            $schemaVersion >= 25 ? self::sourceDeductionsEntry($data['source_deductions'] ?? null, $ids) : null,
             $schemaVersion,
         );
         // Reject missing, coerced or unknown values rather than silently changing saved evidence.
@@ -475,9 +491,7 @@ final readonly class PayrollInputs
 
     /**
      * One employee as the evidence carries it: identity, employment dates,
-     * rates (monthly, daily and hourly) and the sixteen statutory settings. Shared with the 13th month
-     * run's evidence (ThirteenthMonthInputs), so both capture an employee the
-     * same way.
+     * rates (monthly, daily and hourly) and the sixteen statutory settings.
      *
      * @return array<string, mixed>
      */
@@ -705,6 +719,82 @@ final readonly class PayrollInputs
     }
 
     /**
+     * The source-deduction facts, strictly: the pay date and its tax year,
+     * the year's pay dates, the rates in force with their figures, and for
+     * every member their tax details and the year's totals so far; or null.
+     *
+     * @param  list<string>  $ids
+     * @return array{pay_date: string, tax_year: int, periods: int, rates_from: string, rates: array<string, mixed>, members: array<string, array{details: array<string, mixed>, to_date: array{pensionable: float, pension: float, second_pension: float, insurance: float}}>}|null
+     */
+    public static function sourceDeductionsEntry(mixed $value, array $ids): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        $row = self::map($value);
+        $keys = array_keys($row);
+        sort($keys, SORT_STRING);
+        $date = static fn (mixed $day): bool => is_string($day) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $day) === 1;
+        if ($keys !== ['members', 'pay_date', 'periods', 'rates', 'rates_from', 'tax_year']
+            || ! $date($row['pay_date']) || ! $date($row['rates_from'])
+            || ! is_int($row['tax_year']) || $row['tax_year'] !== (int) substr($row['pay_date'], 0, 4)
+            || ! is_int($row['periods']) || $row['periods'] < 1 || $row['periods'] > 366) {
+            throw new RuntimeException('Invalid payroll source deduction evidence.');
+        }
+        try {
+            $rates = DeductionRates::fromArray($row['rates_from'], self::map($row['rates']));
+        } catch (InvalidArgumentException) {
+            throw new RuntimeException('Invalid payroll source deduction evidence.');
+        }
+        $members = [];
+        foreach (self::map($row['members']) as $employeeId => $entry) {
+            $member = self::map($entry);
+            $memberKeys = array_keys($member);
+            sort($memberKeys, SORT_STRING);
+            $details = self::map($member['details'] ?? null);
+            $detailKeys = array_keys($details);
+            sort($detailKeys, SORT_STRING);
+            $toDate = self::map($member['to_date'] ?? null);
+            $toDateKeys = array_keys($toDate);
+            sort($toDateKeys, SORT_STRING);
+            if (! in_array($employeeId, $ids, true) || $memberKeys !== ['details', 'to_date']
+                || $detailKeys !== ['additional_tax', 'deduct_insurance', 'deduct_pension', 'federal_claim', 'province', 'provincial_claim']
+                || $toDateKeys !== ['insurance', 'pension', 'pensionable', 'second_pension']
+                || ! is_string($details['province']) || ! $rates->covers($details['province'])) {
+                throw new RuntimeException('Invalid payroll source deduction evidence.');
+            }
+            $members[$employeeId] = [
+                'details' => [
+                    'province' => $details['province'],
+                    'federal_claim' => $details['federal_claim'] === null ? null : self::number($details['federal_claim']),
+                    'provincial_claim' => $details['provincial_claim'] === null ? null : self::number($details['provincial_claim']),
+                    'additional_tax' => self::number($details['additional_tax']),
+                    'deduct_pension' => self::boolean($details['deduct_pension']),
+                    'deduct_insurance' => self::boolean($details['deduct_insurance']),
+                ],
+                'to_date' => [
+                    'pensionable' => self::number($toDate['pensionable']),
+                    'pension' => self::number($toDate['pension']),
+                    'second_pension' => self::number($toDate['second_pension']),
+                    'insurance' => self::number($toDate['insurance']),
+                ],
+            ];
+        }
+        if (array_diff($ids, array_keys($members)) !== []) {
+            throw new RuntimeException('Invalid payroll source deduction evidence.');
+        }
+
+        return [
+            'pay_date' => $row['pay_date'],
+            'tax_year' => $row['tax_year'],
+            'periods' => $row['periods'],
+            'rates_from' => $row['rates_from'],
+            'rates' => $rates->toArray(),
+            'members' => $members,
+        ];
+    }
+
+    /**
      * The tax-year entry, strictly (divergence 20): the year, the payrolls
      * left and each listed member's posted figures, or null.
      *
@@ -742,7 +832,7 @@ final readonly class PayrollInputs
 
     /**
      * The tax-free ceiling version strictly: null, or its id, date and
-     * pesos at or above zero. Shared with ThirteenthMonthInputs.
+     * pesos at or above zero.
      *
      * @return array{version_id: string, effective_from: string, ceiling: float}|null
      */
@@ -1395,8 +1485,7 @@ final readonly class PayrollInputs
     /**
      * The four Contribution & Tax Table versions exactly as captured: every
      * kind once, each a version id and dates (null for the built-in
-     * figures) and figures the engine accepts. Shared with the 13th month
-     * run's evidence, which captures the withholding table the same way.
+     * figures) and figures the engine accepts.
      *
      * @param  list<string>|null  $kinds  the kinds expected, in capture order (every kind when null)
      * @return array<string, array{version_id: ?string, effective_from: ?string, covered_through: ?string, figures: array<string, mixed>}>

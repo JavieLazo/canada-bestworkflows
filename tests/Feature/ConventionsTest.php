@@ -208,18 +208,18 @@ it('puts module.all: on no route', function () {
 
 it('never calls ->toDateString() in app/', function () {
     // Timestamps are UTC; toDateString() on one gives the UTC day, which is
-    // yesterday for eight Manila hours every night. ManilaClock::dayKey() is
+    // the wrong local day for several hours of every day. LocalClock::dayKey() is
     // the conversion; DATE columns go through PayrollPeriod::dateKeyFromDate().
     expect(convHits(convPhp(['app']), '/->toDateString\(\)/'))->toBe([]);
 });
 
-it('writes the literal Asia/Manila only in ManilaClock::TZ and the schedule', function () {
+it('names a time zone only in LocalClock and its setting', function () {
     $hits = convHits(
-        convPhp(['app', 'config', 'routes', 'database'], ['app/Support/ManilaClock.php', 'routes/console.php']),
-        '/Asia\/Manila/',
+        convPhp(['app', 'config', 'routes', 'database'], ['app/Support/LocalClock.php', 'config/copems.php']),
+        '/[\x27"](?:Africa|America|Antarctica|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_\/]+[\x27"]|[\x27"][+-](?!00:00)\d{2}:\d{2}[\x27"]/',
     );
 
-    expect($hits)->toBe([], 'The zone lives in ManilaClock::TZ (and ->timezone() on the schedule). Everywhere else, use ManilaClock.');
+    expect($hits)->toBe([], 'The zone is LocalClock::zone(), named by copems.timezone. A zone or a fixed offset written anywhere else ignores the setting, and an offset ignores daylight saving time.');
 });
 
 /* |---| Hosting: no shell, no worker |---| */

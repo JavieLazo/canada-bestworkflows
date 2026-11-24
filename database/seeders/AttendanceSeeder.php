@@ -7,11 +7,11 @@ namespace Database\Seeders;
 use App\Models\AttendanceLog;
 use App\Models\RosterLocation;
 use App\Models\WorkSite;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
- * Two Manila weeks of punches, the port of seed.ts buildAttendance() with the
+ * Two local weeks of punches, the port of seed.ts buildAttendance() with the
  * task-mandated DTR guarantees pinned to weekdays so they always land:
  *
  *  - in/out pairs sit around each employee's own shift bounds (a few minutes
@@ -30,8 +30,8 @@ use Carbon\CarbonImmutable;
  * A weekday with no row punches at the employee's usual site, exactly as
  * every punch did before the table existed. Every ONSITE punch is inside its
  * fence, because one outside it is refused at the station and could not have
- * been recorded. Wall-clock strings go through ManilaClock::instant() and are
- * STORED AS UTC — never as Manila local.
+ * been recorded. Wall-clock strings go through LocalClock::instant() and are
+ * STORED AS UTC — never as local wall clock.
  */
 final class AttendanceSeeder extends PortSeeder
 {
@@ -67,9 +67,9 @@ final class AttendanceSeeder extends PortSeeder
             $locations[$location->employee_id][$location->weekday] = $location;
         }
 
-        $today = CarbonImmutable::now(ManilaClock::TZ);
+        $today = CarbonImmutable::now(LocalClock::zone());
 
-        // The Manila weekdays inside the two-week window, most recent first,
+        // The local weekdays inside the two-week window, most recent first,
         // as days-ago offsets.
         $weekdays = [];
 
@@ -201,7 +201,7 @@ final class AttendanceSeeder extends PortSeeder
             'is_geofenced' => true,
             'is_anomaly' => false,
             'anomaly_note' => null,
-            'logged_at' => ManilaClock::instant($wallClock)->utc(),
+            'logged_at' => LocalClock::instant($wallClock)->utc(),
         ]);
     }
 }

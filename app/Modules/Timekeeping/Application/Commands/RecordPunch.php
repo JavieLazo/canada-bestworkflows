@@ -29,7 +29,7 @@ use App\Modules\Workforce\Contracts\PunchEmployees;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use App\Support\Realtime;
 use Carbon\CarbonImmutable;
@@ -72,7 +72,7 @@ use RuntimeException;
  * DIVERGENCE from punch/route.ts, which punched anyone against the default.
  *
  * A LATE DEVICE PUNCH NEVER LANDS ON A PAID DAY. A biometric device may send
- * a punch days after capturing it. One that arrives on a later Manila day
+ * a punch days after capturing it. One that arrives on a later local day
  * than it was captured is refused when a posted payslip already covers its
  * work date: the payslip is what payroll paid, and nothing would ever settle
  * the difference. The answer comes from PostedPayrollDates under payroll's
@@ -148,19 +148,19 @@ final class RecordPunch
             // An accuracy without coordinates describes nothing.
             $accuracy = null;
         }
-        // Bucket by the Manila day, not host-local dates mixed with UTC midnight.
+        // Bucket by the local day, not host-local dates mixed with UTC midnight.
         // Two previous dates distinguish an unfinished night's carried
         // Time In from a following flexible day's own punches. A device
         // punch is bucketed on the day it was captured, not the day the
         // device came back online.
-        $now = ($at ?? CarbonImmutable::now())->setTimezone(ManilaClock::TZ);
-        if ($at !== null && $now->greaterThan(CarbonImmutable::now(ManilaClock::TZ)->addMinutes(2))) {
+        $now = ($at ?? CarbonImmutable::now())->setTimezone(LocalClock::zone());
+        if ($at !== null && $now->greaterThan(CarbonImmutable::now(LocalClock::zone())->addMinutes(2))) {
             throw new RuntimeException('That punch time is ahead of the server clock.');
         }
-        $today = ManilaClock::dayKey($now);
+        $today = LocalClock::dayKey($now);
         // Captured on an earlier day than the server's today: the only device
         // punch a posted payroll can already have paid.
-        $late = $at !== null && $today < ManilaClock::todayKey();
+        $late = $at !== null && $today < LocalClock::todayKey();
         $window = PayrollPeriod::attendanceInstants(PayrollPeriod::addCalendarDays($today, -2), $today);
         [$created, $site, $distance, $inBounds] = DB::transaction(function () use ($actor, $input, $logType, $source, $employee, $la, $lo, $accuracy, $window, $today, $now, $at, $late): array {
             // A device punch takes payroll's membership lock before any other
@@ -393,7 +393,7 @@ final class RecordPunch
         // The previous night's carried punches are not completed slots of
         // today's day shift, even when its early window overlaps their time.
         foreach (DtrCalculator::rowPunches($windowLogs, $schedule, $workDate) as $log) {
-            $minute = self::timelineMinuteForInstant(ManilaClock::instant($log->loggedAt), $workDate);
+            $minute = self::timelineMinuteForInstant(LocalClock::instant($log->loggedAt), $workDate);
             if ($minute >= $from && $minute <= $to) {
                 $logs[] = $log;
             }
@@ -401,8 +401,8 @@ final class RecordPunch
 
         usort(
             $logs,
-            static fn (DomainLog $a, DomainLog $b): int => ManilaClock::ms(ManilaClock::instant($a->loggedAt))
-                <=> ManilaClock::ms(ManilaClock::instant($b->loggedAt)),
+            static fn (DomainLog $a, DomainLog $b): int => LocalClock::ms(LocalClock::instant($a->loggedAt))
+                <=> LocalClock::ms(LocalClock::instant($b->loggedAt)),
         );
 
         return $logs;
@@ -410,9 +410,9 @@ final class RecordPunch
 
     private static function timelineMinuteForInstant(CarbonImmutable $instant, string $workDate): float
     {
-        $base = ManilaClock::ms(ManilaClock::instant($workDate.'T00:00:00'));
+        $base = LocalClock::ms(LocalClock::instant($workDate.'T00:00:00'));
 
-        return (ManilaClock::ms($instant) - $base) / 60000;
+        return (LocalClock::ms($instant) - $base) / 60000;
     }
 
     /** "Time In is blocked: Sol Santos has no shift on Oct 08, 2026. Assign one in Shift Roster first." */

@@ -11,7 +11,7 @@ use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -66,7 +66,7 @@ function absTilePunch(EmployeeProfile $employee, string $type, string $manila): 
     $punch->forceFill([
         'employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
         'is_geofenced' => true, 'is_anomaly' => false,
-        'logged_at' => ManilaClock::instant($manila)->utc(),
+        'logged_at' => LocalClock::instant($manila)->utc(),
     ])->save();
 }
 

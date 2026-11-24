@@ -83,7 +83,7 @@ function lbrSelf(EmployeeProfile $employee): Access
     return app(Access::class);
 }
 
-/** Monday to Friday, 08:00-17:00, PHP 30,000 a month. */
+/** Monday to Friday, 08:00-17:00, CAD 30,000 a month. */
 function lbrEmployee(): EmployeeProfile
 {
     $employee = new EmployeeProfile;

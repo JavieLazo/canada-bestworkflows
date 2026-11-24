@@ -10,7 +10,7 @@ use App\Models\PayslipDeduction;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\RecurringLines;
 use App\Platform\Retention\EmployeeObligationSource;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 
 /**
@@ -36,7 +36,7 @@ final class EmployeeObligations implements EmployeeObligationSource
             return [];
         }
         $lines = PayrollRecurringLine::query()->where('employee_id', $employeeId)->whereNotNull('total')
-            ->where(static fn ($query) => $query->whereNull('ends_on')->orWhere('ends_on', '>=', ManilaClock::todayKey()))
+            ->where(static fn ($query) => $query->whereNull('ends_on')->orWhere('ends_on', '>=', LocalClock::todayKey()))
             ->orderBy('starts_on')->get();
         if ($lines->isEmpty()) {
             return [];
@@ -54,7 +54,7 @@ final class EmployeeObligations implements EmployeeObligationSource
             }
             $rows[] = [
                 'label' => ($names[$line->deduction_id] ?? 'Recurring deduction').($line->note !== null ? ' · '.$line->note : ''),
-                'reference' => PayrollData::peso($left).' left to pay',
+                'reference' => PayrollData::money($left).' left to pay',
             ];
         }
 

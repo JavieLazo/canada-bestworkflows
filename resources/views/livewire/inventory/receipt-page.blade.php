@@ -65,7 +65,7 @@
                                     <p class="num text-xs text-muted-foreground">{{ $line->item_snapshot['serial_no'] ?: 'No serial number' }}</p>
                                     <p class="mt-1 text-xs text-muted-foreground">Acquired <span class="num">{{ HrisFormat::date($line->item_snapshot['acquired_on']) }}</span></p>
                                 </td>
-                                <td class="num whitespace-nowrap text-right align-top">₱{{ number_format((float) $line->item_snapshot['cost'], 2) }}</td>
+                                <td class="num whitespace-nowrap text-right align-top">${{ number_format((float) $line->item_snapshot['cost'], 2) }}</td>
                                 <td class="whitespace-nowrap align-top">
                                     <span class="pill {{ $line->status === 'ISSUED' ? 'pill-primary' : 'pill-muted' }}">{{ ucfirst(strtolower($line->status)) }}</span>
                                     @if ($line->ended_on)<p class="num mt-1 text-xs text-muted-foreground">{{ HrisFormat::date($line->ended_on) }}</p>@endif
@@ -74,7 +74,7 @@
                         @endforeach
                     </tbody>
                 </table></div>
-                <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-xs text-muted-foreground"><span><span class="num">{{ $receipt->lines->count() }}</span> {{ $receipt->lines->count() === 1 ? 'item' : 'items' }}</span><span>Total cost <span class="num">₱{{ number_format($receipt->total_cost, 2) }}</span></span></footer>
+                <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-3 text-xs text-muted-foreground"><span><span class="num">{{ $receipt->lines->count() }}</span> {{ $receipt->lines->count() === 1 ? 'item' : 'items' }}</span><span>Total cost <span class="num">${{ number_format($receipt->total_cost, 2) }}</span></span></footer>
             </section>
 
             <div id="signed-mr" class="scroll-mt-24">

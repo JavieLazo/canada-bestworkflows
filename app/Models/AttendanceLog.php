@@ -23,8 +23,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * `logged_at` is DATETIME(3) holding UTC. Millisecond precision is
  * load-bearing: punch pairing orders by `logged_at`, and collapsing to whole
- * seconds silently reorders a pair. Never read the Manila calendar day off it
- * with `->toDateString()` — that is what `ManilaClock::dayKey()` is for.
+ * seconds silently reorders a pair. Never read the local calendar day off it
+ * with `->toDateString()` — that is what `LocalClock::dayKey()` is for.
  *
  * `log_type` (TIME_IN | TIME_OUT) and `source` (WEB_GPS | BIOMETRIC | MANUAL |
  * CORRECTION) stay free text, matching the source: they are open sets the UI

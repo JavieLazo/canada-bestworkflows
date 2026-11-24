@@ -25,7 +25,7 @@ namespace App\Support;
  */
 final class Csv
 {
-    /** The UTF-8 byte-order mark Excel needs to read ₱ and é correctly. */
+    /** The UTF-8 byte-order mark Excel needs to read $ and é correctly. */
     public const string BOM = "\u{FEFF}";
 
     /**

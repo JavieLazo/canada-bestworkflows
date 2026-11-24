@@ -18,7 +18,7 @@ use App\Modules\Workforce\Application\EmployeeFields;
 use App\Modules\Workforce\Application\EmploymentHistoryRecorder;
 use App\Support\Access;
 use App\Support\Csv;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -91,7 +91,7 @@ it('groups changed fields under one edit and leaves unchanged facts out of it', 
     $xpath = new DOMXPath($document);
     $entries = '//*[@*[name()="wire:key"] and starts-with(@*[name()="wire:key"], "employment-history-")]';
     expect($xpath->evaluate('count('.$entries.')'))->toBe(1.0)
-        ->and($xpath->evaluate('string('.$entries.')'))->toContain('Junior', 'Senior', '₱25,000.00', '₱28,000.00')
+        ->and($xpath->evaluate('string('.$entries.')'))->toContain('Junior', 'Senior', '$25,000.00', '$28,000.00')
         // One needle per negation: negated together they pass when any ONE is absent.
         ->not->toContain('History site')->not->toContain('1,000.00')->not->toContain('Baseline')
         // The starting record now closes the timeline, keyed APART from the
@@ -103,24 +103,24 @@ it('groups changed fields under one edit and leaves unchanged facts out of it', 
 
 it('uses the same employee date and field filters for the view and CSV', function () {
     ehpageActor();
-    $this->travelTo(CarbonImmutable::parse('2026-10-01 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-01 10:00:00', LocalClock::zone()));
     $ana = ehpageEmployee();
     $ben = ehpageEmployee('Ben');
     ehpageChange($ana, ['monthly_rate' => '26000']);
-    $this->travelTo(CarbonImmutable::parse('2026-10-02 11:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-10-02 11:00:00', LocalClock::zone()));
     ehpageChange($ana, ['position_level' => 'Senior', 'monthly_rate' => '28000']);
     ehpageChange($ben, ['monthly_rate' => '99999']);
 
     Livewire::test(History::class)->set('employeeId', $ana->id)
         ->set('from', '2026-10-02')->set('to', '2026-10-02')->set('field', 'monthly_rate')
-        ->assertSee('₱26,000.00')->assertSee('₱28,000.00')
-        ->assertDontSee('Senior')->assertDontSee('₱99,999.00');
+        ->assertSee('$26,000.00')->assertSee('$28,000.00')
+        ->assertDontSee('Senior')->assertDontSee('$99,999.00');
     $rows = ehpageCsv(route('employees.history.export', ['employee' => $ana->id, 'from' => '2026-10-02', 'to' => '2026-10-02', 'field' => 'monthly_rate']));
     expect($rows)->toHaveCount(1)
         ->and($rows[0]['Employee'])->toBe('Ana History')
-        ->and($rows[0]['Changed on (Manila)'])->toBe('2026-10-02 11:00:00')
-        ->and($rows[0]['Previous value'])->toBe('₱26,000.00')
-        ->and($rows[0]['New value'])->toBe('₱28,000.00');
+        ->and($rows[0]['Changed on (local time)'])->toBe('2026-10-02 11:00:00')
+        ->and($rows[0]['Previous value'])->toBe('$26,000.00')
+        ->and($rows[0]['New value'])->toBe('$28,000.00');
 });
 
 it('keeps an employee viewer inside their own history despite forged employee filters', function () {

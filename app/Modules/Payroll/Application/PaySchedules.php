@@ -80,6 +80,33 @@ final class PaySchedules
     }
 
     /**
+     * The same dates with the holiday each one is, for a screen that says
+     * what a pay date was moved off: date => name, in date order.
+     *
+     * @param  list<int>  $years
+     * @return array<string, string>
+     */
+    public static function holidayNames(array $years): array
+    {
+        $names = [];
+        foreach (app(HolidayCalendar::class)->all() as $holiday) {
+            if ($holiday->schedule === HolidaySetting::SCHEDULE_ONE_TIME) {
+                if (in_array((int) substr($holiday->date, 0, 4), $years, true)) {
+                    $names[$holiday->date] ??= $holiday->name;
+                }
+
+                continue;
+            }
+            foreach ($years as $year) {
+                $names[sprintf('%04d-%s', $year, substr($holiday->date, 5))] ??= $holiday->name;
+            }
+        }
+        ksort($names, SORT_STRING);
+
+        return $names;
+    }
+
+    /**
      * The schedule's period with exactly these dates, with the pay date and
      * contribution month a payroll on them takes, or null when the dates
      * are not one of its periods.
@@ -105,6 +132,81 @@ final class PaySchedules
         }
 
         return PayCalendar::periodFor($schedule, $start, $end, self::holidayDates(self::yearsAround($start)));
+    }
+
+    /**
+     * The period whose pay day comes next on or after a day: what a new
+     * payroll starts on. On a schedule paid some days after a period ends
+     * that is the period that just ended; on one paid on a period's last
+     * day it is the period the day falls in. Null for figures that do not
+     * read.
+     *
+     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     */
+    public static function nextToPayForView(PayScheduleView $view, string $today): ?array
+    {
+        try {
+            $schedule = PaySchedule::fromArray($view->params);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+        $holidays = self::holidayDates(self::yearsAround(sprintf('%04d-01-01', (int) substr($today, 0, 4) - 1)));
+        $period = PayCalendar::containing($schedule, $today, $holidays);
+        // A pay day is at most a month and a few days after its period
+        // ends, so a handful of steps back always reaches a paid one.
+        for ($i = 0; $i < 8; $i++) {
+            $dayBefore = gmdate('Y-m-d', (int) strtotime($period['start'].' 00:00:00 UTC') - 86400);
+            $before = PayCalendar::containing($schedule, $dayBefore, $holidays);
+            if ($before['pay_date'] < $today) {
+                break;
+            }
+            $period = $before;
+        }
+
+        return $period;
+    }
+
+    /**
+     * Which pay of its year a pay date is on a schedule, and how many pay
+     * dates that year has; null for figures that do not read.
+     *
+     * @return array{number: int, of: int, days: int|null, per_month: int|null}|null
+     */
+    public static function payOfYearForView(PayScheduleView $view, string $payDate): ?array
+    {
+        try {
+            return self::payPlace(PaySchedule::fromArray($view->params), $payDate);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
+    }
+
+    /**
+     * The same, from a schedule row (a system read).
+     *
+     * @return array{number: int, of: int, days: int|null, per_month: int|null}|null
+     */
+    public static function payOfYear(PayrollPaySchedule $row, string $payDate): ?array
+    {
+        try {
+            return self::payPlace(self::schedule($row), $payDate);
+        } catch (InvalidArgumentException|RuntimeException) {
+            return null;
+        }
+    }
+
+    /** @return array{number: int, of: int, days: int|null, per_month: int|null} */
+    private static function payPlace(PaySchedule $schedule, string $payDate): array
+    {
+        $year = (int) substr($payDate, 0, 4);
+        $holidays = self::holidayDates([$year - 1, $year, $year + 1]);
+
+        return [
+            'number' => PayCalendar::payNumber($schedule, $payDate, $holidays),
+            'of' => PayCalendar::payDatesInYear($schedule, $year, $holidays),
+            'days' => $schedule->isByWeeks() ? $schedule->periodDays() : null,
+            'per_month' => $schedule->isByWeeks() ? null : count($schedule->periods),
+        ];
     }
 
     /**

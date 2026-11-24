@@ -26,7 +26,7 @@ use App\Modules\WorkManagement\Application\Queries\ProjectFunding;
 use App\Modules\WorkManagement\Application\Queries\ProjectReports;
 use App\Modules\WorkManagement\Domain\Projects\FinanceAmount;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Closure;
 use Flux\Flux;
@@ -54,7 +54,7 @@ class ProjectFinanceWorkspace extends Component
 
     public string $section = 'overview';
 
-    public string $currency = 'PHP';
+    public string $currency = 'CAD';
 
     /** A view filter, rechecked against this project; not #[Locked]. */
     public string $budgetChoice = '';
@@ -457,7 +457,7 @@ class ProjectFinanceWorkspace extends Component
         $this->replacesId = $id;
         $this->entryRequestId = (string) Str::ulid();
         $this->entryKind = $entry->kind ?? (in_array($kind, ['RECEIPT', 'EXPENSE'], true) ? $kind : 'EXPENSE');
-        $this->occurredOn = $entry?->occurred_on->format('Y-m-d') ?? ManilaClock::todayKey();
+        $this->occurredOn = $entry?->occurred_on->format('Y-m-d') ?? LocalClock::todayKey();
         $this->description = $entry->description ?? '';
         $this->amount = $entry === null ? '' : FinanceAmount::input($entry->amount_minor);
         $this->categoryId = $entry->category_id ?? ($queries->categories($actor, $this->projectId)->first()->id ?? '');
@@ -584,7 +584,7 @@ class ProjectFinanceWorkspace extends Component
         abort_unless(in_array($kind, ['ALL', 'RECEIPT', 'EXPENSE'], true), 404);
         $this->kind = $kind;
         $this->cashFrom = $this->cashTo = $this->cashCategory = $this->search = '';
-        $this->cashTo = ManilaClock::todayKey();
+        $this->cashTo = LocalClock::todayKey();
         $this->showVoided = false;
         $this->section = 'cash';
         $this->resetPage('entriesPage');
@@ -593,11 +593,11 @@ class ProjectFinanceWorkspace extends Component
     public function showCashMonth(string $month, string $kind): void
     {
         $this->showCashKind($kind);
-        $months = app(ProjectFinancials::class)->cashTrend($this->access(), $this->projectId, ManilaClock::todayKey());
+        $months = app(ProjectFinancials::class)->cashTrend($this->access(), $this->projectId, LocalClock::todayKey());
         abort_unless(in_array($month, array_column($months, 'key'), true), 404);
         $date = CarbonImmutable::parse($month.'-01');
         $this->cashFrom = $date->format('Y-m-d');
-        $this->cashTo = min(ManilaClock::todayKey(), $date->endOfMonth()->format('Y-m-d'));
+        $this->cashTo = min(LocalClock::todayKey(), $date->endOfMonth()->format('Y-m-d'));
     }
 
     public function showCashCategory(string $category): void
@@ -623,7 +623,7 @@ class ProjectFinanceWorkspace extends Component
         $versions = $settings === null ? collect() : $queries->versions($actor, $this->projectId);
         $budget = $versions->firstWhere('id', $this->budgetChoice) ?? $versions->first();
         $lines = $budget === null ? null : $this->acceptPage($queries->lines($actor, $this->projectId, $budget->id, (int) $this->getPage('budgetPage'), $this->perPage, $this->search, $this->budgetCategory, $this->sortKey === '' ? 'created' : $this->sortKey, $this->sortDir), 'budgetPage');
-        $asOf = ManilaClock::todayKey();
+        $asOf = LocalClock::todayKey();
         $members = $this->accessOpen && $permissions['admin']
             ? $this->acceptPage($queries->members($actor, $this->projectId, (int) $this->getPage('financePeoplePage'), $this->perPage), 'financePeoplePage') : null;
 

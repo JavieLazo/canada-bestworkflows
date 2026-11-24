@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -82,7 +82,7 @@ return new class extends Migration
     /** One row per employee again: the one in effect today, ignoring cancelled changes. */
     private function keepOnlyTodaysRows(): void
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $cancelled = Schema::hasTable('roster_schedule_changes')
             ? DB::table('roster_schedule_changes')->where('status', 'CANCELLED')->pluck('id')->all()
             : [];

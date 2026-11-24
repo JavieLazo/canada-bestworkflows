@@ -16,7 +16,7 @@ use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Timekeeping\Application\Commands\FileAbsence;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
@@ -69,7 +69,7 @@ function hdlPunch(EmployeeProfile $employee, string $date, string $in, string $o
     foreach (['TIME_IN' => $in, 'TIME_OUT' => $out] as $type => $at) {
         $punch = new AttendanceLog;
         $punch->forceFill(['employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc()])->save();
+            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc()])->save();
     }
 }
 
@@ -106,7 +106,7 @@ it('forgives only the half that is off in the attendance facts, captures it in t
             'half' => $half, 'start_date' => $date, 'end_date' => $date, 'status' => 'APPROVED', 'is_paid' => true])->save();
         foreach (['TIME_IN' => $in, 'TIME_OUT' => $out] as $type => $at) {
             AttendanceLog::create(['employee_id' => $employee->id, 'source' => 'CORRECTION', 'log_type' => $type,
-                'logged_at' => ManilaClock::instant("{$date}T{$at}:00")->utc(), 'latitude' => 14.5, 'longitude' => 121.0]);
+                'logged_at' => LocalClock::instant("{$date}T{$at}:00")->utc(), 'latitude' => 14.5, 'longitude' => 121.0]);
         }
     }
     // The reference reading first: both halves forgiven on each day.
@@ -126,7 +126,7 @@ it('forgives only the half that is off in the attendance facts, captures it in t
         ->and($calc['drafts'][0]->undertime_minutes)->toBe($either->undertime_minutes)
         // A half day worked is a work day to the engine (the reference): the leave half is not paid twice.
         ->and($calc['drafts'][0]->paid_leave_days)->toBe($either->paid_leave_days)
-        ->and($calc['inputs']->toArray()['schema_version'])->toBe(24);
+        ->and($calc['inputs']->toArray()['schema_version'])->toBe(25);
 
     // The evidence restores with the halves; shaped as schema 22 it carries none and the DTR forgives both halves.
     $restored = PayrollInputs::restore(PayrollInputs::json($calc['inputs']->toArray()));

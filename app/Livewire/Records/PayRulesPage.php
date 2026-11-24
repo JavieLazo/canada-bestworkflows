@@ -20,7 +20,7 @@ use App\Modules\Workforce\Contracts\EmployeePayData;
 use App\Platform\Records\ReferenceCatalogs;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use Flux\Flux;
 use Illuminate\Database\QueryException;
@@ -296,7 +296,7 @@ class PayRulesPage extends Component
         $access = app(Access::class);
         $records = app(PayRuleRecords::class);
         $versions = $records->versions($access, $this->scope);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         // The rules in use are the only ones the page shows.
         $inForce = self::inForce($versions, $today);
         $loaded = $inForce;
@@ -374,7 +374,7 @@ class PayRulesPage extends Component
     private function loadForm(Access $access): void
     {
         $records = app(PayRuleRecords::class);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $versions = $records->versions($access, $this->scope);
         $inForce = self::inForce($versions, $today);
         $this->fillFrom($inForce->params ?? $this->inheritedInForce($access, $this->scope, $today)->params ?? PayRules::fromFormulas()->toArray());
@@ -583,7 +583,7 @@ class PayRulesPage extends Component
     private function isDirty(Access $access): bool
     {
         $records = app(PayRuleRecords::class);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $versions = $records->versions($access, $this->formScope);
         $loaded = self::inForce($versions, $today);
         $stored = $loaded->params ?? $this->inheritedInForce($access, $this->formScope, $today)->params ?? PayRules::fromFormulas()->toArray();
@@ -838,8 +838,8 @@ class PayRulesPage extends Component
         $daily = $round($daily);
 
         return [
-            'daily' => Hris::peso($daily),
-            'hourly' => Hris::peso($round($daily / $hours)),
+            'daily' => Hris::money($daily),
+            'hourly' => Hris::money($round($daily / $hours)),
             'hours' => Hris::moneyText($hours),
             'note' => $this->formMethod === PayRules::METHOD_MONTH ? 'in a month with '.self::SAMPLE_MONTH_DAYS.' working days' : '',
         ];

@@ -21,7 +21,7 @@ use DateTimeInterface;
  * can never inject markup.
  *
  * On time: an instant arrives as a date or a UTC ISO string, and every
- * wall-clock reading goes through ManilaClock::TZ. `$now` is a parameter
+ * wall-clock reading goes through LocalClock::zone(). `$now` is a parameter
  * rather than a clock read, so one feed draws every card against the same
  * instant.
  */
@@ -211,8 +211,8 @@ final class SocialFormat
      */
     public static function listTime(DateTimeInterface|string $at, CarbonImmutable $now): string
     {
-        $at = self::instant($at)->setTimezone(ManilaClock::TZ);
-        $today = $now->setTimezone(ManilaClock::TZ)->startOfDay();
+        $at = self::instant($at)->setTimezone(LocalClock::zone());
+        $today = $now->setTimezone(LocalClock::zone())->startOfDay();
 
         return match (true) {
             $at >= $today => $at->format('g:i A'),
@@ -229,8 +229,8 @@ final class SocialFormat
      */
     public static function threadStamp(DateTimeInterface|string $at, CarbonImmutable $now): string
     {
-        $at = self::instant($at)->setTimezone(ManilaClock::TZ);
-        $today = $now->setTimezone(ManilaClock::TZ)->startOfDay();
+        $at = self::instant($at)->setTimezone(LocalClock::zone());
+        $today = $now->setTimezone(LocalClock::zone())->startOfDay();
 
         return match (true) {
             $at >= $today => $at->format('g:i A'),
@@ -240,22 +240,22 @@ final class SocialFormat
         };
     }
 
-    /** The Manila calendar day an instant falls on, for grouping a thread by day. */
+    /** The local calendar day an instant falls on, for grouping a thread by day. */
     public static function dayKey(DateTimeInterface|string $at): string
     {
-        return self::instant($at)->setTimezone(ManilaClock::TZ)->format('Y-m-d');
+        return self::instant($at)->setTimezone(LocalClock::zone())->format('Y-m-d');
     }
 
-    /** `9:42 AM`, Manila. */
+    /** `9:42 AM`, local. */
     public static function clock(DateTimeInterface|string $at): string
     {
-        return self::instant($at)->setTimezone(ManilaClock::TZ)->format('g:i A');
+        return self::instant($at)->setTimezone(LocalClock::zone())->format('g:i A');
     }
 
     /** The full instant for a tooltip, in the `M d, Y, g:i A` the notification bell prints. */
     public static function stamp(DateTimeInterface|string $at): string
     {
-        return self::instant($at)->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A');
+        return self::instant($at)->setTimezone(LocalClock::zone())->format('M d, Y, g:i A');
     }
 
     private static function instant(DateTimeInterface|string $at): CarbonImmutable
@@ -265,9 +265,9 @@ final class SocialFormat
 
     private static function day(CarbonImmutable $at, CarbonImmutable $now, string $format): string
     {
-        $at = $at->setTimezone(ManilaClock::TZ);
+        $at = $at->setTimezone(LocalClock::zone());
 
-        return $at->year === $now->setTimezone(ManilaClock::TZ)->year
+        return $at->year === $now->setTimezone(LocalClock::zone())->year
             ? $at->format($format)
             : $at->format($format.', Y');
     }

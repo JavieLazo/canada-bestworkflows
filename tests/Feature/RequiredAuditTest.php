@@ -56,7 +56,7 @@ use App\Modules\Timekeeping\Application\Commands\DecidePendingOvertime;
 use App\Modules\Workforce\Application\Commands\UpdateEmployeePaySettings;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\PayrollReviewFixture;
 use Tests\Support\ScheduleFixture;
@@ -92,7 +92,7 @@ function requiredAuditOvertimeDay(EmployeeProfile $employee): void
         'requires_break_punch' => false, 'work_days' => [1, 2, 3, 4, 5]]);
     foreach (['TIME_IN' => '08:00', 'TIME_OUT' => '19:30'] as $type => $at) {
         AttendanceLog::create(['employee_id' => $employee->id, 'source' => 'MANUAL', 'log_type' => $type,
-            'logged_at' => ManilaClock::instant("2026-09-10T{$at}:00")->utc()]);
+            'logged_at' => LocalClock::instant("2026-09-10T{$at}:00")->utc()]);
     }
 }
 

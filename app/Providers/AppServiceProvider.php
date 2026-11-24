@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Modules\IdentityAccess\Application\PasswordPolicy;
 use App\Modules\IdentityAccess\Infrastructure\GuardedUserProvider;
 use App\Support\AuditService;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
@@ -83,6 +84,9 @@ class AppServiceProvider extends ServiceProvider
     protected function configureDefaults(): void
     {
         Date::use(CarbonImmutable::class);
+
+        // The organization's own zone, named once for every local conversion.
+        LocalClock::useZone((string) config('copems.timezone', LocalClock::DEFAULT_ZONE));
 
         DB::prohibitDestructiveCommands(
             app()->isProduction(),

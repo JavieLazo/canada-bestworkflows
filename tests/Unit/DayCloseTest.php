@@ -10,7 +10,7 @@ use App\Domain\Attendance\LeaveRequest as DomainLeave;
 use App\Domain\Attendance\Shift as DomainShift;
 use App\Domain\Payroll\PayslipCalculator;
 use App\Modules\Timekeeping\Domain\Attendance\DayClose;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 
 /**
@@ -54,13 +54,13 @@ function dayCloseRecord(string $date, string $status): DayRecord
 /** A Manila wall-clock instant, as a screen reads "now". */
 function dayCloseNow(string $manila): CarbonImmutable
 {
-    return ManilaClock::instant($manila);
+    return LocalClock::instant($manila);
 }
 
 /** A close instant as Manila wall clock, to the minute. */
 function dayCloseWall(CarbonImmutable $at): string
 {
-    return $at->setTimezone(ManilaClock::TZ)->format('Y-m-d H:i');
+    return $at->setTimezone(LocalClock::zone())->format('Y-m-d H:i');
 }
 
 it('closes a day shift at its end plus the Formulas OT max', function () {

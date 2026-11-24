@@ -10,10 +10,10 @@ use App\Domain\Enums\PayrollRunStatus;
 use App\Models\Payslip;
 use App\Models\PayslipDeduction;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Application\PayStatements;
 use App\Modules\Payroll\Contracts\Views\PayslipDeductionView;
 use App\Modules\Payroll\Contracts\Views\PayslipIncentiveView;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
-use App\Modules\Workforce\Contracts\EmployeeReportContext;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Platform\Reports\ReportCriteria;
 use App\Platform\Reports\ReportDocument;
@@ -364,7 +364,9 @@ final class PayrollReports
         $ids = array_values($payslips->map(static fn (Payslip $row): string => $row->id)->all());
         $incentives = $records->incentives($actor, $ids);
         $deductions = $records->customDeductions($actor, $ids);
-        $departments = app(EmployeeReportContext::class)->payrollDepartments($actor, array_values($payslips->map(static fn (Payslip $row): string => $row->employee_id)->unique()->all()));
+        // Every posted payslip reads as a pay statement, already scoped with
+        // the rows; a reader without all-data access gets the employee's copy.
+        $statements = PayStatements::build($payslips->values(), ! $actor->mayReadAllData(ModuleCode::PAYROLL));
         $rows = [];
         $sections = [];
         foreach ($payslips as $payslip) {
@@ -373,8 +375,12 @@ final class PayrollReports
             $sections[] = [
                 'title' => PayrollData::employeeName($employees->get($payslip->employee_id)).' · '.$payslip->period_start->format('Y-m-d').' to '.$payslip->period_end->format('Y-m-d'),
                 'kind' => 'payslip',
-                'employee_key' => $payslip->employee_id,
-                'office' => $departments[$payslip->employee_id] ?? '',
+                'statement' => $statements[$payslip->id],
+                'statement_employee' => [
+                    'name' => PayrollData::employeeName($employees->get($payslip->employee_id)),
+                    'number' => EmployeeIdentity::number($employees->get($payslip->employee_id)),
+                    'position' => (string) ($employees->get($payslip->employee_id)->position ?? '—'),
+                ],
                 'columns' => ['Item', 'Value'],
                 'rows' => $lines,
                 'identity' => array_map(static fn (array $line): array => ['label' => $line[0], 'value' => $line[1]], array_slice($lines, 0, 7)),
@@ -384,7 +390,7 @@ final class PayrollReports
                     ['label' => 'Net pay', 'value' => self::currency($payslip->net_pay)],
                 ],
                 'groups' => $this->payslipGroups(array_slice($lines, 7)),
-                'notes' => ['All amounts are PHP. Earnings include labeled components and subtotals; the stored Gross pay, Total deductions and Net pay are authoritative.'],
+                'notes' => ['All amounts are CAD. Earnings include labeled components and subtotals; the stored Gross pay, Total deductions and Net pay are authoritative.'],
             ];
         }
 
@@ -469,7 +475,7 @@ final class PayrollReports
         $rows[] = ['Stored taxable compensation', $payslip->taxable_compensation === null ? 'Not recorded' : self::money($payslip->taxable_compensation)];
         foreach ($incentives as $line) {
             $rows[] = ['Incentive detail: '.$line->name.' ('.$line->type_code.')', self::money($line->amount)];
-            $rows[] = ['Incentive tax treatment: '.$line->name, $line->is_taxable ? 'Taxable' : 'Tax-exempt; over-ceiling portion PHP '.self::money($line->over_ceiling)];
+            $rows[] = ['Incentive tax treatment: '.$line->name, $line->is_taxable ? 'Taxable' : 'Tax-exempt; over-ceiling portion CAD '.self::money($line->over_ceiling)];
         }
         foreach ($deductions as $line) {
             $rows[] = ['Deduction detail: '.$line->name.' ('.$line->deduction_code.')', self::money($line->amount)];
@@ -533,6 +539,6 @@ final class PayrollReports
 
     private static function currency(mixed $amount): string
     {
-        return 'PHP '.number_format(Money::round($amount), 2, '.', ',');
+        return 'CAD '.number_format(Money::round($amount), 2, '.', ',');
     }
 }

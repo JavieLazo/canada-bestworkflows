@@ -1,5 +1,5 @@
-/* PPMC's payslip sheet: a month's cut-offs in ruled frames. Extra system
-   evidence lives outside this printable document.
+/* The pay statement's sheet: one posted pay on A4 portrait. What only Payroll
+   may see sits outside this printable document.
 
    THE SHEET IS WHITE PAPER WHATEVER THE THEME: it carries `hris-always-light`,
    which redeclares the underlying tokens. The `--color-*` aliases this file
@@ -112,162 +112,7 @@ article.hris-payslip .num {
     font-weight: 700;
 }
 
-/* One cut-off */
-.hris-payslip-slip {
-    margin-bottom: 3mm;
-    border: 1px solid var(--slip-ink);
-}
-.hris-payslip-band {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0 3mm;
-    padding: 1mm 2.5mm;
-    background: var(--color-primary);
-    color: var(--color-primary-foreground);
-}
-.hris-payslip-band h3 {
-    margin: 0;
-    font-size: 8.5pt;
-    font-weight: 700;
-    text-transform: uppercase;
-}
-.hris-payslip-band span {
-    font-size: 7.5pt;
-}
-.hris-payslip-basis {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 4mm;
-    margin: 0;
-    padding: 0.6mm 2.5mm;
-    border-bottom: 1px solid var(--slip-ink);
-    background: var(--slip-tint);
-    font-size: 6.8pt;
-}
-.hris-payslip-basis > div {
-    display: flex;
-    gap: 1mm;
-}
-.hris-payslip-basis dt {
-    color: var(--slip-mute);
-}
-.hris-payslip-basis dd {
-    margin: 0;
-    font-weight: 700;
-}
-.hris-payslip-cols {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.hris-payslip-col {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-}
-.hris-payslip-col:first-child {
-    border-right: 1px solid var(--slip-ink);
-}
-
-/* Line items */
-article.hris-payslip .hris-payslip-table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: auto;
-    font-size: inherit;
-}
-article.hris-payslip .hris-payslip-table thead th {
-    position: static;
-    padding: 0.9mm 2.5mm;
-    border-bottom: 1px solid var(--slip-ink);
-    background: transparent;
-    color: inherit;
-    font-size: 7pt;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    text-transform: uppercase;
-}
-article.hris-payslip .hris-payslip-table thead th.num {
-    text-align: right;
-}
-article.hris-payslip .hris-payslip-table tbody th,
-article.hris-payslip .hris-payslip-table tbody td {
-    padding: 0.1mm 2.5mm;
-    border-bottom: 1px dotted var(--slip-rule);
-    background: transparent;
-    color: inherit;
-    font-size: inherit;
-    line-height: 3.1mm;
-    vertical-align: top;
-}
-article.hris-payslip .hris-payslip-table tbody th {
-    padding-left: 5mm;
-    font-weight: 400;
-    text-align: left;
-    white-space: normal;
-}
-article.hris-payslip .hris-payslip-table tbody td {
-    width: 26mm;
-    text-align: right;
-    white-space: nowrap;
-}
-article.hris-payslip .hris-payslip-table tbody tr:hover th,
-article.hris-payslip .hris-payslip-table tbody tr:hover td {
-    background: transparent;
-}
-article.hris-payslip .hris-payslip-table tr.hris-payslip-group th {
-    padding: 0.4mm 2.5mm 0.1mm;
-    border-bottom: 0;
-    background: var(--slip-tint);
-    font-size: 6.8pt;
-    font-weight: 700;
-    letter-spacing: 0.3px;
-    text-transform: uppercase;
-}
-article.hris-payslip .hris-payslip-table tr.hris-payslip-basic th,
-article.hris-payslip .hris-payslip-table tr.hris-payslip-basic td {
-    font-weight: 700;
-}
-article.hris-payslip .hris-payslip-table tr.hris-payslip-detail th {
-    padding-left: 8mm;
-    color: var(--slip-mute);
-}
-article.hris-payslip .hris-payslip-table tr.hris-payslip-detail td {
-    color: var(--slip-mute);
-}
-article.hris-payslip .hris-payslip-table tr.hris-payslip-zero th,
-article.hris-payslip .hris-payslip-table tr.hris-payslip-zero td {
-    color: var(--slip-mute);
-}
-article.hris-payslip .hris-payslip-table tfoot th,
-article.hris-payslip .hris-payslip-table tfoot td {
-    padding: 0.9mm 2.5mm;
-    border-top: 1px solid var(--slip-ink);
-    border-bottom: 0;
-    background: transparent;
-    font-weight: 700;
-    text-align: left;
-}
-article.hris-payslip .hris-payslip-table tfoot td {
-    text-align: right;
-    white-space: nowrap;
-}
-article.hris-payslip .hris-payslip-table td.line-through {
-    color: var(--slip-mute);
-}
-.hris-payslip-quantity {
-    color: var(--color-muted-foreground);
-    font-size: 6.8pt;
-    font-weight: 400;
-    white-space: nowrap;
-}
-.hris-payslip-quantity.block {
-    display: block;
-    white-space: normal;
-}
-
-/* Net pay, at the foot of the earnings column */
+/* Net pay */
 .hris-payslip-net {
     margin-top: auto;
     padding: 2mm 2.5mm;
@@ -293,10 +138,7 @@ article.hris-payslip .hris-payslip-table td.line-through {
     text-transform: uppercase;
 }
 
-/* Month summary and sign-off */
-.hris-payslip-after {
-    margin-top: 2mm;
-}
+/* Tables and sign-off */
 article.hris-payslip .hris-payslip-month {
     width: 100%;
     border: 1px solid var(--slip-ink);
@@ -364,6 +206,56 @@ article.hris-payslip .hris-signatories > div > p:not(:first-child) {
 article.hris-payslip .hris-signatories > div > p:last-child {
     font-size: 7.5pt;
 }
+/* The pay statement: one pay, its earnings and deductions each beside the
+   year's total. It is drawn on the same sheet and prints the same way. */
+.hris-statement .hris-statement-emp {
+    grid-template-columns: 22mm 1.3fr 1fr 1fr;
+}
+.hris-statement-sub {
+    display: block;
+    color: var(--slip-mute);
+    font-size: 7pt;
+    font-weight: 400;
+}
+article.hris-payslip .hris-statement-table {
+    margin-top: 2.5mm;
+}
+article.hris-payslip .hris-statement-table th:not(:first-child),
+article.hris-payslip .hris-statement-table td {
+    width: 24mm;
+}
+.hris-statement-note {
+    color: var(--slip-mute);
+    font-size: 7pt;
+}
+.hris-statement .hris-statement-net {
+    margin-top: 2.5mm;
+    border: 1px solid var(--slip-ink);
+}
+.hris-statement .hris-statement-net > div:first-child {
+    color: var(--slip-mute);
+}
+.hris-statement .hris-statement-net .hris-payslip-pay {
+    border-top-width: 1px;
+}
+.hris-statement-employer {
+    width: 100%;
+    max-width: 794px;
+    margin: 0.75rem auto 0;
+    padding: 0.75rem 1rem;
+    border: 1px dashed var(--color-border);
+    border-radius: 6px;
+    color: var(--color-muted-foreground);
+    font-size: 0.8125rem;
+}
+.hris-statement-employer-title {
+    color: var(--color-foreground);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
 .hris-payslip-foot {
     margin-top: 3mm;
     padding-top: 1.5mm;
@@ -377,85 +269,9 @@ article.hris-payslip .hris-signatories > div > p:last-child {
     border: 0;
 }
 
-/* Supporting facts stay accessible without extending the printed sheet. */
-.hris-payslip-section-title {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 6px;
-    margin-bottom: 6px;
-}
-.hris-payslip-section-title h3 {
-    font-size: 13px;
-    font-weight: 650;
-    margin: 0;
-    letter-spacing: -0.15px;
-}
-.hris-payslip-section-title span {
-    font-size: 9px;
-    color: var(--color-muted-foreground);
-    letter-spacing: 0.4px;
-}
-.hris-payslip-details {
-    width: 100%;
-    max-width: 794px;
-    margin: 16px auto 0;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    background: var(--color-card);
-    font-size: 12px;
-}
-.hris-payslip-details summary {
-    padding: 12px 16px;
-    cursor: pointer;
-    font-weight: 600;
-}
-.hris-payslip-details summary:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-}
-.hris-payslip-details-period {
-    padding: 0 16px 8px;
-    font-size: 11px;
-    font-weight: 700;
-}
-.hris-payslip-supplemental {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 20px;
-    padding: 0 16px 16px;
-}
-.hris-payslip-supplemental > * {
-    min-width: 0;
-}
-.hris-payslip-details .hris-payslip-table {
-    font-size: 11px;
-}
-.hris-payslip-details .hris-payslip-table th {
-    white-space: normal;
-    text-align: left;
-    padding: 4px 5px 4px 0;
-}
-.hris-payslip-details .hris-payslip-table td {
-    white-space: normal;
-    overflow-wrap: anywhere;
-    text-align: right;
-    padding: 4px 0;
-}
-.hris-payslip-details .hris-payslip-table td,
-.hris-payslip-details .hris-payslip-table th {
-    border-bottom: 1px solid var(--color-border);
-}
-.hris-payslip-details-notes {
-    padding: 0 16px 16px;
-    color: var(--color-muted-foreground);
-    font-size: 10px;
-    line-height: 1.5;
-}
-
 /* Narrower stages, measured on the sheet itself. Scoped to the document: the
    stage below is a container too, and an unnamed query would otherwise reach
-   the details fold beside it. */
+   whatever sits beside it. */
 @container (max-width: 648px) {
     article.hris-payslip .hris-payslip-top {
         flex-wrap: wrap;
@@ -478,21 +294,9 @@ article.hris-payslip .hris-signatories > div > p:last-child {
     }
 }
 @container (max-width: 480px) {
-    article.hris-payslip .hris-payslip-cols {
-        grid-template-columns: minmax(0, 1fr);
-    }
-    article.hris-payslip .hris-payslip-col:first-child {
-        border-right: 0;
-        border-bottom: 1px solid var(--slip-ink);
-    }
     article.hris-payslip .hris-signatories {
         grid-template-columns: minmax(0, 1fr);
         gap: 4mm;
-    }
-    article.hris-payslip .hris-payslip-table tbody th,
-    article.hris-payslip .hris-payslip-table tbody td {
-        padding-top: 0.6mm;
-        padding-bottom: 0.6mm;
     }
 }
 @media screen and (max-width: 720px) {
@@ -503,9 +307,6 @@ article.hris-payslip .hris-signatories > div > p:last-child {
 @media screen and (max-width: 480px) {
     .hris-payslip {
         padding: 18px 15px;
-    }
-    .hris-payslip-supplemental {
-        grid-template-columns: minmax(0, 1fr);
     }
 }
 
@@ -533,26 +334,22 @@ article.hris-payslip .hris-signatories > div > p:last-child {
         container: payslip-stage / inline-size;
     }
     @container payslip-stage (min-width: 860px) {
-        .hris-payslip,
-        .hris-payslip-details {
+        .hris-payslip {
             zoom: 1.108;
         }
     }
     @container payslip-stage (min-width: 940px) {
-        .hris-payslip,
-        .hris-payslip-details {
+        .hris-payslip {
             zoom: 1.209;
         }
     }
     @container payslip-stage (min-width: 1020px) {
-        .hris-payslip,
-        .hris-payslip-details {
+        .hris-payslip {
             zoom: 1.31;
         }
     }
     @container payslip-stage (min-width: 1100px) {
-        .hris-payslip,
-        .hris-payslip-details {
+        .hris-payslip {
             zoom: 1.41;
         }
     }
@@ -622,22 +419,8 @@ article.hris-payslip .hris-signatories > div > p:last-child {
         font-size: inherit;
         line-height: normal;
     }
-    article.hris-payslip .hris-payslip-table thead th,
     article.hris-payslip .hris-payslip-month thead th {
         font-size: 7pt;
-    }
-    article.hris-payslip .hris-payslip-table tr.hris-payslip-group th {
-        font-size: 6.8pt;
-    }
-    /* Tight enough for a month with every line filled to stay on one page. */
-    article.hris-payslip .hris-payslip-table tbody th,
-    article.hris-payslip .hris-payslip-table tbody td {
-        padding-top: 0;
-        padding-bottom: 0;
-        line-height: 2.85mm;
-    }
-    article.hris-payslip .hris-payslip-slip {
-        margin-bottom: 2mm;
     }
     article.hris-payslip .hris-payslip-foot {
         margin-top: 2mm;
@@ -645,17 +428,9 @@ article.hris-payslip .hris-signatories > div > p:last-child {
     article.hris-payslip .hris-table-wrap {
         overflow: visible;
     }
-    .record-print .reports-source-notes.reports-statement-appendix {
-        padding: 10mm 12mm;
-    }
-    .hris-payslip-slip,
-    .hris-payslip-after,
     article.hris-payslip .hris-signatories {
         break-inside: avoid;
         page-break-inside: avoid;
-    }
-    .hris-payslip-details {
-        display: none !important;
     }
     .reports-document .reports-statement,
     .record-print.reports-document-statements:has(.hris-payslip) {

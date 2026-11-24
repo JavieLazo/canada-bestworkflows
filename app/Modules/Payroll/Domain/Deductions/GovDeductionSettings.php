@@ -198,7 +198,7 @@ final class GovDeductionSettings
                 return self::LABELS[$key].': say whether it applies.';
             }
             if (is_float($default) && (! self::finite($value) || (float) $value < 0.0 || (float) $value > self::AMOUNT_CAP)) {
-                return self::LABELS[$key].': enter an amount up to ₱99,999,999.00.';
+                return self::LABELS[$key].': enter an amount up to $99,999,999.00.';
             }
             if (is_string($default) && ! in_array($value, self::MODES, true)) {
                 return self::LABELS[$key].': choose when it is deducted.';

@@ -20,7 +20,7 @@ use App\Modules\WorkManagement\Application\Queries\OverviewAnalytics;
 use App\Modules\WorkManagement\Application\Queries\WorkRecords;
 use App\Modules\WorkManagement\Application\Queries\WorkSummary;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Livewire\Livewire;
 
@@ -164,7 +164,7 @@ it('reads trends for a picked period and where work stands today from visible wo
 });
 
 it('switches the overview range to a preset or a checked custom range', function () {
-    $this->travelTo(CarbonImmutable::parse('2026-11-13 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-11-13 10:00:00', LocalClock::zone()));
     $owner = cpaUser(cpaEmployee());
     cpaTask($owner, cpaProject($owner, cpaClient($owner)), []);
     cpaLogin($owner);
@@ -190,7 +190,7 @@ it('calls a budget at risk when it is over, or when spending runs well ahead of 
 ]);
 
 it('lists only open projects whose finances the viewer can see, worst first', function () {
-    $this->travelTo(CarbonImmutable::parse('2026-11-13 10:00:00', ManilaClock::TZ));
+    $this->travelTo(CarbonImmutable::parse('2026-11-13 10:00:00', LocalClock::zone()));
     $owner = cpaUser(cpaEmployee());
     $actor = Access::forUser($owner);
     $client = cpaClient($owner);

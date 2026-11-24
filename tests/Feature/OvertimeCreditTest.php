@@ -19,7 +19,7 @@ use App\Modules\Timekeeping\Application\Queries\CompensatoryHours;
 use App\Modules\Timekeeping\Application\Queries\DayCorrections;
 use App\Modules\Timekeeping\Domain\Attendance\OvertimeApprovalPolicy;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 
@@ -61,7 +61,7 @@ function otcrEmployee(): EmployeeProfile
     foreach (['TIME_IN' => '08:00', 'TIME_OUT' => '19:30'] as $type => $at) {
         $punch = new AttendanceLog;
         $punch->forceFill(['employee_id' => (string) $employee->getKey(), 'log_type' => $type, 'source' => 'MANUAL',
-            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant("2026-09-08T{$at}:00")->utc()])->save();
+            'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant("2026-09-08T{$at}:00")->utc()])->save();
     }
 
     return $employee;

@@ -165,9 +165,9 @@
                         <div class="space-y-2">
                             <x-kit.select label="Round each rate step to" wire:model.live="formRounding" :disabled="! $canManage">
                                 <flux:select.option value="">No rounding</flux:select.option>
-                                <flux:select.option value="0">Whole pesos</flux:select.option>
+                                <flux:select.option value="0">Whole dollars</flux:select.option>
                                 <flux:select.option value="1">1 decimal</flux:select.option>
-                                <flux:select.option value="2">2 decimals (centavos)</flux:select.option>
+                                <flux:select.option value="2">2 decimals (cents)</flux:select.option>
                                 <flux:select.option value="3">3 decimals</flux:select.option>
                                 <flux:select.option value="4">4 decimals</flux:select.option>
                             </x-kit.select>
@@ -181,9 +181,9 @@
                 {{-- What the method and the two steps come to, under both of them. --}}
                 <div class="min-w-0 lg:col-span-2">
                     @if ($sample !== null)
-                        <p class="rounded-md border border-border bg-muted px-4 py-3 text-sm">At ₱30,000{{ $sample['note'] !== '' ? ', '.$sample['note'] : '' }}: <strong class="num">{{ $sample['daily'] }}</strong> a day, <strong class="num">{{ $sample['hourly'] }}</strong> an hour on {{ trim($formHourlyHours) === '' ? 'an 8-hour shift' : $sample['hours'].' hours' }}.</p>
+                        <p class="rounded-md border border-border bg-muted px-4 py-3 text-sm">At $30,000{{ $sample['note'] !== '' ? ', '.$sample['note'] : '' }}: <strong class="num">{{ $sample['daily'] }}</strong> a day, <strong class="num">{{ $sample['hourly'] }}</strong> an hour on {{ trim($formHourlyHours) === '' ? 'an 8-hour shift' : $sample['hours'].' hours' }}.</p>
                     @else
-                        <p class="rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">Enter the {{ $formMethod === PayRules::METHOD_FACTOR ? 'days a year' : 'divisor' }} to see a sample at ₱30,000.</p>
+                        <p class="rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">Enter the {{ $formMethod === PayRules::METHOD_FACTOR ? 'days a year' : 'divisor' }} to see a sample at $30,000.</p>
                     @endif
                 </div>
             </div>

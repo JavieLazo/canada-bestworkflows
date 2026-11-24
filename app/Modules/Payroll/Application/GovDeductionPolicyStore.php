@@ -14,8 +14,8 @@ use RuntimeException;
 /**
  * Each employee's Contributions & tax policy as payroll reads it: the
  * APPROVED version in force on a date — the latest whose effective date is
- * on or before it; a regular payroll asks for its period's first day, the
- * 13th month run for 31 December — laid over the employee's pay context,
+ * on or before it; a payroll asks for its period's first day — laid over
+ * the employee's pay context,
  * so the engine reads the version's switches off the employee exactly as
  * it read the profile columns. An employee with no approved version keeps
  * their profile columns: the BASELINE, which no screen edits. Drafts are

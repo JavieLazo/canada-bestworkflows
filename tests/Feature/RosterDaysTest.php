@@ -28,7 +28,7 @@ use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Modules\Workforce\Application\Commands\CreateEmployee;
 use App\Modules\Workforce\Application\EmployeeFields;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Str;
 
 /**
@@ -232,7 +232,7 @@ it('refuses today once today’s shift has started, naming the earliest date', f
     $am = rdaysPattern('AM', '06:00:00', '14:00:00');
     $this->travelTo(new DateTimeImmutable('2026-11-16T10:00:00+08:00'));
 
-    expect(fn () => app(SaveRosterDays::class)->handle($actor, $employee->id, [ManilaClock::todayKey(), '2026-11-18'], $am->id, 'DEFAULT'))
+    expect(fn () => app(SaveRosterDays::class)->handle($actor, $employee->id, [LocalClock::todayKey(), '2026-11-18'], $am->id, 'DEFAULT'))
         ->toThrow(ScheduleChangeRefused::class, 'The earliest it can start is Nov 17, 2026.');
     expect(RosterDayOverride::query()->count())->toBe(0);
 });
@@ -307,7 +307,7 @@ it('shows approved leave by type only to a viewer of that employee’s leave, le
     LeaveTravelRequest::query()->create(['code' => 'RD-OB', 'employee_id' => $employee->id, 'request_type' => 'BUSINESS_TRAVEL', 'day_type' => 'WHOLE_DAY',
         'start_date' => '2026-11-23', 'end_date' => '2026-11-23', 'status' => 'APPROVED', 'is_paid' => null, 'reason' => 'Private reason']);
     $cancel = new LeaveRequestCancellation;
-    $cancel->forceFill(['leave_travel_request_id' => $approved->id, 'date' => '2026-11-18', 'cancelled_by' => User::factory()->create()->id, 'cancelled_at' => ManilaClock::instant('2026-11-16T05:00:00+08:00')->utc(), 'reason' => 'Back early'])->save();
+    $cancel->forceFill(['leave_travel_request_id' => $approved->id, 'date' => '2026-11-18', 'cancelled_by' => User::factory()->create()->id, 'cancelled_at' => LocalClock::instant('2026-11-16T05:00:00+08:00')->utc(), 'reason' => 'Back early'])->save();
 
     $leaveOf = static fn (Access $actor): array => array_map(
         static fn (RosterDayView $day): ?string => $day->leave,

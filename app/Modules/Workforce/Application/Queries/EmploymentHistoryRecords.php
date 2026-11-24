@@ -14,7 +14,7 @@ use App\Modules\Workforce\Contracts\Views\EmploymentSubjectView;
 use App\Platform\ReadModels\Snapshot;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Generator;
 use Illuminate\Database\Eloquent\Builder;
@@ -262,10 +262,10 @@ final class EmploymentHistoryRecords
             $query->where('employee_id', $employeeId);
         }
         if ($from !== '') {
-            $query->where('created_at', '>=', ManilaClock::instant($from.'T00:00:00')->utc()->format('Y-m-d H:i:s.v'));
+            $query->where('created_at', '>=', LocalClock::instant($from.'T00:00:00')->utc()->format('Y-m-d H:i:s.v'));
         }
         if ($to !== '') {
-            $query->where('created_at', '<', ManilaClock::instant($to.'T00:00:00')->addDay()->utc()->format('Y-m-d H:i:s.v'));
+            $query->where('created_at', '<', LocalClock::instant($to.'T00:00:00')->addDay()->utc()->format('Y-m-d H:i:s.v'));
         }
         $fields = $field === '' ? array_keys(self::fields()) : [$field];
         $query->where(static function (Builder $any) use ($fields): void {

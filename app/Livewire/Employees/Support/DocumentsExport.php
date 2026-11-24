@@ -11,7 +11,7 @@ use App\Modules\Workforce\Application\Queries\EmployeeRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -42,7 +42,7 @@ final class DocumentsExport implements TableExport
         };
 
         return new CsvExport(
-            'documents-'.$employee->employee_code.'-'.ManilaClock::todayKey().'.csv',
+            'documents-'.$employee->employee_code.'-'.LocalClock::todayKey().'.csv',
             ['ID', 'Document', 'File', 'Size', 'Category', 'Expires'],
             $rows,
         );

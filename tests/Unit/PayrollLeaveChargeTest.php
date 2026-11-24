@@ -13,8 +13,8 @@ use App\Domain\Payroll\PayslipCalculator;
  * the days of credits charged. An empty charge map, and null, are the
  * reference bit for bit, which the golden vectors hold.
  *
- * September 2026 has 22 scheduled Monday-to-Friday days, so PHP 30,000 a
- * month is PHP 1,363.636… a day and PHP 170.4545… an hour. The period is 1
+ * September 2026 has 22 scheduled Monday-to-Friday days, so CAD 30,000 a
+ * month is CAD 1,363.636… a day and CAD 170.4545… an hour. The period is 1
  * to 15 September.
  */
 function plcShift(): DomainShift

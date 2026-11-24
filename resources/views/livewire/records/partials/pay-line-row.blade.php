@@ -17,7 +17,7 @@
         <p class="text-xs text-muted-foreground">{{ $line->note ?: ($withTax ? 'Allowance' : 'Deduction') }}</p>
     </td>
     <td class="num whitespace-nowrap text-right">
-        {{ Hris::peso($line->amount) }}
+        {{ Hris::money($line->amount) }}
         <span class="block text-xs text-muted-foreground">{{ RecurringLineText::FREQUENCIES[$line->frequency] ?? $line->frequency }}</span>
     </td>
     @unless ($withTax)
@@ -25,10 +25,10 @@
             @if ($line->left === null)
                 <span class="text-muted-foreground">No balance</span>
             @else
-                {{ Hris::peso($line->left) }}
+                {{ Hris::money($line->left) }}
             @endif
             @if ($line->total !== null)
-                <span class="block text-xs text-muted-foreground">of {{ Hris::peso($line->total) }}</span>
+                <span class="block text-xs text-muted-foreground">of {{ Hris::money($line->total) }}</span>
             @endif
         </td>
     @endunless

@@ -15,7 +15,7 @@ use App\Modules\Payroll\Application\Queries\StatutoryTableRecords;
 use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Contracts\Views\StatutoryTableView;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Flux\Flux;
 use Illuminate\Database\QueryException;
@@ -157,7 +157,7 @@ class StatutoryTablesPage extends Component
     private function current(Access $access): ?StatutoryTableView
     {
         $versions = app(StatutoryTableRecords::class)->versions($access, $this->tab);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return $versions->first(static fn (StatutoryTableView $row): bool => $row->effective_from->format('Y-m-d') <= $today) ?? $versions->first();
     }
@@ -248,7 +248,7 @@ class StatutoryTablesPage extends Component
     /** The confirm dialog over every table, proposing a date from the one confirmed the shortest way ahead. */
     public function openConfirmAll(): void
     {
-        $this->formConfirmThrough = self::proposedThrough(app(StatutoryTables::class)->confirmedThrough() ?? ManilaClock::todayKey());
+        $this->formConfirmThrough = self::proposedThrough(app(StatutoryTables::class)->confirmedThrough() ?? LocalClock::todayKey());
         $this->formError = null;
         $this->confirmAllOpen = true;
     }
@@ -275,7 +275,7 @@ class StatutoryTablesPage extends Component
     /** The end of the year after the one a table is confirmed through, or of this year once that has passed. */
     private static function proposedThrough(string $confirmed): string
     {
-        $base = CarbonImmutable::parse(max($confirmed, ManilaClock::todayKey()), 'UTC')->endOfYear();
+        $base = CarbonImmutable::parse(max($confirmed, LocalClock::todayKey()), 'UTC')->endOfYear();
 
         return ($base->format('Y-m-d') > $confirmed ? $base : $base->addYear()->endOfYear())->format('Y-m-d');
     }
@@ -307,7 +307,7 @@ class StatutoryTablesPage extends Component
     public function render(): View
     {
         $access = app(Access::class);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         // The page shows the figures in use, never another row's.
         $shown = $this->current($access);
         $figures = $shown->params ?? StatutorySchedule::BUILT_IN[$this->tab];
@@ -363,7 +363,7 @@ class StatutoryTablesPage extends Component
         $rows = [];
         foreach (self::FIGURES[$this->tab] ?? [] as [$key, $label, $shape]) {
             $value = $figures[$key] ?? null;
-            $rows[] = [$label, ! is_numeric($value) ? '—' : ($shape === 'percent' ? self::percentText($value).'%' : Hris::peso((float) $value))];
+            $rows[] = [$label, ! is_numeric($value) ? '—' : ($shape === 'percent' ? self::percentText($value).'%' : Hris::money((float) $value))];
         }
 
         return $rows;
@@ -390,10 +390,10 @@ class StatutoryTablesPage extends Component
         $rows = [];
         if ($this->tab === StatutorySchedule::WITHHOLDING_TAX) {
             foreach (self::SAMPLE_SEMI_MONTHLY as $taxable) {
-                $rows[] = ['list' => 'semi_monthly', 'amount' => Hris::peso($taxable), 'tax' => Hris::peso(Statutory::semiMonthlyWithholdingTax($taxable, $schedule))];
+                $rows[] = ['list' => 'semi_monthly', 'amount' => Hris::money($taxable), 'tax' => Hris::money(Statutory::semiMonthlyWithholdingTax($taxable, $schedule))];
             }
             foreach (self::SAMPLE_ANNUAL as $taxable) {
-                $rows[] = ['list' => 'annual', 'amount' => Hris::peso($taxable), 'tax' => Hris::peso(Statutory::annualIncomeTax($taxable, $schedule))];
+                $rows[] = ['list' => 'annual', 'amount' => Hris::money($taxable), 'tax' => Hris::money(Statutory::annualIncomeTax($taxable, $schedule))];
             }
 
             return $rows;
@@ -405,10 +405,10 @@ class StatutoryTablesPage extends Component
                 default => Statutory::pagibig($salary, $schedule),
             };
             $rows[] = [
-                'amount' => Hris::peso($salary),
-                'employee' => Hris::peso($shares['employee']),
-                'employer' => Hris::peso($shares['employer']),
-                'half' => Hris::peso(Statutory::semiMonthlyShare($shares['employee'])),
+                'amount' => Hris::money($salary),
+                'employee' => Hris::money($shares['employee']),
+                'employer' => Hris::money($shares['employer']),
+                'half' => Hris::money(Statutory::semiMonthlyShare($shares['employee'])),
             ];
         }
 
@@ -454,7 +454,7 @@ class StatutoryTablesPage extends Component
             return ['error' => 'Check the figures.'];
         }
         if ($this->tab === StatutorySchedule::WITHHOLDING_TAX) {
-            return ['amount' => Hris::peso(20000), 'tax' => Hris::peso(Statutory::semiMonthlyWithholdingTax(20000, $schedule))];
+            return ['amount' => Hris::money(20000), 'tax' => Hris::money(Statutory::semiMonthlyWithholdingTax(20000, $schedule))];
         }
         $shares = match ($this->tab) {
             StatutorySchedule::SSS => Statutory::sss(30000, $schedule),
@@ -462,7 +462,7 @@ class StatutoryTablesPage extends Component
             default => Statutory::pagibig(30000, $schedule),
         };
 
-        return ['amount' => Hris::peso(30000), 'employee' => Hris::peso($shares['employee']), 'employer' => Hris::peso($shares['employer'])];
+        return ['amount' => Hris::money(30000), 'employee' => Hris::money($shares['employee']), 'employer' => Hris::money($shares['employer'])];
     }
 
     /**

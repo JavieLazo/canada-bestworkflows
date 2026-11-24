@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Livewire\Portal;
 
 use App\Livewire\Leaves\Support\ApplicationFormData;
-use App\Livewire\Payroll\Support\PayslipSheet;
+use App\Livewire\Payroll\Support\PayrollData;
 use App\Livewire\Portal\Support\LeaveFormText;
 use App\Livewire\Portal\Support\PortalLabels;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
@@ -35,6 +35,7 @@ use App\Modules\Timekeeping\Domain\Absence\LeaveApplication;
 use App\Modules\Timekeeping\Domain\Absence\LeaveCreditPolicy;
 use App\Modules\Workforce\Application\Queries\EmployeeRecords;
 use App\Support\Access;
+use App\Support\EmployeeIdentity;
 use App\Support\Money;
 use Flux\Flux;
 use Illuminate\Contracts\View\View;
@@ -392,7 +393,7 @@ class PortalPage extends Component
 
         $dateError = PortalLabels::leaveRequestDateError($this->start, $this->end);
 
-        // MY credits for the current Manila year, read only while the Leave &
+        // MY credits for the current local year, read only while the Leave &
         // travel tab shows (own-pinned; empty when unlinked), and what the
         // draft would cost against the one its type resolves to.
         $creditYear = LeaveCreditPolicy::yearOf(PortalLabels::todayKey());
@@ -417,7 +418,6 @@ class PortalPage extends Component
         $incentives = $viewing !== null ? (app(PayslipRecords::class)->incentives($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $customDeductions = $viewing !== null ? (app(PayslipRecords::class)->customDeductions($actor, [$viewing->id])[$viewing->id] ?? []) : [];
         $deductionColumns = $viewing !== null ? app(PayslipRecords::class)->deductionColumns($actor, [$viewing->id]) : collect();
-        $viewingYearly = $viewing !== null && $viewing->thirteenth_month > 0;
 
         // MY leave credit cash-outs, and the types I may cash out (Leave
         // Credits settings) among the balances shown — read only while the
@@ -487,12 +487,15 @@ class PortalPage extends Component
             'viewing' => $viewing,
             'earnings' => $viewing !== null ? $this->earningLines($viewing, $incentives) : [],
             'deductions' => $viewing !== null ? $this->deductionLines($viewing, $customDeductions, $deductionColumns) : [],
-            'payslipSheet' => $viewing !== null ? PayslipSheet::issued($actor, $viewing, $employee, $viewingYearly, (string) ($employee->department_name ?? ''), own: true) : null,
-            // A 13th month payslip carries no attendance and no contributions,
-            // so its document leaves those blocks out instead of printing
-            // zeros. The note explaining it sits in the additional details,
-            // which My Portal does not show.
-            'viewingYearly' => $viewingYearly,
+            // MY pay statement, whatever kind of payroll posted it: pinned to
+            // my own employee, without what the employer pays.
+            'payslipStatement' => $viewing !== null ? (app(PayslipRecords::class)->statements($actor, [$viewing->id], own: true)[$viewing->id] ?? null) : null,
+            // Who the statement names: my own record.
+            'payslipEmployee' => [
+                'name' => PayrollData::employeeName($employee),
+                'number' => EmployeeIdentity::number($employee),
+                'position' => (string) ($employee->position ?? '—'),
+            ],
         ]);
     }
 
@@ -590,7 +593,7 @@ class PortalPage extends Component
             'value' => $p->thirteenth_month,
             'hint' => null,
             'note' => $p->taxable_benefits_excess > 0
-                ? PortalLabels::peso($p->taxable_benefits_excess).' taxed over the yearly ceiling'
+                ? PortalLabels::money($p->taxable_benefits_excess).' taxed over the yearly ceiling'
                 : 'Tax-exempt',
         ];
         foreach ($incentives as $line) {
@@ -601,7 +604,7 @@ class PortalPage extends Component
                 'hint' => null,
                 'note' => $line->is_taxable
                     ? 'Taxable'
-                    : 'Tax-exempt'.($line->over_ceiling > 0 ? ' · '.PortalLabels::peso($line->over_ceiling).' taxed over the yearly ceiling' : ''),
+                    : 'Tax-exempt'.($line->over_ceiling > 0 ? ' · '.PortalLabels::money($line->over_ceiling).' taxed over the yearly ceiling' : ''),
             ];
         }
         if ($incentives === []) {

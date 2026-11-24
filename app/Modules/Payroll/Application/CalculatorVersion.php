@@ -38,9 +38,8 @@ final class CalculatorVersion
      * Every file whose bytes the version covers, sorted by path.
      *
      * The shared engines (app/Domain/Payroll, app/Domain/Attendance), Money
-     * and ManilaClock, composer.lock, the input mapping (PayrollData,
-     * PayrollInputs, and the 13th month run's ThirteenthMonthData and
-     * ThirteenthMonthInputs) and every rule under app/Modules/Payroll/Domain,
+     * and LocalClock, composer.lock, the input mapping (PayrollData and
+     * PayrollInputs) and every rule under app/Modules/Payroll/Domain,
      * at any depth (the PHP 90,000 exempt-benefit ceiling lives there). A
      * change to any of them stales every outstanding preview and makes
      * calculateInputs() refuse evidence captured before it.
@@ -56,13 +55,10 @@ final class CalculatorVersion
             // The leave-credit charge plan prices lateness and absences (DIVERGENCE 15).
             ...self::phpFilesUnder(base_path('app/Modules/Timekeeping/Domain/Credits')),
             base_path('app/Support/Money.php'),
-            base_path('app/Support/ManilaClock.php'),
+            base_path('app/Support/LocalClock.php'),
             base_path('composer.lock'),
             __DIR__.'/PayrollData.php',
             __DIR__.'/PayrollInputs.php',
-            // The 13th month run's input mapping and compute path.
-            __DIR__.'/ThirteenthMonthData.php',
-            __DIR__.'/ThirteenthMonthInputs.php',
         ];
         // Forward slashes before sorting, so a Windows checkout fingerprints
         // the same files in the same order as Linux.

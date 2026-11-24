@@ -82,7 +82,7 @@ it('refuses impossible, two-digit-year and mixed-order dates', function (string 
 it('reads times, amounts, whole numbers, flags and labelled choices as the screens store them', function () {
     $row = csvParseRow([
         'In' => '8:00 AM', 'Out' => '17:30:00', 'Late' => '12:15 pm',
-        'Rate' => '₱25,000.50', 'Loan' => '(1,200)', 'Plain' => '-15',
+        'Rate' => '$25,000.50', 'Loan' => '(1,200)', 'Plain' => '-15',
         'Days' => '1,000', 'Active' => 'Yes', 'SSS' => 'no', 'Status' => 'active',
     ]);
 

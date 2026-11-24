@@ -13,7 +13,7 @@ use App\Platform\Records\AccountEmployeeLinks;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -45,7 +45,7 @@ final class ReplaceSalary
         if ($error !== null) {
             throw new RuntimeException($error);
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $employeeId, $monthly, $daily, $today): string {
             abort_unless(app(AccountEmployeeLinks::class)->isActive((int) $access->userId), 403);

@@ -37,45 +37,6 @@ function stpActor(bool $allData = true): User
     return $user;
 }
 
-it('gates the page on the PAYROLL grant and shows each table\'s one set of figures with its samples', function () {
-    $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
-    $this->get('/records/payroll-settings/contribution-tables')->assertRedirect(route('login'));
-
-    stpActor(false);
-    $this->get('/records/payroll-settings/contribution-tables')
-        ->assertOk()
-        ->assertSee('Contribution &amp; Tax Tables', false)
-        ->assertDontSee('tables are confirmed through')
-        ->assertSee('Confirmed through')
-        ->assertSee('31 Dec 2026')
-        ->assertSee('SSS Figures')
-        // No list of dated versions, and no version state.
-        ->assertDontSee('SSS versions')->assertDontSee('Effective From')->assertDontSee('Superseded')
-        ->assertSee('Employee Share (%)')
-        ->assertSee('Lowest Salary Credit')
-        ->assertSee('₱1,500.00')
-        ->assertSee('₱3,030.00')
-        ->assertSee('Changing or confirming the figures requires Payroll access to all data.')
-        ->assertDontSee('Edit Figures');
-
-    $page = Livewire::test(StatutoryTablesPage::class)
-        ->set('tab', StatutorySchedule::WITHHOLDING_TAX)
-        ->assertSee('withholding tax figures')
-        ->assertSeeHtml('>Semi-monthly</h3>')
-        ->assertSee('₱10,417.00')
-        ->assertSee('₱2,604.10')
-        // What a confirmed date means is said beside it, not only inside the Confirm dialog.
-        ->assertSee('Later payrolls show a reminder.')
-        ->set('tab', 'GSIS')
-        ->assertSet('tab', StatutorySchedule::SSS);
-
-    // The table tabs are the head of the one card that holds the figures and their check.
-    $html = $page->html();
-    expect(substr_count($html, 'data-statutory-tables'))->toBe(1)
-        ->and(strpos($html, 'data-statutory-tables'))->toBeLessThan((int) strpos($html, 'aria-label="Tables"'))
-        ->and(strpos($html, 'aria-label="Tables"'))->toBeLessThan((int) strpos($html, 'SSS Figures'));
-});
-
 it('replaces a table\'s figures from the dialog, converting percentages once, with no date to choose', function () {
     $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
     $actor = stpActor();
@@ -89,10 +50,10 @@ it('replaces a table\'s figures from the dialog, converting percentages once, wi
         ->assertSet('formFigures.ee_rate', '5')
         ->assertSet('formFigures.er_rate', '10')
         ->assertSet('formFigures.msc_max', '35000')
-        ->assertSee('Preview at ₱30,000.00 a month: employee')
+        ->assertSee('Preview at $30,000.00 a month: employee')
         ->set('formFigures.msc_max', '40000')
         ->set('formFigures.ec_high', '50')
-        ->assertSee('₱1,500.00');
+        ->assertSee('$1,500.00');
     $page->set('formReference', 'New schedule')->call('save')->assertSet('dialogOpen', false);
 
     // The same row carries the new figures from the date it always covered: nothing is added beside it.
@@ -106,7 +67,7 @@ it('replaces a table\'s figures from the dialog, converting percentages once, wi
         ->and($row->params)->toEqual([...StatutorySchedule::BUILT_IN[StatutorySchedule::SSS], 'msc_max' => 40000.0, 'ec_high' => 50.0])
         ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_UPDATED')->where('entity_id', $row->id)->where('details', 'SSS table figures replaced (New schedule)')->count())->toBe(1)
         ->and(AuditLog::query()->where('action', 'STATUTORY_TABLE_ADDED')->count())->toBe(0);
-    $page->assertSee('₱40,000.00')->assertDontSee('Upcoming')->assertDontSee('Superseded');
+    $page->assertSee('$40,000.00')->assertDontSee('Upcoming')->assertDontSee('Superseded');
 });
 it('refuses a version from a PAYROLL holder without all data and leaves no trace', function () {
     stpActor(false);
@@ -223,7 +184,7 @@ it('leaves one row per table once the figures are edited, whatever dated version
 
     // The page shows and edits the figures in use, not the later ones.
     Livewire::test(StatutoryTablesPage::class)
-        ->assertSee('₱35,000.00')->assertDontSee('₱99,000.00')
+        ->assertSee('$35,000.00')->assertDontSee('$99,000.00')
         ->call('openAdd')
         ->assertSet('formFigures.msc_max', '35000')
         ->set('formFigures.msc_max', '36000')

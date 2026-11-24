@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\Schema;
  * `logged_at` is DATETIME(3) and the 3 is LOAD-BEARING, not decoration. Punch
  * pairing orders by logged_at; collapsing to whole seconds silently reorders a
  * TIME_IN/TIME_OUT pair that landed in the same second. (Note the separate
- * rule on the compute side: ManilaClock::minutesOfDay() TRUNCATES at whole
+ * rule on the compute side: LocalClock::minutesOfDay() TRUNCATES at whole
  * seconds, reproducing the Intl formatter at dtr.ts:101-110, so a punch at
  * 08:15:00.500 against an 08:00 shift with 15 minutes grace is still on time.
  * Millisecond storage, second-granular grace arithmetic — two precisions, both

@@ -386,7 +386,7 @@ it('draws the current job first with Edit in Employee Details, which opens Emplo
     pdslpageHr();
 
     pdslpageCard($employee, 'experience')
-        ->assertSeeHtmlInOrder(['Accountant II', 'Fixture Company', 'From Employee Details', '03 Jan 2024', 'Present', '₱25,000.00', 'Senior', 'Regular', 'N', 'Junior Accountant', 'ABC Trading Corporation'])
+        ->assertSeeHtmlInOrder(['Accountant II', 'Fixture Company', 'From Employee Details', '03 Jan 2024', 'Present', '$25,000.00', 'Senior', 'Regular', 'N', 'Junior Accountant', 'ABC Trading Corporation'])
         ->assertSeeHtml('aria-label="Actions for Accountant II, Fixture Company"')
         ->assertSeeHtml('wire:click="$parent.startEdit(\'employment\')"')
         ->assertSee('Edit in Employee Details')

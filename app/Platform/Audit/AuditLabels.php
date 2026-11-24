@@ -94,6 +94,7 @@ final class AuditLabels
         'TAX_BALANCE_RECORDED' => 'Tax balance recorded',
         'TAX_BALANCE_APPROVED' => 'Tax balance approved',
         'TAX_BALANCE_DISCARDED' => 'Tax balance discarded',
+        'TAX_DETAILS_SAVED' => 'Tax details saved',
         'LOAN_ENTRY_RECORDED' => 'Loan entry recorded',
         'LOAN_ENTRY_APPROVED' => 'Loan entry approved',
         'LOAN_ENTRY_DISCARDED' => 'Loan entry discarded',

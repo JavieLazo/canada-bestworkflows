@@ -1,7 +1,7 @@
 {{-- Proposals preserve official values until an independent reviewer approves them. --}}
 @php
     use App\Livewire\Employees\ChangeRequests;
-    use App\Support\ManilaClock;
+    use App\Support\LocalClock;
     $pill = static fn (string $status): string => match ($status) {
         'APPROVED' => 'pill-success',
         'REJECTED' => 'pill-danger',
@@ -35,7 +35,7 @@
                         <tr wire:key="record-request-{{ $row->id }}">
                             <td><span class="block font-medium">{{ $row->employee_name }}</span><span class="block text-xs text-muted-foreground">Submitted by {{ $row->requested_by_name }}</span></td>
                             <td>{{ ChangeRequests::sectionLabel($row) }}<span class="block text-xs text-muted-foreground">{{ ['CREATE' => 'Add', 'UPDATE' => 'Update', 'DELETE' => 'Remove'][$row->operation] ?? $row->operation }}</span></td>
-                            @php($submittedAt = $row->created_at->setTimezone(ManilaClock::TZ))
+                            @php($submittedAt = $row->created_at->setTimezone(LocalClock::zone()))
                             <td class="num whitespace-nowrap">
                                 <p>{{ $submittedAt->format('M d, Y') }}</p>
                                 <p class="text-xs text-muted-foreground">{{ $submittedAt->format('g:i A') }}</p>
@@ -58,7 +58,7 @@
                 <div class="space-y-2">
                     <flux:heading size="lg" id="record-request-heading">{{ ChangeRequests::sectionLabel($open) }} — {{ $open->employee_name }}</flux:heading>
                     <span class="pill {{ $pill($open->status) }}">{{ ucfirst(strtolower($open->status)) }}</span>
-                    <p class="text-sm text-muted-foreground">Submitted by {{ $open->requested_by_name }} · {{ $open->created_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') }}</p>
+                    <p class="text-sm text-muted-foreground">Submitted by {{ $open->requested_by_name }} · {{ $open->created_at->setTimezone(LocalClock::zone())->format('M d, Y, g:i A') }}</p>
                 </div>
                 @if (trim((string) $open->reason) !== '')
                     <div><h3 class="text-sm font-semibold">Reason for Change</h3><p class="mt-1 whitespace-pre-wrap break-words text-sm">{{ $open->reason }}</p></div>
@@ -84,7 +84,7 @@
                 @endif
                 @if ($open->reviewed_at !== null)
                     <div class="rounded-lg bg-muted p-3 text-sm">
-                        <p class="font-medium">Reviewed by {{ $open->reviewed_by_name ?? 'Employee Records manager' }} · {{ $open->reviewed_at->setTimezone(ManilaClock::TZ)->format('M d, Y, g:i A') }}</p>
+                        <p class="font-medium">Reviewed by {{ $open->reviewed_by_name ?? 'Employee Records manager' }} · {{ $open->reviewed_at->setTimezone(LocalClock::zone())->format('M d, Y, g:i A') }}</p>
                         @if ($open->review_note)<p class="mt-1 whitespace-pre-wrap break-words">{{ $open->review_note }}</p>@endif
                     </div>
                 @endif

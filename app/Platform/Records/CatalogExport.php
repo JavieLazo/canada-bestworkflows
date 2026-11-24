@@ -7,7 +7,7 @@ namespace App\Platform\Records;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -41,7 +41,7 @@ final class CatalogExport implements TableExport
         };
 
         return new CsvExport(
-            str_replace(' ', '-', $this->list['plural']).'-'.ManilaClock::todayKey().'.csv',
+            str_replace(' ', '-', $this->list['plural']).'-'.LocalClock::todayKey().'.csv',
             self::columns($this->list),
             $rows,
         );

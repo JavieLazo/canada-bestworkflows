@@ -11,7 +11,7 @@ use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollSettingsAccess;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -46,7 +46,7 @@ final class ReplaceBenefitCeiling
             throw new RuntimeException('Enter the ceiling as an amount at or above zero.');
         }
         $pesos = Money::round($ceiling);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $pesos, $today): string {
             PayrollData::lockMembership();

@@ -12,7 +12,7 @@ use App\Modules\WorkManagement\Domain\Projects\FinanceAmount;
 use App\Modules\WorkManagement\Domain\Tasks\TaskSchedule;
 use App\Support\Access;
 use App\Support\AuditService;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -30,7 +30,7 @@ final class RecordCashEntry
             Validator::make($values, ['kind' => ['required', Rule::in(['RECEIPT', 'EXPENSE'])], 'description' => 'required|string|max:200',
                 'party' => 'nullable|string|max:200', 'reference' => 'nullable|string|max:200', 'notes' => 'nullable|string|max:4000',
                 'requestId' => 'nullable|ulid', 'correctionReason' => [$input->replacesId === null ? 'nullable' : 'required', 'string', 'max:1000']])->validate();
-            if (! TaskSchedule::isDateKey($input->occurredOn) || $input->occurredOn > ManilaClock::todayKey()) {
+            if (! TaskSchedule::isDateKey($input->occurredOn) || $input->occurredOn > LocalClock::todayKey()) {
                 throw ValidationException::withMessages(['occurredOn' => 'Choose an actual date through today.']);
             }
             $amount = FinanceAmount::minor($input->amount, 'amount', positive: true);

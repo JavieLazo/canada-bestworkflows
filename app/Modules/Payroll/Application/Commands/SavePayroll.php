@@ -23,11 +23,10 @@ use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PayrollPeriodText;
 use App\Modules\Payroll\Application\PaySchedules;
 use App\Modules\Payroll\Application\RecurringLines;
-use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Domain\PayrollAdvance;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use App\Support\Money;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -45,68 +44,36 @@ final class SavePayroll
         if ($name === '') {
             throw new RuntimeException('Give the payroll a name.');
         }
-        // Which payroll this is: a regular cut-off, or the yearly 13th month
-        // run — fixed at creation, checked below on an update.
-        $kind = $input->kind;
-        if (! in_array($kind, PayrollRunKind::all(), true)) {
-            throw new RuntimeException('Choose which payroll this is.');
-        }
-        $yearly = $kind === PayrollRunKind::THIRTEENTH_MONTH;
+        // Every payroll saved here is a regular cut-off: the kind is written
+        // at creation and checked below on an update.
+        $kind = PayrollRunKind::REGULAR;
         // The cut-off check: the dates, then the Contribution & Tax Tables in
-        // force — every table over a regular period, the withholding table
-        // on 31 December for the 13th month run.
-        $cutoffError = $yearly
-            ? (preg_match('/^(\d{4})-01-01$/', $input->start, $year) === 1 && $input->end === $year[1].'-12-31'
-                ? app(StatutoryTables::class)->yearlyCutoffError((int) $year[1])
-                : 'A 13th month payroll covers 1 January to 31 December of one year.')
-            : PayrollData::cutoffError($actor, $input->members, $input->start, $input->end);
+        // force over the period.
+        $cutoffError = PayrollData::cutoffError($actor, $input->members, $input->start, $input->end);
         if ($cutoffError !== null) {
             throw new RuntimeException($cutoffError);
         }
-        // The advance payroll's counted date (PayrollAdvance): a regular
-        // run only, inside the period and already over; the period's own
-        // last day is stored as nothing.
+        // The advance payroll's counted date (PayrollAdvance): inside the
+        // period and already over; the period's own last day is stored as
+        // nothing.
         $attendanceThrough = PayrollAdvance::normalize($input->attendanceThrough, $input->end);
         if ($attendanceThrough !== null) {
-            if ($yearly) {
-                throw new RuntimeException('A 13th month payroll reads no attendance, so it has no attendance cut-off.');
-            }
             if (! AdvanceSettlements::ready()) {
                 throw new RuntimeException('Attendance can be counted through an earlier day once this installation\'s upgrade finishes.');
             }
-            $advanceError = PayrollAdvance::error($attendanceThrough, $input->start, $input->end, ManilaClock::todayKey());
+            $advanceError = PayrollAdvance::error($attendanceThrough, $input->start, $input->end, LocalClock::todayKey());
             if ($advanceError !== null) {
                 throw new RuntimeException($advanceError);
             }
         }
         // The pay schedule the run's dates come from and its pay date
-        // (PaySchedules): a regular run only, the schedule one that exists,
-        // the pay date a real day; the contribution month follows the
-        // schedule's rule. A lagged attendance window is not priced yet.
-        [$scheduleId, $payDate, $contributionMonth, $scheduleNote] = $yearly ? [null, null, null, ''] : self::scheduleDates($input);
+        // (PaySchedules): the schedule one that exists, the pay date a real
+        // day; the contribution month follows the schedule's rule. A lagged
+        // attendance window is not priced yet.
+        [$scheduleId, $payDate, $contributionMonth, $scheduleNote] = self::scheduleDates($input);
         $deductions = $input->deductions;
         $allowances = $input->allowances;
         $earnings = $input->earnings;
-        $additional = [];
-        if ($yearly) {
-            if (array_filter($input->incentives, static fn (array $lines): bool => $lines !== []) !== []) {
-                throw new RuntimeException('Incentives are paid on a regular payroll, not on the 13th month run.');
-            }
-            if (array_filter($input->customDeductions, static fn (array $lines): bool => $lines !== []) !== []) {
-                throw new RuntimeException('Custom deductions belong on a regular payroll, not on the 13th month run.');
-            }
-            if (array_filter($input->skippedRecurring, static fn (array $lines): bool => $lines !== []) !== []) {
-                throw new RuntimeException('Recurring deductions and allowances belong on a regular payroll, not on the 13th month run.');
-            }
-            // Only a typed withholding applies; nothing else is on the run.
-            $deductions = array_filter(array_map(
-                static fn (array $lines): array => array_key_exists('withholding_tax', $lines) ? ['withholding_tax' => $lines['withholding_tax']] : [],
-                $deductions,
-            ));
-            $allowances = [];
-            $earnings = [];
-            $additional = self::additionalBasicPay($input->additionalBasicPay, $input->members);
-        }
         // requirePayrollOverrideMembers — structurally always clean here (the
         // active maps are filtered by membership), kept for parity with the route.
         $overrideError = PayrollValidation::overrideMembersError($input->members, $deductions, $allowances, $earnings);
@@ -127,11 +94,10 @@ final class SavePayroll
         $runId = $input->runId;
         $start = $input->start;
         $end = $input->end;
-        $kindNote = $yearly ? '; 13th month '.substr($start, 0, 4) : '';
         // Named in the audit sentence: the days this payroll pays ahead of
         // their attendance.
         $advanceNote = $attendanceThrough === null ? '' : '; attendance counted through '.PayrollPeriodText::day($attendanceThrough);
-        $result = DB::transaction(function () use ($actor, $runId, $name, $start, $end, $members, $deductions, $allowances, $earnings, $typed, $incentives, $customDeductions, $kind, $additional, $kindNote, $skipped, $attendanceThrough, $advanceNote, $scheduleId, $payDate, $contributionMonth, $scheduleNote): array {
+        $result = DB::transaction(function () use ($actor, $runId, $name, $start, $end, $members, $deductions, $allowances, $earnings, $typed, $incentives, $customDeductions, $kind, $skipped, $attendanceThrough, $advanceNote, $scheduleId, $payDate, $contributionMonth, $scheduleNote): array {
             PayrollData::lockMembership();
             EnsurePayrollMembership::check($actor, $members, $start, $end, $runId, $kind);
             $skipped = self::knownRecurring($skipped);
@@ -143,11 +109,10 @@ final class SavePayroll
                 if ($existing->status === PayrollRunStatus::FINALIZED) {
                     throw new RuntimeException('That payroll is finalized and can no longer be edited.');
                 }
+                // A draft of another kind is one this system no longer
+                // works on: it is never rewritten as a regular cut-off.
                 if (($existing->kind ?? PayrollRunKind::REGULAR) !== $kind) {
-                    throw new RuntimeException('A payroll cannot change between a regular and a 13th month run.');
-                }
-                if ($kind === PayrollRunKind::THIRTEENTH_MONTH && $existing->period_start->format('Y-m-d') !== $start) {
-                    throw new RuntimeException('A 13th month run keeps the year it was created for.');
+                    throw new RuntimeException('That draft is a 13th month payroll, which can no longer be saved or finalized here. Delete it from the Payroll list.');
                 }
                 $updated = PayrollRun::query()->whereKey($runId)->where('status', PayrollRunStatus::DRAFT)->update([
                     'name' => $name, 'period_start' => $start, 'period_end' => $end,
@@ -157,10 +122,10 @@ final class SavePayroll
                 if ($updated === 0) {
                     throw new RuntimeException('That payroll changed before the save completed.');
                 }
-                $memberIds = $this->writeMembers($runId, $members, $start, $end, $deductions, $allowances, $earnings, $additional, $skipped);
+                $memberIds = $this->writeMembers($runId, $members, $start, $end, $deductions, $allowances, $earnings, $skipped);
                 $lines = PayrollData::writeMemberIncentives($memberIds, self::knownTypes($incentives));
                 $customLines = PayrollData::writeMemberDeductions($memberIds, self::knownCustomTypes($customDeductions));
-                RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_UPDATED, 'payroll_runs', $runId, "{$name} saved{$kindNote}{$advanceNote}{$scheduleNote}{$typed}".self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
+                RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_UPDATED, 'payroll_runs', $runId, "{$name} saved{$advanceNote}{$scheduleNote}{$typed}".self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
 
                 return ['id' => $runId, 'created' => false];
             }
@@ -175,10 +140,10 @@ final class SavePayroll
                 $run->forceFill(['schedule_id' => $scheduleId, 'pay_date' => $payDate, 'contribution_month' => $contributionMonth]);
             }
             $run->save();
-            $memberIds = $this->writeMembers($run->id, $members, $start, $end, $deductions, $allowances, $earnings, $additional, $skipped);
+            $memberIds = $this->writeMembers($run->id, $members, $start, $end, $deductions, $allowances, $earnings, $skipped);
             $lines = PayrollData::writeMemberIncentives($memberIds, self::knownTypes($incentives));
             $customLines = PayrollData::writeMemberDeductions($memberIds, self::knownCustomTypes($customDeductions));
-            RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_CREATED, 'payroll_runs', $run->id, "{$name} created as a draft with ".count($members).' employees'.$kindNote.$advanceNote.$scheduleNote.$typed.self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
+            RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_CREATED, 'payroll_runs', $run->id, "{$name} created as a draft with ".count($members).' employees'.$advanceNote.$scheduleNote.$typed.self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
 
             return ['id' => $run->id, 'created' => true];
         });
@@ -377,35 +342,6 @@ final class SavePayroll
         return $deductions;
     }
 
-    /**
-     * A 13th month run's outside-EMS basic pay, validated: members only, each
-     * a finite peso figure from 0 to the money maximum (Money::round). A
-     * blank is nothing typed.
-     *
-     * @param  array<string, mixed>  $additional
-     * @param  list<string>  $members
-     * @return array<string, float>
-     */
-    private static function additionalBasicPay(array $additional, array $members): array
-    {
-        $valid = [];
-        foreach ($members as $employeeId) {
-            $value = $additional[$employeeId] ?? null;
-            if ($value === null || $value === '') {
-                continue;
-            }
-            if (! is_numeric($value) || ! is_finite((float) $value) || (float) $value < 0) {
-                throw new RuntimeException('Type the basic pay from other records as a peso figure, or leave it empty.');
-            }
-            if (Money::round($value) > PayrollData::MONEY_MAX) {
-                throw new RuntimeException('A basic pay figure is too large.');
-            }
-            $valid[$employeeId] = Money::round($value);
-        }
-
-        return $valid;
-    }
-
     /** "; 2 incentive lines", or '' — so a draft without any keeps its sentence. */
     private static function incentiveNote(int $lines): string
     {
@@ -515,7 +451,6 @@ final class SavePayroll
      * @param  array<string, array<string, mixed>>  $deductions
      * @param  array<string, float>  $allowances
      * @param  array<string, array<string, mixed>>  $earnings
-     * @param  array<string, float>  $additional
      * @param  array<string, list<string>>  $skipped
      * @return array<string, string>
      */
@@ -527,7 +462,6 @@ final class SavePayroll
         array $deductions,
         array $allowances,
         array $earnings,
-        array $additional = [],
         array $skipped = [],
     ): array {
         PayrollRunMember::query()->where('run_id', $runId)->delete();
@@ -543,7 +477,6 @@ final class SavePayroll
                 $deductions,
                 $allowances,
                 $earnings,
-                $additional,
                 $skipped,
             ))->id;
         }

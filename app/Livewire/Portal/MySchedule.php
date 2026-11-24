@@ -9,7 +9,7 @@ use App\Livewire\Roster\Support\RosterDayText;
 use App\Modules\Organization\Contracts\OrganizationDirectory;
 use App\Modules\Timekeeping\Application\Queries\RosterCalendar;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Contracts\View\View;
 use Livewire\Component;
 
@@ -49,7 +49,7 @@ class MySchedule extends Component
     {
         $access = app(Access::class);
         $calendar = app(RosterCalendar::class);
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $first = RosterDayText::monthStart($this->month);
         $last = PayrollPeriod::calendarMonthRange($first)['to'];
         $days = $calendar->own($access, $first, $last);

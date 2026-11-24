@@ -206,7 +206,7 @@
                                     <ul class="mt-2 space-y-1 text-sm">
                                         @foreach ($cashOuts as $c)
                                             <li class="flex flex-wrap items-center justify-between gap-2" wire:key="cash-out-{{ $c->id }}" data-cash-out="{{ $c->status }}">
-                                                <span>{{ $c->type_name }} · <span class="num">{{ PortalLabels::credits($c->days) }}</span> {{ $c->days === 1.0 ? 'day' : 'days' }}@if (isset(\App\Modules\Timekeeping\Application\LeaveCashOuts::PURPOSES[$c->purpose ?? ''])) · <span data-cash-out-purpose>{{ \App\Modules\Timekeeping\Application\LeaveCashOuts::PURPOSES[$c->purpose] }}</span>@endif · {{ $c->requested_at->setTimezone(\App\Support\ManilaClock::TZ)->format('M d, Y') }}@if ($c->amount !== null) · <span class="num">₱{{ number_format($c->amount, 2) }}</span>@endif</span>
+                                                <span>{{ $c->type_name }} · <span class="num">{{ PortalLabels::credits($c->days) }}</span> {{ $c->days === 1.0 ? 'day' : 'days' }}@if (isset(\App\Modules\Timekeeping\Application\LeaveCashOuts::PURPOSES[$c->purpose ?? ''])) · <span data-cash-out-purpose>{{ \App\Modules\Timekeeping\Application\LeaveCashOuts::PURPOSES[$c->purpose] }}</span>@endif · {{ $c->requested_at->setTimezone(\App\Support\LocalClock::zone())->format('M d, Y') }}@if ($c->amount !== null) · <span class="num">${{ number_format($c->amount, 2) }}</span>@endif</span>
                                                 <span class="flex items-center gap-2">
                                                     <span class="pill {{ match ($c->status) { 'PENDING' => 'pill-caution', 'APPROVED' => 'pill-primary', 'PAID' => 'pill-success-strong', default => 'pill-muted' } }}">{{ ucfirst(strtolower($c->status)) }}</span>
                                                     {{-- Terminal leave is HR's filing: a leave manager rejects it, the employee does not withdraw it. --}}
@@ -439,9 +439,9 @@
                                         <td class="num whitespace-nowrap">
                                             {{ $p->period_start->format('M d, Y') }} – {{ $p->period_end->format('M d, Y') }}
                                         </td>
-                                        <td class="num text-right">{{ PortalLabels::peso($p->gross_pay) }}</td>
-                                        <td class="num text-right text-danger">{{ PortalLabels::peso($p->total_deductions) }}</td>
-                                        <td class="num text-right font-bold">{{ PortalLabels::peso($p->net_pay) }}</td>
+                                        <td class="num text-right">{{ PortalLabels::money($p->gross_pay) }}</td>
+                                        <td class="num text-right text-danger">{{ PortalLabels::money($p->total_deductions) }}</td>
+                                        <td class="num text-right font-bold">{{ PortalLabels::money($p->net_pay) }}</td>
                                     </tr>
                                 @endforeach
                             </tbody>
@@ -450,9 +450,9 @@
                                 <tfoot data-payslip-totals>
                                     <tr>
                                         <td class="sticky bottom-0">Total</td>
-                                        <td class="num sticky bottom-0 text-right">{{ PortalLabels::peso($payslipTotals['gross']) }}</td>
-                                        <td class="num sticky bottom-0 text-right text-danger">{{ PortalLabels::peso($payslipTotals['deductions']) }}</td>
-                                        <td class="num sticky bottom-0 text-right">{{ PortalLabels::peso($payslipTotals['net']) }}</td>
+                                        <td class="num sticky bottom-0 text-right">{{ PortalLabels::money($payslipTotals['gross']) }}</td>
+                                        <td class="num sticky bottom-0 text-right text-danger">{{ PortalLabels::money($payslipTotals['deductions']) }}</td>
+                                        <td class="num sticky bottom-0 text-right">{{ PortalLabels::money($payslipTotals['net']) }}</td>
                                     </tr>
                                 </tfoot>
                             @endif
@@ -488,12 +488,18 @@
                 </flux:modal.close>
             </div>
 
-            {{-- The employee's copy is the payslip itself. The "Additional payroll details"
-                 fold (payroll name, incentive tax treatment, the employer's contributions)
-                 is NOT shown in My Portal; Payroll and Reports show it. --}}
-            <div class="payslip-print">
-                <x-payroll.document :sheet="$payslipSheet" :details="false" />
-            </div>
+            {{-- The employee's copy is the pay statement alone: what the employer
+                 pays is NOT shown in My Portal; Payroll and Reports show it. --}}
+            @if ($payslipStatement !== null)
+                <div class="payslip-print">
+                    <x-payroll.statement
+                        :statement="$payslipStatement"
+                        :employee="$payslipEmployee['name']"
+                        :employee-no="$payslipEmployee['number']"
+                        :position="$payslipEmployee['position']"
+                    />
+                </div>
+            @endif
         @endif
     </flux:modal>
 </div>

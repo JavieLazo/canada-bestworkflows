@@ -107,7 +107,7 @@ it('opens for PAYROLL holders under Payroll Settings and shows the settings only
 
     epsActor(['PAYROLL']);
     $this->get('/records/payroll-settings/employees')->assertOk()->assertSee('Gated');
-    $this->get($show)->assertOk()->assertSee('Gated')->assertSee('Contributions &amp; Tax', false);
+    $this->get($show)->assertOk()->assertSee('Gated')->assertSee('Tax and Statutory Deductions');
     $this->get('/records/payroll-settings/employees/'.Str::ulid())->assertNotFound();
 });
 
@@ -140,7 +140,7 @@ it('opens on every active employee and narrows to those whose settings differ', 
         ->assertSee('Nosss')->assertSee('Off')
         ->assertSee('Quarterly')->assertSee('Table, whole month on the second cut-off')
         ->assertSee('Percent')->assertSee('5% of taxable compensation')
-        ->assertSee('Hourly')->assertSee('₱150.00 an hour')
+        ->assertSee('Hourly')->assertSee('$150.00 an hour')
         ->assertDontSee('Plainpay')->assertDontSee('Legacymode')->assertDontSee('Gone')
         ->set('onlyCustomized', false)
         ->assertSee('Plainpay')->assertSee('Legacymode')->assertDontSee('Gone')
@@ -276,7 +276,7 @@ it('saves the hourly rate override from the page with a reason, audited, and ref
         ->set('hourlyReason', 'Contract rate')
         ->call('saveHourly')
         ->assertSet('hourlyEditing', true)
-        ->assertSet('hourlyError', 'Hourly rate override: enter an amount up to ₱99,999,999.00, or leave it blank to use the shift.')
+        ->assertSet('hourlyError', 'Hourly rate override: enter an amount up to $99,999,999.00, or leave it blank to use the shift.')
         ->set('hourlyRate', '200')
         ->set('hourlyReason', '')
         ->call('saveHourly')
@@ -285,7 +285,7 @@ it('saves the hourly rate override from the page with a reason, audited, and ref
         ->call('saveHourly')
         ->assertSet('hourlyEditing', false)
         ->assertSet('hourlyError', null)
-        ->assertSee('₱200.00 an hour');
+        ->assertSee('$200.00 an hour');
 
     expect((float) $employee->refresh()->hourly_rate)->toBe(200.0);
     $audit = AuditLog::query()->where('action', AuditEvent::PAY_SETTINGS_UPDATED->value)->sole();

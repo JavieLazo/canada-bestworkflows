@@ -16,7 +16,7 @@ use App\Modules\Timekeeping\Infrastructure\ShiftRoster;
 use App\Modules\Workforce\Contracts\EmployeeDirectory;
 use App\Support\Access;
 use App\Support\HrisFormat;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Closure;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -91,7 +91,7 @@ final class DatedChange
      */
     private function execute(Access $actor, array $employeeIds, ?string $requested, ?string $to, Closure $write, ?string $confirmed, ?Closure $prepare, bool $commit): ScheduleImpact
     {
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $error = $requested === null ? null : EffectiveDatePolicy::dateError($requested, $today);
         $error ??= $to === null ? null : EffectiveDatePolicy::dateError($to, $today);
         if ($error !== null) {

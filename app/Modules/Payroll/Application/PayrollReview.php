@@ -10,12 +10,11 @@ use RuntimeException;
 
 /**
  * A server-signed receipt binds displayed inputs to one actor, run and saved
- * draft identity — a regular run's PayrollInputs or a 13th month run's
- * ThirteenthMonthInputs (each fingerprints its own schema).
+ * draft identity.
  */
 final class PayrollReview
 {
-    public static function issue(Access $actor, string $runId, string $name, PayrollInputs|ThirteenthMonthInputs $inputs): string
+    public static function issue(Access $actor, string $runId, string $name, PayrollInputs $inputs): string
     {
         if (! $actor->mayReadAllData(ModuleCode::PAYROLL)) {
             throw new RuntimeException('Your role cannot manage organization-wide data.');
@@ -31,7 +30,7 @@ final class PayrollReview
         ]), $key);
     }
 
-    public static function verify(Access $actor, string $runId, string $name, PayrollInputs|ThirteenthMonthInputs $inputs, ?string $receipt): void
+    public static function verify(Access $actor, string $runId, string $name, PayrollInputs $inputs, ?string $receipt): void
     {
         if ($receipt === null || ! hash_equals(self::issue($actor, $runId, $name, $inputs), $receipt)) {
             throw new PayrollReviewRequired;

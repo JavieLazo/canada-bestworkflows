@@ -8,7 +8,7 @@ use App\Modules\WorkManagement\Application\OverviewPeriod;
 use App\Modules\WorkManagement\Application\Queries\OverviewAnalytics;
 use App\Modules\WorkManagement\Application\Queries\WorkSummary;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Illuminate\Contracts\View\View;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -54,7 +54,7 @@ class GeneralOverview extends Component
 
     public function applyRange(): void
     {
-        $error = OverviewPeriod::customError($this->draftFrom, $this->draftTo, ManilaClock::todayKey());
+        $error = OverviewPeriod::customError($this->draftFrom, $this->draftTo, LocalClock::todayKey());
         if ($error !== null) {
             $this->addError('range', $error);
 
@@ -68,7 +68,7 @@ class GeneralOverview extends Component
     public function render(): View
     {
         $actor = Access::forActor(auth()->user());
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
         $period = OverviewPeriod::resolve($this->range, $this->from, $this->to, $today);
         $analytics = app(OverviewAnalytics::class);
 

@@ -1,11 +1,10 @@
 {{--
-    The add-employees dialog (add-employees-dialog.tsx), shared by the regular
-    payroll workspace and the 13th month run. The including component
-    supplies the state and actions by these names: `picking`, `pickSearch`,
-    `pickPosition`, `picked`, togglePick(), togglePickShown()
-    and applyPicked(); the view supplies $pickerRows, $pickerPositions,
-    $allShown, $photoUrl and $pickerNote (the sentence under the heading —
-    the 13th month run's roster is everyone employed in its year).
+    The payroll workspace's add-employees dialog (add-employees-dialog.tsx).
+    The including component supplies the state and actions by these names:
+    `picking`, `pickSearch`, `pickPosition`, `picked`, togglePick(),
+    togglePickShown() and applyPicked(); the view supplies $pickerRows,
+    $pickerPositions, $allShown, $photoUrl and $pickerNote (the sentence
+    under the heading).
 --}}
 @use('App\Livewire\Payroll\Support\PayrollData')
 <flux:modal

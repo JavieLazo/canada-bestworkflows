@@ -20,7 +20,7 @@ use App\Platform\Transfer\TableTransfers;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\Csv;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
@@ -65,7 +65,7 @@ function texpPunch(EmployeeProfile $employee, string $type, string $manila): voi
     $punch = new AttendanceLog;
     $punch->forceFill([
         'employee_id' => (string) $employee->getKey(), 'site_id' => null, 'log_type' => $type, 'source' => 'WEB_GPS',
-        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => ManilaClock::instant($manila)->utc(),
+        'is_geofenced' => true, 'is_anomaly' => false, 'logged_at' => LocalClock::instant($manila)->utc(),
     ])->save();
 }
 
@@ -113,15 +113,16 @@ it('exports leave requests without the reason only the review dialog shows', fun
         ->and(implode(',', array_merge(...$lines)))->not->toContain('Private matter');
 });
 
-it('keeps each payroll run list to its own kind', function () {
-    foreach ([['1', 'August A', 'REGULAR', '2026-08-01', '2026-08-15'], ['2', '13th month 2026', 'THIRTEENTH_MONTH', '2026-01-01', '2026-12-31']] as [$code, $name, $kind, $from, $to]) {
+it('exports every payroll run in one list, whatever its kind, and has no export of the 13th month list', function () {
+    foreach ([['1', 'August A', 'REGULAR', '2026-08-01', '2026-08-15', 'DRAFT'], ['2', '13th month 2026', 'THIRTEENTH_MONTH', '2026-01-01', '2026-12-31', 'FINALIZED']] as [$code, $name, $kind, $from, $to, $status]) {
         $run = new PayrollRun;
-        $run->forceFill(['code' => $code, 'name' => $name, 'kind' => $kind, 'period_start' => $from, 'period_end' => $to, 'status' => 'DRAFT'])->save();
+        $run->forceFill(['code' => $code, 'name' => $name, 'kind' => $kind, 'period_start' => $from, 'period_end' => $to, 'status' => $status])->save();
     }
     texpActor([ModuleCode::PAYROLL], allData: true);
 
-    expect(array_column(array_slice(texpCsv('/payroll/export'), 1), 1))->toBe(['August A'])
-        ->and(array_column(array_slice(texpCsv('/payroll/thirteenth-month/export'), 1), 1))->toBe(['13th month 2026']);
+    // Period from, newest first: the list's own default order.
+    expect(array_column(array_slice(texpCsv('/payroll/export'), 1), 1))->toBe(['August A', '13th month 2026']);
+    $this->get('/payroll/thirteenth-month/export')->assertNotFound();
 });
 
 it('exports accounts without credential material, and roles as the grant matrix', function () {

@@ -8,7 +8,7 @@ use App\Modules\Payroll\Application\Queries\PayScheduleRecords;
 use App\Platform\Transfer\CsvExport;
 use App\Platform\Transfer\TableExport;
 use App\Support\Access;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Generator;
 
 /**
@@ -38,6 +38,6 @@ final class PaySchedulesExport implements TableExport
             }
         };
 
-        return new CsvExport('pay-schedules-'.ManilaClock::todayKey().'.csv', ['Name', 'Salary periods', 'Pay days', 'Weekend or holiday', 'Deadlines', 'Contribution month', 'Default', 'Payrolls'], $rows);
+        return new CsvExport('pay-schedules-'.LocalClock::todayKey().'.csv', ['Name', 'Salary periods', 'Pay days', 'Weekend or holiday', 'Deadlines', 'Contribution month', 'Default', 'Payrolls'], $rows);
     }
 }

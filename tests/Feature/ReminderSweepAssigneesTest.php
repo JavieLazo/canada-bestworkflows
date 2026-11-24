@@ -10,7 +10,7 @@ use App\Models\ProjectTask;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
@@ -143,7 +143,7 @@ function rswTask(Project $project, string $code, array $assigneeIds, array $attr
 
 function rswToday(): CarbonImmutable
 {
-    return CarbonImmutable::now(ManilaClock::TZ)->startOfDay();
+    return CarbonImmutable::now(LocalClock::zone())->startOfDay();
 }
 
 /*
@@ -299,14 +299,14 @@ it('chases the reviewer with the submitter named, from the submitted_by column',
 /**
  * The key the sweep minted before submitted_at travelled as a CarbonImmutable:
  * the command handed over an offset-less 'Y-m-d H:i:s' (UTC digits), which
- * ManilaClock::instant() read as Manila wall clock — eight hours early, at
+ * LocalClock::instant() read as Manila wall clock — eight hours early, at
  * whole seconds. This is that computation, verbatim; every TASK_REVIEW_PENDING
  * row already in the table carries a key of this shape.
  */
 function rswLegacyReviewKey(ProjectTask $task, CarbonImmutable $submittedAt): string
 {
     return 'TASK_REVIEW_PENDING:'.$task->getKey().':'
-        .ManilaClock::instant($submittedAt->format('Y-m-d H:i:s'))->utc()->format('Y-m-d\TH:i:s.v\Z');
+        .LocalClock::instant($submittedAt->format('Y-m-d H:i:s'))->utc()->format('Y-m-d\TH:i:s.v\Z');
 }
 
 /** One submitted task, four Manila days old against the frozen clock. */

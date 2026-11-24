@@ -30,10 +30,8 @@ use App\Modules\Payroll\Application\PayrollReadTransaction;
 use App\Modules\Payroll\Application\PayrollReview;
 use App\Modules\Payroll\Application\RecurringLines;
 use App\Modules\Payroll\Application\ScheduleHold;
-use App\Modules\Payroll\Application\StatutoryTables;
+use App\Modules\Payroll\Application\SourceDeductionFacts;
 use App\Modules\Payroll\Application\TaxYearToDate;
-use App\Modules\Payroll\Application\ThirteenthMonthData;
-use App\Modules\Payroll\Application\ThirteenthMonthInputs;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\CutoffAdvice;
@@ -44,7 +42,7 @@ use App\Modules\Workforce\Contracts\EmployeePayContexts;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -97,6 +95,13 @@ final class FinalizePayroll
                 throw new RuntimeException('That payroll is already finalized.');
             }
 
+            // Only a regular cut-off is computed and posted. A draft of
+            // another kind is never priced as one.
+            $kind = $run->kind ?? PayrollRunKind::REGULAR;
+            if ($kind !== PayrollRunKind::REGULAR) {
+                throw new RuntimeException('That draft is a 13th month payroll, which can no longer be saved or finalized here. Delete it from the Payroll list.');
+            }
+
             $memberIds = PayrollData::memberIds($run->members);
 
             if ($memberIds === []) {
@@ -111,100 +116,74 @@ final class FinalizePayroll
             $periodStart = $run->period_start->format('Y-m-d');
             $periodEnd = $run->period_end->format('Y-m-d');
 
-            // The dates, then the Contribution & Tax Tables in force: every
-            // table over a regular period, the withholding table on 31
-            // December for the 13th month run.
-            $cutoffError = ($run->kind ?? PayrollRunKind::REGULAR) === PayrollRunKind::THIRTEENTH_MONTH
-                ? app(StatutoryTables::class)->yearlyCutoffError((int) substr($periodStart, 0, 4))
-                : PayrollData::cutoffError($actor, $memberIds, $periodStart, $periodEnd);
+            // The dates, then the Contribution & Tax Tables in force over
+            // the period.
+            $cutoffError = PayrollData::cutoffError($actor, $memberIds, $periodStart, $periodEnd);
 
             if ($cutoffError !== null) {
                 throw new RuntimeException($cutoffError);
             }
 
-            $kind = $run->kind ?? PayrollRunKind::REGULAR;
             EnsurePayrollMembership::check($actor, $memberIds, $periodStart, $periodEnd, $run->id, $kind);
 
             // An adjustment still awaiting approval for a member holds the
             // payroll: it is reviewed or discarded first, never paid or
             // skipped quietly.
-            if ($kind === PayrollRunKind::REGULAR) {
-                $pending = Adjustments::pendingFor($memberIds, $run->id);
-                if ($pending !== []) {
-                    $names = [];
-                    foreach (app(EmployeePayContexts::class)->get($actor, array_keys($pending)) as $employee) {
-                        $names[] = EmployeeName::display($employee);
-                    }
-                    sort($names, SORT_STRING);
-                    throw new RuntimeException('An adjustment is awaiting approval for '.implode(', ', $names).'. Review or discard it on Adjustments before finalizing.');
+            $pending = Adjustments::pendingFor($memberIds, $run->id);
+            if ($pending !== []) {
+                $names = [];
+                foreach (app(EmployeePayContexts::class)->get($actor, array_keys($pending)) as $employee) {
+                    $names[] = EmployeeName::display($employee);
                 }
+                sort($names, SORT_STRING);
+                throw new RuntimeException('An adjustment is awaiting approval for '.implode(', ', $names).'. Review or discard it on Adjustments before finalizing.');
+            }
 
-                // A date with no shift inside a member's employment holds
-                // the payroll (ScheduleHold): it is judged by the engine's
-                // default week, which is nobody's schedule. Read under the
-                // membership lock, the lock every schedule change takes first.
-                $members = app(EmployeePayContexts::class)->get($actor, $memberIds);
-                $noShift = ScheduleHold::noShiftDays($actor, $members, $periodStart, $periodEnd);
-                if ($noShift !== []) {
-                    throw new RuntimeException(ScheduleHold::message(ScheduleHold::names($members, $noShift)));
-                }
+            // A date with no shift inside a member's employment holds
+            // the payroll (ScheduleHold): it is judged by the engine's
+            // default week, which is nobody's schedule. Read under the
+            // membership lock, the lock every schedule change takes first.
+            $members = app(EmployeePayContexts::class)->get($actor, $memberIds);
+            $noShift = ScheduleHold::noShiftDays($actor, $members, $periodStart, $periodEnd);
+            if ($noShift !== []) {
+                throw new RuntimeException(ScheduleHold::message(ScheduleHold::names($members, $noShift)));
             }
 
             // The advance payroll's counted date (PayrollAdvance), checked
-            // again here: the day must still be over, and a 13th month run
-            // never has one.
+            // again here: the day must still be over.
             $advance = AdvanceSettlements::ready();
-            $attendanceThrough = $advance && $kind === PayrollRunKind::REGULAR
+            $attendanceThrough = $advance
                 ? PayrollAdvance::normalize($run->attendance_through?->format('Y-m-d'), $periodEnd)
                 : null;
-            $advanceError = PayrollAdvance::error($attendanceThrough, $periodStart, $periodEnd, ManilaClock::todayKey());
+            $advanceError = PayrollAdvance::error($attendanceThrough, $periodStart, $periodEnd, LocalClock::todayKey());
             if ($advanceError !== null) {
                 throw new RuntimeException($advanceError);
             }
 
-            // THE computation — the same domain path the draft grid renders:
-            // the cut-off payroll's, or the 13th month run's.
-            $yearly = $kind === PayrollRunKind::THIRTEENTH_MONTH;
-            $incentiveLines = [];
-            $customDeductionLines = [];
-            $settlementLines = [];
-            $leaveChargeLines = [];
-            $presumedLines = [];
-            $countedThrough = [];
-            if ($yearly) {
-                $calculation = ThirteenthMonthData::calculateDrafts(
-                    $memberIds,
-                    (int) substr($periodStart, 0, 4),
-                    $overrides['additional'],
-                    array_filter(array_map(static fn (array $lines): mixed => $lines['withholding_tax'] ?? null, $overrides['deductions']), static fn (mixed $tax): bool => $tax !== null),
-                    strict: true,
-                    actor: $actor,
-                );
-            } else {
-                $calculation = PayrollData::calculateDrafts(
-                    $memberIds,
-                    $periodStart,
-                    $periodEnd,
-                    $overrides['deductions'],
-                    $overrides['allowances'],
-                    $overrides['earnings'],
-                    strict: true,
-                    actor: $actor,
-                    draftIncentives: $overrides['incentives'],
-                    draftCustomDeductions: $overrides['customDeductions'],
-                    draftSkippedRecurring: $overrides['skippedRecurring'],
-                    attendanceThrough: $attendanceThrough,
-                    payDate: $run->pay_date?->format('Y-m-d'),
-                    contributionMonth: $run->contribution_month,
-                    runId: $run->id,
-                );
-                $incentiveLines = $calculation['incentiveLines'];
-                $customDeductionLines = $calculation['customDeductionLines'];
-                $settlementLines = $calculation['settlementLines'];
-                $leaveChargeLines = $calculation['leaveChargeLines'];
-                $presumedLines = $calculation['presumedLines'];
-                $countedThrough = $calculation['countedThrough'];
-            }
+            // THE computation — the same domain path the draft grid renders.
+            $calculation = PayrollData::calculateDrafts(
+                $memberIds,
+                $periodStart,
+                $periodEnd,
+                $overrides['deductions'],
+                $overrides['allowances'],
+                $overrides['earnings'],
+                strict: true,
+                actor: $actor,
+                draftIncentives: $overrides['incentives'],
+                draftCustomDeductions: $overrides['customDeductions'],
+                draftSkippedRecurring: $overrides['skippedRecurring'],
+                attendanceThrough: $attendanceThrough,
+                payDate: $run->pay_date?->format('Y-m-d'),
+                contributionMonth: $run->contribution_month,
+                runId: $run->id,
+            );
+            $incentiveLines = $calculation['incentiveLines'];
+            $customDeductionLines = $calculation['customDeductionLines'];
+            $settlementLines = $calculation['settlementLines'];
+            $leaveChargeLines = $calculation['leaveChargeLines'];
+            $presumedLines = $calculation['presumedLines'];
+            $countedThrough = $calculation['countedThrough'];
 
             $inputs = $calculation['inputs'];
             if ($inputs === null) {
@@ -221,12 +200,11 @@ final class FinalizePayroll
             }
 
             // What attendance has not finished deciding, from the same
-            // verified inputs, for the record; a 13th month run pays no
-            // attendance. It never holds the posting.
-            $open = $inputs instanceof PayrollInputs ? OpenAttendanceItems::forInputs($inputs, ManilaClock::todayKey()) : OpenAttendanceItems::none();
+            // verified inputs, for the record. It never holds the posting.
+            $open = OpenAttendanceItems::forInputs($inputs, LocalClock::todayKey());
 
             // Evidence, payslips, status and the required audit commit as one unit.
-            $schema = $yearly ? ThirteenthMonthInputs::SCHEMA_VERSION : PayrollInputs::SCHEMA_VERSION;
+            $schema = PayrollInputs::SCHEMA_VERSION;
             $payload = PayrollInputs::json([
                 'schema_version' => $schema,
                 'kind' => $kind,
@@ -249,7 +227,7 @@ final class FinalizePayroll
                 // at finalization: which row named each computed line, and
                 // which typed rows existed. Evidence beside the results; the
                 // screens read the list, never this.
-                'deduction_columns' => $yearly ? [] : PayrollData::deductionColumns($actor)->map(static fn (DeductionColumnView $c): array => $c->toArray())->values()->all(),
+                'deduction_columns' => PayrollData::deductionColumns($actor)->map(static fn (DeductionColumnView $c): array => $c->toArray())->values()->all(),
                 // What attendance had not finished deciding when this posted
                 // (OpenAttendanceItems): nothing, or what the officer
                 // accepted paying as it stood.
@@ -320,7 +298,7 @@ final class FinalizePayroll
                 }
                 if (ContributionMonthToDate::ready()) {
                     // The month this payslip's shares count toward (divergence 19).
-                    $columns['contribution_month'] = $yearly ? null : ($run->contribution_month ?? substr((string) $run->period_start->format('Y-m-d'), 0, 7));
+                    $columns['contribution_month'] = $run->contribution_month ?? substr((string) $run->period_start->format('Y-m-d'), 0, 7);
                 } else {
                     // The window before the cron migrates 2026_11_02_0009.
                     unset($columns['contribution_base']);
@@ -332,6 +310,13 @@ final class FinalizePayroll
                     // The window before the cron migrates 2026_11_02_0011.
                     unset($columns['tax_year'], $columns['tax_method'], $columns['tax_refund']);
                 }
+                if (! SourceDeductionFacts::ready()) {
+                    // The window before the cron migrates 2026_11_24_0002.
+                    unset(
+                        $columns['cpp'], $columns['cpp2'], $columns['ei'], $columns['federal_tax'], $columns['provincial_tax'],
+                        $columns['cpp_er'], $columns['cpp2_er'], $columns['ei_er'], $columns['pensionable_earnings'], $columns['insurable_earnings'],
+                    );
+                }
                 $payslip->fill($columns);
                 if (! $payslip->save()) {
                     throw new RuntimeException('Payroll could not save every payslip. Nothing was finalized.');
@@ -341,7 +326,7 @@ final class FinalizePayroll
                 // the ledger entries, the allocations and one charge row per
                 // day, under the leave-credits lock, after payroll's own.
                 $plan = $leaveChargeLines[$draft->employee_id] ?? null;
-                if ($plan !== null && $plan['lines'] !== [] && $inputs instanceof PayrollInputs) {
+                if ($plan !== null && $plan['lines'] !== []) {
                     app(LeaveChargePoster::class)->post($actor, $draft->employee_id, $payslip->id, $run->code, $plan['lines'], $inputs->leaveCharges[$draft->employee_id]);
                     if ($draft->leave_charged_days > 0) {
                         $chargedDays += $draft->leave_charged_days;
@@ -444,13 +429,13 @@ final class FinalizePayroll
             $presumedDays = (int) array_sum(array_map(static fn (PayslipDraft $draft): float => $draft->presumed_days, $calculation['drafts']));
             $settledEmployees = count($settlementLines);
             RequiredAudit::record($actor, AuditEvent::PAYROLL_FINALIZED, 'payroll_runs', $run->id,
-                "{$run->name} finalized — ".count($calculation['drafts']).($yearly ? ' 13th month payslips' : ' payslips')
+                "{$run->name} finalized — ".count($calculation['drafts']).' payslips'
                 .match ($typed) {
                     0 => '',
                     1 => '; 1 statutory line typed over the computed figure',
                     default => "; {$typed} statutory lines typed over the computed figure",
                 }
-                .(! $yearly && CutoffAdvice::warning($periodStart, $periodEnd) !== null ? '; non-standard cut-off' : '')
+                .(CutoffAdvice::warning($periodStart, $periodEnd) !== null ? '; non-standard cut-off' : '')
                 .($cashedOut === 0 ? '' : "; {$cashedOut} leave credit cash-out".($cashedOut === 1 ? '' : 's').' paid')
                 .($adjusted === 0 ? '' : "; {$adjusted} adjustment".($adjusted === 1 ? '' : 's').' paid')
                 .($attendanceThrough === null ? '' : '; attendance counted through '.PayrollPeriodText::day($attendanceThrough).', '.$presumedDays.($presumedDays === 1 ? ' day' : ' days').' paid as scheduled')
@@ -460,7 +445,6 @@ final class FinalizePayroll
 
             return [
                 'run' => $run,
-                'yearly' => $yearly,
                 'drafts' => $calculation['drafts'],
                 'periodStart' => $periodStart,
                 'periodEnd' => $periodEnd,
@@ -477,7 +461,7 @@ final class FinalizePayroll
             array_map(static fn (PayslipDraft $draft): string => $draft->employee_id, $drafts),
             [],
             'PAYSLIP_POSTED',
-            $result['yearly'] ? "13th month pay {$run->code} posted" : "Payroll {$run->code} payslip posted",
+            "Payroll {$run->code} payslip posted",
             "{$run->name} · {$result['periodStart']} to {$result['periodEnd']}",
             '/portal?tab=payslips',
         ));

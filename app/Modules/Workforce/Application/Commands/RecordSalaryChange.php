@@ -14,7 +14,7 @@ use App\Platform\Records\AccountEmployeeLinks;
 use App\Support\Access;
 use App\Support\AuditService;
 use App\Support\EmployeeName;
-use App\Support\ManilaClock;
+use App\Support\LocalClock;
 use Carbon\CarbonImmutable;
 use DateTimeImmutable;
 use Illuminate\Support\Facades\DB;
@@ -57,7 +57,7 @@ final class RecordSalaryChange
         if (mb_strlen($reference) > SalaryRates::REFERENCE_MAX) {
             throw new RuntimeException('Keep the reference to 120 characters.');
         }
-        $today = ManilaClock::todayKey();
+        $today = LocalClock::todayKey();
 
         return DB::transaction(static function () use ($access, $employeeId, $effectiveFrom, $monthly, $daily, $reason, $reference, $today): string {
             abort_unless(app(AccountEmployeeLinks::class)->isActive((int) $access->userId), 403);

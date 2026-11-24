@@ -362,67 +362,6 @@ it('pays a two-day period and refuses only what cannot be computed', function ()
 | the detail); this pins that finalize POSTS them.
 */
 
-it('posts the statutory lines the reference computes when a run is finalized', function () {
-    payrollFreezeClock();
-
-    // An employee configured for the full statutory treatment: every switch
-    // on, no fixed overrides, the mode the seeder ships.
-    $employee = payrollEmployee('EMP-030', 'Rosa', 'Ilagan', [
-        'monthly_rate' => 30000,
-        'allow_sss' => true,
-        'allow_philhealth' => true,
-        'allow_pagibig' => true,
-        'allow_withholding_tax' => true,
-        'sss_mode' => 'SEMI_MONTHLY',
-        'philhealth_mode' => 'SEMI_MONTHLY',
-        'pagibig_mode' => 'SEMI_MONTHLY',
-    ]);
-    payrollActor(['PAYROLL'], allData: true);
-
-    // Ten ordinary weekdays worked 08:00-17:00 Manila, so gross is above 0.
-    foreach (['03', '04', '05', '06', '07', '10', '11', '12', '13', '14'] as $day) {
-        foreach ([['TIME_IN', '00:00:00'], ['TIME_OUT', '09:00:00']] as [$type, $at]) {
-            AttendanceLog::query()->create([
-                'employee_id' => (string) $employee->getKey(),
-                'log_type' => $type,
-                'source' => 'MANUAL',
-                'is_geofenced' => true,
-                'is_anomaly' => false,
-                'logged_at' => "2026-08-{$day} {$at}",
-            ]);
-        }
-    }
-
-    $run = payrollDraftRun('PR-030', 'August 2026 — computed deductions', [$employee]);
-
-    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
-
-    expect($run->refresh()->status)->toBe('FINALIZED');
-    $payslip = Payslip::query()->where('run_id', $run->id)->firstOrFail();
-
-    // Half a month of each table figure for a 30,000 monthly rate (SSS MSC
-    // 30,000 at 5% / 10% + EC 30; PhilHealth 2.5% each; Pag-IBIG 2% of 10,000).
-    expect($payslip->gross_pay)->toBeGreaterThan(0.0)
-        ->and($payslip->sss)->toBe(750.0)
-        ->and($payslip->sss_er)->toBe(1515.0)
-        ->and($payslip->philhealth)->toBe(375.0)
-        ->and($payslip->philhealth_er)->toBe(375.0)
-        ->and($payslip->pagibig)->toBe(100.0)
-        ->and($payslip->pagibig_er)->toBe(100.0)
-        ->and($payslip->other_deductions)->toBe(0.0);
-
-    // Withholding on gross less the employee's three shares, late and undertime.
-    $taxable = max($payslip->gross_pay - (750.0 + 375.0 + 100.0) - $payslip->late_deduction - $payslip->undertime_deduction, 0.0);
-    expect($payslip->withholding_tax)->toBe(Statutory::semiMonthlyWithholdingTax($taxable))
-        ->and($payslip->withholding_tax)->toBeGreaterThan(0.0)
-        ->and($payslip->taxable_compensation)->toBe(Money::round($taxable));
-
-    // The employer shares are reported, never deducted.
-    expect($payslip->total_deductions)->toBe(Money::round(
-        $payslip->late_deduction + $payslip->undertime_deduction + 750.0 + 375.0 + 100.0 + $payslip->withholding_tax
-    ))->and($payslip->net_pay)->toBe(Money::round($payslip->gross_pay - $payslip->total_deductions));
-});
-
 it('keeps one employee on one payroll per cut-off', function () {
     payrollFreezeClock();
 

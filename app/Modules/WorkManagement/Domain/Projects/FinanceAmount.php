@@ -11,7 +11,7 @@ final class FinanceAmount
 {
     public const LIMIT = 999_999_999_999;
 
-    public const CURRENCIES = ['PHP' => 'PHP', 'USD' => 'USD', 'EUR' => 'EUR', 'GBP' => 'GBP', 'AUD' => 'AUD', 'CAD' => 'CAD', 'SGD' => 'SGD'];
+    public const CURRENCIES = ['CAD' => 'CAD', 'USD' => 'USD', 'EUR' => 'EUR', 'GBP' => 'GBP', 'AUD' => 'AUD', 'SGD' => 'SGD', 'PHP' => 'PHP'];
 
     public static function minor(string $value, string $field, bool $positive = false): int
     {
