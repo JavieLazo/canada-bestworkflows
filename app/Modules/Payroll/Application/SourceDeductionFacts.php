@@ -36,7 +36,23 @@ final class SourceDeductionFacts
     /** Whether the payslip columns exist yet: files reach a host before its migration runs. */
     public static function ready(): bool
     {
-        return once(static fn (): bool => Schema::hasColumn('payslips', 'cpp') && Schema::hasColumn('payslips', 'tax_year'));
+        return once(static fn (): bool => Schema::hasColumn('payslips', 'cpp') && self::taxYearReady());
+    }
+
+    /** Whether a payslip can record its tax year yet (`payslips.tax_year`, an earlier migration than the deduction columns). */
+    public static function taxYearReady(): bool
+    {
+        return once(static fn (): bool => Schema::hasColumn('payslips', 'tax_year'));
+    }
+
+    /**
+     * The tax year a pay counts in: the year of its pay date, else of its
+     * period's last day. A period that ends in December and is paid in
+     * January counts in the new year.
+     */
+    public static function taxYearOf(?string $payDate, string $periodEnd): int
+    {
+        return (int) substr($payDate ?? $periodEnd, 0, 4);
     }
 
     /**
@@ -51,7 +67,7 @@ final class SourceDeductionFacts
         }
 
         $paidOn = $payDate ?? $periodEnd;
-        $year = (int) substr($paidOn, 0, 4);
+        $year = self::taxYearOf($payDate, $periodEnd);
         try {
             $rates = DeductionRates::inForceOn($paidOn);
         } catch (InvalidArgumentException $e) {

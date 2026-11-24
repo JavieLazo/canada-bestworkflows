@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Domain\Payroll\PayRules;
-use App\Domain\Payroll\StatutorySchedule;
 use App\Livewire\Payroll\Support\SettingsPages;
 use App\Livewire\Records\AdjustmentCategoriesPage;
 use App\Livewire\Records\ContributionTablesPage;
@@ -18,12 +17,10 @@ use App\Models\EmployeeProfile;
 use App\Models\Holiday;
 use App\Models\PayrollDeduction;
 use App\Models\PayrollPayRule;
-use App\Models\PayrollStatutoryTable;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Payroll\Application\Catalogs\Deductions;
-use App\Modules\Payroll\Application\Commands\AddStatutoryTableVersion;
 use App\Modules\Payroll\Application\Commands\SavePayRulesVersion;
 use App\Support\Access;
 use Carbon\CarbonImmutable;
@@ -121,20 +118,17 @@ it('leads the menu\'s address to the first page the holder can read, and forward
 it('lets an all-data PAYROLL holder manage the company-wide settings, and nobody without all data', function () {
     $this->travelTo(CarbonImmutable::parse('2026-10-31 04:00:00', 'UTC'));
     $actor = psoActor(['PAYROLL']);
-    $versions = PayrollStatutoryTable::query()->count();
-    app(AddStatutoryTableVersion::class)->handle($actor, StatutorySchedule::SSS, '2027-01-01', '2027-12-31', 'Payroll', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]);
     app(Deductions::class)->save($actor, null, 'Cash Advance', '');
     app(SavePayRulesVersion::class)->handle($actor, PayrollPayRule::COMPANY, '2026-11-16', 'Payroll', PayRules::fromFormulas()->toArray());
-    expect(PayrollStatutoryTable::query()->count())->toBe($versions + 1)
-        ->and(PayrollDeduction::query()->where('name', 'Cash Advance')->exists())->toBeTrue()
+    expect(PayrollDeduction::query()->where('name', 'Cash Advance')->exists())->toBeTrue()
         ->and(PayrollPayRule::query()->where('effective_from', '2026-11-16')->exists())->toBeTrue();
 
     $reader = psoActor(['PAYROLL'], false);
-    expect(fn () => app(AddStatutoryTableVersion::class)->handle($reader, StatutorySchedule::SSS, '2028-01-01', '2028-12-31', 'No', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]))
+    expect(fn () => app(SavePayRulesVersion::class)->handle($reader, PayrollPayRule::COMPANY, '2026-12-01', 'No', PayRules::fromFormulas()->toArray()))
         ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.')
         ->and(fn () => app(Deductions::class)->save($reader, null, 'Uniform', ''))
         ->toThrow(RuntimeException::class, 'Your role cannot manage organization-wide data.')
-        ->and(PayrollStatutoryTable::query()->count())->toBe($versions + 1)
+        ->and(PayrollPayRule::query()->where('effective_from', '2026-12-01')->exists())->toBeFalse()
         ->and(PayrollDeduction::query()->where('name', 'Uniform')->exists())->toBeFalse();
 });
 

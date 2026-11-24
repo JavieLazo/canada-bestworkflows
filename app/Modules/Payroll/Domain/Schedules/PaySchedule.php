@@ -22,8 +22,9 @@ use InvalidArgumentException;
  *    KEEP leaves it;
  *  - `deadlines`: the dates counted back from the pay date — a `label` and
  *    `days_before` — that remind payroll before the pay date;
- *  - `contribution_month`: which month's contributions a payroll carries —
- *    PERIOD (the salary period's month) or PAY_DATE (the pay date's);
+ *  - `contribution_month`: PERIOD or PAY_DATE, a key every stored schedule
+ *    carries and the strict read still requires; nothing prices from it,
+ *    and the page saves PAY_DATE;
  *  - `attendance_lag`: how many days before the salary period the
  *    attendance window ends (0 = the period itself; a later phase prices
  *    a lagged window, so a payroll from a lagged schedule is refused);
@@ -323,7 +324,6 @@ final class PaySchedule
         }
 
         return implode('; ', $periods).'; '.$move.($deadlines === [] ? '' : '; '.implode(', ', $deadlines))
-            .'; contributions of the '.($this->contributionMonth === self::MONTH_PAY_DATE ? 'pay date\'s month' : 'period\'s month')
             .($this->attendanceLag > 0 ? "; attendance window ends {$this->attendanceLag} days earlier" : '');
     }
 

@@ -5,26 +5,26 @@ declare(strict_types=1);
 namespace App\Modules\Payroll\Domain;
 
 /**
- * How a Payroll Deductions row is priced on a regular payslip, as
- * `payroll_deductions.calculation` spells it: the four statutory tables the
- * engine computes, the late and undertime minutes the DTR prices, or NULL —
- * an amount an officer types per employee in that row's own column of the
- * Basic Payroll grid.
+ * How a Payroll Deductions row is priced, as `payroll_deductions.calculation`
+ * spells it: LATE_UNDERTIME — the late and undertime minutes the DTR prices
+ * — or NULL, an amount an officer types per employee in that row's own
+ * column of the Basic Payroll grid (or a percentage rule works out).
  *
- * Every statutory or typed row of the list is a column of the grid; this is
- * what tells a computed column from a typed one. LATE_UNDERTIME is the one
- * tag that heads NO column of its own: the grid's Undertimes and Late
+ * LATE_UNDERTIME heads NO column of its own: the grid's Undertime and Late
  * columns are attendance results and sit, fixed, after Other Deductions;
- * the tag keeps that row from being typed or deleted. The tag is system
- * data: migration 2026_09_30_0010 and the seeder set it, and no screen
- * offers it. A constants class rather than an enum, like ModuleCode and
- * PayrollRunStatus: the column stays a plain string and
- * `pded_calculation_chk` carries the literal list. Pure.
+ * the tag keeps that row from being typed. The tag is system data: the
+ * seeder sets it and no screen offers it.
+ *
+ * SSS, PHILHEALTH, PAGIBIG and WITHHOLDING_TAX are STORED VALUES ONLY: no
+ * row of the list carries one and no payroll prices one. They stay because
+ * a finalized payroll's evidence names the columns it was issued with, and
+ * `pded_calculation_chk` carries the literal list. A constants class rather
+ * than an enum, like ModuleCode and PayrollRunStatus: the column stays a
+ * plain string. Pure.
  *
  * `all()` is the order and `defaultLabel()` the name a column takes when no
  * list row carries its calculation: a finalized run whose evidence records
- * no columns shows all five that way (`DeductionColumns::fromPosted`), and
- * the payroll CSV names a statutory header that way when its row is gone.
+ * no columns shows all five that way (`DeductionColumns::fromPosted`).
  */
 final class DeductionCalculation
 {
@@ -71,7 +71,7 @@ final class DeductionCalculation
         return in_array($calculation, self::all(), true);
     }
 
-    /** The overridable statutory lines: the engine's key on the payslip draft. */
+    /** The payslip column a posted contribution or withholding calculation is read from; null for Late / Undertime. */
     public static function statutoryKey(string $calculation): ?string
     {
         return match ($calculation) {

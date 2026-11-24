@@ -9,12 +9,15 @@ use App\Livewire\Records\EmployeePaySettingsShow;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
+use App\Models\PayrollDeduction;
+use App\Models\PayrollGovDeductionPolicy;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
 use App\Modules\Payroll\Application\PayrollData;
+use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
 use App\Modules\Workforce\Application\Commands\UpdateEmployeePaySettings;
 use App\Modules\Workforce\Application\EmployeePaySettingsInput;
 use App\Modules\Workforce\Application\Queries\EmployeePaySettingsRecords;
@@ -25,10 +28,11 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
  * Employee Pay Settings, under Records → Payroll Settings → Employees: who
- * is paid differently from the standard computation, listed from the
- * Contributions & tax settings in force (the approved version, else the
- * record's baseline columns), the hourly rate override, rates of their own
- * and recurring lines. The page opens for PAYROLL, but the settings are
+ * is paid differently from the standard computation, listed from a rate of
+ * their own on a percentage deduction (the approved settings version in
+ * force), the hourly rate override, Pay Basis & Rates of their own and
+ * recurring lines; a contribution or withholding setting stored on the
+ * record sets nobody apart and is never worded. The page opens for PAYROLL, but the settings are
  * pay data: only an all-data PAYROLL holder reads or writes them. The
  * hourly rate is the one setting still edited in place, with a reason,
  * audited under RequiredAudit; nothing changed writes nothing. What is
@@ -67,6 +71,19 @@ function epsEmployee(string $lastName, array $overrides = []): EmployeeProfile
     ], $overrides))->save();
 
     return $employee->refresh();
+}
+
+/** An approved settings version giving the employee a rate of their own on the Provident Fund, a percentage deduction made on first use. */
+function epsOwnRate(EmployeeProfile $employee, float $rate = 5.0): void
+{
+    $fund = PayrollDeduction::query()->where('name', 'Provident Fund')->first();
+    if ($fund === null) {
+        $fund = new PayrollDeduction;
+        $fund->forceFill(['code' => '8', 'name' => 'Provident Fund', 'percent' => ['employee' => 3.0, 'employer' => 3.0, 'base' => 'MONTHLY', 'frequency' => 'EVERY', 'cap' => null, 'before_tax' => false]])->save();
+    }
+    $policy = new PayrollGovDeductionPolicy;
+    $policy->forceFill(['employee_id' => $employee->id, 'effective_from' => '2025-01-01', 'reason' => 'Own rate', 'status' => PayrollGovDeductionPolicy::APPROVED, 'approved_at' => '2025-01-01 00:00:00.000',
+        'params' => [...GovDeductionSettings::STANDARD, 'percent_rates' => [(string) $fund->id => $rate]]])->save();
 }
 
 /** 08:00-17:00 Manila on the ten weekdays of August 2026's first cut-off. */
@@ -125,29 +142,26 @@ it('reads and writes nothing for an actor without all-data PAYROLL', function ()
 
 it('opens on every active employee and narrows to those whose settings differ', function () {
     epsEmployee('Plainpay');
-    epsEmployee('Legacymode', ['sss_mode' => null, 'philhealth_mode' => null, 'pagibig_mode' => null]);
-    epsEmployee('Nosss', ['allow_sss' => false]);
-    epsEmployee('Quarterly', ['pagibig_mode' => 'QUARTERLY']);
-    epsEmployee('Percent', ['percent_tax' => 5]);
+    // Contribution and withholding settings stored on the record set nobody apart: nothing prices from them.
+    epsEmployee('Storedonly', ['allow_sss' => false, 'pagibig_mode' => 'QUARTERLY', 'percent_tax' => 5]);
+    epsOwnRate(epsEmployee('Ownrate'));
     epsEmployee('Hourly', ['hourly_rate' => 150]);
-    epsEmployee('Gone', ['allow_philhealth' => false, 'is_active' => false]);
+    epsOwnRate(epsEmployee('Gone', ['is_active' => false]));
     epsActor(['PAYROLL']);
 
     // The list opens on everyone; Only customized narrows it.
     Livewire::test(EmployeePaySettingsPage::class)
         ->assertSee('Plainpay')
         ->set('onlyCustomized', true)
-        ->assertSee('Nosss')->assertSee('Off')
-        ->assertSee('Quarterly')->assertSee('Table, whole month on the second cut-off')
-        ->assertSee('Percent')->assertSee('5% of taxable compensation')
+        ->assertSee('Ownrate')->assertSee('Own rates')
         ->assertSee('Hourly')->assertSee('$150.00 an hour')
-        ->assertDontSee('Plainpay')->assertDontSee('Legacymode')->assertDontSee('Gone')
+        ->assertDontSee('Plainpay')->assertDontSee('Storedonly')->assertDontSee('Gone')
         ->set('onlyCustomized', false)
-        ->assertSee('Plainpay')->assertSee('Legacymode')->assertDontSee('Gone')
+        ->assertSee('Plainpay')->assertSee('Storedonly')->assertDontSee('Gone')
         ->set('activeOnly', false)
         ->assertSee('Gone')
-        ->set('search', 'nosss')
-        ->assertSee('Nosss')->assertDontSee('Plainpay');
+        ->set('search', 'ownrate')
+        ->assertSee('Ownrate')->assertDontSee('Plainpay');
 });
 
 it('opens an employee from anywhere on their row, not from a link on the name', function () {
@@ -173,7 +187,8 @@ it('opens an employee from anywhere on their row, not from a link on the name', 
 
 it('shows an employee as the Employee Records list does: portrait or initials, name over position, status as pills', function () {
     $employee = epsEmployee('Shown', ['employee_id_no' => '2026-0042', 'position' => 'Accountant II', 'employment_status' => 'Regular']);
-    $pictured = epsEmployee('Pictured', ['photo_path' => 'portraits/pictured.jpg', 'employment_status' => 'Job Order', 'is_active' => false, 'allow_philhealth' => false]);
+    $pictured = epsEmployee('Pictured', ['photo_path' => 'portraits/pictured.jpg', 'employment_status' => 'Job Order', 'is_active' => false]);
+    epsOwnRate($pictured);
     epsActor(['PAYROLL']);
 
     $html = Livewire::test(EmployeePaySettingsPage::class)->set('activeOnly', false)->html();
@@ -195,7 +210,7 @@ it('shows an employee as the Employee Records list does: portrait or initials, n
         ->and($shown)->not->toContain('Inactive');
 
     // A portrait in place of the initials; no position reads as a dash; not Regular and inactive as their own
-    // pills; a setting of their own (PhilHealth off) reads in bold, with no Custom pill.
+    // pills; a setting of their own (a rate on a percentage deduction) reads in bold, with no Custom pill.
     $other = $cells($pictured->id);
     expect($other)->toContain('alt="Pat Pictured"')
         ->and($other)->toContain('portraits/pictured.jpg')
@@ -209,10 +224,10 @@ it('shows an employee as the Employee Records list does: portrait or initials, n
 
 it('counts the listed employees above the table by what is their own, whatever Only customized shows', function () {
     epsEmployee('Plainpay');
-    epsEmployee('Nosss', ['allow_sss' => false]);
-    epsEmployee('Percent', ['percent_tax' => 5]);
+    epsOwnRate(epsEmployee('Ownrate'));
+    epsOwnRate(epsEmployee('Nonmember'), 0.0);
     epsEmployee('Hourly', ['hourly_rate' => 150]);
-    epsEmployee('Gone', ['allow_philhealth' => false, 'is_active' => false]);
+    epsOwnRate(epsEmployee('Gone', ['is_active' => false]));
     epsActor(['PAYROLL']);
 
     $figure = static function (string $html, string $stat): ?string {
@@ -246,20 +261,28 @@ it('counts the listed employees above the table by what is their own, whatever O
         ->assertDontSeeHtml('data-pay-settings-summary');
 });
 
-it('reads contributions and tax in one cell: Standard, or only what differs, named', function () {
+it('reads the percentage deductions in one cell, Listed rates or Own rates, and names no contribution or withholding setting', function () {
     epsEmployee('Plainpay');
-    epsEmployee('Nosss', ['allow_sss' => false, 'percent_tax' => 5]);
+    // Stored contribution and withholding settings are never worded.
+    epsOwnRate(epsEmployee('Ownrate', ['allow_sss' => false, 'percent_tax' => 5]));
     epsActor(['PAYROLL']);
 
-    $page = Livewire::test(EmployeePaySettingsPage::class)
-        ->assertSee('Contributions &amp; Tax', false)
-        ->assertSee('Standard')
-        ->assertSee('SSS: Off · Withholding tax: 5% of taxable compensation');
-    $html = $page->html();
+    $html = Livewire::test(EmployeePaySettingsPage::class)->html();
+    $cell = static function (string $name) use ($html): string {
+        preg_match('/<tr[^>]*aria-label="Open Pat '.$name.'[^>]*>(.*?)<\/tr>/s', $html, $row);
+        preg_match_all('/<td[^>]*>(.*?)<\/td>/s', $row[1] ?? '', $cells);
 
-    expect($html)->not->toContain('<th>SSS</th>')
-        ->and($html)->not->toContain('<th>Withholding Tax</th>')
-        ->and($html)->not->toContain('PhilHealth: Table');
+        return trim(strip_tags($cells[1][2] ?? ''));
+    };
+
+    expect($html)->toContain('<th>Percentage Deductions</th>')
+        ->and($cell('Plainpay'))->toBe('Listed rates')
+        ->and($cell('Ownrate'))->toBe('Own rates')
+        ->and($html)->not->toContain('Contributions &amp; Tax')
+        ->and($html)->not->toContain('SSS')
+        ->and($html)->not->toContain('Withholding')
+        ->and($html)->not->toContain('PhilHealth')
+        ->and($html)->not->toContain('taxable compensation');
 });
 
 /* |---| The hourly rate |---| */

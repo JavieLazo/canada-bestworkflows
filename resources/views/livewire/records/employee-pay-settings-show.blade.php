@@ -18,16 +18,12 @@
 @php
     use App\Livewire\Records\Support\EmployeeRates;
     use App\Livewire\Records\Support\Hris;
-    use App\Livewire\Records\Support\PaySettingsText;
     use App\Livewire\Records\Support\RecurringLineText;
     use App\Modules\Payroll\Application\PayrollPeriodText;
     use App\Modules\Payroll\Application\Queries\RecurringLineRecords;
     use App\Modules\Payroll\Domain\Recurring\RecurringLine;
-    use App\Modules\Payroll\Application\GovDeductionInput as GovInput;
-    use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings as GovSettings;
     use App\Support\EmployeeName;
 
-    $differs = static fn (array $keys): bool => array_intersect($customized, $keys) !== [];
     $dt = 'text-xs font-medium uppercase tracking-wide text-muted-foreground';
     $status = $settings?->employment_status;
 @endphp

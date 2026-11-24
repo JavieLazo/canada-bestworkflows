@@ -107,11 +107,11 @@ final class PaySchedules
     }
 
     /**
-     * The schedule's period with exactly these dates, with the pay date and
-     * contribution month a payroll on them takes, or null when the dates
-     * are not one of its periods.
+     * The schedule's period with exactly these dates, with the pay date a
+     * payroll on them takes, or null when the dates are not one of its
+     * periods.
      *
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}|null
      */
     public static function periodFor(PayrollPaySchedule $row, string $start, string $end): ?array
     {
@@ -121,7 +121,7 @@ final class PaySchedules
     /**
      * The same, from a detached view (a screen's read).
      *
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}|null
      */
     public static function periodForView(PayScheduleView $view, string $start, string $end): ?array
     {
@@ -141,7 +141,7 @@ final class PaySchedules
      * day it is the period the day falls in. Null for figures that do not
      * read.
      *
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}|null
      */
     public static function nextToPayForView(PayScheduleView $view, string $today): ?array
     {
@@ -212,7 +212,7 @@ final class PaySchedules
     /**
      * The schedule's next period after a day, with its pay date.
      *
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}
      */
     public static function nextAfter(PayrollPaySchedule $row, string $day): array
     {

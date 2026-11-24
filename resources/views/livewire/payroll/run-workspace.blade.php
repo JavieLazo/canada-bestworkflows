@@ -148,9 +148,9 @@
                  while its period runs (RunWorkspace::followTodayCountedThrough), and the
                  panel above the grid says so. --}}
             {{-- The pay schedule and the pay date are not asked for: the company's
-                 default schedule gives the dates their pay date and contribution
-                 month (PaySchedules, filled in mount and on a date change), and the
-                 subtitle shows the pay date. The properties stay for the commands. --}}
+                 default schedule gives the dates their pay date (PaySchedules,
+                 filled in mount and on a date change), and the subtitle shows
+                 it. The properties stay for the commands. --}}
             @if (! $finalized)
                 <flux:button variant="primary" icon="plus" wire:click="openPicker">
                     Add Employee
@@ -236,21 +236,11 @@
                 {{ $readinessIssue['employee'] }}: {{ $readinessIssue['message'] }}
             </x-payroll.notice>
         @endif
-        {{-- A warning, never a block (CutoffAdvice): the statutory lines
-             follow the semi-monthly rule, which a range of days other than a
-             1st–15th or 16th–end cut-off only approximates. Worded here and
-             not in CutoffAdvice::WARNING: that file is in the calculator's
-             fingerprint, so editing its text would stale every open preview. --}}
+        {{-- A warning, never a block: dates that are not one of the pay
+             schedule's periods are still priced as one regular pay of it. --}}
         @if ($cutoffWarning)
             <x-payroll.notice tone="warning" data-cutoff-warning class="border-b px-5 py-3">
                 These dates are not one of the pay schedule's periods. CPP, EI and income tax are still worked out as one regular pay. Check the dates before finalizing.
-            </x-payroll.notice>
-        @endif
-        {{-- A warning, never a block: a Contribution & Tax Table whose figures
-             are not confirmed as far as this period reaches (StatutoryTables). --}}
-        @if ($statutoryWarning)
-            <x-payroll.notice tone="warning" data-statutory-warning class="border-b px-5 py-3">
-                {{ $statutoryWarning }}
             </x-payroll.notice>
         @endif
         {{-- Also a warning, never a block: the $90,000 exemption is
@@ -363,7 +353,6 @@
             {{-- What the marks under some figures mean (FigureSources); unmarked figures come from the company settings. --}}
             <div class="flex flex-wrap items-center gap-2 border-b border-border px-5 py-3 text-xs text-muted-foreground" data-figure-key>
                 <span>Figures that are not the company settings' are marked:</span>
-                <span class="pill pill-primary">Own</span><span>the employee's pay settings</span>
                 <span class="pill pill-muted">Recurring</span><span>a recurring deduction or allowance</span>
                 <span class="pill pill-caution">Typed</span><span>typed on this payroll.</span>
                 <span class="font-medium text-foreground">Select a mark to see why the figure is that amount.</span>
@@ -378,9 +367,7 @@
                         <th colspan="10" class="text-center">Earnings</th>
                         {{-- One column per Payroll Deductions row, in the list's order,
                              then the one typed line the reference has, the two
-                             DTR-priced lines while their row exists, and the footing.
-                             A computed row deleted from the list is a deduction
-                             switched off: no column, no money. --}}
+                             DTR-priced lines while their row exists, and the footing. --}}
                         @php
                             $columnRows = $deductionColumns->filter(static fn ($c) => $c->headsColumn())->values();
                             $lateUndertimeOn = $deductionColumns->contains(static fn ($c) => $c->calculation === DeductionCalculation::LATE_UNDERTIME);
@@ -627,33 +614,11 @@
                             <td class="num bg-muted/40 text-right text-danger" data-source-deduction="provincial_tax">{{ PayrollData::money($p->provincial_tax ?? 0) }}</td>
 
                             @foreach ($columnRows as $column)
+                                {{-- A column for SSS, PhilHealth, Pag-IBIG or withholding tax is on a
+                                     finalized payroll that posted one: its figure as posted, never typed. --}}
                                 @php $field = $column->calculation !== null ? DeductionCalculation::statutoryKey($column->calculation) : null; @endphp
-                                @if ($field !== null && $finalized)
+                                @if ($field !== null)
                                     <td class="num text-right text-danger" data-deduction-cell="{{ $column->key() }}">{{ PayrollData::money($p->{$field}) }}</td>
-                                @elseif ($field !== null)
-                                    {{-- A typed figure overrides the computed statutory amount.
-                                         Clearing the cell restores it; both use the same styling. --}}
-                                    @php $overridden = isset($draftDeductions[$p->employee_id][$field]); @endphp
-                                    <td class="text-right" data-deduction-cell="{{ $column->key() }}" @if ($overridden) data-overridden="{{ $field }}" @endif>
-                                        {{-- An emptied computed cell shows its computed figure again
-                                             (money-field.js `fallback`); a cleared override changes the
-                                             key, so the re-render rebuilds the input from the server. --}}
-                                        <input
-                                            type="text" inputmode="decimal" autocomplete="off"
-                                            wire:key="deduction-{{ $p->employee_id }}-{{ $field }}-{{ $overridden ? 'typed' : 'computed' }}"
-                                            x-data="moneyField(@js((string) $p->{$field}), @js(! $overridden ? (string) $p->{$field} : null))"
-                                            x-bind:value="text"
-                                            x-on:input="onInput($event)"
-                                            x-on:focus="$event.target.select()"
-                                            x-on:blur="settle()"
-                                            aria-label="{{ $nameForInput }} {{ $column->name }}"
-                                            x-on:change="$wire.updateDeduction('{{ $p->employee_id }}', '{{ $field }}', raw); restoreIfEmpty()"
-                                            class="num h-8 w-full min-w-[7.5rem] rounded-md border border-border bg-background px-2.5 text-right text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                                        />
-                                        @if (isset($figureMarks[$p->employee_id][$field]))
-                                            @include('livewire.payroll.partials.figure-mark', ['source' => $figureMarks[$p->employee_id][$field], 'employeeId' => $p->employee_id, 'cell' => $field, 'label' => $nameForInput.' '.$column->name])
-                                        @endif
-                                    </td>
                                 @elseif ($finalized)
                                     {{-- A typed row, as the payslip posted it: zero when this
                                          employee had no such line. --}}

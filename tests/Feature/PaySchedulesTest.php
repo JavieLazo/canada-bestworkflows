@@ -5,7 +5,6 @@ declare(strict_types=1);
 use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\PayrollRunKind;
 use App\Domain\Enums\PayrollRunStatus;
-use App\Domain\Payroll\StatutorySchedule;
 use App\Livewire\Payroll\Index as PayrollIndex;
 use App\Livewire\Payroll\RunWorkspace;
 use App\Livewire\Records\PaySchedulesPage;
@@ -15,7 +14,6 @@ use App\Models\Holiday;
 use App\Models\Notification;
 use App\Models\PayrollPaySchedule;
 use App\Models\PayrollRun;
-use App\Models\PayrollStatutoryTable;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
@@ -25,7 +23,6 @@ use App\Modules\Payroll\Application\Commands\SavePaySchedule;
 use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Application\PaySchedules;
 use App\Modules\Payroll\Application\Queries\PayScheduleRecords;
-use App\Modules\Payroll\Application\StatutoryTables;
 use App\Modules\Payroll\Domain\Schedules\PaySchedule;
 use App\Support\Access;
 use Carbon\CarbonImmutable;
@@ -37,10 +34,10 @@ use Livewire\Livewire;
 /**
  * Pay schedules (2026_11_02_0004): how a month is cut into salary periods
  * and when each is paid, one schedule the company's default. A regular
- * payroll records which schedule gave it its dates, its pay date and its
- * contribution month; the withholding table is picked by the pay date and
- * the contributions by the contribution month; the run list and workspace
- * do not show the pay date; a payroll's last status
+ * payroll records which schedule gave it its dates and its pay date, and
+ * no contribution month; a schedule's stored `contribution_month` still
+ * reads; the run list and workspace do not show the pay date; a payroll's
+ * last status
  * is FINALIZED; and payroll officers are reminded of a pay date with no
  * finalized payroll behind it. Nothing here moves a peso on a run made
  * without a schedule.
@@ -128,7 +125,7 @@ it('adds, edits, re-defaults and deletes schedules for whoever manages the Payro
     expect($row->is_default)->toBeFalse()
         ->and($row->created_by)->toBe((int) $actor->userId)
         ->and(AuditLog::query()->where('action', AuditEvent::PAY_SCHEDULE_SAVED->value)->sole()->details)
-        ->toBe('Pay schedule "15th and 30th" added: 1st–15th paid on the 15th; 16th–end paid on the 30th; moved before a weekend or holiday; Approved 3 days before; contributions of the period\'s month');
+        ->toBe('Pay schedule "15th and 30th" added: 1st–15th paid on the 15th; 16th–end paid on the 30th; moved before a weekend or holiday; Approved 3 days before');
 
     // The seeded default cannot be un-defaulted or deleted; making another the default moves the flag.
     $seeded = PaySchedules::default();
@@ -152,26 +149,33 @@ it('adds, edits, re-defaults and deletes schedules for whoever manages the Payro
 
 /* |---| The payroll |---| */
 
-it('records the schedule, pay date and contribution month on a payroll, picks the tables by them, and refuses what cannot be used', function () {
+it('records the schedule and pay date on a payroll and no contribution month, reads a schedule stored with one, and refuses what cannot be used', function () {
     $this->travelTo(CarbonImmutable::parse('2026-11-20 02:00:00', 'UTC'));
     $actor = pschActor();
     $employee = pschEmployee('Scheduled');
     Holiday::create(['code' => 'H-PSCH', 'name' => 'Bonifacio Day', 'date' => '2026-11-30', 'schedule' => 'ANNUAL', 'type' => 'REGULAR', 'percent' => 100]);
     $schedule = PayrollPaySchedule::query()->whereKey(app(SavePaySchedule::class)->handle($actor, null, '15th and 30th', pschFigures(['contribution_month' => PaySchedule::MONTH_PAY_DATE]), true))->sole();
 
-    // 30 Nov 2026 is a holiday on a Monday: the Friday before, the 27th; the period's month carries the contributions.
+    // The stored figures keep the key every schedule row carries, and the
+    // strict read takes it, whichever value it holds.
+    expect($schedule->params['contribution_month'])->toBe(PaySchedule::MONTH_PAY_DATE)
+        ->and(PaySchedule::fromArray([...$schedule->params, 'contribution_month' => PaySchedule::MONTH_PERIOD])->toArray()['contribution_month'])->toBe(PaySchedule::MONTH_PERIOD)
+        ->and(PaySchedule::error(array_diff_key($schedule->params, ['contribution_month' => true])))->not->toBeNull();
+
+    // 30 Nov 2026 is a holiday on a Monday: the Friday before, the 27th. A period carries no contribution month.
     $period = PaySchedules::periodFor($schedule, '2026-11-16', '2026-11-30');
-    expect($period)->toMatchArray(['pay_date' => '2026-11-27', 'contribution_month' => '2026-11', 'position' => 'LAST'])
+    expect($period)->toMatchArray(['pay_date' => '2026-11-27', 'position' => 'LAST'])
+        ->not->toHaveKey('contribution_month')
         ->and($period['deadlines'])->toBe([['label' => 'Approved', 'date' => '2026-11-24']])
         ->and(PaySchedules::periodFor($schedule, '2026-11-10', '2026-11-25'))->toBeNull()
         ->and(PaySchedules::nextAfter($schedule, '2026-11-16')['start'])->toBe('2026-12-01');
 
-    // Saved with the schedule: the pay date it gives, unless typed; the contribution month its rule gives.
+    // Saved with the schedule: the pay date it gives, unless typed; the run's contribution month is left unwritten.
     ['id' => $runId] = app(SavePayroll::class)->handle($actor, new PayrollDraft(null, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], scheduleId: $schedule->id));
     $run = PayrollRun::query()->whereKey($runId)->sole();
     expect($run->schedule_id)->toBe($schedule->id)
         ->and($run->pay_date?->format('Y-m-d'))->toBe('2026-11-27')
-        ->and($run->contribution_month)->toBe('2026-11')
+        ->and($run->contribution_month)->toBeNull()
         ->and(AuditLog::query()->where('action', AuditEvent::PAYROLL_RUN_CREATED->value)->sole()->details)->toContain('; on the 15th and 30th schedule; paid 27 Nov 2026');
     app(SavePayroll::class)->handle($actor, new PayrollDraft($runId, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], scheduleId: $schedule->id, payDate: '2026-12-01'));
     expect($run->refresh()->pay_date?->format('Y-m-d'))->toBe('2026-12-01');
@@ -181,17 +185,6 @@ it('records the schedule, pay date and contribution month on a payroll, picks th
         ->and(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($runId, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], scheduleId: (string) Str::ulid())))->toThrow(RuntimeException::class, 'That pay schedule no longer exists.');
     $lagged = app(SavePaySchedule::class)->handle($actor, null, 'Lagged', pschFigures(['attendance_lag' => 5]), false);
     expect(fn () => app(SavePayroll::class)->handle($actor, new PayrollDraft($runId, 'November second half', '2026-11-16', '2026-11-30', [$employee->id], [], [], [], scheduleId: $lagged)))->toThrow(RuntimeException::class, 'cannot make a payroll yet');
-
-    // The withholding table is picked by the pay date, the contributions by the contribution month.
-    $december = new PayrollStatutoryTable;
-    $december->forceFill(['kind' => StatutorySchedule::WITHHOLDING_TAX, 'effective_from' => '2026-12-01', 'covered_through' => '2027-12-31', 'params' => StatutorySchedule::BUILT_IN[StatutorySchedule::WITHHOLDING_TAX]])->save();
-    $sssDecember = new PayrollStatutoryTable;
-    $sssDecember->forceFill(['kind' => StatutorySchedule::SSS, 'effective_from' => '2026-12-01', 'covered_through' => '2027-12-31', 'params' => StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]])->save();
-    $tables = app(StatutoryTables::class);
-    expect($tables->resolve('2026-11-16', '2026-11-30')->tables[StatutorySchedule::WITHHOLDING_TAX]['version_id'])->not->toBe($december->id)
-        ->and($tables->resolve('2026-11-16', '2026-11-30', '2026-12-01')->tables[StatutorySchedule::WITHHOLDING_TAX]['version_id'])->toBe($december->id)
-        ->and($tables->resolve('2026-11-16', '2026-11-30', '2026-12-01')->tables[StatutorySchedule::SSS]['version_id'])->not->toBe($sssDecember->id)
-        ->and($tables->resolve('2026-11-16', '2026-11-30', '2026-12-01', '2026-12')->tables[StatutorySchedule::SSS]['version_id'])->toBe($sssDecember->id);
 });
 
 it('starts a new payroll on the default schedule\'s next period to pay, follows the dates, and says when it is paid', function () {

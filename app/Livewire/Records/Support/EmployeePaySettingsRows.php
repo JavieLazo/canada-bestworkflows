@@ -22,9 +22,9 @@ use App\Support\LocalClock;
 /**
  * The Employee Pay Settings rows as the table lists them: searched on name,
  * ID and Employee ID, narrowed to active employees and to those paid apart
- * from the standard computation — a Contributions & tax setting that
- * differs (the approved version in force today, else the record's
- * baseline), an hourly rate of their own, Pay Basis & Rates of their own
+ * from the standard computation — a rate of their own on a percentage
+ * deduction (the approved settings version in force today), an hourly
+ * rate of their own, Pay Basis & Rates of their own
  * now or from a coming date, or recurring lines — then sorted. Each row
  * carries the settings in force, which differ, what prices the employee
  * today (EmployeeRates), their recurring lines and whether a version waits
@@ -63,7 +63,10 @@ final class EmployeePaySettingsRows
             $rates = EmployeeRates::today($own[$settings->id] ?? [], $statusId === null ? [] : $statuses[$statusId], $company, $today);
             $version = $inForce[$settings->id] ?? null;
             $gov = self::effective($settings, $version);
-            $customized = [...$gov->customized(), ...EmployeePaySettingsInput::customized($settings)];
+            // Of the settings version, only a rate of their own on a
+            // percentage deduction sets an employee apart; its other keys
+            // are stored shape that prices nothing.
+            $customized = [...array_values(array_intersect($gov->customized(), PaySettingsText::summaryKeys())), ...EmployeePaySettingsInput::customized($settings)];
             $lines = $recurring[$settings->id] ?? null;
             $row = ['settings' => $settings, 'gov' => $gov, 'govVersion' => $version, 'customized' => $customized, 'rates' => $rates, 'recurring' => $lines, 'pendingGov' => isset($pending[$settings->id])];
             if ($onlyCustomized && ! self::differs($row)) {
@@ -108,8 +111,8 @@ final class EmployeePaySettingsRows
     /**
      * What the rows add up to, for the figures above the table: how many are
      * listed, how many are paid apart from the standard computation and, by
-     * the table's own columns, how many have Contributions & tax of their
-     * own, rates of their own (the hourly rate or Pay Basis & Rates) and a
+     * the table's own columns, how many have a percentage deduction rate
+     * of their own, rates of their own (the hourly rate or Pay Basis & Rates) and a
      * loan or an allowance.
      *
      * @param  list<array{customized: list<string>, rates: array{source: string, version: ?PayRuleView, next: ?PayRuleView, drafts: int}, recurring: ?array{count: int, left: ?float}, pendingGov: bool}>  $rows
@@ -129,7 +132,7 @@ final class EmployeePaySettingsRows
         return $summary;
     }
 
-    /** The Contributions & tax settings in force: the approved version, else the record's baseline. */
+    /** The employee's settings in force: the approved version, else the record's baseline. */
     public static function effective(EmployeePaySettingsView $settings, ?GovDeductionPolicyView $version): GovDeductionSettings
     {
         if ($version === null) {

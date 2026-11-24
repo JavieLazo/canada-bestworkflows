@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Support;
 
+use App\Domain\Payroll\StatutorySchedule;
 use App\Models\AttendanceLog;
 use App\Models\EmployeeProfile;
 use App\Models\Holiday;
@@ -15,7 +16,6 @@ use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
-use App\Modules\Payroll\Application\StatutoryTables;
 use App\Support\Access;
 
 /** Synthetic facts shared by snapshot, commit and concurrency tests; never imports live data. */
@@ -149,9 +149,12 @@ final class PayrollEvidenceFixture
             unset($inputs['source_deductions']);
             // Evidence before 25 always captured the four contribution and
             // withholding tables; a capture made now holds none, so the
-            // ones in force on its period stand in for them.
+            // engine's built-in figures stand in for them, as a payroll
+            // priced with no stored version recorded them.
             if ($schema >= 8 && ($inputs['statutory_tables'] ?? null) === []) {
-                $inputs['statutory_tables'] = app(StatutoryTables::class)->resolve((string) $inputs['period_start'], (string) $inputs['period_end'])->tables;
+                foreach (StatutorySchedule::KINDS as $kind) {
+                    $inputs['statutory_tables'][$kind] = ['version_id' => null, 'effective_from' => null, 'covered_through' => null, 'figures' => StatutorySchedule::BUILT_IN[$kind]];
+                }
             }
         }
         if ($schema < 22) {

@@ -16,6 +16,7 @@ use App\Modules\Payroll\Application\Commands\SaveEmployeeTaxDetails;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollInputs;
 use App\Modules\Payroll\Application\Queries\PayslipRecords;
+use App\Modules\Payroll\Application\SourceDeductionFacts;
 use App\Modules\Payroll\Domain\Canada\DeductionRates;
 use App\Modules\Payroll\Domain\Canada\PayDeductions;
 use App\Modules\Payroll\Domain\Canada\TaxDetails;
@@ -193,6 +194,39 @@ it('posts the source deductions to the payslip and keeps their facts in the evid
         ->and($payload['inputs']['source_deductions']['periods'])->toBe(26)
         ->and($payload['inputs']['source_deductions']['members'][$id]['details']['province'])->toBe('AB')
         ->and((float) $payload['statutory'][$id]['source_deductions']['cpp'])->toBe($payslip->cpp);
+});
+
+it('stamps a payslip with the year of its pay date, and records no contribution month, base or withholding method', function () {
+    expect(SourceDeductionFacts::taxYearOf('2027-01-08', '2027-01-02'))->toBe(2027)
+        ->and(SourceDeductionFacts::taxYearOf('2027-01-08', '2026-12-19'))->toBe(2027)
+        // A payroll with no pay date counts in the year its period ends.
+        ->and(SourceDeductionFacts::taxYearOf(null, '2026-12-19'))->toBe(2026);
+
+    // A period that ends in December and is paid in January counts in the new year.
+    $this->travelTo(new DateTimeImmutable('2027-01-05T04:00:00Z'));
+    $employee = srcdedEmployee('SRC-006');
+    srcdedActor();
+    $run = new PayrollRun;
+    $run->forceFill(['code' => 'PR-SRC-6', 'name' => 'Source 6', 'period_start' => '2026-12-06', 'period_end' => '2026-12-19', 'status' => 'DRAFT', 'pay_date' => '2027-01-08', 'contribution_month' => '2026-12'])->save();
+    PayrollRunMember::create(['run_id' => $run->id, 'employee_id' => $employee->getKey(), 'position' => 0, 'period_start' => '2026-12-06', 'period_end' => '2026-12-19']);
+
+    Livewire::test(RunWorkspace::class, ['id' => $run->id])->call('finalize');
+    expect($run->refresh()->status)->toBe('FINALIZED');
+
+    $payslip = Payslip::query()->where('run_id', $run->id)->sole();
+    $inputs = json_decode(PayrollFinalizationSnapshot::query()->sole()->payload, true, 512, JSON_THROW_ON_ERROR)['inputs'];
+    expect($payslip->tax_year)->toBe(2027)
+        ->and($payslip->contribution_month)->toBeNull()
+        ->and($payslip->contribution_base)->toBeNull()
+        ->and($payslip->tax_method)->toBeNull()
+        ->and($payslip->tax_refund)->toBe(0.0)
+        ->and($inputs['source_deductions']['tax_year'])->toBe(2027)
+        // The evidence keeps its schema-25 keys, each captured empty.
+        ->and($inputs['schema_version'])->toBe(25)
+        ->and($inputs['contribution_month'])->toBeNull()
+        ->and($inputs['contribution_posted'])->toBe([])
+        ->and($inputs['tax_year'])->toBeNull()
+        ->and($inputs['statutory_tables'])->toBe([]);
 });
 
 it('restores captured facts exactly, and deducts none from evidence that captured none', function () {

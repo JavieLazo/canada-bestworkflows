@@ -10,8 +10,8 @@ use InvalidArgumentException;
 
 /**
  * A pay schedule as the Pay Schedules page and its CSV word it: the
- * periods and their pay days in a phrase, the weekend and holiday rule,
- * the deadlines, the contribution-month rule. Read straight off the
+ * periods and their pay days in a phrase, the weekend and holiday rule
+ * and the deadlines. Read straight off the
  * view's figures; a row payroll cannot read is named as such.
  */
 final class PayScheduleText
@@ -163,10 +163,5 @@ final class PayScheduleText
         }
 
         return implode(' · ', array_map(static fn (array $d): string => $d['label'].' '.($d['days_before'] === 1 ? '1 day' : $d['days_before'].' days').' before', $schedule->deadlines));
-    }
-
-    public static function contributionMonth(PaySchedule $schedule): string
-    {
-        return $schedule->contributionMonth === PaySchedule::MONTH_PAY_DATE ? 'The pay date\'s month' : 'The period\'s month';
     }
 }

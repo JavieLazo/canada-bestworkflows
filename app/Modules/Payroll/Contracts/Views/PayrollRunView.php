@@ -23,7 +23,7 @@ use Illuminate\Support\Collection;
  * @property-read CarbonImmutable|null $attendance_through  the advance payroll's counted date (PayrollAdvance); null reads the whole period
  * @property-read string|null $schedule_id  the pay schedule the dates came from; null on a run made without one or before schedules existed
  * @property-read CarbonImmutable|null $pay_date  when the pay goes out; null on a legacy run
- * @property-read string|null $contribution_month  `YYYY-MM`; null reads the period's first day
+ * @property-read string|null $contribution_month  `YYYY-MM` on a run saved while payroll read contribution tables; stored history
  * @property-read CarbonImmutable|null $finalized_at
  * @property-read int|null $finalized_by
  * @property-read CarbonImmutable $created_at

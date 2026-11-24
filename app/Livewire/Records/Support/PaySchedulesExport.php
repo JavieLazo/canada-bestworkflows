@@ -30,14 +30,14 @@ final class PaySchedulesExport implements TableExport
                 }
                 $schedule = PayScheduleText::schedule($view);
                 yield $schedule === null
-                    ? [$view->name, 'Unreadable', '', '', '', '', $view->is_default ? 'Default' : '', $view->runs_count]
+                    ? [$view->name, 'Unreadable', '', '', '', $view->is_default ? 'Default' : '', $view->runs_count]
                     : [
                         $view->name, PayScheduleText::periods($schedule), PayScheduleText::payDays($schedule), PayScheduleText::holidayRule($schedule),
-                        PayScheduleText::deadlines($schedule), PayScheduleText::contributionMonth($schedule), $view->is_default ? 'Default' : '', $view->runs_count,
+                        PayScheduleText::deadlines($schedule), $view->is_default ? 'Default' : '', $view->runs_count,
                     ];
             }
         };
 
-        return new CsvExport('pay-schedules-'.LocalClock::todayKey().'.csv', ['Name', 'Salary periods', 'Pay days', 'Weekend or holiday', 'Deadlines', 'Contribution month', 'Default', 'Payrolls'], $rows);
+        return new CsvExport('pay-schedules-'.LocalClock::todayKey().'.csv', ['Name', 'Salary periods', 'Pay days', 'Weekend or holiday', 'Deadlines', 'Default', 'Payrolls'], $rows);
     }
 }

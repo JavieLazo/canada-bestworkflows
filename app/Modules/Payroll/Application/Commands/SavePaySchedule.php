@@ -19,7 +19,7 @@ use RuntimeException;
  * Adds or edits a pay schedule: its name, its figures (PaySchedule, read
  * strictly) and whether it is the company's default — exactly one is. A
  * schedule's edit changes no payroll already made: a run keeps the pay
- * date and contribution month it recorded. Whoever manages the Payroll
+ * date it recorded. Whoever manages the Payroll
  * Settings (PayrollSettingsAccess); RequiredAudit on the same transaction.
  */
 final class SavePaySchedule

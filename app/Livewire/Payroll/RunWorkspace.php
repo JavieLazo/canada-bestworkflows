@@ -64,8 +64,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *
  * A DRAFT recomputes its lines from attendance on every request, through
  * PayrollData::calculateDrafts — the single compute path both the grid preview
- * and finalize share. Nothing here re-derives pay, DTR minutes or a statutory
- * amount. A FINALIZED run shows the payslips it posted, not a fresh
+ * and finalize share. Nothing here re-derives pay, DTR minutes or a
+ * deduction. A FINALIZED run shows the payslips it posted, not a fresh
  * computation.
  *
  * The reference kept a client-side computation for unsaved edits and a server
@@ -141,10 +141,8 @@ class RunWorkspace extends Component
     public array $draftAllowances = [];
 
     /**
-     * Typed deductions per employee id: overrides of the computed statutory
-     * lines (SSS, PhilHealth, Pag-IBIG, withholding) and the always-typed
-     * other deductions. An ABSENT key means "use the computed figure" and a
-     * typed 0 is an override to zero; an emptied cell removes the key
+     * The typed Other Deductions figure per employee id, under the key
+     * `other_deductions`; an emptied cell removes the key
      * ({@see self::updateDeduction()}).
      *
      * @var array<string, array<string, float>>
@@ -209,7 +207,7 @@ class RunWorkspace extends Component
     #[Locked]
     public ?string $whyFor = null;
 
-    /** The cell it explains: a statutory field or `row:{deduction id}`. Names a row → #[Locked]. */
+    /** The cell it explains: `settlement`, `leave` or `row:{deduction id}`. Names a row → #[Locked]. */
     #[Locked]
     public ?string $whyCell = null;
 
@@ -373,7 +371,7 @@ class RunWorkspace extends Component
     /**
      * The schedule's period with the form's dates, with its pay date and deadlines, or null.
      *
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}|null
      */
     private function schedulePeriod(): ?array
     {
@@ -457,25 +455,27 @@ class RunWorkspace extends Component
         $this->draftAllowances[$employeeId] = self::asMoney($value);
     }
 
-    /** updateDeduction (run-workspace.tsx:373-381). */
+    /**
+     * updateDeduction (run-workspace.tsx:373-381), for the one deduction an
+     * officer types here: Other Deductions. DELIBERATE DIVERGENCE: the
+     * reference also takes a figure over each contribution and the
+     * withholding; the source deductions are computed and never typed, so
+     * any other field name is refused.
+     */
     public function updateDeduction(string $employeeId, string $field, mixed $value): void
     {
         if ($this->isFinalized() || ! in_array($employeeId, $this->members, true)) {
             return;
         }
 
-        if (! in_array($field, PayslipDraft::EDITABLE_DEDUCTION_KEYS, true)) {
+        if ($field !== 'other_deductions') {
             return; // tampered field name: fail closed
         }
 
         /*
-         * AN EMPTIED OR UNREADABLE CELL CLEARS THE OVERRIDE. The engine
-         * computes the statutory lines, so an absent key means "use the
-         * computed figure" — while a stored 0 would EXEMPT the employee
-         * from that line, with a payslip that still foots. So a blank, and
+         * AN EMPTIED OR UNREADABLE CELL CLEARS THE FIGURE: a blank, and
          * anything that is still not a number once the thousands separators
-         * are gone, removes the key rather than storing asMoney()'s 0.0. A
-         * typed 0 is still an override to zero, on purpose.
+         * are gone, removes the key rather than storing asMoney()'s 0.0.
          */
         $amount = is_string($value) ? str_replace(',', '', trim($value)) : $value;
         if ($amount === null || $amount === '' || ! is_numeric($amount) || ! is_finite((float) $amount)) {
@@ -515,9 +515,7 @@ class RunWorkspace extends Component
          *
          * `asMoney` itself deliberately turns a blank into 0.0 —
          * `updateAllowance` shares it, and for an allowance a cleared cell and
-         * a zero genuinely mean the same thing. `updateDeduction` unsets an
-         * emptied cell the same way this does, since the statutory lines have
-         * a computed figure too.
+         * a zero genuinely mean the same thing.
          */
         if ($value === null || (is_string($value) && trim($value) === '')) {
             unset($this->draftEarnings[$employeeId][$field]);
@@ -564,14 +562,15 @@ class RunWorkspace extends Component
     /* ------------------------------------------------------------------ */
 
     /**
-     * Opens "Why this amount?" for one marked figure of one member: a
-     * statutory field or a Payroll Deductions row's cell. Component state
-     * only; the render explains it from the draft's own calculation.
+     * Opens "Why this amount?" for one figure of one member: the prior
+     * cut-off adjustment, the leave credits charged or a Payroll Deductions
+     * row's cell. Component state only; the render explains it from the
+     * draft's own calculation.
      */
     public function openWhy(string $employeeId, string $cell): void
     {
         if ($this->isFinalized() || ! in_array($employeeId, $this->members, true)
-            || preg_match('/\A(?:sss|philhealth|pagibig|withholding_tax|settlement|leave|row:[A-Za-z0-9\-]{1,40})\z/', $cell) !== 1) {
+            || preg_match('/\A(?:settlement|leave|row:[A-Za-z0-9\-]{1,40})\z/', $cell) !== 1) {
             return;
         }
         $this->whyFor = $employeeId;
@@ -612,22 +611,17 @@ class RunWorkspace extends Component
 
             return LeaveChargeText::explain(PayrollData::employeeName($employee), (float) $draft->leave_charged_days, $leaveChargeLines[$this->whyFor] ?? null, $names);
         }
-        $column = null;
         $amount = 0.0;
-        if (isset(FigureSources::STATUTORY[$this->whyCell])) {
-            $amount = (float) $draft->{$this->whyCell};
-        } else {
-            $typeId = substr($this->whyCell, 4);
-            $column = $columns->first(static fn (DeductionColumnView $c): bool => $c->id === $typeId);
-            foreach ($customDeductionLines[$this->whyFor] ?? [] as $line) {
-                if ($line['type_id'] === $typeId) {
-                    $amount = (float) $line['amount'];
-                }
+        $typeId = substr($this->whyCell, 4);
+        $column = $columns->first(static fn (DeductionColumnView $c): bool => $c->id === $typeId);
+        foreach ($customDeductionLines[$this->whyFor] ?? [] as $line) {
+            if ($line['type_id'] === $typeId) {
+                $amount = (float) $line['amount'];
             }
         }
 
-        return FigureSources::explain($this->whyCell, $employee, PayrollData::employeeName($employee), $amount, $inputs,
-            $this->draftDeductions, $this->draftCustomDeductions, $customDeductionLines, $column);
+        return FigureSources::explain($this->whyCell, $this->whyFor, PayrollData::employeeName($employee), $amount, $inputs,
+            $this->draftCustomDeductions, $customDeductionLines, $column);
     }
 
     /** Opens one member's recurring lines on this payroll. Component state only. */
@@ -1119,7 +1113,6 @@ class RunWorkspace extends Component
 
         $readinessIssue = null;
         $invalidDraft = null;
-        $statutory = [];
         $incentiveLines = [];
         $customDeductionLines = [];
         /** @var array<string, float> $proposedIncentives */
@@ -1149,20 +1142,15 @@ class RunWorkspace extends Component
         $this->previewReceipt = null;
 
         // The pay schedule's period with these dates, when the dates are one
-        // of its periods: its pay date and deadlines, and the contribution
-        // month the tables are picked by. A finalized run keeps what it
-        // recorded.
+        // of its periods: its pay date and deadlines. A finalized run keeps
+        // what it recorded.
         $schedulePeriod = $finalized ? null : $this->schedulePeriod();
         $payDate = $finalized ? ($run->pay_date?->format('Y-m-d') ?? null) : (PayrollPeriod::isPayrollDate($this->payDate) ? $this->payDate : null);
-        $contributionMonth = $finalized ? ($run->contribution_month ?? null) : ($schedulePeriod['contribution_month'] ?? null);
         // Non-blocking: shown beside the grid, never part of what disables
         // Finalize. Dates that are not one of the pay schedule's periods are
         // said, because the source deductions treat every payroll as one
         // regular pay of that schedule.
         $cutoffWarning = $finalized || $cutoffError !== null || $schedulePeriod !== null || $this->scheduleId === '' ? null : 'off-schedule';
-        // The deduction figures are published sets a payroll reads by its pay
-        // date, so there is nothing to confirm and nothing to warn about.
-        $statutoryWarning = null;
 
         if ($finalized) {
             /** A finalised run shows what it posted, not a fresh computation. */
@@ -1195,7 +1183,6 @@ class RunWorkspace extends Component
                 draftSkippedRecurring: $this->activeSkippedRecurring(),
                 attendanceThrough: $attendanceThrough,
                 payDate: $payDate,
-                contributionMonth: $contributionMonth,
                 runId: $this->runId,
             );
 
@@ -1205,12 +1192,11 @@ class RunWorkspace extends Component
             $countedThrough = $calculation['countedThrough'];
             $leaveCancellationWarnings = LeaveCancellationWarnings::forInputs($calculation['inputs']);
             $employees = $calculation['employees']->keyBy('id');
-            $statutory = $calculation['statutory'];
             $incentiveLines = $calculation['incentiveLines'];
             $customDeductionLines = $calculation['customDeductionLines'];
             $recurringMembers = $calculation['inputs'] === null ? [] : PayrollData::recurringMembers($calculation['inputs']);
             $deductionColumns = PayrollData::deductionColumns($actor);
-            $figureMarks = FigureSources::marks($employees, $this->draftDeductions, $customDeductionLines, $incentiveLines);
+            $figureMarks = FigureSources::marks($employees, $customDeductionLines, $incentiveLines);
             $why = $this->whyExplanation($calculation['inputs'], $employees, $lines, $customDeductionLines, $deductionColumns, $settlementLines, $leaveChargeLines);
             // The scheduled benefits payroll proposes for the member whose
             // incentives are open, type id => amount; a typed amount replaces one.
@@ -1290,7 +1276,6 @@ class RunWorkspace extends Component
             'invalidDraft' => $invalidDraft,
             'readinessIssue' => $readinessIssue,
             'cutoffWarning' => $cutoffWarning,
-            'statutoryWarning' => $statutoryWarning,
             'payLine' => $this->payLine($payDate),
             'provinceName' => TaxDetails::PROVINCES[TaxDetails::DEFAULT_PROVINCE],
             // The pay schedules to pick from, the period the chosen one
@@ -1300,7 +1285,6 @@ class RunWorkspace extends Component
             // Members with an adjustment still awaiting approval: finalize
             // refuses until it is reviewed or discarded.
             'pendingAdjustments' => $finalized ? [] : $this->pendingAdjustmentNames($employees),
-            'statutory' => $statutory,
             'incentiveLines' => $incentiveLines,
             'customDeductionLines' => $customDeductionLines,
             'exemptOrderWarning' => $exemptOrderWarning,

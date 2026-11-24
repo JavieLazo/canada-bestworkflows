@@ -11,10 +11,10 @@ use Carbon\CarbonImmutable;
  * What a tax year already carried for one employee before this system
  * posted it (payroll_tax_balances, 2026_11_02_0012): the go-live OPENING
  * balance or a new hire's PREVIOUS_EMPLOYER figures — the taxable income
- * and the tax withheld — with the reason and the paper behind it. A DRAFT
- * waits for approval; an APPROVED row joins the
- * year's posted figures the whole-year withholding estimate reads
- * (TaxYearToDate, divergence 20).
+ * and the tax withheld — with the reason and the paper behind it, DRAFT or
+ * APPROVED. STORED HISTORY: no screen or command reads or writes the
+ * table, and no payroll counts its rows; the model stays because the
+ * rows name employees and accounts the retention checks still count.
  *
  * `prepared_by` and `approved_by` are actor columns: set from Access,
  * never fillable. Row scoping widens on PAYROLL alone, like the payslips.

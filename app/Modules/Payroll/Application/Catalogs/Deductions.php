@@ -8,7 +8,6 @@ use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\PayrollRunStatus;
 use App\Models\PayrollDeduction;
 use App\Models\PayrollRecurringLine;
-use App\Models\PayrollRunMember;
 use App\Models\PayrollRunMemberDeduction;
 use App\Modules\Payroll\Application\PayrollData;
 use App\Modules\Payroll\Application\PayrollSettingsAccess;
@@ -25,25 +24,24 @@ use RuntimeException;
 
 /**
  * Owns this catalog's persistence while sharing its name/description editor
- * mechanics. Every row is a column of the Basic Payroll grid, and a row's
- * `calculation` is what tells a computed column (the statutory tables, the
- * DTR minutes) from one an officer types per employee. No screen offers the
- * calculation: the migration and the seeder set it, and this class keeps it
- * by NAME — a new row named exactly as a computed deduction is known
- * (`DeductionCalculation::defaultLabel`, case-insensitively) takes that
- * calculation when no row holds it, which is how a deleted SSS comes back.
+ * mechanics. Every row is a column of the Basic Payroll grid except the
+ * Late / Undertime one, whose `calculation` (LATE_UNDERTIME) marks the row
+ * the DTR prices instead of an officer. No screen offers the calculation:
+ * the seeder sets it, and this class keeps it by NAME — a new row named
+ * "Late / Undertime" (`DeductionCalculation::defaultLabel`,
+ * case-insensitively) takes it when no row holds it, which is how a deleted
+ * one comes back. No other calculation is ever given to a row: a deduction
+ * named "SSS" is one an officer types.
  *
  * A change here reaches every DRAFT payroll at once and no FINALIZED one:
  * a draft reads the list as it stands, while a finalized run reads the list
  * its evidence recorded. So:
  *
- *  - deleting a COMPUTED row switches that deduction OFF on every draft
- *    (`PayrollData::switchOff`): the column goes, the engine's line is
- *    exempt for everyone, the tax is re-derived, and any typed figure a
- *    draft still held for that column is cleared here, with a required
- *    audit row per draft;
+ *  - deleting the Late / Undertime row switches that deduction OFF on
+ *    every draft (`PayrollData::switchOff`): neither line is taken from
+ *    anyone;
  *  - deleting a TYPED row that drafts charge takes its typed lines off
- *    those drafts the same way;
+ *    those drafts, with a required audit row per draft;
  *  - both happen in ONE transaction under the payroll membership lock, so a
  *    draft never keeps a line for a column it no longer has;
  *  - a row a FINALIZED run's members charge cannot be deleted: that run is
@@ -52,9 +50,9 @@ use RuntimeException;
 final class Deductions extends ReferenceCatalog
 {
     /**
-     * Add or rename through the shared editor. A NEW row named as a computed
-     * deduction is known, while no row carries that calculation, becomes
-     * that computed deduction again — the way back after a delete.
+     * Add or rename through the shared editor. A NEW row named as the Late /
+     * Undertime deduction is known, while no row carries that calculation,
+     * becomes it again — the way back after a delete.
      *
      * @param  array<string, mixed>  $extra
      */
@@ -97,17 +95,12 @@ final class Deductions extends ReferenceCatalog
         return RecurringLines::ready() && PayrollRecurringLine::query()->where('deduction_id', $id)->exists();
     }
 
-    /** The computed deduction a name spells (its default label), or null. */
+    /** LATE_UNDERTIME when the name spells that deduction's default label, else null: the one calculation a new row can take. */
     public static function calculationForName(string $name): ?string
     {
-        $needle = mb_strtolower(trim($name));
-        foreach (DeductionCalculation::all() as $calculation) {
-            if (mb_strtolower(DeductionCalculation::defaultLabel($calculation)) === $needle) {
-                return $calculation;
-            }
-        }
-
-        return null;
+        return mb_strtolower(trim($name)) === mb_strtolower(DeductionCalculation::defaultLabel(DeductionCalculation::LATE_UNDERTIME))
+            ? DeductionCalculation::LATE_UNDERTIME
+            : null;
     }
 
     /** A Payroll Setting (PayrollSettingsAccess): save, delete and the CSV import all ask this. */
@@ -135,7 +128,6 @@ final class Deductions extends ReferenceCatalog
                         throw new RuntimeException("Employees have loans or deductions set on {$row->name}, so it cannot be deleted. End or delete them in Employee Pay Settings, or rename it instead.");
                     }
                     $this->removeDraftLines($actor, $row, 'was deleted');
-                    $this->clearDraftOverrides($actor, $row);
                 }
 
                 return parent::delete($actor, $id);
@@ -178,45 +170,6 @@ final class Deductions extends ReferenceCatalog
             $noun = $count === 1 ? 'line' : 'lines';
             RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_UPDATED, 'payroll_runs', $runId,
                 "{$name} saved; {$count} {$row->name} {$noun} removed because the deduction {$because} in Records");
-        }
-    }
-
-    /**
-     * A computed row is being deleted: the figures officers typed over its
-     * column on DRAFT payrolls have no column to live in and are cleared
-     * (NULL = "as computed", and the computed line is now exempt), one
-     * required audit row per draft. Late / Undertime has no typed column.
-     */
-    private function clearDraftOverrides(Access $actor, PayrollDeduction $row): void
-    {
-        $key = $row->calculation === null ? null : DeductionCalculation::statutoryKey($row->calculation);
-        $column = $key === null ? null : (PayrollData::DEDUCTION_COLUMNS[$key] ?? null);
-        if ($column === null) {
-            return;
-        }
-
-        $members = PayrollRunMember::query()->whereNotNull($column)
-            ->whereHas('run', static fn (Builder $q): Builder => $q->where('status', PayrollRunStatus::DRAFT))
-            ->with('run')->get();
-        if ($members->isEmpty()) {
-            return;
-        }
-
-        $perRun = [];
-        foreach ($members as $member) {
-            if ($member->run === null) {
-                continue;
-            }
-            $perRun[$member->run->id] ??= ['name' => $member->run->name, 'count' => 0];
-            $perRun[$member->run->id]['count']++;
-        }
-
-        PayrollRunMember::query()->whereIn('id', $members->pluck('id')->all())->update([$column => null]);
-
-        foreach ($perRun as $runId => ['name' => $name, 'count' => $count]) {
-            $noun = $count === 1 ? 'figure' : 'figures';
-            RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_UPDATED, 'payroll_runs', $runId,
-                "{$name} saved; {$count} typed {$row->name} {$noun} cleared because the deduction was deleted in Records and is switched off");
         }
     }
 

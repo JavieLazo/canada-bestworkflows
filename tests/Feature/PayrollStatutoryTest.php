@@ -9,7 +9,6 @@ use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
-use App\Models\Payslip;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\User;
@@ -23,20 +22,12 @@ use Illuminate\Support\Str;
 use Tests\Support\ScheduleFixture;
 
 /**
- * SSS, PhilHealth, Pag-IBIG and withholding are computed through the REAL
- * pay-context path: the statutory columns stored on `employee_profiles` (no
- * screen edits them) reach the engine through Workforce's EmployeePayData,
- * are captured in the evidence, and decide every line — a switch turns a
- * line off, a fixed figure replaces the table, a MONTHLY mode charges the
- * whole month on the month-ending cut-off. An officer can still overtype
- * any statutory line: a typed employee share wins and the tax is RE-DERIVED
- * from the shares the payslip will carry (unless the tax itself was typed);
- * the employer share stays computed; an emptied or unreadable cell returns
- * to the computed figure while a typed 0 stays an override; and finalize
- * records what was computed and what was typed beside the posted results. A
- * period that is not a standard cut-off is warned about and still finalizes.
- * The employer shares, never deducted, reach the posted payslip, the portal
- * and the CSV.
+ * A payroll posts no SSS, PhilHealth, Pag-IBIG or withholding line, and
+ * nothing typed brings one back: the one deduction an officer types on a
+ * draft is Other Deductions, and a draft or a stored member row carrying a
+ * typed contribution or withholding figure is saved, loaded and priced
+ * without it. The statutory columns stored on `employee_profiles` still
+ * reach Workforce's EmployeePayData whole, which the evidence captures.
  */
 /** @param  list<string>  $modules */
 function statFeatActor(array $modules = ['PAYROLL'], bool $allData = true, ?string $employeeId = null): Access
@@ -106,7 +97,7 @@ const STAT_FEAT_SECOND_HALF = ['17', '18', '19', '20', '21', '24', '25', '26', '
  * One employee's draft and statutory record, through the real compute path.
  *
  * @param  array<string, mixed>  $typed  typed deductions for this employee
- * @return array{draft: PayslipDraft, statutory: array{computed: array<string, float>, overridden: list<string>, withholding_rederived: bool}}
+ * @return array{draft: PayslipDraft, statutory: array{off: list<string>, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}, source_deductions: array<string, float>|null}}
  */
 function statFeatDraft(Access $actor, EmployeeProfile $employee, string $start, string $end, array $typed = []): array
 {
@@ -153,46 +144,52 @@ it('posts no contribution and no tax on a payslip with no gross pay', function (
 
 /* |---| An officer's typed figures |---| */
 
-it('names the typed statutory lines in the save audit, and keeps the plain sentence without them', function () {
+it('takes a typed Other Deductions figure alone: a typed contribution or withholding is never saved, priced or named in the audit', function () {
     $ana = statFeatEmployee('STAT-012');
     $ben = statFeatEmployee('STAT-013');
+    statFeatWorked($ana, STAT_FEAT_FIRST_HALF);
     $actor = statFeatActor();
     $a = (string) $ana->getKey();
     $b = (string) $ben->getKey();
 
-    // One typed SSS and a typed "other deductions": only the first is a
-    // statutory line typed over a computed figure.
+    // A hand-built draft still carrying the keys a typed contribution cell
+    // once sent: only Other Deductions is kept.
     $created = app(SavePayroll::class)->handle($actor, new PayrollDraft(
         null, 'Audit draft', '2026-08-01', '2026-08-15', [$a, $b],
-        [$a => ['sss' => 900, 'other_deductions' => 50]], [], [],
+        [$a => ['sss' => 900, 'withholding_tax' => 0, 'other_deductions' => 50], $b => ['philhealth' => 10, 'pagibig' => 10]], [], [],
     ));
     expect(AuditLog::query()->where('action', 'PAYROLL_RUN_CREATED')->sole()->details)
-        ->toBe('Audit draft created as a draft with 2 employees; 1 statutory line typed over the computed figure');
+        ->toBe('Audit draft created as a draft with 2 employees');
+    $member = PayrollRunMember::query()->where('run_id', $created['id'])->where('employee_id', $a)->sole();
+    expect($member->deduction_other)->toBe(50.0)
+        ->and([$member->deduction_sss, $member->deduction_philhealth, $member->deduction_pagibig, $member->deduction_withholding_tax])->toBe([null, null, null, null]);
 
-    // Each save a moment after the last, as real saves are: under the frozen
-    // clock an unchanged name and period would make MariaDB report 0 changed
-    // rows, which SavePayroll's DRAFT guard reads as a lost race.
+    // A member row holding such figures (a draft saved before they stopped
+    // being read) loads without them, and prices none of them.
+    PayrollRunMember::query()->whereKey($member->id)->update(['deduction_sss' => 900, 'deduction_withholding_tax' => 1200]);
+    $overrides = PayrollData::overridesFromMembers(PayrollRunMember::query()->where('run_id', $created['id'])->with('incentives', 'deductions')->get());
+    expect($overrides['deductions'])->toBe([$a => ['other_deductions' => 50.0]]);
+
+    $plain = statFeatDraft($actor, $ana, '2026-08-01', '2026-08-15')['draft'];
+    $typed = statFeatDraft($actor, $ana, '2026-08-01', '2026-08-15', ['sss' => 900, 'philhealth' => 10, 'pagibig' => 10, 'withholding_tax' => 1200, 'other_deductions' => 50]);
+    expect([$typed['draft']->sss, $typed['draft']->philhealth, $typed['draft']->pagibig, $typed['draft']->withholding_tax])->toBe([0.0, 0.0, 0.0, 0.0])
+        ->and($typed['draft']->other_deductions)->toBe(50.0)
+        ->and($plain->gross_pay)->toBeGreaterThan(0.0)
+        ->and($typed['draft']->total_deductions)->toEqualWithDelta($plain->total_deductions + 50.0, 0.001)
+        ->and($typed['draft']->net_pay)->toEqualWithDelta($plain->net_pay - 50.0, 0.001)
+        ->and(array_keys($typed['statutory']))->toBe(['off', 'benefits', 'source_deductions']);
+
+    // A save a moment after the last, as real saves are (the DRAFT guard
+    // reads 0 changed rows under a frozen clock as a lost race).
     $this->travel(1)->seconds();
-
-    // Two lines across two employees: plural.
     app(SavePayroll::class)->handle($actor, new PayrollDraft(
         $created['id'], 'Audit draft', '2026-08-01', '2026-08-15', [$a, $b],
-        [$a => ['sss' => 900], $b => ['withholding_tax' => 0]], [], [],
+        [$a => ['sss' => 900], $b => ['other_deductions' => 25]], [], [],
     ));
-    // None at all: the plain sentence, with no statutory clause.
-    $this->travel(1)->seconds();
-    app(SavePayroll::class)->handle($actor, new PayrollDraft(
-        $created['id'], 'Audit draft', '2026-08-01', '2026-08-15', [$a, $b],
-        [$b => ['other_deductions' => 25]], [], [],
-    ));
-
-    expect(AuditLog::query()->where('action', 'PAYROLL_RUN_UPDATED')->orderBy('created_at')->orderBy('id')->pluck('details')->all())
-        ->toBe(['Audit draft saved; 2 statutory lines typed over the computed figure', 'Audit draft saved']);
+    expect(AuditLog::query()->where('action', 'PAYROLL_RUN_UPDATED')->sole()->details)->toBe('Audit draft saved')
+        ->and(PayrollRunMember::query()->where('run_id', $created['id'])->whereNotNull('deduction_sss')->exists())->toBeFalse()
+        ->and(PayrollRunMember::query()->where('run_id', $created['id'])->where('employee_id', $b)->sole()->deduction_other)->toBe(25.0);
 });
-
-/* |---| Finalize records it |---| */
-
-/* |---| Employer shares are reported, never deducted |---| */
 
 /* |---| The pay contract carries every switch |---| */
 

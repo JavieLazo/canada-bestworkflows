@@ -74,16 +74,17 @@ it('replays exact saved facts without reading changed payroll source tables', fu
         // the evidence carries no run-level acknowledgement.
         ->and($payload['inputs']['attendance'][$employee->id]['overtime_approvals'])->toBe(['2026-09-04' => 45])
         ->and($payload['inputs']['earnings'][$employee->id])->not->toHaveKey('overtime_acknowledged')
-        ->and($payload['inputs']['deductions'][$employee->id]['sss'])->toBe(0)
-        // Schema 2: the statutory settings the engine reads are captured, and
-        // finalize records which lines were typed over the computed figure.
+        // A contribution figure stored on the member row is never read: no
+        // typed deduction reaches the evidence for it.
+        ->and($payload['inputs']['deductions'])->toBe([])
+        // Schema 2: the statutory settings stored for the employee are captured.
         ->and($payload['inputs']['schema_version'])->toBe(PayrollInputs::SCHEMA_VERSION)
         ->and($payload['inputs']['employees'][0])->toHaveKeys([
             'allow_sss', 'allow_philhealth', 'allow_pagibig', 'allow_withholding_tax', 'annualize_tax',
             'fixed_tax', 'percent_tax', 'fixed_sss_ee', 'fixed_sss_er', 'fixed_philhealth_ee',
             'fixed_philhealth_er', 'fixed_pagibig_ee', 'fixed_pagibig_er', 'sss_mode', 'philhealth_mode', 'pagibig_mode',
         ])
-        ->and($payload['statutory'][$employee->id]['overridden'])->toBe(['sss'])
+        ->and(array_keys($payload['statutory'][$employee->id]))->toBe(['benefits', 'off', 'source_deductions'])
         // The incentive lines as the catalog described them, and the ledger
         // figure the PHP 90,000 split started from.
         ->and($payload['inputs']['incentives'][$employee->id][0])->toMatchArray(['code' => '1', 'name' => 'Christmas Bonus', 'is_taxable' => false, 'amount' => 2500])
@@ -126,7 +127,7 @@ it('refuses stale reviews even when a changed input leaves the total unchanged',
         'holiday' => Holiday::query()->update(['percent' => 150]),
         'formula' => PayrollFormula::query()->update(['expression' => 'Changed display only']),
         'allowance' => $member->update(['allowance' => 0]),
-        'deduction' => $member->update(['deduction_sss' => 0]),
+        'deduction' => $member->update(['deduction_other' => 10]),
         // An overtime decision on the DTR changes what the payroll pays.
         'overtime-approval' => payrollEvidenceOvertimeDecision($employee->id, '2026-09-04', 30),
         // An employee's tax details are calculation inputs.
@@ -136,7 +137,6 @@ it('refuses stale reviews even when a changed input leaves the total unchanged',
         'fixed-share' => $employee->update(['fixed_sss_ee' => 250.05]),
         'mode' => $employee->update(['sss_mode' => 'MONTHLY']),
         'annualize' => $employee->update(['annualize_tax' => true]),
-        'tax-override' => $member->update(['deduction_withholding_tax' => 10]),
         'name' => $run->update(['name' => 'Changed draft']),
         'period' => $run->update(['period_end' => '2026-09-14']),
         // Incentives: the amount, the type as the catalog now describes it,
@@ -154,7 +154,7 @@ it('refuses stale reviews even when a changed input leaves the total unchanged',
         ->and(Payslip::query()->where('run_id', $run->id)->count())->toBe(0)
         ->and(AuditLog::query()->count())->toBe(0)
         ->and(Notification::query()->count())->toBe(0);
-})->with(['salary', 'employee-name', 'punch', 'shift', 'leave', 'holiday', 'formula', 'allowance', 'deduction', 'overtime-approval', 'tax-details', 'day-rate', 'fixed-share', 'mode', 'annualize', 'tax-override', 'name', 'period', 'incentive', 'incentive-flag', 'incentive-name', 'ledger']);
+})->with(['salary', 'employee-name', 'punch', 'shift', 'leave', 'holiday', 'formula', 'allowance', 'deduction', 'overtime-approval', 'tax-details', 'day-rate', 'fixed-share', 'mode', 'annualize', 'name', 'period', 'incentive', 'incentive-flag', 'incentive-name', 'ledger']);
 
 it('prices and posts the payslip from the Rate Per Day and captures it in the evidence', function () {
     ['actor' => $actor, 'employee' => $employee, 'run' => $run] = PayrollEvidenceFixture::make();

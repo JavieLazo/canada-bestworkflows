@@ -14,7 +14,6 @@ use App\Domain\Payroll\PayrollValidation;
 use App\Domain\Payroll\PayslipCalculator;
 use App\Domain\Payroll\PayslipDraft;
 use App\Domain\Payroll\StatutoryLines;
-use App\Domain\Payroll\StatutorySchedule;
 use App\Models\PayrollDeduction;
 use App\Models\PayrollFormula;
 use App\Models\PayrollIncentiveType;
@@ -40,7 +39,6 @@ use App\Modules\Payroll\Domain\DeductionCalculation;
 use App\Modules\Payroll\Domain\Deductions\PercentDeduction;
 use App\Modules\Payroll\Domain\PayrollAdvance;
 use App\Modules\Payroll\Domain\Recurring\RecurringLine;
-use App\Modules\Payroll\Domain\Tax\AnnualWithholding;
 use App\Modules\Timekeeping\Contracts\AttendanceSource;
 use App\Modules\Timekeeping\Contracts\LeaveCashOutSource;
 use App\Modules\Timekeeping\Contracts\LeaveChargeSource;
@@ -91,25 +89,6 @@ final class PayrollData
      * through deductionColumns(). Only Other Deductions keeps a literal label.
      */
 
-    /**
-     * The employee's statutory lines: computed by the engine, and each one
-     * overtypable in the workspace. A typed figure is an override; an absent
-     * key means "use the computed figure". Which ones were overridden is
-     * recorded with the payslip evidence. Not `other_deductions`: nothing
-     * computes that line, it is always typed.
-     */
-    public const array STATUTORY_KEYS = ['sss', 'philhealth', 'pagibig', 'withholding_tax'];
-
-    /**
-     * The employer shares, in payslip order: computed and reported, never
-     * deducted — they are not part of total_deductions ([R23]).
-     */
-    public const array EMPLOYER_LABELS = [
-        'sss_er' => 'SSS (employer)',
-        'philhealth_er' => 'PhilHealth (employer)',
-        'pagibig_er' => 'Pag-IBIG (employer)',
-    ];
-
     /** EARNING_FIELDS (run-workspace.tsx:61-65) — the hand-entered earnings, in grid order. */
     public const array EARNING_FIELDS = [
         'night_differential' => 'NSD',
@@ -120,12 +99,14 @@ final class PayrollData
     /** payroll-run-schema.ts `money`: z.number().finite().min(0).max(999_999_999). */
     public const float MONEY_MAX = 999_999_999.0;
 
-    /** Editable deduction key => payroll_run_members column. */
+    /**
+     * Typed deduction key => payroll_run_members column. The one deduction
+     * an officer types on a draft is Other Deductions; the member row's
+     * `deduction_sss`, `deduction_philhealth`, `deduction_pagibig` and
+     * `deduction_withholding_tax` columns are never read, and a save
+     * leaves them NULL.
+     */
     public const array DEDUCTION_COLUMNS = [
-        'sss' => 'deduction_sss',
-        'philhealth' => 'deduction_philhealth',
-        'pagibig' => 'deduction_pagibig',
-        'withholding_tax' => 'deduction_withholding_tax',
         'other_deductions' => 'deduction_other',
         // Legacy: accepted so a draft carrying it still loads; absence is
         // priced inside Basic pay, so the calculation layer ignores it
@@ -275,41 +256,36 @@ final class PayrollData
     /* ------------------------------------------------------------------ */
 
     /**
-     * applyDeductionOverrides (payroll.ts:332-356): a manager-typed figure
-     * replaces the computed statutory line, then the deduction total and net
-     * pay are re-footed through the same normalisation finalize uses.
+     * applyDeductionOverrides (payroll.ts:332-356): the Other Deductions
+     * figure an officer typed joins the draft, then the deduction total and
+     * net pay are re-footed through the same normalisation finalize uses.
+     * DELIBERATE DIVERGENCE: the reference also takes a typed figure over
+     * each contribution and the withholding; here no other key of the map
+     * is read, because the source deductions are computed from the captured
+     * facts and never typed.
      *
      * @param  array<string, mixed>|null  $overrides
      */
     public static function applyDeductionOverrides(PayslipDraft $payslip, ?array $overrides): PayslipDraft
     {
-        if ($overrides === null || $overrides === []) {
+        $other = self::typedOverride($overrides['other_deductions'] ?? null);
+        if ($other === null) {
             return $payslip;
         }
 
-        $changes = [];
-
-        foreach (PayslipDraft::EDITABLE_DEDUCTION_KEYS as $key) {
-            $value = self::typedOverride($overrides[$key] ?? null);
-
-            if ($value !== null) {
-                $changes[$key] = $value;
-            }
-        }
-
-        $adjusted = $payslip->with($changes);
+        $adjusted = $payslip->with(['other_deductions' => $other]);
         $normalized = PayslipDraft::normalizeDeductions($adjusted->toArray());
         $totalDeductions = PayslipDraft::sumDeductions($normalized);
 
         return $adjusted->with(array_merge($normalized, [
             'total_deductions' => $totalDeductions,
-            'net_pay' => Money::round($adjusted->gross_pay - $totalDeductions + $adjusted->tax_refund),
+            'net_pay' => Money::round($adjusted->gross_pay - $totalDeductions),
         ]));
     }
 
     /**
      * A typed override as applyDeductionOverrides accepts it — a finite,
-     * non-negative number, rounded to the centavo — or null when the cell
+     * non-negative number, rounded to the cent — or null when the cell
      * carries none (payroll.ts:332-356 ignores anything else).
      */
     public static function typedOverride(mixed $value): ?float
@@ -320,164 +296,28 @@ final class PayrollData
     }
 
     /**
-     * DELIBERATE DIVERGENCE from payroll.ts:332-356, which replaces an
-     * overtyped line and leaves the withholding as the engine computed it
-     * from the TABLE's shares. NIRC Sec. 32(B)(7)(f) excludes the
-     * mandatory contributions actually withheld, so when an officer overtypes
-     * an employee share (SSS, PhilHealth or Pag-IBIG) and NOT the tax, the tax
-     * is computed again from the shares the payslip will actually carry —
-     * through the same StatutoryLines functions the engine uses, so the base
-     * and the rounding are the engine's. A typed withholding figure still
-     * wins over everything. The golden vectors never carry overrides, so
-     * they do not see this.
+     * Price the Late / Undertime deduction the Payroll Deductions list
+     * switched OFF (its row deleted): both DTR-priced lines are zeroed on
+     * the engine's draft, with the footing redone through the same
+     * normalize/sum path the typed line takes.
      *
-     * @param  array<string, mixed>|null  $overrides
-     * @return array{0: PayslipDraft, 1: bool} the draft, and whether the tax was re-derived
+     * @param  list<string>  $active  the calculations switched on when captured
+     * @return array{0: PayslipDraft, 1: list<string>} the draft, and the calculation off (Late / Undertime, or none)
      */
-    public static function rederiveWithholding(PayslipDraft $computed, object $employee, ?array $overrides, bool $force = false, ?StatutorySchedule $schedule = null, float $preTax = 0.0): array
+    public static function switchOff(PayslipDraft $computed, array $active): array
     {
-        return self::rederiveWithholdingBody($computed, $employee, $overrides, $force, $schedule, $preTax);
-    }
-
-    /** Whether a member is priced by the whole-year estimate: the switch on, withholding deducted, no fixed or percent tax (divergence 20). */
-    public static function wholeYearPriced(EmployeePayData $employee): bool
-    {
-        return $employee->whole_year_tax && $employee->allow_withholding_tax && $employee->fixed_tax <= 0.0 && $employee->percent_tax <= 0.0;
-    }
-
-    /** How a member's withholding is worked out, as the payslip records it (TABLE, ANNUALIZED, FIXED, PERCENT, WHOLE_YEAR or NONE). */
-    public static function taxMethodOf(EmployeePayData $employee): string
-    {
-        return $employee->allow_withholding_tax
-            ? GovDeductionInput::methodOf($employee->fixed_tax, $employee->percent_tax, $employee->annualize_tax, $employee->whole_year_tax)
-            : 'NONE';
-    }
-
-    /**
-     * DIVERGENCE 20: the whole-year estimate's withholding for a member
-     * priced by it — the year's remaining tax spread over the payrolls
-     * left (AnnualWithholding) — in place of the engine's per-cut-off
-     * figure, on the same taxable base the re-derivation uses: the shares
-     * the payslip actually carries, less what was deducted before tax. A
-     * typed withholding still wins. Totals and the net pay are refooted;
-     * the refund joins the net.
-     *
-     * @param  array{year: int, payrolls_left: int, posted: array<string, array{taxable: float, withheld: float}>}|null  $taxYear
-     * @param  array<string, mixed>|null  $overrides
-     * @return array{0: PayslipDraft, 1: bool} the draft, and whether the tax was re-derived
-     */
-    public static function applyWholeYear(PayslipDraft $draft, EmployeePayData $employee, ?array $overrides, ?array $taxYear, ?StatutorySchedule $schedule, float $preTax, bool $rederived): array
-    {
-        if ($taxYear === null || ! self::wholeYearPriced($employee) || self::typedOverride($overrides['withholding_tax'] ?? null) !== null) {
-            return [$draft, $rederived];
+        if (in_array(DeductionCalculation::LATE_UNDERTIME, $active, true)) {
+            return [$computed, []];
         }
-        $posted = $taxYear['posted'][$employee->id] ?? ['taxable' => 0.0, 'withheld' => 0.0];
-        $taxable = max(0.0, StatutoryLines::taxable(
-            $draft->gross_pay,
-            self::typedOverride($overrides['sss'] ?? null) ?? $draft->sss,
-            self::typedOverride($overrides['philhealth'] ?? null) ?? $draft->philhealth,
-            self::typedOverride($overrides['pagibig'] ?? null) ?? $draft->pagibig,
-            $draft->late_deduction,
-            $draft->undertime_deduction,
-        ) - $preTax);
-        $result = AnnualWithholding::compute($posted['taxable'], $taxable, $taxYear['payrolls_left'], $posted['withheld'], $employee->tax_spread ?? AnnualWithholding::SPREAD_EQUAL, $schedule);
-        $changed = $draft->with(['withholding_tax' => $result['withholding'], 'tax_refund' => $result['refund']]);
-        $normalized = PayslipDraft::normalizeDeductions($changed->toArray());
+
+        $zeroed = $computed->with(['late_deduction' => 0.0, 'undertime_deduction' => 0.0]);
+        $normalized = PayslipDraft::normalizeDeductions($zeroed->toArray());
         $totalDeductions = PayslipDraft::sumDeductions($normalized);
 
-        return [$changed->with(array_merge($normalized, [
+        return [$zeroed->with(array_merge($normalized, [
             'total_deductions' => $totalDeductions,
-            'net_pay' => Money::round($changed->gross_pay - $totalDeductions + $result['refund']),
-        ])), true];
-    }
-
-    /**
-     * @param  array<string, mixed>|null  $overrides
-     * @return array{0: PayslipDraft, 1: bool}
-     */
-    private static function rederiveWithholdingBody(PayslipDraft $computed, object $employee, ?array $overrides, bool $force, ?StatutorySchedule $schedule, float $preTax): array
-    {
-        if (self::typedOverride($overrides['withholding_tax'] ?? null) !== null) {
-            return [$computed, false];
-        }
-
-        $sss = self::typedOverride($overrides['sss'] ?? null);
-        $philhealth = self::typedOverride($overrides['philhealth'] ?? null);
-        $pagibig = self::typedOverride($overrides['pagibig'] ?? null);
-
-        // `$force`: the late and undertime lines are switched off, so the
-        // base the engine taxed does not hold even with every share as
-        // computed. `$preTax`: a percentage deduction taken before tax
-        // comes off the base too.
-        if (! $force && $preTax <= 0.0 && $sss === null && $philhealth === null && $pagibig === null) {
-            return [$computed, false];
-        }
-
-        $taxable = max(0.0, StatutoryLines::taxable(
-            $computed->gross_pay,
-            $sss ?? $computed->sss,
-            $philhealth ?? $computed->philhealth,
-            $pagibig ?? $computed->pagibig,
-            $computed->late_deduction,
-            $computed->undertime_deduction,
-        ) - $preTax);
-
-        return [$computed->with(['withholding_tax' => max(0.0, StatutoryLines::withholding($employee, $taxable, $schedule))]), true];
-    }
-
-    /**
-     * Which of the employee's statutory lines a draft overtypes, in
-     * STATUTORY_KEYS order.
-     *
-     * @param  array<string, mixed>|null  $overrides
-     * @return list<string>
-     */
-    public static function overriddenStatutoryKeys(?array $overrides): array
-    {
-        return array_values(array_filter(
-            self::STATUTORY_KEYS,
-            static fn (string $key): bool => self::typedOverride($overrides[$key] ?? null) !== null,
-        ));
-    }
-
-    /**
-     * Price the computed deductions the Payroll Deductions list switched OFF
-     * (a deleted row is no deduction on any draft). Each statutory line off
-     * becomes a 0 override — over any typed figure, since the grid has no
-     * column for it — and late/undertime off zeroes both DTR-priced lines on
-     * the engine's draft, with the footing redone through the same
-     * normalize/sum path every override takes.
-     *
-     * @param  array<string, mixed>|null  $typed  the officer's typed overrides
-     * @param  list<string>  $active  the calculations switched on when captured
-     * @return array{0: PayslipDraft, 1: array<string, mixed>|null, 2: list<string>} the draft, the effective overrides, the calculations off
-     */
-    public static function switchOff(PayslipDraft $computed, ?array $typed, array $active): array
-    {
-        $off = array_values(array_diff(DeductionCalculation::all(), $active));
-        if ($off === []) {
-            return [$computed, $typed, []];
-        }
-
-        $overrides = $typed ?? [];
-        foreach ($off as $calculation) {
-            $key = DeductionCalculation::statutoryKey($calculation);
-            if ($key !== null) {
-                $overrides[$key] = 0.0;
-            }
-        }
-
-        if (in_array(DeductionCalculation::LATE_UNDERTIME, $off, true)) {
-            $zeroed = $computed->with(['late_deduction' => 0.0, 'undertime_deduction' => 0.0]);
-            $normalized = PayslipDraft::normalizeDeductions($zeroed->toArray());
-            $totalDeductions = PayslipDraft::sumDeductions($normalized);
-            $computed = $zeroed->with(array_merge($normalized, [
-                'total_deductions' => $totalDeductions,
-                'net_pay' => Money::round($zeroed->gross_pay - $totalDeductions + $zeroed->tax_refund),
-            ]));
-        }
-
-        return [$computed, $overrides, $off];
+            'net_pay' => Money::round($zeroed->gross_pay - $totalDeductions),
+        ])), [DeductionCalculation::LATE_UNDERTIME]];
     }
 
     /** payrollDraftError (payroll.ts:325-330). */
@@ -641,7 +481,7 @@ final class PayrollData
      *     draftErrors: list<array{employee_id: string, message: string}>,
      *     combined: list<array{employee_id: string, message: string}>,
      *     inputs: ?PayrollInputs,
-     *     statutory: array<string, array{computed: array<string, float>, overridden: list<string>, off: list<string>, withholding_rederived: bool, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}}>,
+     *     statutory: array<string, array{off: list<string>, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}, source_deductions: array<string, float>|null}>,
      *     incentiveLines: array<string, list<array{type_id: string, code: string, name: string, is_taxable: bool, amount: float, tax: string, counts_toward_13th: bool, automatic: bool, recurring_line_id: ?string, over_ceiling: float, cash_out?: array{id: string, days: float, amount: float}, adjustment_id?: string}>>,
      *     customDeductionLines: array<string, list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool, recurring_line_id: ?string, adjustment_id?: string}>>,
      *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
@@ -664,7 +504,6 @@ final class PayrollData
         array $draftSkippedRecurring = [],
         ?string $attendanceThrough = null,
         ?string $payDate = null,
-        ?string $contributionMonth = null,
         ?string $runId = null,
     ): array {
         if ($employeeIds === [] || $periodStart === '' || $periodEnd === '') {
@@ -675,7 +514,7 @@ final class PayrollData
         // DIVERGENCE 14: an advance payroll's counted-through date; the
         // period's last day counts everything and is stored as nothing.
         $attendanceThrough = PayrollAdvance::normalize($attendanceThrough, $periodEnd);
-        $inputs = PayrollReadTransaction::run(static function () use ($actor, $employeeIds, $periodStart, $periodEnd, $draftDeductions, $draftAllowances, $draftEarnings, $draftIncentives, $draftCustomDeductions, $draftSkippedRecurring, $attendanceThrough, $payDate, $contributionMonth, $runId): PayrollInputs {
+        $inputs = PayrollReadTransaction::run(static function () use ($actor, $employeeIds, $periodStart, $periodEnd, $draftDeductions, $draftAllowances, $draftEarnings, $draftIncentives, $draftCustomDeductions, $draftSkippedRecurring, $attendanceThrough, $payDate, $runId): PayrollInputs {
             // The lines as the catalog describes them NOW, captured with the
             // run: a type renamed or re-flagged later changes a draft's
             // preview (and asks for a fresh review), never posted pay.
@@ -689,8 +528,8 @@ final class PayrollData
             $deductionRules = self::deductionRules();
             $customDeductions = self::customDeductionLines($draftCustomDeductions, $employeeIds);
             // Which computed deductions the Payroll Deductions list switches
-            // ON right now (a deleted SSS row = no SSS on this draft):
-            // captured with the run, in the fingerprint.
+            // ON right now (a deleted Late / Undertime row = neither line on
+            // this draft): captured with the run, in the fingerprint.
             $active = self::activeCalculations();
             // What the source deductions are worked out from — the pay date
             // and its tax year, the year's pay dates, the published rates in
@@ -704,31 +543,16 @@ final class PayrollData
             // else the company's — captured with the run, in the fingerprint
             // (DIVERGENCE 13). Only members with versions of their own are
             // resolved one by one; the rest share their status's.
-            // Each member's Contributions & tax version in force on the
-            // period's first day laid over their pay context (an employee
-            // with none keeps their profile's baseline), captured with the
-            // run — the switches on the employee record, the version and
-            // its rates of their own in `gov_policies` — so a new version
-            // stales the preview and a replay never reads the live table.
-            // DIVERGENCE 19: the version in force for the CONTRIBUTION MONTH
-            // (its first day; the period's first day when the run has none)
-            // is the one laid over the member, and what that month's posted
-            // payslips already took of each share is captured for the
-            // schedules that take the rest.
-            $contributionOverlayDate = $contributionMonth === null ? $periodStart : $contributionMonth.'-01';
-            [$employees, $govPolicies] = GovDeductionPolicyStore::overlay(app(EmployeePayContexts::class)->get($actor, $employeeIds), $contributionOverlayDate);
+            // Each member's own settings version in force on the period's
+            // first day laid over their pay context (an employee with none
+            // keeps their profile's baseline), captured with the run — the
+            // version and its rates of their own on percentage deductions
+            // in `gov_policies` — so a new version stales the preview and a
+            // replay never reads the live table.
+            [$employees, $govPolicies] = GovDeductionPolicyStore::overlay(app(EmployeePayContexts::class)->get($actor, $employeeIds), $periodStart);
             // The engine's own contribution and withholding lines are off for
             // every member: the source deductions above take their place.
             $employees = array_map(self::withoutEngineStatutory(...), $employees);
-            $contributionPosted = ContributionMonthToDate::posted($employeeIds, $contributionMonth ?? substr($periodStart, 0, 7));
-            // DIVERGENCE 20: for the members priced by the whole-year
-            // estimate, the tax year (of the pay date), the regular payrolls
-            // left in it and what the year already posted — captured, so a
-            // payslip posted meanwhile stales the preview and a replay never
-            // reads the live tables. Null when no member is priced that way,
-            // so every other payroll's evidence is the reference's.
-            $wholeYearIds = array_values(array_map(static fn (EmployeePayData $e): string => $e->id, array_filter($employees, self::wholeYearPriced(...))));
-            $taxYear = $wholeYearIds === [] ? null : TaxYearToDate::entry($wholeYearIds, $runId === null ? null : PayrollRun::query()->whereKey($runId)->first(), $payDate, $periodEnd);
             // TX05: the yearly tax-free ceiling in force on the period's
             // first day, and each member's approved benefit assignments
             // reaching the period — both captured, so a change stales the
@@ -842,7 +666,10 @@ final class PayrollData
                 $draftDeductions, $draftAllowances, $draftEarnings, CalculatorVersion::current(),
                 $incentives, $ytd, $customDeductions, $active, [], $payRules, $benefitRules, $deductionRules,
                 $recurring, $skipped, $attendanceThrough, $settlements, $leaveCharges, $pricedCashOuts, $cashOutType, $govPolicies, $adjustments,
-                $contributionMonth, $contributionPosted, $benefitCeiling, $benefitAssignments, $taxYear, $sourceDeductions,
+                // No contribution month, posted shares or tax-year facts are
+                // captured: nothing prices from them, and those three evidence
+                // blocks stay empty.
+                null, [], $benefitCeiling, $benefitAssignments, null, $sourceDeductions,
             );
         });
 
@@ -942,7 +769,7 @@ final class PayrollData
         return $draft->with([
             ...$lines,
             'total_deductions' => $total,
-            'net_pay' => Money::round($draft->gross_pay - $total + $draft->tax_refund),
+            'net_pay' => Money::round($draft->gross_pay - $total),
         ]);
     }
 
@@ -1209,11 +1036,11 @@ final class PayrollData
      * automatic line, unless the officer typed an amount on that row, which
      * is then the employee share (the employer share stays the rule's). The
      * employee shares of the before-tax rules are returned apart, to come
-     * off the withholding base.
+     * off the income the source deductions tax.
      *
      * @param  array<string, array{code: string, name: string, figures: array<string, mixed>}>  $rules
      * @param  list<array{type_id: string, code: string, name: string, amount: float}>  $typed
-     * @param  array<string, float>  $ownRates  the member's own employee share per rule, from their Contributions & tax version (the row's share when absent)
+     * @param  array<string, float>  $ownRates  the member's own employee share per rule, from their settings version (the row's share when absent)
      * @return array{0: list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool, recurring_line_id: ?string}>, 1: float}
      */
     private static function percentDeductionLines(array $rules, EmployeePayData $employee, PayslipDraft $computed, array $typed, string $periodStart, array $ownRates = []): array
@@ -1634,7 +1461,7 @@ final class PayrollData
      *     issues: list<array{employee_id: string, message: string}>,
      *     draftErrors: list<array{employee_id: string, message: string}>,
      *     combined: list<array{employee_id: string, message: string}>, inputs: PayrollInputs,
-     *     statutory: array<string, array{computed: array<string, float>, overridden: list<string>, off: list<string>, withholding_rederived: bool, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}}>,
+     *     statutory: array<string, array{off: list<string>, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}, source_deductions: array<string, float>|null}>,
      *     incentiveLines: array<string, list<array{type_id: string, code: string, name: string, is_taxable: bool, amount: float, tax: string, counts_toward_13th: bool, automatic: bool, recurring_line_id: ?string, over_ceiling: float, cash_out?: array{id: string, days: float, amount: float}, adjustment_id?: string}>>,
      *     customDeductionLines: array<string, list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool, recurring_line_id: ?string, adjustment_id?: string}>>,
      *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
@@ -1654,9 +1481,6 @@ final class PayrollData
         $employees = new Collection($inputs->employees);
         $attendance = $inputs->attendance;
         $settings = ['formulas' => $inputs->formulas, 'holidays' => $inputs->holidays];
-        // The figures the captured table versions hold; built-in for
-        // evidence captured before the tables existed.
-        $schedule = $inputs->schedule();
         $draftDeductions = $inputs->deductions;
         $draftAllowances = $inputs->allowances;
         $draftEarnings = $inputs->earnings;
@@ -1818,8 +1642,7 @@ final class PayrollData
                 'earningsOverride' => is_array($earningsOverride) ? $earningsOverride : null,
                 'settings' => $settings, 'overtimeApprovals' => $attendance[$employeeId]->overtimeApprovals,
                 'overtimeCategories' => $attendance[$employeeId]->overtimeCategories,
-                'statutory' => $schedule, 'rules' => $rules, 'timeline' => $inputs->timelineFor($employeeId),
-                'contributionPosted' => $inputs->contributionPosted[$employeeId] ?? null,
+                'rules' => $rules, 'timeline' => $inputs->timelineFor($employeeId),
                 'attendanceThrough' => $memberThrough, 'settlement' => $settlement, 'leaveCharges' => $engineCharges,
             ];
             $automatic = self::automaticBenefitLines($inputs->benefitRules, $employee, [...$typedLines, ...$recurringIncentives], $periodStart, $periodEnd, static function () use ($engineArguments, $shift, $periodStart, $periodEnd): array {
@@ -1944,15 +1767,13 @@ final class PayrollData
                 overtimeApprovals: $attendance[$employeeId]->overtimeApprovals,
                 // DIVERGENCE 16: the days approved as seaport overtime.
                 overtimeCategories: $attendance[$employeeId]->overtimeCategories,
-                // The Contribution & Tax Table versions the evidence captured.
-                statutory: $schedule,
                 // The Pay Basis & Rates version the evidence captured, and
                 // (DIVERGENCE 17) the versions taking over inside the period.
+                // No contribution table and no posted share is handed in:
+                // every member's contribution and withholding switches are
+                // off, so the engine computes none of those lines.
                 rules: $rules,
                 timeline: $inputs->timelineFor($employeeId),
-                // DIVERGENCE 19: what the contribution month's posted payslips
-                // already took, for the schedules that take the rest.
-                contributionPosted: $inputs->contributionPosted[$employeeId] ?? null,
                 // DIVERGENCE 14: this member's counted date (the run's from
                 // the evidence, pulled back before an unfinished day) and the
                 // settlement of earlier presumed days.
@@ -1965,16 +1786,13 @@ final class PayrollData
 
             $typed = $draftDeductions[$employeeId] ?? null;
             $typed = is_array($typed) ? $typed : null;
-            // A computed deduction the list switched OFF (its row deleted)
-            // is exempt for everyone: a 0 override, which the typed-0 path
-            // already prices, with the tax re-derived from what is actually
-            // deducted. Late and undertime off means neither line is taken,
-            // and the tax base rises accordingly.
-            [$computed, $overrides, $off] = self::switchOff($computed, $typed, $inputs->activeCalculations);
+            // Late / Undertime switched OFF on the list (its row deleted)
+            // means neither line is taken from anyone.
+            [$computed, $off] = self::switchOff($computed, $inputs->activeCalculations);
             // Named deductions: the typed lines and the percentage rules'
             // shares (DELIBERATE DIVERGENCE: the reference has one typed
-            // Other line). A rule taken before tax lowers the base the
-            // withholding is re-derived on.
+            // Other line). A rule taken before tax comes off the income the
+            // source deductions tax.
             [$named, $preTax] = self::percentDeductionLines(
                 $inputs->deductionRules, $employee, $computed,
                 array_map(static fn (array $line): array => $line, $inputs->customDeductions[$employeeId] ?? []),
@@ -1985,30 +1803,23 @@ final class PayrollData
             // typed loan or cash advance; so do the approved adjustment
             // deductions.
             $named = [...self::recurringDeductionLines($recurring, $named, $skippedRecurring, $periodStart), ...$adjustmentDeductions];
-            [$rederived, $taxRederived] = self::rederiveWithholding($computed, $employee, $overrides, force: in_array(DeductionCalculation::LATE_UNDERTIME, $off, true), schedule: $schedule, preTax: $preTax);
-            // DIVERGENCE 20: a member priced by the whole-year estimate takes
-            // the year's remaining tax instead of the engine's per-cut-off
-            // figure, from the captured year facts; a refund on the year's
-            // last payroll joins the net pay.
-            [$rederived, $taxRederived] = self::applyWholeYear($rederived, $employee, $overrides, $inputs->taxYear, $schedule, $preTax, $taxRederived);
 
-            // The tax-exempt part joins gross and net after the tax, and the
-            // payslip records both halves for the ledger.
-            $gross = Money::round($rederived->gross_pay + $exemptTotal);
-            $rederived = $rederived->with([
+            // The tax-exempt part joins gross and net, and the payslip
+            // records both halves for the ledger.
+            $gross = Money::round($computed->gross_pay + $exemptTotal);
+            $withBenefits = $computed->with([
                 'gross_pay' => $gross,
-                'net_pay' => Money::round($gross - $rederived->total_deductions + $rederived->tax_refund),
+                'net_pay' => Money::round($gross - $computed->total_deductions),
                 'exempt_benefits' => $exemptTotal,
                 'taxable_benefits_excess' => $excessTotal,
                 'ceiling_benefits' => $ceilingTotal,
             ]);
-            $draft = self::applyDeductionOverrides($rederived, $overrides);
+            $draft = self::applyDeductionOverrides($withBenefits, $typed);
 
             // DELIBERATE DIVERGENCE 9: the reference has only one typed
             // Other line. Named catalog deductions are additional, itemised
-            // amounts. They join the deduction footing AFTER statutory tax
-            // is computed, so loans and cash advances cannot reduce the tax
-            // base or be hidden inside the free-form Other figure.
+            // amounts on the deduction footing, so loans and cash advances
+            // are never hidden inside the free-form Other figure.
             if ($named !== []) {
                 $customDeductionLines[$employeeId] = $named;
                 $draft = $draft->withCustomDeductions(array_column($named, 'amount'));
@@ -2024,29 +1835,19 @@ final class PayrollData
                 $draft = self::withSourceDeductions($draft, $sourceLines);
             }
 
-            // The taxable base the posted withholding stands on, from the
-            // shares the payslip actually carries (payroll.ts:644-647),
-            // less what was deducted before tax.
+            // The taxable pay the payslip records: the engine's gross less
+            // the late and undertime lines (payroll.ts:644-647) and what
+            // was deducted before tax.
             $draft = $draft->with(['taxable_compensation' => Money::round(max(0.0, StatutoryLines::taxable(
                 $computed->gross_pay, $draft->sss, $draft->philhealth, $draft->pagibig,
                 $draft->late_deduction, $draft->undertime_deduction,
-            ) - $preTax)), 'tax_method' => self::taxMethodOf($employee)]);
+            ) - $preTax))]);
 
-            // What the engine computed for each statutory line, which lines
-            // the officer overtyped, and whether the tax was re-derived — the
-            // record finalize writes beside the posted results.
+            // The record finalize writes beside the posted results.
             $statutory[$employeeId] = [
-                'computed' => [
-                    'sss' => $computed->sss, 'sss_er' => $computed->sss_er,
-                    'philhealth' => $computed->philhealth, 'philhealth_er' => $computed->philhealth_er,
-                    'pagibig' => $computed->pagibig, 'pagibig_er' => $computed->pagibig_er,
-                    'withholding_tax' => $computed->withholding_tax,
-                ],
-                'overridden' => self::overriddenStatutoryKeys($typed),
-                // The computed deductions the list had switched off (their
-                // rows deleted) when this was priced.
+                // Late / Undertime, when the list had it switched off (its
+                // row deleted) as this was priced.
                 'off' => $off,
-                'withholding_rederived' => $taxRederived,
                 'benefits' => ['ytd_before' => $ytdBefore, 'exempt' => $exemptTotal, 'ceiling' => $ceilingTotal, 'taxable_excess' => $excessTotal],
                 // The source deductions as computed, or null on a payroll
                 // that captured no facts for them.

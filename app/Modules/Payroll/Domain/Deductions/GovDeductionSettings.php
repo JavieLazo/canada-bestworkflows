@@ -5,36 +5,38 @@ declare(strict_types=1);
 namespace App\Modules\Payroll\Domain\Deductions;
 
 use App\Domain\Payroll\StatutoryLines;
-use App\Modules\Payroll\Domain\Tax\AnnualWithholding;
 use App\Support\Money;
 use InvalidArgumentException;
 
 /**
- * One employee's Contributions & tax settings as a version holds them and
- * as the engine reads them off the employee: per contribution whether it
- * is deducted (`allow_*`), a fixed employee or employer share in place of
- * the table's monthly figure (`fixed_*_ee` / `fixed_*_er`, zero = the
- * table), and when it is taken (`*_mode`: SEMI_MONTHLY halves the month's
- * figure on each cut-off, MONTHLY charges it whole on the second — the
- * two values the reference tells apart; a legacy QUARTERLY reads as
- * MONTHLY, which is how the engine always read it — and, since
- * divergence 19, HALF_THEN_REST and WHOLE_FIRST, which read what the
- * month's posted payslips already took); for withholding
- * whether it is deducted and ONE method — a fixed tax wins over a percent,
- * which wins over the table, annualized or not, so `fixed_tax`,
- * `percent_tax`, `annualize_tax` and `whole_year_tax` never hold more than
- * one (`whole_year_tax` is the whole-year estimate, divergence 20, with
- * `tax_spread` saying how its remainder is spread: AnnualWithholding); and
- * `percent_rates`, the employee share of their own on a percentage Payroll
- * Deduction (row id => percent; 0 = not a member), in place of the row's.
+ * One employee's own settings as a version holds them. THE PART PAYROLL
+ * PRICES FROM IS `percent_rates`: the employee share of their own on a
+ * percentage Payroll Deduction (row id => percent; 0 = not a member), in
+ * place of the row's.
+ *
+ * The other keys are the stored shape of a version and of the employee
+ * record's columns, kept so every stored version and every payroll's
+ * evidence still reads: per contribution a switch (`allow_*`), a fixed
+ * employee or employer share (`fixed_*_ee` / `fixed_*_er`) and a schedule
+ * (`*_mode`, one of MODES; a legacy QUARTERLY reads as MONTHLY), and for
+ * withholding a switch and ONE method (`fixed_tax`, `percent_tax`,
+ * `annualize_tax` and `whole_year_tax` never hold more than one, with
+ * `tax_spread` one of SPREADS). A payroll switches the engine's
+ * contribution and withholding lines off for every member, so none of
+ * them moves a figure, and no screen offers them.
  *
  * ONE immutable value, read strictly from a version's or the evidence's
  * figures (`fromArray`) or leniently from the employee's profile columns
  * (`fromColumns`, the baseline of an employee with no approved version).
- * Pure: no clock, database or framework. Pesos through Money::round() only.
+ * Pure: no clock, database or framework. Money through Money::round() only.
  */
 final class GovDeductionSettings
 {
+    public const string SPREAD_EQUAL = 'EQUAL';
+
+    /** The values a stored `tax_spread` takes. */
+    public const array SPREADS = [self::SPREAD_EQUAL, 'NEXT', 'DECEMBER'];
+
     public const string MODE_SEMI_MONTHLY = 'SEMI_MONTHLY';
 
     /** Half on the first cut-off, the rest of the month's share on the second (StatutoryLines, divergence 19). */
@@ -75,13 +77,12 @@ final class GovDeductionSettings
     ];
 
     /**
-     * The two whole-year keys (divergence 20), read as these defaults when
-     * a version or the evidence predates them — the reference's methods —
-     * so older figures restore unchanged.
+     * The two whole-year keys, read as these defaults when a version or
+     * the evidence predates them, so older figures restore unchanged.
      */
     public const array OPTIONAL = [
         'whole_year_tax' => false,
-        'tax_spread' => AnnualWithholding::SPREAD_EQUAL,
+        'tax_spread' => self::SPREAD_EQUAL,
     ];
 
     /** The standard computation as stored: the statutory settings and no rate of their own. */
@@ -175,7 +176,7 @@ final class GovDeductionSettings
         }
         $values['whole_year_tax'] = (bool) ($columns->whole_year_tax ?? false);
         $spread = $columns->tax_spread ?? null;
-        $values['tax_spread'] = is_string($spread) && in_array($spread, AnnualWithholding::SPREADS, true) ? $spread : AnnualWithholding::SPREAD_EQUAL;
+        $values['tax_spread'] = is_string($spread) && in_array($spread, self::SPREADS, true) ? $spread : self::SPREAD_EQUAL;
 
         return new self($values, []);
     }
@@ -210,7 +211,7 @@ final class GovDeductionSettings
         if (array_key_exists('whole_year_tax', $data) && ! is_bool($data['whole_year_tax'])) {
             return self::LABELS['whole_year_tax'].': say whether it applies.';
         }
-        if (array_key_exists('tax_spread', $data) && (! is_string($data['tax_spread']) || ! in_array($data['tax_spread'], AnnualWithholding::SPREADS, true))) {
+        if (array_key_exists('tax_spread', $data) && (! is_string($data['tax_spread']) || ! in_array($data['tax_spread'], self::SPREADS, true))) {
             return self::LABELS['tax_spread'].': choose how the remainder is spread.';
         }
         if (count(array_filter([(float) $data['fixed_tax'] > 0.0, (float) $data['percent_tax'] > 0.0, (bool) $data['annualize_tax'], (bool) ($data['whole_year_tax'] ?? false)])) > 1) {

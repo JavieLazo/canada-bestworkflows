@@ -19,7 +19,6 @@ use App\Models\PayslipIncentive;
 use App\Models\PayslipSettlement;
 use App\Modules\Payroll\Application\Adjustments;
 use App\Modules\Payroll\Application\AdvanceSettlements;
-use App\Modules\Payroll\Application\ContributionMonthToDate;
 use App\Modules\Payroll\Application\EnsurePayrollMembership;
 use App\Modules\Payroll\Application\LeaveChargeLines;
 use App\Modules\Payroll\Application\OpenAttendanceItems;
@@ -31,7 +30,6 @@ use App\Modules\Payroll\Application\PayrollReview;
 use App\Modules\Payroll\Application\RecurringLines;
 use App\Modules\Payroll\Application\ScheduleHold;
 use App\Modules\Payroll\Application\SourceDeductionFacts;
-use App\Modules\Payroll\Application\TaxYearToDate;
 use App\Modules\Payroll\Contracts\Views\DeductionColumnView;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\CutoffAdvice;
@@ -116,8 +114,8 @@ final class FinalizePayroll
             $periodStart = $run->period_start->format('Y-m-d');
             $periodEnd = $run->period_end->format('Y-m-d');
 
-            // The dates, then the Contribution & Tax Tables in force over
-            // the period.
+            // The dates, then the Pay Basis & Rates in force over the
+            // period.
             $cutoffError = PayrollData::cutoffError($actor, $memberIds, $periodStart, $periodEnd);
 
             if ($cutoffError !== null) {
@@ -175,7 +173,6 @@ final class FinalizePayroll
                 draftSkippedRecurring: $overrides['skippedRecurring'],
                 attendanceThrough: $attendanceThrough,
                 payDate: $run->pay_date?->format('Y-m-d'),
-                contributionMonth: $run->contribution_month,
                 runId: $run->id,
             );
             $incentiveLines = $calculation['incentiveLines'];
@@ -213,11 +210,11 @@ final class FinalizePayroll
                 'recorded_at' => CarbonImmutable::now('UTC')->format('Y-m-d\TH:i:s.v\Z'),
                 'inputs' => $inputs->toArray(),
                 'results' => array_map(static fn (PayslipDraft $draft): array => $draft->toArray(), $calculation['drafts']),
-                // Per employee: what the engine computed for each statutory
-                // line, which lines the officer typed over it, and whether the
-                // tax was re-derived from typed shares. Derived from the
-                // inputs, so it sits beside the results and never enters the
-                // input fingerprint.
+                // Per employee: the source deductions as computed, the
+                // tax-exempt benefit split, and Late / Undertime when the
+                // list had it switched off. Derived from the inputs, so it
+                // sits beside the results and never enters the input
+                // fingerprint.
                 'statutory' => $calculation['statutory'],
                 // Each posted incentive line with the part of it over the
                 // PHP 90,000 ceiling — what payslip_incentives itemises.
@@ -296,16 +293,15 @@ final class FinalizePayroll
                     // The window before the cron migrates 2026_10_31_0006.
                     unset($columns['leave_charged_days']);
                 }
-                if (ContributionMonthToDate::ready()) {
-                    // The month this payslip's shares count toward (divergence 19).
-                    $columns['contribution_month'] = $run->contribution_month ?? substr((string) $run->period_start->format('Y-m-d'), 0, 7);
-                } else {
-                    // The window before the cron migrates 2026_11_02_0009.
-                    unset($columns['contribution_base']);
-                }
-                if (TaxYearToDate::ready()) {
-                    // The tax year the withholding counts in: the year of the pay date (divergence 20).
-                    $columns['tax_year'] = TaxYearToDate::yearOf($run->pay_date?->format('Y-m-d'), (string) $run->period_end->format('Y-m-d'));
+                // `payslips.contribution_month` and `contribution_base`
+                // are not written: no contribution table is read, so a
+                // payslip has neither to record.
+                unset($columns['contribution_base']);
+                if (SourceDeductionFacts::taxYearReady()) {
+                    // The tax year this pay counts in: the year of the pay
+                    // date, which the next payroll's year-to-date totals
+                    // read back (SourceDeductionFacts::posted).
+                    $columns['tax_year'] = SourceDeductionFacts::taxYearOf($run->pay_date?->format('Y-m-d'), (string) $run->period_end->format('Y-m-d'));
                 } else {
                     // The window before the cron migrates 2026_11_02_0011.
                     unset($columns['tax_year'], $columns['tax_method'], $columns['tax_refund']);
@@ -424,17 +420,11 @@ final class FinalizePayroll
             if ($flipped === 0) {
                 throw new RuntimeException('That payroll changed before finalization completed.');
             }
-            $typed = array_sum(array_map(static fn (array $line): int => count($line['overridden']), $calculation['statutory']));
             // What this payroll paid ahead of attendance, and what it settled.
             $presumedDays = (int) array_sum(array_map(static fn (PayslipDraft $draft): float => $draft->presumed_days, $calculation['drafts']));
             $settledEmployees = count($settlementLines);
             RequiredAudit::record($actor, AuditEvent::PAYROLL_FINALIZED, 'payroll_runs', $run->id,
                 "{$run->name} finalized — ".count($calculation['drafts']).' payslips'
-                .match ($typed) {
-                    0 => '',
-                    1 => '; 1 statutory line typed over the computed figure',
-                    default => "; {$typed} statutory lines typed over the computed figure",
-                }
                 .(CutoffAdvice::warning($periodStart, $periodEnd) !== null ? '; non-standard cut-off' : '')
                 .($cashedOut === 0 ? '' : "; {$cashedOut} leave credit cash-out".($cashedOut === 1 ? '' : 's').' paid')
                 .($adjusted === 0 ? '' : "; {$adjusted} adjustment".($adjusted === 1 ? '' : 's').' paid')

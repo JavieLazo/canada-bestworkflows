@@ -23,20 +23,23 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Sets how SSS, PhilHealth, Pag-IBIG and withholding tax are deducted for
- * one employee. AN EMPLOYEE HAS ONE SET OF THESE SETTINGS, NOT A LIST OF
- * DATED VERSIONS: the settings replace the ones in use and take effect at
- * once for every draft payroll (which recomputes on its next preview and
- * asks for a fresh review); no effective date, reason or approval is asked.
- * A finalized payroll keeps the settings its evidence captured, so nothing
- * already paid moves. What the settings were is kept in the audit trail
- * alone: the row the change is written on stays, every other row of the
- * employee is removed, and the kept row covers every date they covered.
+ * Sets one employee's own rates on the percentage Payroll Deductions.
+ * AN EMPLOYEE HAS ONE SET OF THESE SETTINGS, NOT A LIST OF DATED VERSIONS:
+ * the settings replace the ones in use and take effect at once for every
+ * draft payroll (which recomputes on its next preview and asks for a fresh
+ * review); no effective date, reason or approval is asked. A finalized
+ * payroll keeps the settings its evidence captured, so nothing already
+ * paid moves. What the settings were is kept in the audit trail alone: the
+ * row the change is written on stays, every other row of the employee is
+ * removed, and the kept row covers every date they covered.
+ *
+ * The figures are the whole stored shape (GovDeductionSettings); payroll
+ * prices from their `percent_rates` alone.
  *
  * Pay data: an all-data PAYROLL write, for any employee including the
  * actor's own. RequiredAudit on the same transaction, after payroll's
- * membership lock, naming the settings that differ from the standard
- * computation, never amounts.
+ * membership lock, saying how many deductions carry a rate of the
+ * employee's own, never the rates.
  */
 final class ReplaceGovDeductionPolicy
 {
@@ -49,7 +52,7 @@ final class ReplaceGovDeductionPolicy
             throw new RuntimeException('Your role cannot manage employee pay settings.');
         }
         if (! GovDeductionPolicyStore::ready()) {
-            throw new RuntimeException('Contributions & tax can be changed once this installation\'s upgrade finishes.');
+            throw new RuntimeException('These rates can be changed once this installation\'s upgrade finishes.');
         }
         $employee = app(EmployeePayContexts::class)->get($access, [$employeeId])[0] ?? null;
         if ($employee === null) {
@@ -95,11 +98,15 @@ final class ReplaceGovDeductionPolicy
             if (! $kept->save()) {
                 throw new RuntimeException('The settings could not be saved.');
             }
-            $differs = array_map(static fn (string $key): string => GovDeductionSettings::LABELS[$key], $settings->customized());
+            $own = count($settings->percentRates);
             RequiredAudit::record($access, AuditEvent::GOV_POLICY_SAVED, 'payroll_gov_deduction_policies', $kept->id,
-                "{$name} · Contributions & tax replaced: ".($differs === [] ? 'the standard computation' : implode(', ', $differs)));
+                "{$name} · Percentage deduction rates replaced: ".match ($own) {
+                    0 => 'the listed rates',
+                    1 => 'a rate of their own on 1 deduction',
+                    default => "rates of their own on {$own} deductions",
+                });
 
-            return "Contributions & tax saved for {$name}. Draft payrolls now use them.";
+            return "Percentage deduction rates saved for {$name}. Draft payrolls now use them.";
         });
     }
 }

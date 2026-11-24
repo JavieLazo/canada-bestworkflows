@@ -3,7 +3,6 @@
 declare(strict_types=1);
 
 use App\Domain\Payroll\PayRules;
-use App\Domain\Payroll\StatutorySchedule;
 use App\Models\AttendanceLog;
 use App\Models\AuditLog;
 use App\Models\EmployeeProfile;
@@ -15,17 +14,14 @@ use App\Models\PayrollPayRule;
 use App\Models\PayrollRecurringLine;
 use App\Models\PayrollRun;
 use App\Models\PayrollRunMember;
-use App\Models\PayrollStatutoryTable;
 use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Models\Shift;
 use App\Models\User;
 use App\Modules\IdentityAccess\Application\Commands\ManageAccounts;
 use App\Modules\IdentityAccess\Application\Commands\ManageRoles;
-use App\Modules\Payroll\Application\Commands\AddStatutoryTableVersion;
 use App\Modules\Payroll\Application\Commands\ApproveEmployeePayRules;
 use App\Modules\Payroll\Application\Commands\ApproveGovDeductionPolicy;
-use App\Modules\Payroll\Application\Commands\ConfirmStatutoryTable;
 use App\Modules\Payroll\Application\Commands\DeleteAdjustmentCategory;
 use App\Modules\Payroll\Application\Commands\DeletePayroll;
 use App\Modules\Payroll\Application\Commands\DeletePaySchedule;
@@ -45,8 +41,6 @@ use App\Modules\Payroll\Application\Commands\SavePayroll;
 use App\Modules\Payroll\Application\Commands\SavePayRulesVersion;
 use App\Modules\Payroll\Application\Commands\SavePaySchedule;
 use App\Modules\Payroll\Application\Commands\SaveRecurringLine;
-use App\Modules\Payroll\Application\Commands\UpdateStatutoryTableVersion;
-use App\Modules\Payroll\Application\Commands\WithdrawStatutoryTableVersion;
 use App\Modules\Payroll\Application\PayrollDraft;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
@@ -117,13 +111,6 @@ it('rolls back each approved command when its audit insert fails', function (str
     // A loan to add, end or delete, saved before the audit starts failing.
     $loan = str_ends_with($operation, '-recurring-line') ? PayrollDeduction::create(['code' => '7', 'name' => 'SSS Loan']) : null;
     $lineFigures = ['kind' => 'DEDUCTION', 'amount' => 500.0, 'total' => 750.0, 'frequency' => 'EVERY', 'starts_on' => '2026-10-01', 'ends_on' => null];
-    // A table version yet to take effect, to correct or withdraw, saved before the audit starts failing; the clock is pinned so it stays upcoming.
-    $futureVersion = null;
-    if (str_ends_with($operation, '-statutory-version') && $operation !== 'add-statutory-version') {
-        $this->travelTo(new DateTimeImmutable('2026-10-12T09:00:00+08:00'));
-        app(AddStatutoryTableVersion::class)->handle($actor, StatutorySchedule::SSS, '2027-01-01', '2027-12-31', 'Synthetic', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]);
-        $futureVersion = (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->orderByDesc('effective_from')->value('id');
-    }
     if ($loan !== null && $operation !== 'save-recurring-line') {
         app(SaveRecurringLine::class)->handle($actor, null, $employee->id, $loan->id, $lineFigures, 'Loan 42');
     }
@@ -171,11 +158,6 @@ it('rolls back each approved command when its audit insert fails', function (str
         'finalize' => app(FinalizePayroll::class)->handle($actor, $run->id, PayrollReviewFixture::token($actor, $run->id)),
         'decide-overtime' => app(DecideOvertime::class)->handle($actor, $employee->id, '2026-09-10', 'APPROVED', '60'),
         'decide-pending-overtime' => app(DecidePendingOvertime::class)->handle($actor, $employee->id, '2026-09-01', '2026-09-15', 'REJECTED'),
-        // A table version, its confirmation, a correction and a withdrawal are each written inside the same audited transaction.
-        'add-statutory-version' => app(AddStatutoryTableVersion::class)->handle($actor, StatutorySchedule::SSS, '2027-01-01', '2027-12-31', 'Synthetic', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]),
-        'confirm-statutory-table' => app(ConfirmStatutoryTable::class)->handle($actor, (string) PayrollStatutoryTable::query()->where('kind', StatutorySchedule::SSS)->value('id'), '2027-12-31'),
-        'update-statutory-version' => app(UpdateStatutoryTableVersion::class)->handle($actor, (string) $futureVersion, '2027-02-01', '2027-12-31', 'Synthetic', StatutorySchedule::BUILT_IN[StatutorySchedule::SSS]),
-        'withdraw-statutory-version' => app(WithdrawStatutoryTableVersion::class)->handle($actor, (string) $futureVersion),
         'save-pay-rules' => app(SavePayRulesVersion::class)->handle($actor, 'COMPANY', '2027-01-01', 'Synthetic', PayRules::preset(PayRules::PRESET_STANDARD)),
         'update-pay-settings' => app(UpdateEmployeePaySettings::class)->handle($actor, $employee->id, ['hourly_rate' => '200'], 'Synthetic'),
         'save-employee-pay-rules' => app(SaveEmployeePayRules::class)->handle($actor, $employee->id, '2027-01-01', 'Synthetic', PayRules::preset(PayRules::PRESET_STANDARD)),
@@ -199,7 +181,7 @@ it('rolls back each approved command when its audit insert fails', function (str
     };
     expect($change)->toThrow(RuntimeException::class, 'audit record could not be recorded');
     expect(requiredAuditRows())->toEqual($before);
-})->with(['create-account', 'update-account', 'delete-account', 'create-role', 'update-role', 'grant', 'revoke', 'create-draft', 'save-draft', 'save-incentives', 'delete-draft', 'finalize', 'decide-overtime', 'decide-pending-overtime', 'add-statutory-version', 'confirm-statutory-table', 'update-statutory-version', 'withdraw-statutory-version', 'save-pay-rules', 'update-pay-settings', 'save-employee-pay-rules', 'approve-employee-pay-rules', 'discard-employee-pay-rules', 'save-gov-policy', 'approve-gov-policy', 'discard-gov-policy', 'save-pay-schedule', 'delete-pay-schedule', 'save-adjustment-category', 'delete-adjustment-category', 'save-adjustment', 'approve-adjustment', 'reject-adjustment', 'discard-adjustment', 'save-recurring-line', 'end-recurring-line', 'delete-recurring-line']);
+})->with(['create-account', 'update-account', 'delete-account', 'create-role', 'update-role', 'grant', 'revoke', 'create-draft', 'save-draft', 'save-incentives', 'delete-draft', 'finalize', 'decide-overtime', 'decide-pending-overtime', 'save-pay-rules', 'update-pay-settings', 'save-employee-pay-rules', 'approve-employee-pay-rules', 'discard-employee-pay-rules', 'save-gov-policy', 'approve-gov-policy', 'discard-gov-policy', 'save-pay-schedule', 'delete-pay-schedule', 'save-adjustment-category', 'delete-adjustment-category', 'save-adjustment', 'approve-adjustment', 'reject-adjustment', 'discard-adjustment', 'save-recurring-line', 'end-recurring-line', 'delete-recurring-line']);
 
 it('keeps earlier formula saves while rolling back the row whose audit fails', function () {
     ['actor' => $actor] = requiredAuditFixture();

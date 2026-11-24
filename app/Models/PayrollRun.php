@@ -48,7 +48,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property CarbonImmutable|null $attendance_through the advance payroll's counted date (PayrollAdvance); null reads the whole period
  * @property string|null $schedule_id the pay schedule the run's dates came from (2026_11_02_0004); null on a run made without one
  * @property CarbonImmutable|null $pay_date when the pay goes out; null on a legacy run
- * @property string|null $contribution_month `YYYY-MM`, the month whose contribution tables price the run; null reads the period's first day
+ * @property string|null $contribution_month `YYYY-MM` on a run saved while payroll read contribution tables; stored history, never read or written
  * @property CarbonImmutable|null $released_at stored history only: nothing sets or shows it, a payroll's last status is FINALIZED
  * @property int|null $released_by
  * @property string|null $released_by_name

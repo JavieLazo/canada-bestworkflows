@@ -277,19 +277,19 @@ enum AuditEvent: string
     /** Payroll formulas are seeded and edited, never created or deleted — hence one case, not three. */
     case FORMULA_UPDATED = 'FORMULA_UPDATED';
 
-    /** A Contribution & Tax Table version added (RequiredAudit, AddStatutoryTableVersion). */
+    /** READ-ONLY: a contribution or withholding table version added; displayed, never emitted — no command writes those tables. */
     case STATUTORY_TABLE_ADDED = 'STATUTORY_TABLE_ADDED';
 
-    /** READ-ONLY: rows written while a version carried a coverage end that payroll refused to run past; displayed, never emitted — a check of the figures is STATUTORY_TABLE_CONFIRMED. */
+    /** READ-ONLY: rows written while a version carried a coverage end that payroll refused to run past; displayed, never emitted. */
     case STATUTORY_TABLE_EXTENDED = 'STATUTORY_TABLE_EXTENDED';
 
-    /** A Contribution & Tax Table's figures confirmed good through a later date (RequiredAudit, ConfirmStatutoryTable). */
+    /** READ-ONLY: a contribution or withholding table's figures confirmed good through a later date; displayed, never emitted. */
     case STATUTORY_TABLE_CONFIRMED = 'STATUTORY_TABLE_CONFIRMED';
 
-    /** A Contribution & Tax Table version corrected before taking effect (RequiredAudit, UpdateStatutoryTableVersion). */
+    /** READ-ONLY: a contribution or withholding table version corrected before taking effect; displayed, never emitted. */
     case STATUTORY_TABLE_UPDATED = 'STATUTORY_TABLE_UPDATED';
 
-    /** A Contribution & Tax Table version withdrawn before taking effect (RequiredAudit, WithdrawStatutoryTableVersion). */
+    /** READ-ONLY: a contribution or withholding table version withdrawn before taking effect; displayed, never emitted. */
     case STATUTORY_TABLE_WITHDRAWN = 'STATUTORY_TABLE_WITHDRAWN';
 
     /** A Pay Basis & Rates version saved — the company's or a status's in force, an employee's as a draft (RequiredAudit, SavePayRulesVersion, SaveEmployeePayRules). */
@@ -316,13 +316,13 @@ enum AuditEvent: string
     /** A benefit assignment draft discarded (RequiredAudit, DiscardBenefitAssignment). */
     case BENEFIT_ASSIGNMENT_DISCARDED = 'BENEFIT_ASSIGNMENT_DISCARDED';
 
-    /** A tax year's opening balance or previous-employer figures recorded as a draft (RequiredAudit, SaveTaxBalance); never the amounts. */
+    /** READ-ONLY: a tax year's opening balance or previous-employer figures recorded as a draft; displayed, never emitted — no command writes tax balances. */
     case TAX_BALANCE_RECORDED = 'TAX_BALANCE_RECORDED';
 
-    /** A tax balance approved (RequiredAudit, ApproveTaxBalance). */
+    /** READ-ONLY: a tax balance approved; displayed, never emitted. */
     case TAX_BALANCE_APPROVED = 'TAX_BALANCE_APPROVED';
 
-    /** A tax balance draft discarded (RequiredAudit, DiscardTaxBalance). */
+    /** READ-ONLY: a tax balance draft discarded; displayed, never emitted. */
     case TAX_BALANCE_DISCARDED = 'TAX_BALANCE_DISCARDED';
 
     /** One employee's tax details saved: province of employment, claim amounts, extra tax, and whether CPP and EI are deducted (RequiredAudit, SaveEmployeeTaxDetails); the entity id is the employee's. */

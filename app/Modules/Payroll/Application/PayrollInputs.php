@@ -11,7 +11,6 @@ use App\Domain\Attendance\Shift;
 use App\Domain\Payroll\PayrollPeriod;
 use App\Domain\Payroll\PayRules;
 use App\Domain\Payroll\PayRulesTimeline;
-use App\Domain\Payroll\Statutory;
 use App\Domain\Payroll\StatutorySchedule;
 use App\Modules\Payroll\Domain\Adjustments\AdjustmentRule;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
@@ -58,11 +57,11 @@ use RuntimeException;
  * replay must never read the live list.
  * Schema 7 captures each leave request's cancelled dates. Schema 6 retains
  * its original shape and fingerprint, with no cancelled dates inferred.
- * Schema 8 captures the Contribution & Tax Table versions that price the
- * period (`statutory_tables`: kind => version id, dates and the figures
- * themselves), so a new version stales the preview and a replay never reads
- * the live tables. Schema 6 and 7 evidence restores with no tables: the
- * engine's built-in figures, which are what those runs computed from.
+ * Schema 8 to 24 evidence carries the contribution and withholding table
+ * versions its payroll was priced from (`statutory_tables`: kind => version
+ * id, dates and the figures themselves), read back strictly so its
+ * fingerprint holds. Schema 6 and 7 evidence restores with no tables, and
+ * from schema 25 a payroll captures none: nothing prices from them.
  * Schema 10 captures each member's recurring lines live on the period
  * (`recurring_lines`: the line, its catalog row's code and name AS THEY
  * WERE, its figures and what was already paid against it, from
@@ -102,11 +101,11 @@ use RuntimeException;
  * both in the fingerprint, so an approval, a payment elsewhere or a catalog
  * change stales the preview and a replay never reads the live tables.
  * Older evidence restores with none, and pays none.
- * Schema 15 captures each member's Contributions & tax version in force
- * on the period's first day (`gov_policies`: employee id => version id,
- * date and the figures — the sixteen switches already laid over the
- * employee record, and the rates of their own on percentage deductions,
- * which price those lines), so a newly approved version stales the
+ * Schema 15 captures each member's own settings version in force on the
+ * period's first day (`gov_policies`: employee id => version id, date and
+ * the figures — the stored switches already laid over the employee record,
+ * and the rates of their own on percentage deductions, which price those
+ * lines), so a newly approved version stales the
  * preview and a replay never reads the live table. A member with no
  * version is absent: their employee record carries the baseline. Older
  * evidence restores with none.
@@ -130,12 +129,14 @@ use RuntimeException;
  * and daily rate — divergence 18); `monthly_rate` / `daily_rate` are the
  * salary in force on the first day. Older evidence has one salary for the
  * whole period, which is what it was priced under.
- * Schema 20 captures the CONTRIBUTION MONTH the payroll's shares count
- * toward (`contribution_month`, `YYYY-MM`, null = the period's start
- * month) and what that month's posted payslips already took of each
- * member's six shares (`contribution_posted` — divergence 19), so a
- * payslip posted meanwhile stales the preview and a replay never reads the
- * live table. Older evidence restores with nothing posted.
+ * Schema 20 adds two keys for the CONTRIBUTION MONTH: `contribution_month`
+ * (`YYYY-MM` or null) and `contribution_posted` (what that month's posted
+ * payslips already took of each member's six shares — divergence 19).
+ * Evidence that holds them is read back strictly so its fingerprint
+ * holds; a payroll captures null and none, and nothing prices from them.
+ * Schema 22 adds `tax_year` the same way (the whole-year withholding
+ * estimate's year facts — divergence 20): read back strictly, captured as
+ * null.
  * Schema 21 captures the yearly TAX-FREE CEILING version in force on the
  * period's first day (`benefit_ceiling`, null = the constant the engine
  * carried) and each member's approved BENEFIT ASSIGNMENTS reaching the
@@ -161,6 +162,9 @@ final readonly class PayrollInputs
 {
     public const int SCHEMA_VERSION = 25;
 
+    /** The six shares a `contribution_posted` entry holds, in payslip column order. */
+    private const array CONTRIBUTION_LINES = ['sss', 'sss_er', 'philhealth', 'philhealth_er', 'pagibig', 'pagibig_er'];
+
     /**
      * @param  list<string>  $employeeIds
      * @param  list<EmployeePayData>  $employees
@@ -174,7 +178,7 @@ final readonly class PayrollInputs
      * @param  array<string, float>  $exemptBenefitsYearToDate
      * @param  array<string, list<array{type_id: string, code: string, name: string, amount: float}>>  $customDeductions
      * @param  list<string>  $activeCalculations  the computed deductions switched on, in DeductionCalculation::all() order
-     * @param  array<string, array{version_id: ?string, effective_from: ?string, covered_through: ?string, figures: array<string, mixed>}>  $statutoryTables  the four table versions in force, keyed by kind (empty: the built-in figures)
+     * @param  array<string, array{version_id: ?string, effective_from: ?string, covered_through: ?string, figures: array<string, mixed>}>  $statutoryTables  the four contribution and withholding table versions, keyed by kind, as evidence captured them; empty on a payroll that captures none
      * @param  array<string, array{scope: string, version_id: ?string, effective_from: ?string, figures: array<string, mixed>, segments?: list<array{from: string, scope: string, version_id: ?string, effective_from: ?string, figures: array<string, mixed>}>}>  $payRules  the Pay Basis & Rates version pricing each member on the first day, keyed by employee id (absent: the reference's rules over `formulas`), with the versions taking over inside the period (schema 18)
      * @param  array<string, array{code: string, name: string, figures: array<string, mixed>}>  $benefitRules  the catalog's scheduled benefits as captured, keyed by type id — what payroll proposes on its own
      * @param  array<string, array{code: string, name: string, figures: array<string, mixed>}>  $deductionRules  the Payroll Deductions rows priced as a percentage, as captured, keyed by row id
@@ -187,11 +191,11 @@ final readonly class PayrollInputs
      * @param  array{type_id: string, code: string, name: string, is_taxable: bool, tax: string, counts_toward_13th: bool, day_value: string, factor: ?float}|null  $cashOutType  the Incentives & Bonuses type cash-outs are paid as, with what a converted day pays on it, as captured; null when none is marked
      * @param  array<string, array{version_id: string, effective_from: string, figures: array<string, mixed>}>  $govPolicies  each member's Contributions & tax version in force, as captured (GovDeductionSettings figures); absent for a member on their baseline
      * @param  array<string, list<array{id: string, category_id: string, code: string, name: string, kind: string, tax: ?string, amount: float, reason: string}>>  $adjustments  the approved adjustment lines this payroll pays, by member, as captured (Adjustments::entry)
-     * @param  string|null  $contributionMonth  the month ('YYYY-MM') the shares count toward; null = the period's start month
-     * @param  array<string, array<string, float>>  $contributionPosted  each member's shares already posted this contribution month (ContributionMonthToDate::LINES); absent when none
+     * @param  string|null  $contributionMonth  the month ('YYYY-MM') the shares counted toward, as evidence captured it; null on a payroll that captures none
+     * @param  array<string, array<string, float>>  $contributionPosted  each member's six shares already posted in the contribution month, as evidence captured them; empty on a payroll that captures none
      * @param  array{version_id: string, effective_from: string, ceiling: float}|null  $benefitCeiling  the yearly tax-free ceiling version in force, as captured; null = the constant
      * @param  array<string, list<array{id: string, type_id: string, starts_on: string, ends_on: ?string, amount: ?float}>>  $benefitAssignments  each member's approved benefit assignments reaching the period (BenefitAssignments::entry); absent when none
-     * @param  array{year: int, payrolls_left: int, posted: array<string, array{taxable: float, withheld: float}>}|null  $taxYear  the tax year, the regular payrolls left in it after this one and each whole-year member's posted figures (TaxYearToDate::entry); null when no member is priced by the whole-year estimate
+     * @param  array{year: int, payrolls_left: int, posted: array<string, array{taxable: float, withheld: float}>}|null  $taxYear  the whole-year withholding estimate's year facts, as evidence captured them; null on a payroll that captures none
      * @param  array{pay_date: string, tax_year: int, periods: int, rates_from: string, rates: array<string, mixed>, members: array<string, array{details: array<string, mixed>, to_date: array{pensionable: float, pension: float, second_pension: float, insurance: float}}>}|null  $sourceDeductions  what the source deductions are worked out from (SourceDeductionFacts::entry); null on evidence from before they existed
      */
     public function __construct(
@@ -238,12 +242,6 @@ final readonly class PayrollInputs
         return BenefitCeilings::ceilingOf($this->benefitCeiling);
     }
 
-    /** The month the shares count toward: the captured one, else the period's start month. */
-    public function contributionMonth(): string
-    {
-        return $this->contributionMonth ?? substr($this->periodStart, 0, 7);
-    }
-
     /** The last day priced from attendance: the counted-through date, else the period's end. */
     public function attendanceEnd(): string
     {
@@ -271,19 +269,6 @@ final readonly class PayrollInputs
         }
 
         return PayRulesTimeline::of($segments);
-    }
-
-    /**
-     * The figures the engine prices this period from: the captured table
-     * versions, or the built-in figures when the evidence carries none.
-     */
-    public function schedule(): StatutorySchedule
-    {
-        if ($this->statutoryTables === []) {
-            return Statutory::builtIn();
-        }
-
-        return StatutorySchedule::fromArrays(array_map(static fn (array $table): array => $table['figures'], $this->statutoryTables));
     }
 
     /**
@@ -925,13 +910,13 @@ final readonly class PayrollInputs
             $row = self::map($lines);
             $keys = array_keys($row);
             sort($keys, SORT_STRING);
-            $expected = ContributionMonthToDate::LINES;
+            $expected = self::CONTRIBUTION_LINES;
             sort($expected, SORT_STRING);
             if ($keys !== $expected) {
                 throw new RuntimeException('Invalid payroll contribution evidence.');
             }
             $sums = [];
-            foreach (ContributionMonthToDate::LINES as $line) {
+            foreach (self::CONTRIBUTION_LINES as $line) {
                 $sum = self::number($row[$line]);
                 if ($sum < 0.0) {
                     throw new RuntimeException('Invalid payroll contribution evidence.');

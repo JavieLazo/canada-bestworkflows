@@ -570,22 +570,29 @@ it('reads a hand-typed amount whether or not it carries separators', function ()
     $run = payrollDraftRun('PR-050', 'August 2026 — typed amounts', [$employee]);
     $id = (string) $employee->getKey();
 
-    // What the cells actually send: the comma-free raw value.
+    // What the cell actually sends: the comma-free raw value.
     $page = Livewire::test(RunWorkspace::class, ['id' => $run->id])
-        ->call('updateDeduction', $id, 'sss', '1350.50');
+        ->call('updateDeduction', $id, 'other_deductions', '1350.50');
 
-    expect($page->get('draftDeductions')[$id]['sss'])->toBe(1350.5);
+    expect($page->get('draftDeductions')[$id]['other_deductions'])->toBe(1350.5);
 
     // And what must NOT quietly become zero if a formatted string ever
     // reaches the server — is_numeric('1,350.50') is false.
-    $page->call('updateDeduction', $id, 'sss', '1,350.50');
+    $page->call('updateDeduction', $id, 'other_deductions', '1,350.50');
 
-    expect($page->get('draftDeductions')[$id]['sss'])->toBe(1350.5);
+    expect($page->get('draftDeductions')[$id]['other_deductions'])->toBe(1350.5);
+
+    // Other Deductions is the one deduction typed here: a contribution or
+    // withholding field name, as a tampered request would send, is refused.
+    foreach (['sss', 'philhealth', 'pagibig', 'withholding_tax'] as $field) {
+        $page->call('updateDeduction', $id, $field, '900');
+    }
+    expect($page->get('draftDeductions')[$id])->toBe(['other_deductions' => 1350.5])
+        ->and($page->html())->not->toContain("updateDeduction('{$id}', 'sss'");
 
     // A value that is not an amount once separators are gone CLEARS the
-    // override: the computed figure applies again, where a stored 0 would
-    // have silently exempted the employee.
-    $page->call('updateDeduction', $id, 'sss', '1,3x0.50');
+    // figure rather than storing a zero.
+    $page->call('updateDeduction', $id, 'other_deductions', '1,3x0.50');
 
     expect(array_key_exists($id, $page->get('draftDeductions')))->toBeFalse();
 });

@@ -47,8 +47,8 @@ final class SavePayroll
         // Every payroll saved here is a regular cut-off: the kind is written
         // at creation and checked below on an update.
         $kind = PayrollRunKind::REGULAR;
-        // The cut-off check: the dates, then the Contribution & Tax Tables in
-        // force over the period.
+        // The cut-off check: the dates, then the Pay Basis & Rates in force
+        // over the period.
         $cutoffError = PayrollData::cutoffError($actor, $input->members, $input->start, $input->end);
         if ($cutoffError !== null) {
             throw new RuntimeException($cutoffError);
@@ -68,9 +68,8 @@ final class SavePayroll
         }
         // The pay schedule the run's dates come from and its pay date
         // (PaySchedules): the schedule one that exists, the pay date a real
-        // day; the contribution month follows the schedule's rule. A lagged
-        // attendance window is not priced yet.
-        [$scheduleId, $payDate, $contributionMonth, $scheduleNote] = self::scheduleDates($input);
+        // day. A lagged attendance window is not priced yet.
+        [$scheduleId, $payDate, $scheduleNote] = self::scheduleDates($input);
         $deductions = $input->deductions;
         $allowances = $input->allowances;
         $earnings = $input->earnings;
@@ -81,10 +80,6 @@ final class SavePayroll
             throw new RuntimeException($overrideError);
         }
         $members = $input->members;
-        // Named in the audit sentence: which statutory lines an officer typed
-        // over the computed figure. Counted from the typed map, never
-        // computed here.
-        $typed = self::typedStatutoryNote($deductions);
         // Incentive and bonus amounts: members only, every type known, every
         // amount a positive peso figure — refused otherwise.
         $incentives = self::incentives($input->incentives, $input->members);
@@ -97,7 +92,7 @@ final class SavePayroll
         // Named in the audit sentence: the days this payroll pays ahead of
         // their attendance.
         $advanceNote = $attendanceThrough === null ? '' : '; attendance counted through '.PayrollPeriodText::day($attendanceThrough);
-        $result = DB::transaction(function () use ($actor, $runId, $name, $start, $end, $members, $deductions, $allowances, $earnings, $typed, $incentives, $customDeductions, $kind, $skipped, $attendanceThrough, $advanceNote, $scheduleId, $payDate, $contributionMonth, $scheduleNote): array {
+        $result = DB::transaction(function () use ($actor, $runId, $name, $start, $end, $members, $deductions, $allowances, $earnings, $incentives, $customDeductions, $kind, $skipped, $attendanceThrough, $advanceNote, $scheduleId, $payDate, $scheduleNote): array {
             PayrollData::lockMembership();
             EnsurePayrollMembership::check($actor, $members, $start, $end, $runId, $kind);
             $skipped = self::knownRecurring($skipped);
@@ -117,7 +112,7 @@ final class SavePayroll
                 $updated = PayrollRun::query()->whereKey($runId)->where('status', PayrollRunStatus::DRAFT)->update([
                     'name' => $name, 'period_start' => $start, 'period_end' => $end,
                     ...(AdvanceSettlements::ready() ? ['attendance_through' => $attendanceThrough] : []),
-                    ...(PaySchedules::ready() ? ['schedule_id' => $scheduleId, 'pay_date' => $payDate, 'contribution_month' => $contributionMonth] : []),
+                    ...(PaySchedules::ready() ? ['schedule_id' => $scheduleId, 'pay_date' => $payDate] : []),
                 ]);
                 if ($updated === 0) {
                     throw new RuntimeException('That payroll changed before the save completed.');
@@ -125,7 +120,7 @@ final class SavePayroll
                 $memberIds = $this->writeMembers($runId, $members, $start, $end, $deductions, $allowances, $earnings, $skipped);
                 $lines = PayrollData::writeMemberIncentives($memberIds, self::knownTypes($incentives));
                 $customLines = PayrollData::writeMemberDeductions($memberIds, self::knownCustomTypes($customDeductions));
-                RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_UPDATED, 'payroll_runs', $runId, "{$name} saved{$advanceNote}{$scheduleNote}{$typed}".self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
+                RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_UPDATED, 'payroll_runs', $runId, "{$name} saved{$advanceNote}{$scheduleNote}".self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
 
                 return ['id' => $runId, 'created' => false];
             }
@@ -137,13 +132,13 @@ final class SavePayroll
                 ...(AdvanceSettlements::ready() ? ['attendance_through' => $attendanceThrough] : []),
             ]);
             if (PaySchedules::ready()) {
-                $run->forceFill(['schedule_id' => $scheduleId, 'pay_date' => $payDate, 'contribution_month' => $contributionMonth]);
+                $run->forceFill(['schedule_id' => $scheduleId, 'pay_date' => $payDate]);
             }
             $run->save();
             $memberIds = $this->writeMembers($run->id, $members, $start, $end, $deductions, $allowances, $earnings, $skipped);
             $lines = PayrollData::writeMemberIncentives($memberIds, self::knownTypes($incentives));
             $customLines = PayrollData::writeMemberDeductions($memberIds, self::knownCustomTypes($customDeductions));
-            RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_CREATED, 'payroll_runs', $run->id, "{$name} created as a draft with ".count($members).' employees'.$advanceNote.$scheduleNote.$typed.self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
+            RequiredAudit::record($actor, AuditEvent::PAYROLL_RUN_CREATED, 'payroll_runs', $run->id, "{$name} created as a draft with ".count($members).' employees'.$advanceNote.$scheduleNote.self::incentiveNote($lines).self::customDeductionNote($customLines).self::skipNote($skipped));
 
             return ['id' => $run->id, 'created' => true];
         });
@@ -152,13 +147,13 @@ final class SavePayroll
     }
 
     /**
-     * The run's schedule dates, validated: the schedule (blank = none), the
-     * pay date (blank = none; a real day) and the contribution month the
-     * schedule's rule gives the period — the period's own month when the
-     * run has no schedule or its dates are not one of the schedule's
-     * periods — with the audit note. Before the columns exist, nothing.
+     * The run's schedule dates, validated: the schedule (blank = none) and
+     * the pay date (blank = the one the schedule gives the period, when the
+     * dates are one of its periods; a real day), with the audit note.
+     * Before the columns exist, nothing. `payroll_runs.contribution_month`
+     * is not written.
      *
-     * @return array{0: ?string, 1: ?string, 2: ?string, 3: string}
+     * @return array{0: ?string, 1: ?string, 2: string}
      */
     private static function scheduleDates(PayrollDraft $input): array
     {
@@ -169,12 +164,11 @@ final class SavePayroll
                 throw new RuntimeException('Pay schedules can be used once this installation\'s upgrade finishes.');
             }
 
-            return [null, null, null, ''];
+            return [null, null, ''];
         }
         if ($payDate !== null && ! PayrollPeriod::isPayrollDate($payDate)) {
             throw new RuntimeException('Enter the pay date as a real day, or leave it blank.');
         }
-        $contributionMonth = null;
         $note = '';
         if ($scheduleId !== null) {
             $schedule = PayrollPaySchedule::query()->whereKey($scheduleId)->first();
@@ -185,7 +179,6 @@ final class SavePayroll
                 throw new RuntimeException('A schedule whose attendance window ends before the salary period cannot make a payroll yet.');
             }
             $period = PaySchedules::periodFor($schedule, $input->start, $input->end);
-            $contributionMonth = $period['contribution_month'] ?? null;
             $payDate ??= $period['pay_date'] ?? null;
             $note = '; on the '.$schedule->name.' schedule';
         }
@@ -193,28 +186,7 @@ final class SavePayroll
             $note .= '; paid '.PayrollPeriodText::day($payDate);
         }
 
-        return [$scheduleId, $payDate, $contributionMonth, $note];
-    }
-
-    /**
-     * "; 3 statutory lines typed over the computed figure", or '' when the
-     * draft overtypes none — so the audit sentence of a draft without
-     * overrides carries no such note.
-     *
-     * @param  array<string, array<string, mixed>>  $deductions
-     */
-    private static function typedStatutoryNote(array $deductions): string
-    {
-        $count = 0;
-        foreach ($deductions as $lines) {
-            $count += count(PayrollData::overriddenStatutoryKeys($lines));
-        }
-
-        return match ($count) {
-            0 => '',
-            1 => '; 1 statutory line typed over the computed figure',
-            default => "; {$count} statutory lines typed over the computed figure",
-        };
+        return [$scheduleId, $payDate, $note];
     }
 
     /**

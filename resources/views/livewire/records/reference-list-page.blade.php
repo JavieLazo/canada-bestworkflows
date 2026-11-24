@@ -170,15 +170,14 @@
                     @endphp
                     @if ($deletingComputed)
                         {{ $deleting?->code }} is a deduction payroll works out itself. Deleting it
-                        switches the {{ $deleting?->name }} deduction off on every draft payroll —
-                        nothing is taken for it and withholding tax is re-derived — and removes its
-                        column. Finalized payrolls keep their posted payslips. To switch it back on,
+                        switches the {{ $deleting?->name }} deduction off on every draft payroll:
+                        nothing is taken for it, and its columns go. Finalized payrolls keep their posted payslips. To switch it back on,
                         add a deduction named exactly "{{ DeductionCalculation::defaultLabel((string) $deleting?->calculation) }}".
                         This cannot be undone.
                     @elseif (is_array($deleting?->percent ?? null))
                         {{ $deleting?->code }} is a percentage deduction payroll works out itself. Deleting
                         it removes the {{ $deleting?->name }} line and its column from every draft payroll
-                        (withholding tax is re-derived where it came before tax). Finalized payrolls keep
+                        (income tax is worked out again where it came before tax). Finalized payrolls keep
                         their posted payslips. This cannot be undone.
                     @elseif ($deletingDrafts > 0)
                         {{ $deleting?->code }} is removed from the list for good, and so are the

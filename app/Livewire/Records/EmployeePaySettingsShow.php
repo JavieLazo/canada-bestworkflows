@@ -14,18 +14,15 @@ use App\Livewire\Records\Support\Hris;
 use App\Modules\Payroll\Application\BenefitAssignments;
 use App\Modules\Payroll\Application\Commands\ApproveBenefitAssignment;
 use App\Modules\Payroll\Application\Commands\ApproveRecurringLineEntry;
-use App\Modules\Payroll\Application\Commands\ApproveTaxBalance;
 use App\Modules\Payroll\Application\Commands\DeleteRecurringLine;
 use App\Modules\Payroll\Application\Commands\DiscardBenefitAssignment;
 use App\Modules\Payroll\Application\Commands\DiscardRecurringLineEntry;
-use App\Modules\Payroll\Application\Commands\DiscardTaxBalance;
 use App\Modules\Payroll\Application\Commands\EndRecurringLine;
 use App\Modules\Payroll\Application\Commands\ReplaceGovDeductionPolicy;
 use App\Modules\Payroll\Application\Commands\SaveBenefitAssignment;
 use App\Modules\Payroll\Application\Commands\SaveEmployeeTaxDetails;
 use App\Modules\Payroll\Application\Commands\SaveRecurringLine;
 use App\Modules\Payroll\Application\Commands\SaveRecurringLineEntry;
-use App\Modules\Payroll\Application\Commands\SaveTaxBalance;
 use App\Modules\Payroll\Application\EmployeeTaxDetails;
 use App\Modules\Payroll\Application\GovDeductionInput;
 use App\Modules\Payroll\Application\GovDeductionPolicyStore;
@@ -37,18 +34,15 @@ use App\Modules\Payroll\Application\Queries\IncentiveTypeRecords;
 use App\Modules\Payroll\Application\Queries\PayRuleRecords;
 use App\Modules\Payroll\Application\Queries\RecurringLineEntryRecords;
 use App\Modules\Payroll\Application\Queries\RecurringLineRecords;
-use App\Modules\Payroll\Application\Queries\TaxYearRecords;
 use App\Modules\Payroll\Application\RecurringLineEntries;
 use App\Modules\Payroll\Application\RecurringLinePayoff;
 use App\Modules\Payroll\Application\RecurringLines;
-use App\Modules\Payroll\Application\TaxYearToDate;
 use App\Modules\Payroll\Contracts\Views\BenefitAssignmentView;
 use App\Modules\Payroll\Contracts\Views\GovDeductionPolicyView;
 use App\Modules\Payroll\Contracts\Views\IncentiveTypeView;
 use App\Modules\Payroll\Contracts\Views\PayRuleView;
 use App\Modules\Payroll\Contracts\Views\RecurringLineEntryView;
 use App\Modules\Payroll\Contracts\Views\RecurringLineView;
-use App\Modules\Payroll\Contracts\Views\TaxBalanceView;
 use App\Modules\Payroll\Domain\Benefits\BenefitRule;
 use App\Modules\Payroll\Domain\Canada\TaxDetails;
 use App\Modules\Payroll\Domain\Deductions\GovDeductionSettings;
@@ -81,14 +75,11 @@ use RuntimeException;
  * and the hour those make, and what prices their days and hours today —
  * rates of their own, their status's override or the company rule —
  * opening Pay Basis & Rates for them; its hourly rate override is edited
- * here in place, with a reason (UpdateEmployeePaySettings). Contributions
- * & tax reads the settings in force as payroll applies them: per
- * contribution whether it is deducted, a fixed employee or employer share
- * in place of the table, and how it falls across the cut-offs; how
- * withholding is worked out; and each percentage Payroll Deduction, at the
- * employee's own rate when they have one. A save replaces them
- * (ReplaceGovDeductionPolicy; "Reset to standard" fills the form with
- * the standard computation and saves nothing). Allowances & incentives
+ * here in place, with a reason (UpdateEmployeePaySettings). Percentage
+ * Deductions lists each percentage Payroll Deduction at the employee's
+ * own rate when they have one, else the listed rate. A save replaces
+ * their own rates (ReplaceGovDeductionPolicy; "Reset to Listed Rates"
+ * blanks the form and saves nothing). Allowances & incentives
  * lists, in one table, the company benefits they qualify for, the
  * incentives assigned to them and their own recurring allowances, and
  * Loans & other deductions their own recurring deductions, each running
@@ -110,14 +101,14 @@ class EmployeePaySettingsShow extends Component
     #[Locked]
     public string $employeeId = '';
 
-    /** The Contributions & tax card is preparing a version. Plain UI state. */
+    /** The Percentage Deductions card is editing the employee's own rates. Plain UI state. */
     public bool $editing = false;
 
     /** Pay at a glance is editing the hourly rate. Plain UI state. */
     public bool $hourlyEditing = false;
 
     /**
-     * The version form, GovDeductionInput::toForm() shape. Client-editable:
+     * The own-rates form, GovDeductionInput::toForm() shape. Client-editable:
      * the command re-checks every value.
      *
      * @var array<string, mixed>
@@ -165,20 +156,6 @@ class EmployeePaySettingsShow extends Component
     public array $entryForm = ['kind' => 'OUTSIDE_PAYMENT', 'amount' => '', 'entry_date' => '', 'reason' => '', 'reference' => ''];
 
     public ?string $entryError = null;
-
-    /** The Record tax balance dialog. Plain UI state. */
-    public bool $balanceOpen = false;
-
-    /**
-     * The balance as typed: the year, the kind, the two amounts, the
-     * reason and the reference. No id in it, so not #[Locked];
-     * SaveTaxBalance re-validates every field.
-     *
-     * @var array<string, string>
-     */
-    public array $balanceForm = ['tax_year' => '', 'kind' => 'OPENING', 'taxable_income' => '', 'tax_withheld' => '', 'reason' => '', 'reference' => ''];
-
-    public ?string $balanceError = null;
 
     /** Whether the tax details dialog is open. */
     public bool $taxOpen = false;
@@ -455,9 +432,9 @@ class EmployeePaySettingsShow extends Component
         Flux::toast(variant: 'success', text: $message);
     }
 
-    /* ---- Contributions & tax ---- */
+    /* ---- Percentage deductions ---- */
 
-    /** Opens the form on the settings in use: the employee's own, else the baseline. */
+    /** Opens the form on the rates in use: the employee's own, else the listed ones. */
     public function startEdit(): void
     {
         $access = app(Access::class);
@@ -487,7 +464,7 @@ class EmployeePaySettingsShow extends Component
         $this->hourlyError = null;
     }
 
-    /** The standard computation, into the form: nothing is saved until Save. */
+    /** The listed rates, into the form: nothing is saved until Save. */
     public function useStandard(): void
     {
         $access = app(Access::class);
@@ -496,7 +473,7 @@ class EmployeePaySettingsShow extends Component
         $this->formError = null;
     }
 
-    /** Replaces the employee's settings through the audited command; they apply at once. */
+    /** Replaces the employee's own rates through the audited command; they apply at once. */
     public function save(): void
     {
         $access = app(Access::class);
@@ -506,7 +483,10 @@ class EmployeePaySettingsShow extends Component
 
             return;
         }
-        $figures = GovDeductionInput::figures($this->form, array_keys($this->percentRows($access, $settings)));
+        // The rest of the version in use is carried over as stored; an
+        // employee with no version starts from the standard one.
+        $inForce = self::govInForce(app(GovDeductionPolicyRecords::class)->versions($access, $this->employeeId), LocalClock::todayKey());
+        $figures = GovDeductionInput::figures($this->form, array_keys($this->percentRows($access, $settings)), $inForce === null ? null : EmployeePaySettingsRows::effective($settings, $inForce));
         if (is_string($figures)) {
             $this->formError = $figures;
 
@@ -590,7 +570,7 @@ class EmployeePaySettingsShow extends Component
      * approval is returned, or null when nothing was a draft; a refusal is
      * shown and leaves the row a draft, with its Approve item in the menu.
      *
-     * @param  iterable<BenefitAssignmentView|RecurringLineEntryView|TaxBalanceView>  $rows  this employee's rows
+     * @param  iterable<BenefitAssignmentView|RecurringLineEntryView>  $rows  this employee's rows
      * @param  class-string  $command  the approve command, `handle(Access, string $id): string`
      */
     private function applyDrafts(Access $access, iterable $rows, string $command): ?string
@@ -750,101 +730,6 @@ class EmployeePaySettingsShow extends Component
         } catch (QueryException $e) {
             report($e);
             Flux::toast(variant: 'danger', text: 'The entry could not be updated. Try again.');
-
-            return;
-        } catch (RuntimeException $e) {
-            Flux::toast(variant: 'danger', text: $e->getMessage());
-
-            return;
-        }
-        Flux::toast(variant: 'success', text: $message);
-    }
-
-    /* ---- The tax year ---- */
-
-    /** Opens the balance dialog on the current tax year. */
-    public function openBalance(): void
-    {
-        $access = app(Access::class);
-        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
-            return;
-        }
-        $this->balanceForm = ['tax_year' => substr(LocalClock::todayKey(), 0, 4), 'kind' => 'OPENING', 'taxable_income' => '', 'tax_withheld' => '', 'reason' => '', 'reference' => ''];
-        $this->balanceError = null;
-        $this->balanceOpen = true;
-    }
-
-    public function updatedBalanceOpen(bool $value): void
-    {
-        if (! $value) {
-            $this->balanceError = null;
-        }
-    }
-
-    /** Saves the balance as a draft through the audited command. */
-    public function saveBalance(): void
-    {
-        $access = app(Access::class);
-        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage employee pay settings.');
-
-            return;
-        }
-        try {
-            $message = app(SaveTaxBalance::class)->handle(
-                $access, $this->employeeId, (string) ($this->balanceForm['tax_year'] ?? ''), (string) ($this->balanceForm['kind'] ?? ''),
-                self::money((string) ($this->balanceForm['taxable_income'] ?? '')), self::money((string) ($this->balanceForm['tax_withheld'] ?? '')),
-                (string) ($this->balanceForm['reason'] ?? ''), (string) ($this->balanceForm['reference'] ?? ''),
-            );
-        } catch (QueryException $e) {
-            report($e);
-            $this->balanceError = 'The balance could not be saved. Nothing was changed. Please try again.';
-
-            return;
-        } catch (RuntimeException $e) {
-            $this->balanceError = $e->getMessage();
-
-            return;
-        }
-        $this->balanceOpen = false;
-        $this->balanceError = null;
-        $applied = $this->applyDrafts($access, app(TaxYearRecords::class)->balances($access, $this->employeeId), ApproveTaxBalance::class);
-        Flux::toast(variant: 'success', text: $applied ?? $message);
-    }
-
-    /** Approves a drafted balance: the command refuses the preparer and the employee's own account. */
-    public function approveBalance(string $id): void
-    {
-        $this->decideBalance($id, ApproveTaxBalance::class);
-    }
-
-    /** Deletes a draft that should not count. */
-    public function discardBalance(string $id): void
-    {
-        $this->decideBalance($id, DiscardTaxBalance::class);
-    }
-
-    /** @param  class-string<ApproveTaxBalance|DiscardTaxBalance>  $command */
-    private function decideBalance(string $id, string $command): void
-    {
-        $access = app(Access::class);
-        if (! $access->mayReadAllData(ModuleCode::PAYROLL)) {
-            Flux::toast(variant: 'danger', text: 'Your role cannot manage employee pay settings.');
-
-            return;
-        }
-        $row = app(TaxYearRecords::class)->balances($access, $this->employeeId)
-            ->first(static fn (TaxBalanceView $v): bool => $v->id === $id);
-        if ($row === null) {
-            Flux::toast(variant: 'danger', text: 'That balance no longer exists.');
-
-            return;
-        }
-        try {
-            $message = app($command)->handle($access, $row->id);
-        } catch (QueryException $e) {
-            report($e);
-            Flux::toast(variant: 'danger', text: 'The balance could not be updated. Try again.');
 
             return;
         } catch (RuntimeException $e) {
@@ -1134,18 +1019,12 @@ class EmployeePaySettingsShow extends Component
         return view('livewire.records.employee-pay-settings-show', [
             'canRead' => $canRead,
             'settings' => $settings,
-            'gov' => $gov,
-            'govInForce' => $govInForce,
             'govReady' => GovDeductionPolicyStore::ready(),
             'salaryReady' => SalaryRates::ready(),
             'assignReady' => BenefitAssignments::ready(),
-            'balancesReady' => TaxYearToDate::balancesReady(),
             'tax' => $settings === null ? null : $this->taxCard($access, $settings, $today),
-            'taxYear' => $settings === null ? ['year' => (int) substr($today, 0, 4), 'taxable' => 0.0, 'withheld' => 0.0] : app(TaxYearRecords::class)->summary($access, $settings->id, (int) substr($today, 0, 4)),
-            'taxBalances' => $settings === null ? new Collection : app(TaxYearRecords::class)->balances($access, $settings->id),
             'assignments' => $assignments,
             'assignableTypes' => $settings === null ? [] : $this->assignableTypes($access),
-            'customized' => $settings === null ? [] : $gov->customized(),
             'hourlyCustomized' => $settings !== null && EmployeePaySettingsInput::customized($settings) !== [],
             'rates' => $rates,
             'glance' => $settings === null || $rates === null ? null : EmployeePayProfile::glance($settings, $rates),

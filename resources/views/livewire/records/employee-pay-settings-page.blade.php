@@ -1,12 +1,12 @@
 {{--
     Employee Pay Settings — who is paid differently from the standard
     computation. Five summary cards (how many are listed, how many are
-    customized and, by the table's own columns, how many have Contributions
-    & tax, rates, and a loan or an allowance of their own), then the list:
-    search, an All / Only customized switch and "Active only", one row per
-    employee, who reads as on the Employee Records list (portrait with the
-    name over the position, the status as pills), then Contributions & tax
-    naming only what differs, what differs in bold. THE WHOLE ROW opens the
+    customized and, by the table's own columns, how many have percentage
+    deduction rates, rates, and a loan or an allowance of their own), then
+    the list: search, an All / Only customized switch and "Active only",
+    one row per employee, who reads as on the Employee Records list
+    (portrait with the name over the position, the status as pills), then
+    Percentage Deductions, what differs in bold. THE WHOLE ROW opens the
     employee's page; the name is not a link of its own. Pay data: the cards
     and rows show only for an all-data PAYROLL holder.
 --}}
@@ -47,9 +47,9 @@
             />
             <x-payroll.settings.stat
                 data-stat="gov"
-                label="Contributions & Tax"
+                label="Percentage Deductions"
                 :value="number_format($summary['gov'])"
-                note="With a setting of their own"
+                note="With a rate of their own"
             />
             <x-payroll.settings.stat
                 data-stat="rates"
@@ -94,7 +94,7 @@
                         <tr>
                             <x-kit.sort-header field="name" label="Employee" />
                             <x-kit.sort-header field="status" label="Employment Status" />
-                            <th>Contributions &amp; Tax</th>
+                            <th>Percentage Deductions</th>
                             <th>Hourly Rate</th>
                             <th>Pay Basis &amp; Rates</th>
                             <th>Loans &amp; Allowances</th>
@@ -170,7 +170,7 @@
                                     </div>
                                 </td>
                                 <td class="{{ $differs($customized, PaySettingsText::summaryKeys()) ? 'font-semibold' : 'text-muted-foreground' }}">
-                                    {{ PaySettingsText::summary($row['gov'], $customized) }}
+                                    {{ PaySettingsText::summary($customized) }}
                                 </td>
                                 <td class="whitespace-nowrap {{ $differs($customized, ['hourly_rate']) ? 'font-semibold' : 'text-muted-foreground' }}">
                                     {{ PaySettingsText::hourly($settings) }}

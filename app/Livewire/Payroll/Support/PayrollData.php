@@ -24,12 +24,6 @@ use Illuminate\Support\Collection;
 /** Compatibility adapter; business logic belongs to \App\Modules\Payroll\Application\PayrollData. */
 final class PayrollData
 {
-    /** The employee's computed-but-overtypable statutory lines. */
-    public const array STATUTORY_KEYS = \App\Modules\Payroll\Application\PayrollData::STATUTORY_KEYS;
-
-    /** The employer shares — reported, never deducted — in payslip order. */
-    public const array EMPLOYER_LABELS = \App\Modules\Payroll\Application\PayrollData::EMPLOYER_LABELS;
-
     /**
      * EARNING_FIELDS (run-workspace.tsx:61-65) — the hand-entered earnings, in
      * grid order, under the names the grid heads them with. The keys are the
@@ -46,7 +40,7 @@ final class PayrollData
     /** payroll-run-schema.ts `money`: z.number().finite().min(0).max(999_999_999). */
     public const float MONEY_MAX = \App\Modules\Payroll\Application\PayrollData::MONEY_MAX;
 
-    /** Editable deduction key => payroll_run_members column. */
+    /** Typed deduction key => payroll_run_members column. */
     public const array DEDUCTION_COLUMNS = \App\Modules\Payroll\Application\PayrollData::DEDUCTION_COLUMNS;
 
     /** Earning key => payroll_run_members column. */
@@ -65,8 +59,8 @@ final class PayrollData
     }
 
     /**
-     * The cut-off check before anything computes: dates, Contribution & Tax
-     * Tables, then the members' Pay Basis & Rates.
+     * The cut-off check before anything computes: the dates, then the
+     * members' Pay Basis & Rates.
      *
      * @param  list<string>  $memberIds
      */
@@ -202,7 +196,7 @@ final class PayrollData
      *     draftErrors: list<array{employee_id: string, message: string}>,
      *     combined: list<array{employee_id: string, message: string}>,
      *     inputs: ?PayrollInputs,
-     *     statutory: array<string, array{computed: array<string, float>, overridden: list<string>, off: list<string>, withholding_rederived: bool, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}}>,
+     *     statutory: array<string, array{off: list<string>, benefits: array{ytd_before: float, exempt: float, ceiling: float, taxable_excess: float}, source_deductions: array<string, float>|null}>,
      *     incentiveLines: array<string, list<array{type_id: string, code: string, name: string, is_taxable: bool, amount: float, tax: string, counts_toward_13th: bool, automatic: bool, recurring_line_id: ?string, over_ceiling: float, adjustment_id?: string}>>,
      *     customDeductionLines: array<string, list<array{type_id: string, code: string, name: string, amount: float, employer_amount: ?float, automatic: bool, recurring_line_id: ?string, adjustment_id?: string}>>,
      *     settlementLines: array<string, list<array{payslip_id: string, run_code: string, from: string, to: string, presumed: array<string, float>, actual: array<string, float>, presumed_amount: float, actual_amount: float, amount: float}>>,
@@ -211,9 +205,9 @@ final class PayrollData
      *     countedThrough: array<string, ?string>,
      * }
      */
-    public static function calculateDrafts(array $employeeIds, string $periodStart, string $periodEnd, array $draftDeductions = [], array $draftAllowances = [], array $draftEarnings = [], bool $strict = false, array $draftIncentives = [], array $draftCustomDeductions = [], array $draftSkippedRecurring = [], ?string $attendanceThrough = null, ?string $payDate = null, ?string $contributionMonth = null, ?string $runId = null): array
+    public static function calculateDrafts(array $employeeIds, string $periodStart, string $periodEnd, array $draftDeductions = [], array $draftAllowances = [], array $draftEarnings = [], bool $strict = false, array $draftIncentives = [], array $draftCustomDeductions = [], array $draftSkippedRecurring = [], ?string $attendanceThrough = null, ?string $payDate = null, ?string $runId = null): array
     {
-        return \App\Modules\Payroll\Application\PayrollData::calculateDrafts($employeeIds, $periodStart, $periodEnd, $draftDeductions, $draftAllowances, $draftEarnings, $strict, draftIncentives: $draftIncentives, draftCustomDeductions: $draftCustomDeductions, draftSkippedRecurring: $draftSkippedRecurring, attendanceThrough: $attendanceThrough, payDate: $payDate, contributionMonth: $contributionMonth, runId: $runId);
+        return \App\Modules\Payroll\Application\PayrollData::calculateDrafts($employeeIds, $periodStart, $periodEnd, $draftDeductions, $draftAllowances, $draftEarnings, $strict, draftIncentives: $draftIncentives, draftCustomDeductions: $draftCustomDeductions, draftSkippedRecurring: $draftSkippedRecurring, attendanceThrough: $attendanceThrough, payDate: $payDate, runId: $runId);
     }
 
     /** @return Collection<int, PayrollDeductionTypeView> */

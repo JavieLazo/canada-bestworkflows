@@ -2,9 +2,12 @@
 
 declare(strict_types=1);
 
+use App\Domain\Enums\AuditEvent;
 use App\Domain\Enums\ModuleCode;
 use App\Livewire\Payroll\RunWorkspace;
+use App\Livewire\Records\EmployeePaySettingsShow;
 use App\Livewire\Records\ReferenceListPage;
+use App\Models\AuditLog;
 use App\Models\PayrollDeduction;
 use App\Models\PayrollGovDeductionPolicy;
 use App\Models\Payslip;
@@ -32,7 +35,8 @@ use Tests\Support\PayrollEvidenceFixture;
  * the Payroll Deductions page; payroll prices the shares on every draft,
  * reports the employer's, takes the before-tax part off the withholding
  * base, lets a typed amount override the employee share (0 included: the
- * share already paid, the employer's kept), gives a non-member neither
+ * share already paid, the employer's kept), takes an employee's own rate
+ * from their pay page in place of the row's, gives a non-member neither
  * share, captures the rules in the evidence and posts the employer share
  * with the line.
  */
@@ -196,6 +200,67 @@ it('takes a before-tax share off the income that is taxed, leaves the contributi
     expect([$line->deduction_code, $line->name, $line->amount, $line->employer_amount])->toBe(['8', 'Provident Fund', 450.0, 450.0])
         ->and($posted->custom_deductions)->toBe(450.0);
     expect($fund->exists)->toBeTrue();
+});
+
+it('saves an employee\'s own rate from their pay page, keeps the rest of the stored version, prices the draft by it and resets to the listed rate', function () {
+    ['actor' => $actor, 'employee' => $employee] = PayrollEvidenceFixture::make();
+    PayrollEvidenceFixture::sourceFacts($employee);
+    $fund = pctdRow('8', 'Provident Fund');
+    // A version stored with settings no screen offers: saving a rate carries them over untouched.
+    $policy = new PayrollGovDeductionPolicy;
+    $policy->forceFill(['employee_id' => $employee->id, 'effective_from' => '2025-01-01', 'reason' => 'Stored before', 'status' => PayrollGovDeductionPolicy::APPROVED, 'approved_at' => '2025-01-01 00:00:00.000',
+        'params' => [...GovDeductionSettings::STANDARD, 'allow_sss' => false, 'whole_year_tax' => true, 'tax_spread' => 'DECEMBER']])->save();
+    $listed = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor)['customDeductionLines'][$employee->id][0];
+    expect([$listed['amount'], $listed['employer_amount']])->toBe([450.0, 450.0]);
+
+    // The form holds the rates alone, and nothing else is offered.
+    $page = Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
+        ->assertSee('Percentage Deductions')
+        ->call('startEdit')
+        ->assertSet('form', ['percent' => [$fund->id => '']])
+        ->assertDontSee('SSS')->assertDontSee('PhilHealth')->assertDontSee('Withholding')
+        // A rate that cannot be read is refused in place.
+        ->set('form.percent.'.$fund->id, '120')
+        ->call('save')
+        ->assertSet('formError', 'A rate of their own on a percentage deduction must be a percent between 0 and 100, or blank for the listed rate.')
+        ->set('form.percent.'.$fund->id, '5')
+        ->call('save')
+        ->assertSet('formError', null)
+        ->assertSet('editing', false)
+        ->assertSee('Own rate 5%');
+
+    $stored = PayrollGovDeductionPolicy::query()->where('employee_id', $employee->id)->sole();
+    expect($stored->id)->toBe($policy->id)
+        ->and($stored->params)->toEqual([...GovDeductionSettings::STANDARD, 'allow_sss' => false, 'whole_year_tax' => true, 'tax_spread' => 'DECEMBER', 'percent_rates' => [$fund->id => 5.0]])
+        ->and(AuditLog::query()->where('action', AuditEvent::GOV_POLICY_SAVED->value)->sole()->details)
+        ->toBe('Synthetic Evidence · Percentage deduction rates replaced: a rate of their own on 1 deduction');
+
+    // 5% of half of 30,000 from the employee; the employer's share stays the row's 3%.
+    $own = PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor);
+    expect([$own['customDeductionLines'][$employee->id][0]['amount'], $own['customDeductionLines'][$employee->id][0]['employer_amount']])->toBe([750.0, 450.0])
+        ->and($own['inputs']?->govPolicies[$employee->id]['figures']['percent_rates'])->toBe([$fund->id => 5.0])
+        // The stored switches of that version move no figure: no contribution or withholding line is posted.
+        ->and([$own['drafts'][0]->sss, $own['drafts'][0]->withholding_tax, $own['drafts'][0]->tax_refund])->toBe([0.0, 0.0, 0.0]);
+
+    // Reset to Listed Rates blanks the form; saving it goes back to the row's rate.
+    $page->call('startEdit')->assertSet('form', ['percent' => [$fund->id => '5']])
+        ->call('useStandard')->assertSet('form', ['percent' => [$fund->id => '']])
+        ->call('save')->assertSet('formError', null);
+    expect(PayrollGovDeductionPolicy::query()->where('employee_id', $employee->id)->sole()->params['percent_rates'])->toBe([])
+        ->and(PayrollData::calculateDrafts([$employee->id], '2026-09-01', '2026-09-15', actor: $actor)['customDeductionLines'][$employee->id][0]['amount'])->toBe(450.0);
+
+    // The settings are pay data: a PAYROLL holder without all data saves nothing.
+    $role = new Role;
+    $role->forceFill(['name' => 'Reader '.Str::random(6), 'all_data' => false, 'is_system' => false])->save();
+    $grant = new RoleModuleGrant;
+    $grant->forceFill(['role_id' => $role->id, 'module' => ModuleCode::PAYROLL])->save();
+    test()->actingAs(User::factory()->create(['role_id' => $role->id]));
+    app()->forgetInstance(Access::class);
+    Livewire::test(EmployeePaySettingsShow::class, ['employee' => $employee->id])
+        ->set('form', ['percent' => [$fund->id => '9']])
+        ->call('save');
+    expect(PayrollGovDeductionPolicy::query()->where('employee_id', $employee->id)->sole()->params['percent_rates'])->toBe([])
+        ->and(AuditLog::query()->where('action', AuditEvent::GOV_POLICY_SAVED->value)->count())->toBe(2);
 });
 
 it('gives a non-member no line and no employer share, and finalizes them', function () {

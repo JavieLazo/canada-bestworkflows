@@ -116,11 +116,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property float $presumed_days days paid ahead of their attendance
  * @property float $settlement the settlement of earlier presumed days inside gross pay, positive or negative
  * @property float $leave_charged_days the days of leave credits the payslip charged for lateness, undertime and absences
- * @property string|null $contribution_month the month ('YYYY-MM') the SSS, PhilHealth and Pag-IBIG shares count toward; null on a payslip posted before 2026_11_02_0009
- * @property float|null $contribution_base the monthly salary the contribution tables were read at; null on a payslip posted before the column
- * @property int|null $tax_year the tax year the withholding counts in (the year of the pay date); null on a payslip posted before 2026_11_02_0011
- * @property string|null $tax_method how the withholding was worked out (TABLE, ANNUALIZED, FIXED, PERCENT, WHOLE_YEAR, NONE); null before the column
- * @property float $tax_refund the refund the year's last payslip paid back (divergence 20); 0 elsewhere
+ * @property string|null $contribution_month the month ('YYYY-MM') the SSS, PhilHealth and Pag-IBIG shares counted toward; null on a payslip that read no contribution table
+ * @property float|null $contribution_base the monthly salary the contribution tables were read at; null on a payslip that read none
+ * @property int|null $tax_year the tax year the pay counts in (the year of the pay date); null on a payslip posted before 2026_11_02_0011
+ * @property string|null $tax_method how a withholding by table was worked out (TABLE, ANNUALIZED, FIXED, PERCENT, WHOLE_YEAR, NONE); null on a payslip with source deductions
+ * @property float $tax_refund the refund a year's last payslip paid back under the whole-year estimate; 0 elsewhere
  * @property float $cpp the employee's Canada Pension Plan contribution, inside total_deductions; 0 on a payslip posted before 2026_11_24_0002
  * @property float $cpp2 the employee's second Canada Pension Plan contribution, on pay above the year's first ceiling
  * @property float $ei the employee's Employment Insurance premium

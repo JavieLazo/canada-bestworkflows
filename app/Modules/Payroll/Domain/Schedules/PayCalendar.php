@@ -8,10 +8,9 @@ namespace App\Modules\Payroll\Domain\Schedules;
  * The pay calendar a schedule makes: for a month, each salary period with
  * its pay date — the schedule's pay day, moved off a Saturday, Sunday or
  * holiday as the schedule says — its deadlines counted back from the pay
- * date, its place in the month (FIRST, LAST or ONLY, which decides which
- * payroll carries a month's whole-month deductions) and the month whose
- * contributions it carries. A period's dates are 'Y-m-d' strings compared
- * as the rest of payroll compares them.
+ * date and its place in the month (FIRST, LAST or ONLY, which decides
+ * which payroll carries a month's whole-month deductions). A period's
+ * dates are 'Y-m-d' strings compared as the rest of payroll compares them.
  *
  * A schedule that runs by weeks has no months to cut: its periods follow
  * one another from the schedule's anchor day, each is the ONLY one of its
@@ -38,7 +37,7 @@ final class PayCalendar
      * The month's periods, in order.
      *
      * @param  list<string>  $holidays  'Y-m-d' dates a pay date moves off
-     * @return list<array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}>
+     * @return list<array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}>
      */
     public static function month(PaySchedule $schedule, int $year, int $month, array $holidays = []): array
     {
@@ -62,7 +61,6 @@ final class PayCalendar
                 'end' => $end,
                 'pay_date' => $payDate,
                 'position' => $position,
-                'contribution_month' => $schedule->contributionMonth === PaySchedule::MONTH_PAY_DATE ? substr($payDate, 0, 7) : sprintf('%04d-%02d', $year, $month),
                 'deadlines' => $deadlines,
             ];
         }
@@ -75,7 +73,7 @@ final class PayCalendar
      * dates are not one of its periods.
      *
      * @param  list<string>  $holidays
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}|null
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}|null
      */
     public static function periodFor(PaySchedule $schedule, string $start, string $end, array $holidays = []): ?array
     {
@@ -101,7 +99,7 @@ final class PayCalendar
      * payroll after the last one paid.
      *
      * @param  list<string>  $holidays
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}
      */
     public static function nextAfter(PaySchedule $schedule, string $day, array $holidays = []): array
     {
@@ -134,7 +132,7 @@ final class PayCalendar
      * month and the next.
      *
      * @param  list<string>  $holidays
-     * @return list<array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}>
+     * @return list<array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}>
      */
     public static function upcoming(PaySchedule $schedule, string $today, int $days, array $holidays = []): array
     {
@@ -184,7 +182,7 @@ final class PayCalendar
      * The period a day falls in.
      *
      * @param  list<string>  $holidays
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}
      */
     public static function containing(PaySchedule $schedule, string $day, array $holidays = []): array
     {
@@ -205,7 +203,7 @@ final class PayCalendar
      * The period a day falls in and the ones after it, `$count` in all.
      *
      * @param  list<string>  $holidays
-     * @return list<array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}>
+     * @return list<array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}>
      */
     public static function following(PaySchedule $schedule, string $day, int $count, array $holidays = []): array
     {
@@ -280,7 +278,7 @@ final class PayCalendar
      * forward or back in whole periods.
      *
      * @param  list<string>  $holidays
-     * @return array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}
+     * @return array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}
      */
     private static function weekPeriodAt(PaySchedule $schedule, int $epochDay, array $holidays): array
     {
@@ -300,7 +298,6 @@ final class PayCalendar
             'end' => $end,
             'pay_date' => $payDate,
             'position' => self::ONLY,
-            'contribution_month' => $schedule->contributionMonth === PaySchedule::MONTH_PAY_DATE ? substr($payDate, 0, 7) : substr(self::fromEpochDay($start), 0, 7),
             'deadlines' => $deadlines,
         ];
     }
@@ -309,7 +306,7 @@ final class PayCalendar
      * The by-weeks periods that start in a month.
      *
      * @param  list<string>  $holidays
-     * @return list<array{start: string, end: string, pay_date: string, position: string, contribution_month: string, deadlines: list<array{label: string, date: string}>}>
+     * @return list<array{start: string, end: string, pay_date: string, position: string, deadlines: list<array{label: string, date: string}>}>
      */
     private static function weeksStartingIn(PaySchedule $schedule, int $year, int $month, array $holidays): array
     {

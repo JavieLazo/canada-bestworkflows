@@ -9,9 +9,9 @@ use App\Modules\Payroll\Domain\Schedules\PaySchedule;
  * The pay calendar a schedule makes, pure: the month's salary periods, the
  * pay day as the schedule names it (a day the month lacks becomes its last
  * day; "next month" rolls the year), moved off weekends and holidays the way
- * the schedule says, the deadlines counted back from the pay date, each
- * period's place in the month and the month whose contributions it carries;
- * and the figures a schedule refuses.
+ * the schedule says, the deadlines counted back from the pay date and each
+ * period's place in the month; a stored `contribution_month` key still
+ * reads and adds nothing to a period; and the figures a schedule refuses.
  */
 
 /**
@@ -32,7 +32,7 @@ function pcalPeriod(int $start, ?int $end, string $kind = PaySchedule::PAY_PERIO
 it('builds the standard semi-monthly calendar, paid on each period\'s last day, with no move and no deadlines', function () {
     $february = PayCalendar::month(PaySchedule::standard(), 2026, 2);
     expect($february)->toHaveCount(2)
-        ->and($february[0])->toMatchArray(['start' => '2026-02-01', 'end' => '2026-02-15', 'pay_date' => '2026-02-15', 'position' => PayCalendar::FIRST, 'contribution_month' => '2026-02', 'deadlines' => []])
+        ->and($february[0])->toMatchArray(['start' => '2026-02-01', 'end' => '2026-02-15', 'pay_date' => '2026-02-15', 'position' => PayCalendar::FIRST, 'deadlines' => []])
         ->and($february[1])->toMatchArray(['start' => '2026-02-16', 'end' => '2026-02-28', 'pay_date' => '2026-02-28', 'position' => PayCalendar::LAST])
         ->and(PayCalendar::month(PaySchedule::standard(), 2028, 2)[1]['end'])->toBe('2028-02-29')
         ->and(PayCalendar::periodFor(PaySchedule::standard(), '2026-02-16', '2026-02-28')['pay_date'] ?? null)->toBe('2026-02-28')
@@ -56,9 +56,9 @@ it('pays on the 15th and the 30th, the working day before a weekend or holiday, 
     // A holiday followed by a weekend: Friday 30 Oct 2026 a holiday → Thursday the 29th; with the 29th a holiday too → Wednesday.
     expect(PayCalendar::month($schedule, 2026, 10, ['2026-10-30'])[1]['pay_date'])->toBe('2026-10-29')
         ->and(PayCalendar::month($schedule, 2026, 10, ['2026-10-30', '2026-10-29'])[1]['pay_date'])->toBe('2026-10-28')
-        // AFTER moves the other way: Saturday 31 Jan 2026 → Monday 2 Feb, and a pay date in the next month carries that month's contributions.
+        // AFTER moves the other way: Saturday 31 Jan 2026 → Monday 2 Feb. The schedule's stored contribution month reads and adds no key to a period.
         ->and(PayCalendar::month(PaySchedule::fromArray(pcalFigures(['periods' => [pcalPeriod(1, 15), pcalPeriod(16, null, PaySchedule::PAY_DAY, 31)], 'holiday_rule' => PaySchedule::MOVE_AFTER, 'contribution_month' => PaySchedule::MONTH_PAY_DATE])), 2026, 1)[1])
-        ->toMatchArray(['pay_date' => '2026-02-02', 'contribution_month' => '2026-02'])
+        ->toBe(['start' => '2026-01-16', 'end' => '2026-01-31', 'pay_date' => '2026-02-02', 'position' => PayCalendar::LAST, 'deadlines' => []])
         // KEEP leaves a weekend pay date alone.
         ->and(PayCalendar::month(PaySchedule::fromArray(pcalFigures(['periods' => [pcalPeriod(1, 15, PaySchedule::PAY_DAY, 15), pcalPeriod(16, null)]])), 2026, 2)[0]['pay_date'])->toBe('2026-02-15');
 });
@@ -67,7 +67,7 @@ it('pays a monthly period on a day of the following month, rolling the year', fu
     $schedule = PaySchedule::fromArray(pcalFigures(['periods' => [pcalPeriod(1, null, PaySchedule::PAY_DAY, 5, true)]]));
     $december = PayCalendar::month($schedule, 2026, 12);
     expect($december)->toHaveCount(1)
-        ->and($december[0])->toMatchArray(['start' => '2026-12-01', 'end' => '2026-12-31', 'pay_date' => '2027-01-05', 'position' => PayCalendar::ONLY, 'contribution_month' => '2026-12'])
+        ->and($december[0])->toMatchArray(['start' => '2026-12-01', 'end' => '2026-12-31', 'pay_date' => '2027-01-05', 'position' => PayCalendar::ONLY])
         ->and($schedule->isSemiMonthly())->toBeFalse()
         ->and(PaySchedule::standard()->isSemiMonthly())->toBeTrue();
 });
@@ -125,7 +125,7 @@ function pcalTwoWeeks(string $holidayRule = PaySchedule::MOVE_BEFORE): PaySchedu
 it('gives a two-week period its dates and its pay date six days after it ends', function () {
     $schedule = pcalTwoWeeks();
 
-    expect(PayCalendar::periodFor($schedule, '2026-11-08', '2026-11-21'))->toMatchArray(['start' => '2026-11-08', 'end' => '2026-11-21', 'pay_date' => '2026-11-27', 'position' => PayCalendar::ONLY, 'contribution_month' => '2026-11'])
+    expect(PayCalendar::periodFor($schedule, '2026-11-08', '2026-11-21'))->toMatchArray(['start' => '2026-11-08', 'end' => '2026-11-21', 'pay_date' => '2026-11-27', 'position' => PayCalendar::ONLY])
         // Dates that are not one of its periods name none.
         ->and(PayCalendar::periodFor($schedule, '2026-11-09', '2026-11-22'))->toBeNull()
         ->and(PayCalendar::periodFor($schedule, '2026-11-08', '2026-11-14'))->toBeNull()
@@ -143,8 +143,8 @@ it('follows one two-week period with the next and moves a pay date off a holiday
         ->and(PayCalendar::nextAfter($schedule, '2026-11-08')['start'])->toBe('2026-11-22')
         // Kept on the holiday when the schedule says so.
         ->and(PayCalendar::following(pcalTwoWeeks(PaySchedule::MOVE_KEEP), '2026-12-06', 1, ['2026-12-25'])[0]['pay_date'])->toBe('2026-12-25')
-        // A pay date in January counts in the new year.
-        ->and($periods[3]['contribution_month'])->toBe('2027-01');
+        // A period carries its dates, place and deadlines, and nothing else.
+        ->and(array_keys($periods[3]))->toBe(['start', 'end', 'pay_date', 'position', 'deadlines']);
 });
 
 it('lists the two-week periods that start in a month', function () {
