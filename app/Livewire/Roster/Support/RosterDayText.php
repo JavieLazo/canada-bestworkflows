@@ -9,6 +9,7 @@ use App\Domain\Payroll\PayrollPeriod;
 use App\Modules\Organization\Contracts\Views\WorkSiteView;
 use App\Modules\Timekeeping\Contracts\Views\RosterDayView;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
+use App\Modules\Timekeeping\Domain\Roster\WorkWeek;
 use App\Support\HrisFormat;
 use App\Support\LocalClock;
 use Illuminate\Support\Collection;
@@ -26,22 +27,40 @@ final class RosterDayText
 
     private function __construct() {}
 
-    /** The Monday of the week holding `$date`, or of this week for anything that is not a date. */
-    public static function monday(string $date): string
+    /**
+     * The first day of the week holding `$date` — the day `WorkWeek` starts
+     * a week on — or of this week for anything that is not a date.
+     */
+    public static function weekStart(string $date): string
     {
-        $date = PayrollPeriod::isPayrollDate($date) ? $date : LocalClock::todayKey();
-
-        return PayrollPeriod::addCalendarDays($date, -((CalendarDays::dayOfWeek($date) + 6) % 7));
+        return WorkWeek::startOf(PayrollPeriod::isPayrollDate($date) ? $date : LocalClock::todayKey());
     }
 
     /**
-     * Monday through Sunday of the week starting `$monday`.
+     * The seven dates of the week starting `$weekStart`.
      *
      * @return list<string>
      */
-    public static function week(string $monday): array
+    public static function week(string $weekStart): array
     {
-        return CalendarDays::each($monday, PayrollPeriod::addCalendarDays($monday, 6));
+        return CalendarDays::each($weekStart, PayrollPeriod::addCalendarDays($weekStart, 6));
+    }
+
+    /**
+     * The weekday headings over a month grid, "Sun" … "Sat" in the week's
+     * order.
+     *
+     * @return list<string>
+     */
+    public static function weekdayHeadings(): array
+    {
+        return array_map(static fn (int $weekday): string => HrisFormat::weekday($weekday), WorkWeek::weekdays());
+    }
+
+    /** How many empty boxes a month grid draws before the month's first day `$first`. */
+    public static function monthLead(string $first): int
+    {
+        return WorkWeek::position(CalendarDays::dayOfWeek($first));
     }
 
     /** The first day of the month `$month` ('Y-m') names, or of this month for anything else. */
@@ -60,12 +79,12 @@ final class RosterDayText
         return self::MONTHS[(int) substr($date, 5, 2) - 1].' '.(int) substr($date, 8, 2);
     }
 
-    /** "Nov 16 – Nov 22, 2026". */
-    public static function weekLabel(string $monday): string
+    /** "Nov 15 – Nov 21, 2026", the week starting `$weekStart`. */
+    public static function weekLabel(string $weekStart): string
     {
-        $sunday = PayrollPeriod::addCalendarDays($monday, 6);
+        $weekEnd = PayrollPeriod::addCalendarDays($weekStart, 6);
 
-        return self::short($monday).' – '.self::short($sunday).', '.substr($sunday, 0, 4);
+        return self::short($weekStart).' – '.self::short($weekEnd).', '.substr($weekEnd, 0, 4);
     }
 
     /** "November 2026". */
@@ -74,7 +93,7 @@ final class RosterDayText
         return date('F Y', (int) strtotime($first.' 00:00:00 UTC'));
     }
 
-    /** "Monday, Nov 16". */
+    /** "Monday, Nov 16", a date with its weekday in full. */
     public static function longDay(string $date): string
     {
         return HrisFormat::weekday(CalendarDays::dayOfWeek($date), short: false).', '.self::short($date);
@@ -121,26 +140,41 @@ final class RosterDayText
      * The employee's usual week in one line, from the weekly schedule of each
      * of its seven dates: "AM 6:00 AM–2:00 PM, off Wed and Thu", each
      * different shift in full ("AM 6:00 AM–2:00 PM / PM 2:00 PM–10:00 PM").
+     * Rest days are named in the week's order, a weekend across its edge as
+     * "Sat and Sun".
      *
-     * @param  array<string, RosterDayView>  $week  Monday through Sunday
+     * @param  array<string, RosterDayView>  $week  the seven dates of one week, in the week's order
      */
     public static function usualWeek(array $week): string
     {
         $shifts = [];
         $off = [];
         $none = 0;
+        $position = 0;
         foreach ($week as $date => $day) {
             if ($day->usual === 'Rest day') {
-                $off[] = HrisFormat::weekday(CalendarDays::dayOfWeek($date));
+                $off[$position] = HrisFormat::weekday(CalendarDays::dayOfWeek($date));
             } elseif ($day->usual === 'No shift') {
                 $none++;
             } else {
                 $shifts[$day->usual] = true;
             }
+            $position++;
         }
         if ($shifts === []) {
             return $none > 0 ? 'no shift' : 'rest days only';
         }
+        // Rest days that run across the week's edge are said as they fall on
+        // the calendar — "Sat and Sun", not "Sun and Sat": the days resting
+        // at the start of the week follow the ones resting at its end.
+        if (isset($off[0], $off[6]) && count($off) < 7) {
+            for ($first = 0; isset($off[$first]); $first++) {
+                $label = $off[$first];
+                unset($off[$first]);
+                $off[$first + 7] = $label;
+            }
+        }
+        $off = array_values($off);
         $line = implode(' / ', array_keys($shifts));
         if ($off === []) {
             return $line.', no rest day';

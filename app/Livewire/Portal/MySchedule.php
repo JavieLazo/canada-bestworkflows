@@ -53,7 +53,7 @@ class MySchedule extends Component
         $first = RosterDayText::monthStart($this->month);
         $last = PayrollPeriod::calendarMonthRange($first)['to'];
         $days = $calendar->own($access, $first, $last);
-        $thisWeek = RosterDayText::week(RosterDayText::monday($today));
+        $thisWeek = RosterDayText::week(RosterDayText::weekStart($today));
         $usualWeek = array_intersect_key($days, array_flip($thisWeek));
         if (count($usualWeek) !== 7) {
             $usualWeek = $calendar->own($access, $thisWeek[0], $thisWeek[6]);

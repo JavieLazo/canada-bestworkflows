@@ -404,13 +404,14 @@ it('marks rest days from the employee shift in the dialog', function () {
     $page = rlocpageMonth($employee)->call('openDefaultSchedule');
 
     $dialog = rlocpageDialogHtml($page->html(), $employee);
-    // Thu, Fri, Sat and Sun rest; Mon–Wed work. Every day carries the hint so
-    // the browser can show it as days change; only the resting days are
-    // drawn shown, the working days' are hidden.
+    // Sun, Thu, Fri and Sat rest; Mon–Wed work. The rows run Sunday to
+    // Saturday. Every day carries the hint so the browser can show it as
+    // days change; only the resting days are drawn shown, the working
+    // days' are hidden.
     preg_match_all('~data-rest-day-hint x-show="restsOn\((\d)\)"(\s+style="display: none;?")?~', $dialog, $hints, PREG_SET_ORDER);
     $shown = array_values(array_map(static fn (array $hint): string => $hint[1], array_filter($hints, static fn (array $hint): bool => ($hint[2] ?? '') === '')));
     expect(count($hints))->toBe(7)
-        ->and($shown)->toBe(['4', '5', '6', '0']);
+        ->and($shown)->toBe(['0', '4', '5', '6']);
 });
 
 it('gives a viewer without all_data a month that changes nothing, and an all_data ROSTER holder the Default schedule and the date picks', function () {
@@ -482,7 +483,7 @@ it('previews the day at the punch station: work from home, that weekday site, or
         ->call('employeePicked', 'punch-employee', (string) $home->getKey())
         ->assertSet('siteId', '')
         ->assertSeeHtml('value="Work from home"')
-        ->assertSee('no geofence');
+        ->assertSee('location is not checked');
     expect($station->viewData('punchDisabled'))->toBeFalse()
         ->and($station->viewData('wfhToday'))->toBeTrue();
 

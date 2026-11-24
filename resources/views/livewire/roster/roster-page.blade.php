@@ -1,6 +1,7 @@
 {{--
     Shift Roster — one week of everyone's schedule (RosterPage): a row per
-    active employee, a column per day from Monday to Sunday. Each day names
+    active employee, a column per day of the week, Sunday to Saturday (the
+    order is `WorkWeek`'s, through RosterDayText). Each day names
     the shift that applies on it and its hours, "Off" on a rest day, "No
     shift" where nothing is rostered (no Time In), and approved leave as a
     pill where the viewer may see it. A red alert at a day's top right
@@ -49,7 +50,7 @@
 
             <div class="ml-auto flex items-center gap-1">
                 <flux:button size="sm" variant="outline" icon="chevron-left" wire:click="previousWeek" aria-label="Previous week" />
-                <strong class="num min-w-[11.5rem] text-center text-sm" data-week-label>{{ RosterDayText::weekLabel($monday) }}</strong>
+                <strong class="num min-w-[11.5rem] text-center text-sm" data-week-label>{{ RosterDayText::weekLabel($weekStart) }}</strong>
                 <flux:button size="sm" variant="outline" icon="chevron-right" wire:click="nextWeek" aria-label="Next week" />
             </div>
         </header>
@@ -73,7 +74,7 @@
                     @forelse ($rows as $employee)
                         @php
                             $name = Hris::employeeName($employee);
-                            $url = route('roster.employee', ['employee' => $employee->id, 'month' => substr($monday, 0, 7)]);
+                            $url = route('roster.employee', ['employee' => $employee->id, 'month' => substr($weekStart, 0, 7)]);
                             $week = $calendar[$employee->id] ?? [];
                             $place = $places[$employee->id] ?? '';
                         @endphp

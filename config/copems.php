@@ -24,6 +24,16 @@ return [
     // this names where it is.
     'mobile_app_url' => env('BESTWORKFLOWS_MOBILE_APP_URL', env('COPEMS_MOBILE_APP_URL')),
 
+    // Modules turned off for the whole installation: a comma-separated list
+    // of module codes (App\Domain\Enums\ModuleCode — PROJECTS, INVENTORY, …).
+    // A module that is off is in nobody's sidebar or landing page, its pages
+    // answer as they do for a role without the grant, and User Management's
+    // roles table leaves it out; the stored grants stay, so taking a code off
+    // this list gives every role its access back. Unknown codes are ignored,
+    // and USERS and PROFILE are never turned off.
+    // App\Support\ModuleRegistry::off() is the only reader.
+    'modules_off' => (string) env('BESTWORKFLOWS_MODULES_OFF', env('COPEMS_MODULES_OFF', '')),
+
     // Livewire poll cadence of the EDTR live feed, Portal "My punches" and
     // the open Chat page, in seconds.
     'poll_feed' => (int) env('BESTWORKFLOWS_POLL_FEED', env('COPEMS_POLL_FEED', 15)),

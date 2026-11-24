@@ -16,12 +16,22 @@ use App\Modules\Inventory\Application\Commands\IssueItems;
 use App\Modules\Inventory\Application\Commands\SaveCatalog;
 use App\Modules\Inventory\Application\Commands\SaveItem;
 use App\Modules\Inventory\Application\Queries\InventoryReports;
+use App\Modules\Inventory\Contracts\Views\ReportRow;
 use App\Support\Access;
 use Illuminate\Support\Str;
 use Livewire\Livewire;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
-/** Reports share scoped projections with CSV and retain unresolved count exceptions without changing custody. */
+/**
+ * Reports share scoped projections with CSV and retain unresolved count
+ * exceptions without changing custody. A report with a Cost column also
+ * totals it: `InventoryReports::value` adds up the acquisition cost of every
+ * item the report lists under the same manager check and filters as its
+ * rows — never the page on screen, never an item the table leaves out —
+ * counts an item with no cost as adding nothing and says how many there
+ * are, and splits Stock on hand by category. The screen, the cards above it
+ * and the CSV's closing row all read that one figure.
+ */
 function invreportActor(bool $all = true, string $module = ModuleCode::INVENTORY): Access
 {
     $role = Role::query()->create(['name' => 'InvReport '.Str::random(8), 'all_data' => $all, 'is_system' => false]);
@@ -42,9 +52,9 @@ function invreportEmployee(string $name): string
     return $row->id;
 }
 
-function invreportItem(Access $actor, string $name, ?string $category = null, ?string $location = null): string
+function invreportItem(Access $actor, string $name, ?string $category = null, ?string $location = null, float $cost = 1250.0): string
 {
-    return app(SaveItem::class)->handle($actor, null, ['code' => 'RPT-'.Str::slug($name), 'name' => $name, 'serial_no' => '', 'acquired_on' => '2026-01-01', 'cost' => 1250, 'category_id' => $category, 'location_id' => $location, 'remarks' => '']);
+    return app(SaveItem::class)->handle($actor, null, ['code' => 'RPT-'.Str::slug($name), 'name' => $name, 'serial_no' => '', 'acquired_on' => '2026-01-01', 'cost' => $cost, 'category_id' => $category, 'location_id' => $location, 'remarks' => '']);
 }
 
 it('requires Inventory and all-data on report queries, pages and downloads', function () {
@@ -76,7 +86,8 @@ it('projects catalog and receipt labels, filters employees and clamps the report
     $stock = $reports->rows($actor, 'stock');
     expect($stock->total())->toBe(1)->and($stock->items()[0]->cells[1])->toBe('Stock laptop');
     $export = app(InventoryReportsExport::class)->export($actor, ['report' => 'holdings', 'q' => 'laptop', 'employee' => $person]);
-    expect(iterator_to_array(($export->rows)()))->toBe([$filtered->items()[0]->cells]);
+    // The one item this selection lists, then the total of that selection.
+    expect(iterator_to_array(($export->rows)(), false))->toBe([$filtered->items()[0]->cells, ['Total', '1 item', '', '', '', '', '', '', '1250.00']]);
     $movement = $reports->rows($actor, 'movements', 'First laptop', $person)->items()[0];
     expect($movement->cells[0])->toBe('2026-02-01')->and($movement->cells[5])->toBe('One Holder')->and($movement->cells[6])->toBe('RPT-2026-001');
 });
@@ -110,4 +121,146 @@ it('renders all report modes and applies the employee-picker event contract', fu
         ->set('report', 'exceptions')->assertSee('No items match this report.')
         ->call('clearEmployee')->assertSet('employeeId', '')
         ->set('report', 'stock')->assertSee('No items match this report.');
+});
+
+/*
+|--------------------------------------------------------------------------
+| What a report's items add up to
+|--------------------------------------------------------------------------
+*/
+
+it('totals the cost of every item a report lists, across its pages, and counts the ones with no cost', function () {
+    $actor = invreportActor();
+    $technology = app(SaveCatalog::class)->handle($actor, 'category', null, 'Technology');
+    $furniture = app(SaveCatalog::class)->handle($actor, 'category', null, 'Furniture');
+    invreportItem($actor, 'Stock laptop', $technology, cost: 100.10);
+    invreportItem($actor, 'Stock tablet', $technology, cost: 0.0);
+    invreportItem($actor, 'Stock desk', $furniture, cost: 200.20);
+    invreportItem($actor, 'Stock crate', cost: 50.0);
+    $reports = app(InventoryReports::class);
+
+    // One row a page: the total still covers all four.
+    expect($reports->rows($actor, 'stock', '', '', 1, 1)->count())->toBe(1)
+        ->and($reports->value($actor, 'stock'))->toBe([
+            'items' => 4, 'value' => 350.3, 'without_cost' => 1,
+            'categories' => [
+                ['name' => 'Furniture', 'items' => 1, 'value' => 200.2, 'without_cost' => 0],
+                ['name' => 'Technology', 'items' => 2, 'value' => 100.1, 'without_cost' => 1],
+                ['name' => '', 'items' => 1, 'value' => 50.0, 'without_cost' => 0],
+            ],
+        ]);
+});
+
+it('totals only what the report’s own rule, search and employee filter leave in', function () {
+    $actor = invreportActor();
+    $one = invreportEmployee('One');
+    $two = invreportEmployee('Two');
+    $laptop = invreportItem($actor, 'Issued laptop', cost: 900.0);
+    $phone = invreportItem($actor, 'Issued phone', cost: 300.0);
+    $chair = invreportItem($actor, 'Issued chair', cost: 75.5);
+    invreportItem($actor, 'Shelf laptop', cost: 1000.0);
+    app(IssueItems::class)->handle($actor, [$laptop, $phone], $one, $two, '2026-02-01', 'VAL-2026-001');
+    app(IssueItems::class)->handle($actor, [$chair], $two, $two, '2026-02-01', 'VAL-2026-002');
+    $reports = app(InventoryReports::class);
+
+    // Holdings leave the item still on the shelf out; stock holds only it.
+    expect($reports->value($actor, 'holdings'))->toMatchArray(['items' => 3, 'value' => 1275.5, 'without_cost' => 0, 'categories' => []])
+        ->and($reports->value($actor, 'stock'))->toMatchArray(['items' => 1, 'value' => 1000.0])
+        // One employee's holdings, then one searched item of them.
+        ->and($reports->value($actor, 'holdings', '', $one))->toMatchArray(['items' => 2, 'value' => 1200.0])
+        ->and($reports->value($actor, 'holdings', 'phone', $one))->toMatchArray(['items' => 1, 'value' => 300.0])
+        ->and($reports->value($actor, 'holdings', 'laptop'))->toMatchArray(['items' => 1, 'value' => 900.0])
+        ->and($reports->value($actor, 'holdings', 'no such item'))->toMatchArray(['items' => 0, 'value' => 0.0, 'without_cost' => 0]);
+
+    // Every total is the sum of exactly the rows the same call lists.
+    foreach ([['holdings', '', ''], ['holdings', '', $one], ['holdings', 'laptop', ''], ['stock', '', '']] as [$kind, $search, $employee]) {
+        $rows = $reports->rows($actor, $kind, $search, $employee, 1, 100);
+        $summed = array_sum(array_map(static fn (ReportRow $row): float => (float) $row->cells[8], $rows->items()));
+        $value = $reports->value($actor, $kind, $search, $employee);
+        expect($value['items'] ?? null)->toBe($rows->total())
+            ->and($value['value'] ?? null)->toBe($summed);
+    }
+});
+
+it('totals the exceptions report over its exception rule, and has no value for the movement history', function () {
+    $actor = invreportActor();
+    $location = app(SaveCatalog::class)->handle($actor, 'location', null, 'Office');
+    $counted = invreportItem($actor, 'Counted laptop', null, $location, cost: 640.0);
+    invreportItem($actor, 'Sound laptop', null, $location, cost: 999.0);
+    $count = new InventoryCount;
+    $count->forceFill(['location_id' => $location, 'location_name' => 'Office', 'counted_on' => '2026-02-01', 'reference' => 'COUNT-VALUE', 'notes' => '', 'status' => 'OPEN', 'actor_id' => (int) $actor->userId, 'actor_name' => $actor->fullName])->save();
+    InventoryCountLine::query()->create(['count_id' => $count->id, 'item_id' => $counted, 'item_snapshot' => ['name' => 'Counted laptop'], 'result' => 'NOT_FOUND', 'notes' => '']);
+    $reports = app(InventoryReports::class);
+
+    expect($reports->value($actor, 'exceptions'))->toMatchArray(['items' => 1, 'value' => 640.0, 'categories' => []])
+        ->and($reports->value($actor, 'movements'))->toBeNull();
+
+    // The cards above the report carry the register-wide figure of each item report.
+    expect($reports->totals($actor)['values'])->toBe([
+        'stock' => ['items' => 2, 'value' => 1639.0, 'without_cost' => 0],
+        'issued' => ['items' => 0, 'value' => 0.0, 'without_cost' => 0],
+        'exceptions' => ['items' => 1, 'value' => 640.0, 'without_cost' => 0],
+    ]);
+});
+
+it('refuses the value to anyone who may not read the report’s rows', function () {
+    $manager = invreportActor();
+    invreportItem($manager, 'Guarded laptop');
+    $reports = app(InventoryReports::class);
+
+    foreach ([[false, ModuleCode::INVENTORY], [true, ModuleCode::EMPLOYEES]] as [$all, $module]) {
+        $actor = invreportActor($all, $module);
+        expect(fn () => $reports->value($actor, 'stock'))->toThrow(HttpException::class);
+    }
+    expect(fn () => $reports->value(invreportActor(), 'everything'))->toThrow(HttpException::class);
+});
+
+it('closes the CSV with one total row under the same filters, and none on the movement history', function () {
+    $actor = invreportActor();
+    $person = invreportEmployee('One');
+    $priced = invreportItem($actor, 'Priced laptop', cost: 1250.0);
+    $unpriced = invreportItem($actor, 'Unpriced laptop', cost: 0.0);
+    $other = invreportItem($actor, 'Other phone', cost: 400.0);
+    app(IssueItems::class)->handle($actor, [$priced, $unpriced, $other], $person, $person, '2026-02-01', 'CSV-2026-001');
+
+    $rows = iterator_to_array((app(InventoryReportsExport::class)->export($actor, ['report' => 'holdings', 'q' => 'laptop', 'employee' => $person])->rows)(), false);
+    expect($rows)->toHaveCount(3)
+        ->and(array_column($rows, 1))->toBe(['Priced laptop', 'Unpriced laptop', '2 items; 1 item has no cost recorded'])
+        ->and($rows[2])->toBe(['Total', '2 items; 1 item has no cost recorded', '', '', '', '', '', '', '1250.00']);
+
+    // The exceptions report has one more column; the total stays under Cost.
+    $exceptions = app(InventoryReportsExport::class)->export($actor, ['report' => 'exceptions']);
+    expect(iterator_to_array(($exceptions->rows)(), false))->toBe([['Total', '0 items', '', '', '', '', '', '', '0.00', '']]);
+
+    $movements = iterator_to_array((app(InventoryReportsExport::class)->export($actor, ['report' => 'movements'])->rows)(), false);
+    expect($movements)->toHaveCount(3)
+        ->and(array_column($movements, 0))->not->toContain('Total');
+});
+
+it('shows the total value and the items with no cost on the report, and the category split on Stock on hand only', function () {
+    $actor = invreportActor();
+    $technology = app(SaveCatalog::class)->handle($actor, 'category', null, 'Technology');
+    invreportItem($actor, 'Shelf laptop', $technology, cost: 2000.0);
+    invreportItem($actor, 'Shelf cable', $technology, cost: 0.0);
+    invreportItem($actor, 'Shelf crate', cost: 500.0);
+
+    $page = Livewire::test(ReportsPage::class)->set('report', 'stock');
+    $html = $page->html();
+    expect($html)->toContain('data-report-value')
+        ->toContain('Total Value')
+        ->toContain('$2,500.00')
+        ->toContain('1 item has no cost recorded, so the total leaves it out.')
+        ->toContain('Stock Value by Category')
+        ->toContain('No category');
+    // The Cost column reads as money.
+    expect($html)->toContain('$2,000.00')->toContain('$500.00');
+
+    // Searching narrows the total with the rows.
+    expect($page->set('search', 'crate')->html())->toContain('data-report-total>$500.00<')
+        ->not->toContain('has no cost recorded');
+
+    // Holdings: a total, no category split. Movements: neither.
+    $holdings = $page->set('search', '')->set('report', 'holdings')->html();
+    expect($holdings)->toContain('data-report-total>$0.00<')->not->toContain('Stock Value by Category');
+    expect($page->set('report', 'movements')->html())->not->toContain('data-report-value')->not->toContain('Stock Value by Category');
 });

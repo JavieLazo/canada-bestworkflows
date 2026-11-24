@@ -25,8 +25,12 @@ use Livewire\Component;
 /**
  * Site Settings — the port of src/app/(protected)/records/sites/sites-page.tsx.
  *
- * Geofence administration: site coordinates, radius and exemptions that every
- * punch is validated against. Punch counts per site come from the same read
+ * Where people punch: each site either checks location — its coordinates and
+ * radius are what a punch there is measured against — or does not, and then
+ * anyone assigned to it punches from anywhere. The choice is the dialog's
+ * "Check Location When Punching" switch, stored inverted as
+ * `work_sites.geofence_exempt` (true = no check); a new site checks location.
+ * Punch counts per site come from the same read
  * the source made (`useAttendance(1000)` — the most recent 1000 logs, scoped
  * as GET /api/attendance scopes them). DELIBERATE DIVERGENCE: the table has
  * no Punches column and no sort by it — the count only tells the row menu
@@ -55,7 +59,7 @@ class SitesPage extends Component
     use WithSorting;
     use WithTableFilters;
 
-    /** Geofence filter — 'ALL', 'ENFORCED' or 'EXEMPT'. Plain filter state. */
+    /** Location check filter — 'ALL', 'ENFORCED' (checks location) or 'EXEMPT' (does not). Plain filter state. */
     public string $geofence = 'ALL';
 
     /** Status filter — 'ALL', 'ACTIVE' or 'INACTIVE'. Plain filter state. */
@@ -83,7 +87,12 @@ class SitesPage extends Component
 
     public string $formRadius = '100';
 
-    public bool $formExempt = false;
+    /**
+     * The "Check Location When Punching" switch: on, a punch at this site
+     * must come from inside its radius; off, it is accepted from anywhere.
+     * Saved inverted, as `geofence_exempt`.
+     */
+    public bool $formChecksLocation = true;
 
     /** Delete confirmation visibility. Plain UI state. */
     public bool $confirmOpen = false;
@@ -122,7 +131,7 @@ class SitesPage extends Component
         $this->formLatitude = '';
         $this->formLongitude = '';
         $this->formRadius = '100';
-        $this->formExempt = false;
+        $this->formChecksLocation = true;
         $this->dialogOpen = true;
     }
 
@@ -141,7 +150,7 @@ class SitesPage extends Component
         $this->formLatitude = (string) $site->latitude;
         $this->formLongitude = (string) $site->longitude;
         $this->formRadius = (string) $site->radius_meters;
-        $this->formExempt = $site->geofence_exempt;
+        $this->formChecksLocation = ! $site->geofence_exempt;
         $this->dialogOpen = true;
     }
 
@@ -154,7 +163,7 @@ class SitesPage extends Component
     {
         $access = app(Access::class);
         try {
-            $message = app(SaveSite::class)->handle($access, $this->editingId, new SiteDraft($this->formName, $this->formLatitude, $this->formLongitude, $this->formRadius, $this->formExempt));
+            $message = app(SaveSite::class)->handle($access, $this->editingId, new SiteDraft($this->formName, $this->formLatitude, $this->formLongitude, $this->formRadius, ! $this->formChecksLocation));
         } catch (QueryException $e) {
             report($e);
             Flux::toast(variant: 'danger', text: 'A record with those details already exists.');

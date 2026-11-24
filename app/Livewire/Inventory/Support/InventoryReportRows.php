@@ -19,4 +19,30 @@ final class InventoryReportRows
     {
         return app(InventoryReports::class)->rows($actor, $filters['report'] ?? 'holdings', $filters['q'] ?? '', $filters['employee'] ?? '', $page, $perPage);
     }
+
+    /**
+     * What those same rows add up to, read with the same filters: null for
+     * the movement history, which has no Cost column.
+     *
+     * @param  array<string,string>  $filters
+     * @return array{items:int,value:float,without_cost:int,categories:list<array{name:string,items:int,value:float,without_cost:int}>}|null
+     */
+    public static function value(Access $actor, array $filters): ?array
+    {
+        return app(InventoryReports::class)->value($actor, $filters['report'] ?? 'holdings', $filters['q'] ?? '', $filters['employee'] ?? '');
+    }
+
+    /**
+     * "1 item has no cost recorded" / "3 items have no cost recorded", or
+     * blank when every item has one — the sentence the screen and the CSV's
+     * total row share.
+     */
+    public static function withoutCostNote(int $count): string
+    {
+        return match (true) {
+            $count <= 0 => '',
+            $count === 1 => '1 item has no cost recorded',
+            default => number_format($count).' items have no cost recorded',
+        };
+    }
 }

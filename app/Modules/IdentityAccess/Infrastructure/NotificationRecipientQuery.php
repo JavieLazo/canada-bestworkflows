@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Platform\Notifications\NotificationRecipients;
 use App\Platform\Notifications\ReminderRecipient;
 use App\Support\Access;
+use App\Support\ModuleRegistry;
 
 /** Resolves account scopes without exposing account persistence to notification callers. */
 final class NotificationRecipientQuery implements NotificationRecipients
@@ -40,6 +41,13 @@ final class NotificationRecipientQuery implements NotificationRecipients
     /** @return list<int> */
     public function moduleHolders(string $module, int|string|null $exceptUserId): array
     {
+        // A module turned off for the installation has no holders to tell:
+        // this join reads the stored grants, which stay while it is off, and
+        // a notice would lead to a page that turns its reader away.
+        if (app(ModuleRegistry::class)->isOff($module)) {
+            return [];
+        }
+
         return array_values(User::query()
             ->join('roles', 'roles.id', '=', 'users.role_id')
             ->join('role_module_grants', 'role_module_grants.role_id', '=', 'roles.id')

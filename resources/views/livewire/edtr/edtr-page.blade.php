@@ -23,7 +23,7 @@
         <div>
             <h1 class="text-2xl font-bold tracking-tight">eDTR &amp; Attendance</h1>
             <p class="text-sm text-muted-foreground">
-                Punch in and out with geofence validation, then review the computed daily time record.
+                Punch in and out, then review the computed daily time record. A site that checks location accepts a punch only from inside its area.
             </p>
         </div>
         <livewire:shell.live-clock class="hris-card shrink-0 px-5 py-3 text-right" wire:key="edtr-clock" />

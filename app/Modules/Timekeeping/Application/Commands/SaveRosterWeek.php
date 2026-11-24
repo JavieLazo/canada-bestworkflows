@@ -7,6 +7,7 @@ namespace App\Modules\Timekeeping\Application\Commands;
 use App\Modules\Timekeeping\Application\DatedChange;
 use App\Modules\Timekeeping\Application\RosterChanges;
 use App\Modules\Timekeeping\Application\ScheduleImpact;
+use App\Modules\Timekeeping\Domain\Roster\WorkWeek;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Support\Access;
 use App\Support\HrisFormat;
@@ -87,7 +88,7 @@ final class SaveRosterWeek
         }
         $rows = $versions->weekdaysAsOf([$employeeId], $from)[$employeeId] ?? [];
         $missing = [];
-        foreach ([1, 2, 3, 4, 5, 6, 0] as $weekday) {
+        foreach (WorkWeek::weekdays() as $weekday) {
             if (! isset($rows[$weekday])) {
                 $missing[] = HrisFormat::weekday($weekday, short: false);
             }

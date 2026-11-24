@@ -38,5 +38,14 @@ final readonly class LocationOnDateView
          * RecordPunch pairs by); null where it was not asked.
          */
         public ?bool $open_time_in = null,
+        /**
+         * Whether a punch pressed now is judged against a site's location —
+         * answered for the punch station only, which asks the browser for a
+         * location only then. False on a work-from-home day and at a site
+         * that does not check location (`work_sites.geofence_exempt`), unless
+         * a Time In is still open at a place that does; null where it was
+         * not asked.
+         */
+        public ?bool $checks_location = null,
     ) {}
 }

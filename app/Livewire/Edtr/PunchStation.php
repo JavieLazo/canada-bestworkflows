@@ -143,8 +143,10 @@ class PunchStation extends Component
      * (the reference reads one only in self-service, PunchStation.tsx:192).
      * Self-service: that fix is the only reading. Kiosk: RecordPunch lets the
      * typed boxes win when either is filled and falls back to the fix when
-     * both are empty; the client always sends the fix. RecordPunch
-     * recomputes everything derived from the reading.
+     * both are empty. The client sends a fix only where the place checks
+     * location (`checksLocation` in render()); elsewhere it asks the browser
+     * for none and sends nulls. RecordPunch recomputes everything derived
+     * from the reading, and decides for itself whether one is needed.
      */
     public function punch(string $logType, ?float $autoLat = null, ?float $autoLng = null, ?float $autoAccuracy = null): void
     {
@@ -208,7 +210,7 @@ class PunchStation extends Component
 
         // The geofence verdict preview (PunchStation.tsx:106-114) — recomputed
         // server-side from the typed boxes. A WFH day has no fence to preview:
-        // the punch is accepted from anywhere, coordinates still recorded.
+        // the punch is accepted from anywhere.
         $verdict = null;
         if ($wfhToday) {
             $verdict = ['inBounds' => true, 'distance' => 0.0, 'exempt' => true, 'wfh' => true];
@@ -247,6 +249,11 @@ class PunchStation extends Component
             // begun while a shift still applied — which RecordPunch takes.
             'noShift' => $today?->has_shift === false,
             'noShiftCanClose' => $today?->has_shift === false && $today->open_time_in === true,
+            // Whether a punch pressed now is measured against a site. Where
+            // it is not — a work-from-home day, or a site that does not
+            // check location — the station asks the browser for nothing.
+            // Unknown (no employee yet) reads as checked.
+            'checksLocation' => $today->checks_location ?? true,
             'lockedName' => $this->lockedEmployeeId === null
                 ? ''
                 : Hris::employeeName(app(OperationalDirectory::class)->find($access, $this->lockedEmployeeId)),

@@ -100,25 +100,28 @@ it('draws each active employee’s week, a column a day, and leaves out those wh
     $page = Livewire::test(RosterPage::class);
     $html = $page->html();
 
-    expect($html)->toContain('Nov 16 – Nov 22, 2026')
-        ->toContain('Mon 16')->toContain('Sun 22')
+    // Monday the 16th sits in the week that runs Sunday the 15th to
+    // Saturday the 21st.
+    expect($html)->toContain('Nov 15 – Nov 21, 2026')
+        ->toContain('Sun 15')->toContain('Sat 21')
+        ->not->toContain('Sun 22')
         ->toContain('Liza Domingo')->toContain('8:00 AM–5:00 PM')->toContain('Off')
         ->toContain('Noel Unrostered')->toContain('No shift')
         ->not->toContain('Lito Former');
 });
 
-it('pages by week and reads any date as the Monday of its week', function () {
+it('pages by week and reads any date as the Sunday that starts its week', function () {
     rwkActor();
     $page = Livewire::test(RosterPage::class);
 
     $page->set('week', '2026-11-19');
-    expect($page->html())->toContain('Nov 16 – Nov 22, 2026');
+    expect($page->html())->toContain('Nov 15 – Nov 21, 2026');
     $page->call('nextWeek');
-    expect($page->get('week'))->toBe('2026-11-23')->and($page->html())->toContain('Nov 23 – Nov 29, 2026');
+    expect($page->get('week'))->toBe('2026-11-22')->and($page->html())->toContain('Nov 22 – Nov 28, 2026');
     $page->call('previousWeek')->call('previousWeek');
-    expect($page->html())->toContain('Nov 9 – Nov 15, 2026');
+    expect($page->html())->toContain('Nov 8 – Nov 14, 2026');
     $page->set('week', 'not a date');
-    expect($page->html())->toContain('Nov 16 – Nov 22, 2026');
+    expect($page->html())->toContain('Nov 15 – Nov 21, 2026');
 });
 
 it('narrows to a department after the row scope, and names each person’s department under All departments', function () {

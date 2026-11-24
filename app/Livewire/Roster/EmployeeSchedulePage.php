@@ -27,6 +27,7 @@ use App\Modules\Timekeeping\Contracts\Views\RosterLocationView;
 use App\Modules\Timekeeping\Contracts\Views\RosterShiftView;
 use App\Modules\Timekeeping\Domain\Roster\CustomHours;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
+use App\Modules\Timekeeping\Domain\Roster\WorkWeek;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Modules\Workforce\Contracts\OperationalDirectory;
 use App\Support\Access;
@@ -371,7 +372,7 @@ class EmployeeSchedulePage extends Component
             return;
         }
         $blank = [];
-        foreach ([1, 2, 3, 4, 5, 6, 0] as $weekday) {
+        foreach (WorkWeek::weekdays() as $weekday) {
             if (($this->shiftDays[$weekday] ?? '') === '') {
                 $blank[] = HrisFormat::weekday($weekday, short: false);
             }
@@ -507,7 +508,7 @@ class EmployeeSchedulePage extends Component
         // The day before the 1st too: the note behind the 1st's short-rest
         // warning names the shift it follows.
         $days = $calendar->forEmployees($access, [$this->employeeId], CalendarDays::previous($first), $last)[$this->employeeId] ?? [];
-        $thisWeek = RosterDayText::week(RosterDayText::monday($today));
+        $thisWeek = RosterDayText::week(RosterDayText::weekStart($today));
         // This week from the month already read when it lies inside it.
         $usualWeek = array_intersect_key($days, array_flip($thisWeek));
         if (count($usualWeek) !== 7) {

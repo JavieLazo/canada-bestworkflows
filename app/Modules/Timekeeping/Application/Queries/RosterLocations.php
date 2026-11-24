@@ -93,8 +93,11 @@ final class RosterLocations
      * has a shift at all, without which RecordPunch refuses a Time In, and
      * `open_time_in` whether a Time In is open for a Time Out to close —
      * read the way RecordPunch pairs (`PunchPairing`), so the station turns
-     * Time Out off exactly when RecordPunch would refuse it. Null when the
-     * actor may not punch for this employee, or the employee is gone.
+     * Time Out off exactly when RecordPunch would refuse it.
+     * `checks_location` says whether such a punch is measured against a
+     * site at all, so the station asks the browser for a location only when
+     * RecordPunch would use one. Null when the actor may not punch for this
+     * employee, or the employee is gone.
      */
     public function forStation(Access $actor, string $employeeId): ?LocationOnDateView
     {
@@ -116,12 +119,46 @@ final class RosterLocations
         $workDate = PunchWorkDate::forScheduledPunch(array_values($logs), DomainLog::TIME_IN, $now, $schedule);
         $resolved = $this->roster->locationForDate($employee->id, $workDate)
             ?? ResolvedLocation::assigned($employee->work_site_id);
-        $view = self::onDate($workDate, $resolved, app(OrganizationDirectory::class)->sites($actor)->keyBy('id'));
+        $sites = app(OrganizationDirectory::class)->sites($actor)->keyBy('id');
+        $view = self::onDate($workDate, $resolved, $sites);
+        $openTimeIn = PunchPairing::anomaly(array_values($logs), DomainLog::TIME_OUT, $now, $schedule, $today) === null;
+
+        // A Time Out is judged where the Time In it closes was recorded for
+        // — a night begun yesterday keeps yesterday's place — so an open
+        // Time In at a place that checks location keeps the check on even
+        // when today's place has none.
+        $checksLocation = self::checksLocation($resolved, $sites);
+        if (! $checksLocation && $openTimeIn) {
+            $closingDate = PunchWorkDate::forScheduledPunch(array_values($logs), DomainLog::TIME_OUT, $now, $schedule);
+            $checksLocation = $closingDate !== $workDate && self::checksLocation(
+                $this->roster->locationForDate($employee->id, $closingDate) ?? ResolvedLocation::assigned($employee->work_site_id),
+                $sites,
+            );
+        }
 
         // RecordPunch's own tests: "no shift, no Time In", and the pairing.
         return new LocationOnDateView($view->date, $view->kind, $view->site_id, $view->site_name, $view->from_roster,
             has_shift: $this->roster->rosteredShift($employee->id, $workDate, $schedule) !== null,
-            open_time_in: PunchPairing::anomaly(array_values($logs), DomainLog::TIME_OUT, $now, $schedule, $today) === null);
+            open_time_in: $openTimeIn,
+            checks_location: $checksLocation);
+    }
+
+    /**
+     * Whether RecordPunch measures a punch at this place against a site:
+     * never on a work-from-home day, nor at a site that does not check
+     * location. A site that does not resolve reads as checked — the punch is
+     * refused there anyway, and the station must not promise otherwise.
+     *
+     * @param  Collection<array-key, WorkSiteView>  $sites  keyed by id
+     */
+    private static function checksLocation(ResolvedLocation $location, Collection $sites): bool
+    {
+        if ($location->isHome()) {
+            return false;
+        }
+        $site = $location->siteId === null ? null : $sites->get($location->siteId);
+
+        return $site === null || ! $site->geofence_exempt;
     }
 
     /**

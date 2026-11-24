@@ -13,7 +13,7 @@
     use App\Modules\Timekeeping\Domain\Roster\LocationKind;
 
     $dates = CalendarDays::each($first, $last);
-    $lead = (CalendarDays::dayOfWeek($first) + 6) % 7;
+    $lead = RosterDayText::monthLead($first);
     $placeOf = static fn ($day): string => match (true) {
         $day->place_kind === LocationKind::WFH => 'Work from home',
         $day->place_kind === LocationKind::ONSITE && $day->place_site_id !== null => $sites->get($day->place_site_id)->name ?? 'Assigned worksite',
@@ -47,7 +47,7 @@
     @else
         <div class="p-4 sm:p-5">
             <div class="grid grid-cols-7 gap-1 sm:gap-1.5" role="group" aria-label="{{ RosterDayText::monthLabel($first) }}">
-                @foreach (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $weekday)
+                @foreach (RosterDayText::weekdayHeadings() as $weekday)
                     <span class="text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{{ $weekday }}</span>
                 @endforeach
                 @for ($i = 0; $i < $lead; $i++)

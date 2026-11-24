@@ -14,8 +14,9 @@ use Generator;
 
 /**
  * User Management's Roles tab as CSV: each role, its employee-data scope,
- * and one Yes/No column per module in the registry's order — the grant
- * matrix as the tab draws it. Export only: grants change one checkbox at a
+ * and one Yes/No column per module the installation runs, in the registry's
+ * order — the grant matrix as the tab draws it, so a module turned off has
+ * no column. Export only: grants change one checkbox at a
  * time, audited, with the self-lockout guards.
  */
 final class RolesExport implements TableExport
@@ -23,7 +24,7 @@ final class RolesExport implements TableExport
     public function export(Access $actor, array $query): CsvExport
     {
         abort_if($actor->userId === null, 403);
-        $modules = app(ModuleRegistry::class)->all();
+        $modules = app(ModuleRegistry::class)->enabled();
 
         $rows = static function () use ($actor, $modules): Generator {
             $listing = app(GetAccounts::class)->handle($actor);

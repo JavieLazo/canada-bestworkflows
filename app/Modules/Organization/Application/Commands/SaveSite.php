@@ -11,7 +11,13 @@ use App\Modules\Organization\Application\SiteDraft;
 use App\Support\Access;
 use App\Support\AuditService;
 
-/** Owns validation, persistence and audit for the existing reference editor. */
+/**
+ * Owns validation, persistence and audit for the existing reference editor.
+ *
+ * `SiteDraft::$formExempt` is the stored `geofence_exempt`: true means a
+ * punch at the site is accepted from anywhere, so its coordinates and radius
+ * are not asked for; false means the site checks location and needs both.
+ */
 final class SaveSite
 {
     public function handle(Access $access, ?string $id, SiteDraft $input): string
@@ -23,7 +29,7 @@ final class SaveSite
             // Blank boxes are checked before the numbers are: `Number("")` is 0,
             // not NaN, so an empty pair would otherwise save a site at 0, 0.
             if (trim($input->formLatitude) === '' || trim($input->formLongitude) === '') {
-                throw new \RuntimeException('A site the geofence enforces needs both coordinates.');
+                throw new \RuntimeException('A site that checks location needs both coordinates.');
             }
             $la = is_numeric($input->formLatitude) ? (float) $input->formLatitude : NAN;
             $lo = is_numeric($input->formLongitude) ? (float) $input->formLongitude : NAN;

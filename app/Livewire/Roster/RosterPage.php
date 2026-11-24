@@ -53,9 +53,10 @@ class RosterPage extends Component
     public string $department = DepartmentFilter::ALL;
 
     /**
-     * The Monday of the week shown, 'Y-m-d'; blank for this week. Plain
-     * state from the URL — render() reads any date as the Monday of its
-     * week, and anything else as this week.
+     * The first day of the week shown, 'Y-m-d'; blank for this week. Plain
+     * state from the URL — render() turns any date into the first day of
+     * its week (`RosterDayText::weekStart`), and anything else into this
+     * week's.
      */
     #[Url(as: 'week', except: '')]
     public string $week = '';
@@ -67,20 +68,25 @@ class RosterPage extends Component
 
     public function previousWeek(): void
     {
-        $this->week = PayrollPeriod::addCalendarDays(RosterDayText::monday($this->week), -7);
+        $this->week = PayrollPeriod::addCalendarDays(RosterDayText::weekStart($this->week), -7);
     }
 
     public function nextWeek(): void
     {
-        $this->week = PayrollPeriod::addCalendarDays(RosterDayText::monday($this->week), 7);
+        $this->week = PayrollPeriod::addCalendarDays(RosterDayText::weekStart($this->week), 7);
     }
 
     public function render(): View
     {
         $access = app(Access::class);
         $directory = app(OperationalDirectory::class);
-        $monday = RosterDayText::monday($this->week);
-        $days = RosterDayText::week($monday);
+        $weekStart = RosterDayText::weekStart($this->week);
+        // The address names the week by its first day, whatever date of it
+        // was typed or bookmarked.
+        if ($this->week !== '') {
+            $this->week = $weekStart;
+        }
+        $days = RosterDayText::week($weekStart);
 
         $departments = DepartmentFilter::options($access);
         $this->department = DepartmentFilter::choice($this->department, $departments);
@@ -89,7 +95,7 @@ class RosterPage extends Component
             $access,
             // Active employees, and those who left during or after this
             // week: their schedule for it still stands.
-            ['search' => $this->search, 'status' => 'ALL', 'position' => 'ALL', 'place' => $this->department, 'active' => 'ACTIVE', 'left_from' => $monday],
+            ['search' => $this->search, 'status' => 'ALL', 'position' => 'ALL', 'place' => $this->department, 'active' => 'ACTIVE', 'left_from' => $weekStart],
             null,
             'name',
             'asc',
@@ -101,10 +107,10 @@ class RosterPage extends Component
         return view('livewire.roster.roster-page', [
             'rows' => $rows,
             'days' => $days,
-            'monday' => $monday,
-            // The Sunday before too: the note behind Monday's short-rest
-            // warning names the shift it follows.
-            'calendar' => app(RosterCalendar::class)->forEmployees($access, $ids, PayrollPeriod::addCalendarDays($monday, -1), $days[6]),
+            'weekStart' => $weekStart,
+            // The day before the week too: the note behind the first day's
+            // short-rest warning names the shift it follows.
+            'calendar' => app(RosterCalendar::class)->forEmployees($access, $ids, PayrollPeriod::addCalendarDays($weekStart, -1), $days[6]),
             'departments' => $departments,
             // Under each name with every department listed; a filtered
             // table already says which department it is.

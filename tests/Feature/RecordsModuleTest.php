@@ -410,7 +410,7 @@ it('shows no Punches column on Site Settings, and never sorts by punches', funct
     $page = Livewire::test(SitesPage::class);
     $head = Str::between($page->html(), '<thead>', '</thead>');
 
-    // Site, Coordinates, Radius, Geofence, Status, Action — and the Action heading sits over its right-aligned menu.
+    // Site, Coordinates, Radius, Location Check, Status, Action — and the Action heading sits over its right-aligned menu.
     expect(substr_count($head, '<th'))->toBe(6)
         ->and($head)->not->toContain('Punches')
         ->and($head)->toContain('<th class="!text-right">Action</th>');

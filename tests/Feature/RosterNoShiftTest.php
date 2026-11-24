@@ -115,7 +115,7 @@ it('asks a shift or Rest day for every day of an employee with no shift assigned
 
     // The command refuses the same gap, naming the days, with no row or audit.
     expect(fn () => app(SaveRosterWeek::class)->handle(Access::forActor($hr), $employee->id, [1 => $day->id], []))
-        ->toThrow(RuntimeException::class, 'Choose a shift or Rest day for Tuesday, Wednesday, Thursday, Friday, Saturday and Sunday.');
+        ->toThrow(RuntimeException::class, 'Choose a shift or Rest day for Sunday, Tuesday, Wednesday, Thursday, Friday and Saturday.');
     expect(RosterShift::query()->count())->toBe(0)
         ->and(AuditLog::query()->where('action', 'ROSTER_SHIFTS_SET')->count())->toBe(0);
 

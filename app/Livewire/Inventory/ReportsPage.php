@@ -16,7 +16,13 @@ use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-/** Reports compose current custody and movement evidence without deciding financial liability. */
+/**
+ * Reports compose current custody and movement evidence without deciding
+ * financial liability. The three item reports also say what their items add
+ * up to at acquisition cost (`InventoryReports::value`), read under the same
+ * filters as the rows; an item with no cost recorded adds nothing and is
+ * counted in a note.
+ */
 #[Title('Inventory Reports')]
 class ReportsPage extends Component
 {
@@ -57,11 +63,15 @@ class ReportsPage extends Component
         $this->markStampRendered();
         $access = app(Access::class);
         $query = app(InventoryReports::class);
+        $filters = ['report' => $this->report, 'q' => $this->search, 'employee' => $this->employeeId];
 
         return view('livewire.inventory.reports-page', [
-            'rows' => $this->acceptPage(InventoryReportRows::arrange($access, ['report' => $this->report, 'q' => $this->search, 'employee' => $this->employeeId], (int) $this->getPage(), $this->perPage)),
+            'rows' => $this->acceptPage(InventoryReportRows::arrange($access, $filters, (int) $this->getPage(), $this->perPage)),
             'columns' => $query->columns($this->report),
             'totals' => $query->totals($access),
+            // What every row of the report under these filters adds up to,
+            // not the page shown; null for the movement history.
+            'value' => InventoryReportRows::value($access, $filters),
         ]);
     }
 }

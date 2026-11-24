@@ -13,6 +13,7 @@ use App\Modules\Timekeeping\Application\DatedChange;
 use App\Modules\Timekeeping\Application\RosterChanges;
 use App\Modules\Timekeeping\Application\ScheduleImpact;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
+use App\Modules\Timekeeping\Domain\Roster\WorkWeek;
 use App\Modules\Timekeeping\Infrastructure\RosterVersions;
 use App\Modules\Workforce\Contracts\EmployeeDirectory;
 use App\Support\Access;
@@ -170,8 +171,8 @@ final class SaveRosterLocations
     /**
      * The audit sentence's week as it stands from `$from`, read from the
      * saved rows and recorded only after the outer commit: "Mon WFH · Tue Makati Head Office", or
-     * "assigned worksite every day" once no row is left. Monday first, Sunday
-     * last — how a week reads, not how it is numbered.
+     * "assigned worksite every day" once no row is left. The days come in
+     * the week's order (`WorkWeek`), whichever day that starts on.
      */
     private function describeWeek(Access $actor, string $employeeId, string $from): string
     {
@@ -179,7 +180,7 @@ final class SaveRosterLocations
         $rows = app(RosterVersions::class)->placesAsOf([$employeeId], $from)[$employeeId] ?? [];
 
         $parts = [];
-        foreach ([1, 2, 3, 4, 5, 6, 0] as $weekday) {
+        foreach (WorkWeek::weekdays() as $weekday) {
             $row = $rows[$weekday] ?? null;
             if ($row === null) {
                 continue;

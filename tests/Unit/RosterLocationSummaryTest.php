@@ -8,7 +8,8 @@ use App\Modules\Timekeeping\Contracts\Views\RosterLocationView;
 /**
  * The roster's Location cell reads a week the way people do:
  * the place the employee works most working days first, then each other
- * place with its days — Monday first, Sunday last, consecutive days merged.
+ * place with its days — in the week's order (`WorkWeek`: Sunday first,
+ * Saturday last), consecutive days merged.
  * A working weekday with no row is the Assigned Worksite; rest days are left
  * out, so a place nobody is scheduled at never shows. Which weekdays work
  * comes from `workingWeekdays()`, which the Weekly schedule dialog's rest-day
@@ -109,7 +110,7 @@ it('leaves rest days out, so a place scheduled on no working day never shows', f
     ]);
 });
 
-it('merges consecutive days into a range, Monday first and Sunday last, and never joins Sunday to Monday', function () {
+it('merges consecutive days into a range, Sunday first and Saturday last, and never joins Saturday to Sunday', function () {
     $week = rlocSummaryWeek([
         0 => ['kind' => 'WFH'],
         6 => ['kind' => 'WFH'],
@@ -133,10 +134,11 @@ it('merges consecutive days into a range, Monday first and Sunday last, and neve
     ]);
 
     // Four bare weekdays now outnumber the three WFH days, so the range
-    // spelling shows on the second line: Sunday follows Saturday.
+    // spelling shows on the second line: the week opens on Sunday, which
+    // joins Monday, and Saturday closes it on its own.
     expect(RosterHris::placeSummary($week, [0, 1, 2, 3, 4, 5, 6], 'site-1', 'Makati HQ'))->toBe([
         'main' => 'Makati HQ',
-        'others' => [['days' => 'Mon, Sat–Sun', 'label' => 'WFH']],
+        'others' => [['days' => 'Sun–Mon, Sat', 'label' => 'WFH']],
     ]);
 });
 

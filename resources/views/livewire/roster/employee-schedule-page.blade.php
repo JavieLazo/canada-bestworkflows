@@ -28,10 +28,11 @@
     use App\Livewire\Roster\Hris;
     use App\Livewire\Roster\Support\RosterDayText;
     use App\Modules\Timekeeping\Domain\Roster\CustomHours;
+    use App\Modules\Timekeeping\Domain\Roster\WorkWeek;
     use App\Support\HrisFormat;
 
     $dates = CalendarDays::each($first, $last);
-    $lead = (CalendarDays::dayOfWeek($first) + 6) % 7;
+    $lead = RosterDayText::monthLead($first);
 @endphp
 <div class="space-y-6">
     <div class="space-y-1">
@@ -134,7 +135,7 @@
             x-bind:class="picked.length ? 'lg:grid-cols-[minmax(0,1fr)_20rem]' : ''"
         >
             <div class="grid grid-cols-7 gap-1 sm:gap-1.5" role="group" aria-label="{{ RosterDayText::monthLabel($first) }}">
-                @foreach (['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as $weekday)
+                @foreach (RosterDayText::weekdayHeadings() as $weekday)
                     <span class="text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{{ $weekday }}</span>
                 @endforeach
                 @for ($i = 0; $i < $lead; $i++)
@@ -422,7 +423,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach ([1, 2, 3, 4, 5, 6, 0] as $weekday)
+                        @foreach (WorkWeek::weekdays() as $weekday)
                             @php
                                 $saved = $savedShifts[$weekday] ?? null;
                                 // A copy whose pattern was deleted can only be kept as it is.

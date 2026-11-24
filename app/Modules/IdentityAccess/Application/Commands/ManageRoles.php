@@ -10,6 +10,7 @@ use App\Models\Role;
 use App\Models\RoleModuleGrant;
 use App\Platform\Audit\RequiredAudit;
 use App\Support\Access;
+use App\Support\ModuleRegistry;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
@@ -52,6 +53,12 @@ final class ManageRoles
         DB::transaction(function () use ($actor, $roleId, $module, $granted): void {
             if (! in_array($module, ModuleCode::all(), true)) {
                 throw new RuntimeException('That module does not exist.');
+            }
+            // A module turned off for the installation keeps the grants it
+            // had, so turning it back on restores them exactly; nothing
+            // gives or removes it meanwhile.
+            if (app(ModuleRegistry::class)->isOff($module)) {
+                throw new RuntimeException(app(ModuleRegistry::class)->moduleLabel($module).' is turned off for this installation, so its access cannot be changed.');
             }
             $role = Role::query()->whereKey($roleId)->lockForUpdate()->first();
             if ($role === null) {

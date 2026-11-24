@@ -713,7 +713,10 @@ class Index extends Component
 
         $role = app(GetAccounts::class)->role($actor, $roleId);
 
-        if ($role === null || ! in_array($module, ModuleCode::all(), true)) {
+        // A module turned off for the installation has no box on the matrix,
+        // so a tick naming one did not come from it; its stored grants stay
+        // as they are (`ManageRoles::toggleGrant` refuses it too).
+        if ($role === null || ! in_array($module, ModuleCode::all(), true) || app(ModuleRegistry::class)->isOff($module)) {
             return;
         }
 
@@ -831,7 +834,9 @@ class Index extends Component
             'grantRoleName' => $this->grantRoleId === null ? null : ($roleNames[$this->grantRoleId] ?? null),
             'grantModuleLabel' => $this->grantModule === '' ? null : $registry->moduleLabel($this->grantModule),
             // MODULES, in spec order, for the matrix columns.
-            'modules' => $registry->all(),
+            // The matrix's columns: every module the installation runs. One
+            // turned off has no column, and its stored grants are left alone.
+            'modules' => $registry->enabled(),
             'selectedAccountName' => $selectedAccount?->name,
             'selectedAccountEmail' => $selectedAccount?->email,
             'passwordPolicy' => [

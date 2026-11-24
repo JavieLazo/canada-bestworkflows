@@ -164,6 +164,12 @@ final readonly class Access
             }
         }
 
+        // A module turned off for the whole installation is one nobody
+        // holds: dropped here, it fails `hasModule()` and `mayReadAllData()`
+        // for every actor, which is what the route gate, each action's own
+        // check and the sidebar read. The stored grant is untouched.
+        $modules = app(ModuleRegistry::class)->withoutOff($modules);
+
         return new self(
             userId: (string) $user->getKey(),
             // Nullable on purpose, and nullable all the way down: an account

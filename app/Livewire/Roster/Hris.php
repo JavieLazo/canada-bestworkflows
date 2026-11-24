@@ -15,6 +15,7 @@ use App\Modules\Timekeeping\Contracts\Views\ShiftTypeView;
 use App\Modules\Timekeeping\Contracts\Views\ShiftView;
 use App\Modules\Timekeeping\Domain\Roster\CustomHours;
 use App\Modules\Timekeeping\Domain\Roster\LocationKind;
+use App\Modules\Timekeeping\Domain\Roster\WorkWeek;
 use App\Modules\Workforce\Contracts\DirectoryEmployee;
 use App\Support\EmployeeName;
 use App\Support\HrisFormat;
@@ -210,10 +211,11 @@ final class Hris
     /**
      * The Location cell (ems only — the reference has one worksite per
      * employee): the place the employee works on MOST working days, then
-     * each other place with the days it applies, Monday first and Sunday
-     * last, consecutive days merged — "Mon–Wed, Fri", "Sat–Sun", never
-     * Sunday joined to Monday (the `Records\Support\Hris::describeWeek`
-     * spelling). A working weekday with no row is the Assigned Worksite from
+     * each other place with the days it applies, in the week's order
+     * (`WorkWeek`: Sunday first, Saturday last), consecutive days merged —
+     * "Mon–Wed, Fri", "Sun–Mon", never Saturday joined to the Sunday after
+     * it (the `Records\Support\Hris::describeWeek` spelling). A working
+     * weekday with no row is the Assigned Worksite from
      * Employee Records, because that is what RecordPunch falls back to, and a
      * weekday rostered AT that site is the same place; rest days are left
      * out, so a place nobody is scheduled at never shows. A tie for the main
@@ -230,10 +232,10 @@ final class Hris
     public static function placeSummary(array $week, array $workingWeekdays, ?string $assignedSiteId, ?string $assignedSiteName): array
     {
         $assigned = $assignedSiteId === null ? 'assigned' : 'site:'.$assignedSiteId;
-        /** @var array<string, array{label: string|null, first: int, days: list<int>}> $places keyed by place; `first` and `days` are positions in the Mon … Sun order */
+        /** @var array<string, array{label: string|null, first: int, days: list<int>}> $places keyed by place; `first` and `days` are positions in the week's order */
         $places = [];
 
-        foreach ([1, 2, 3, 4, 5, 6, 0] as $position => $weekday) {
+        foreach (WorkWeek::weekdays() as $position => $weekday) {
             if (! in_array($weekday, $workingWeekdays, true)) {
                 continue;
             }
@@ -275,14 +277,14 @@ final class Hris
     }
 
     /**
-     * "Mon–Wed, Fri" from positions in the Mon … Sun order: consecutive
+     * "Mon–Wed, Fri" from positions in the week's order: consecutive
      * positions merge into a range with an en dash, the rest are listed.
      *
-     * @param  list<int>  $positions  ascending, 0 Monday … 6 Sunday
+     * @param  list<int>  $positions  ascending, 0 the week's first day … 6 its last
      */
     private static function dayRanges(array $positions): string
     {
-        $labels = array_map(static fn (int $weekday): string => HrisFormat::weekday($weekday), [1, 2, 3, 4, 5, 6, 0]);
+        $labels = array_map(static fn (int $weekday): string => HrisFormat::weekday($weekday), WorkWeek::weekdays());
         $ranges = [];
         $from = $to = null;
 

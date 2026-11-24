@@ -1,7 +1,14 @@
 {{--
     Site Settings — the port of src/app/(protected)/records/sites/sites-page.tsx.
-    Same search + geofence filter, same default sort (name, ascending), same
-    dialog fields, validation toasts and copy.
+    Same search and default sort (name, ascending), and the same dialog
+    fields.
+    DELIBERATE DIVERGENCE: the reference's "geofence-exempt" flag is asked
+    the other way round, in plain words — a "Check Location When Punching"
+    switch per site (on = a punch must come from inside the site's radius;
+    off = anyone assigned to the site punches from anywhere), with the
+    coordinates and radius drawn only while it is on. The column, the filter
+    and the copy say "location check"; the stored flag and its meaning are
+    the reference's.
     DELIBERATE DIVERGENCE: a Status column and filter, and Make inactive /
     Make active in the row menu — a site history names is retired, not
     deleted.
@@ -13,8 +20,9 @@
     <div>
         <h1 class="text-2xl font-bold tracking-tight">Site Settings</h1>
         <p class="text-sm text-muted-foreground">
-            Every punch is measured against the coordinates below. Widening a radius only affects
-            punches made from now on &mdash; recorded verdicts are never rewritten.
+            Each site decides whether people must be there to punch. Where the location is checked,
+            a punch has to come from inside the site&rsquo;s radius; where it is not, anyone assigned to
+            the site can punch from anywhere. A change only affects punches made from now on.
         </p>
     </div>
 
@@ -27,10 +35,10 @@
                 wire:model.live.debounce.250ms="search"
             />
 
-            <x-kit.filter-select label="Filter by Geofence" class="w-[12rem]" wire:model.live="geofence">
+            <x-kit.filter-select label="Filter by Location Check" class="w-[13rem]" wire:model.live="geofence">
                 <flux:select.option value="ALL">All sites</flux:select.option>
-                <flux:select.option value="ENFORCED">Geofence enforced</flux:select.option>
-                <flux:select.option value="EXEMPT">Geofence exempt</flux:select.option>
+                <flux:select.option value="ENFORCED">Location checked</flux:select.option>
+                <flux:select.option value="EXEMPT">Location not checked</flux:select.option>
             </x-kit.filter-select>
 
             <x-kit.filter-select label="Filter by Status" class="w-[10rem]" wire:model.live="status">
@@ -53,7 +61,7 @@
                         <x-kit.sort-header field="name" label="Site" />
                         <th>Coordinates</th>
                         <x-kit.sort-header field="radius" label="Radius" />
-                        <th>Geofence</th>
+                        <th>Location Check</th>
                         <th>Status</th>
                         {{-- `!text-right`: hris-table's own header rule is left-aligned and outranks a plain `text-right`. --}}
                         <th class="!text-right">Action</th>
@@ -76,8 +84,12 @@
                                 {{ $s->geofence_exempt ? '—' : "{$s->radius_meters} m" }}
                             </td>
                             <td>
-                                <span class="{{ $s->geofence_exempt ? 'pill pill-muted' : 'pill pill-info' }}">
-                                    {{ $s->geofence_exempt ? 'Exempt' : 'Enforced' }}
+                                <span
+                                    class="{{ $s->geofence_exempt ? 'pill pill-muted' : 'pill pill-info' }}"
+                                    title="{{ $s->geofence_exempt ? 'Anyone assigned to this site can punch from anywhere.' : 'A punch must come from inside this site’s radius.' }}"
+                                    data-location-check
+                                >
+                                    {{ $s->geofence_exempt ? 'Not Checked' : 'Checked' }}
                                 </span>
                             </td>
                             <td>
@@ -170,8 +182,7 @@
             <div class="space-y-2">
                 <flux:heading size="lg">{{ $editing !== null ? 'Edit Site' : 'Add Site' }}</flux:heading>
                 <flux:text>
-                    Punches are validated against these coordinates &mdash; or always pass, for a
-                    site marked exempt.
+                    Name the site and choose whether people must be there to punch.
                 </flux:text>
             </div>
 
@@ -207,18 +218,24 @@
                     <flux:input placeholder="Makati Head Office" wire:model="formName" />
                 </div>
 
+                {{-- The per-site choice. The round trip on a flip draws or drops
+                     the location fields below; the hint always says what the
+                     switch's present state means. --}}
                 <div class="flex items-center gap-3 rounded-md border border-border bg-muted/40 p-4 sm:col-span-2">
-                    <flux:switch id="geofence-exempt" wire:model.live="formExempt" />
+                    <flux:switch id="site-checks-location" wire:model.live="formChecksLocation" aria-label="Check Location When Punching" />
                     <div>
-                        <flux:label for="geofence-exempt">Geofence-Exempt</flux:label>
-                        <p class="text-xs text-muted-foreground">
-                            For field or remote work: punches here always pass, whatever the
-                            coordinates.
+                        <flux:label for="site-checks-location">Check Location When Punching</flux:label>
+                        <p class="text-xs text-muted-foreground" data-location-check-hint>
+                            @if ($formChecksLocation)
+                                On: people must be at this site to punch. A punch from outside the radius below is not accepted.
+                            @else
+                                Off: anyone assigned to this site can punch from anywhere. Their location is not asked for.
+                            @endif
                         </p>
                     </div>
                 </div>
 
-                @if (! $formExempt)
+                @if ($formChecksLocation)
                     <div class="space-y-2">
                         <flux:label>Latitude</flux:label>
                         <flux:input

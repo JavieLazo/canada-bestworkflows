@@ -148,7 +148,7 @@
                 <flux:select.option value="">No assigned worksite</flux:select.option>
                 @foreach ($sites as $site)
                     @continue(! $site->is_active && (! isset($employee) || $employee->work_site_id !== $site->id))
-                    <flux:select.option value="{{ $site->id }}">{{ $site->name }}{{ $site->geofence_exempt ? ' (exempt)' : ' · '.$site->radius_meters.' m' }}{{ $site->is_active ? '' : ' · inactive' }}</flux:select.option>
+                    <flux:select.option value="{{ $site->id }}">{{ $site->name }}{{ $site->geofence_exempt ? ' · location not checked' : ' · '.$site->radius_meters.' m' }}{{ $site->is_active ? '' : ' · inactive' }}</flux:select.option>
                 @endforeach
             </x-kit.select>
             {{-- The fallback for every weekday the Shift Roster's "Weekly

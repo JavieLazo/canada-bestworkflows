@@ -15,8 +15,16 @@
     <header class="flex flex-wrap items-start justify-between gap-4">
         <div>
             <h2 class="text-lg font-bold">Punch Station</h2>
-            <p class="text-sm text-muted-foreground">
-                Geofence-validated attendance. Your location is read as you punch; Time In is blocked outside the site geofence.
+            {{-- What the station says about location follows the place a punch
+                 pressed now is judged at (RosterLocations::forStation). --}}
+            <p class="text-sm text-muted-foreground" data-punch-location-rule>
+                @if ($todayLocation !== null && ! $checksLocation)
+                    Location is not checked for this punch. Time In and Time Out can be recorded from anywhere.
+                @elseif ($selfService)
+                    Your location is read as you punch. Time In and Time Out are both blocked when you are outside your work site's area.
+                @else
+                    At a site that checks location, the location is read as the punch is pressed, and Time In and Time Out are both blocked outside the site's area.
+                @endif
             </p>
         </div>
         @if ($showClock)
@@ -67,7 +75,7 @@
                 <x-kit.select id="punch-site" wire:change="selectSite($event.target.value)" aria-label="Work site">
                     @foreach ($sites as $s)
                         <flux:select.option value="{{ $s->id }}" :selected="$siteId === (string) $s->id">
-                            {{ $s->name }}{{ $s->geofence_exempt ? ' (exempt)' : ' · '.$s->radius_meters.' m' }}{{ $s->is_active ? '' : ' · inactive' }}
+                            {{ $s->name }}{{ $s->geofence_exempt ? ' · location not checked' : ' · '.$s->radius_meters.' m' }}{{ $s->is_active ? '' : ' · inactive' }}
                         </flux:select.option>
                     @endforeach
                 </x-kit.select>
@@ -154,14 +162,14 @@
             @if ($verdict === null)
                 <span>Capture or enter coordinates to preview the verdict — left empty, the browser's fix is used when you punch.</span>
             @elseif ($verdict['wfh'] ?? false)
-                <span class="font-medium">Work from home today — no geofence; the punch is accepted from anywhere.</span>
+                <span class="font-medium">Work from home today — location is not checked; the punch is accepted from anywhere.</span>
             @elseif ($verdict['exempt'])
-                <span class="font-medium">Geofence-exempt site — this punch always passes.</span>
+                <span class="font-medium">{{ $site->name }} does not check location — the punch is accepted from anywhere.</span>
             @else
                 <span class="font-medium">
                     {{ $verdict['inBounds'] ? 'In bounds' : 'Out of bounds' }} ·
                     <span class="num">{{ (int) \App\Domain\Attendance\Minutes::round($verdict['distance']) }} m</span> from {{ $site->name }}
-                    (radius <span class="num">{{ $site->radius_meters }} m</span>){{ ! $verdict['inBounds'] ? ' · Time In blocked' : '' }}
+                    (radius <span class="num">{{ $site->radius_meters }} m</span>){{ ! $verdict['inBounds'] ? ' · Time In and Time Out blocked' : '' }}
                 </span>
             @endif
         </div>
@@ -177,19 +185,26 @@
          the kiosk once the card is wide enough. --}}
     <div @class(['mt-auto grid gap-3 pt-5', '@xs:grid-cols-2' => ! $selfService])>
         {{--
-            Every punch first asks the browser for a fix (PunchStation.tsx:117-141
-            does this in self-service only) and sends lat/lng/accuracy to punch();
-            the server decides what counts — typed kiosk boxes win when filled,
-            an exempt site passes with no fix, a fenced site refuses one it
+            Where the place checks location, a punch first asks the browser for
+            a fix (PunchStation.tsx:117-141 does this in self-service only) and
+            sends lat/lng/accuracy to punch(); the server decides what counts —
+            typed kiosk boxes win when filled, a fenced site refuses a punch it
             cannot verify. A refused or timed-out fix still punches, with a
             client toast saying why, unless both kiosk boxes are typed and the
             fix would not have been used anyway. The settled/timer guard is
             needed: Safari never calls either callback when the prompt is
             dismissed. Eight seconds bounds the wait — a cold mobile GPS
             routinely needs more than the five PunchStation.tsx:127-138 allows.
+
+            WHERE THE PLACE DOES NOT CHECK LOCATION (a work-from-home day, or a
+            site that does not check it) the punch is sent at once: no prompt,
+            no wait, no warning. The flag is a data attribute read at each
+            press, because x-data is evaluated once and the place can change
+            under it (another employee picked at the kiosk, a poll).
         --}}
         <div
             class="contents"
+            data-checks-location="{{ $checksLocation ? '1' : '0' }}"
             x-data="{
                 busy: false,
                 pending: null,
@@ -231,11 +246,15 @@
                     if (this.busy) return;
                     this.busy = true;
                     this.pending = type;
-                    this.phase = 'locating';
                     try {
-                        const { fix, reason } = await this.capture();
-                        if (fix === null && ! this.typed()) {
-                            window.Flux?.toast({ text: this.refusal(reason), variant: 'warning' });
+                        let fix = null;
+                        if (this.$el.closest('[data-checks-location]')?.dataset.checksLocation !== '0') {
+                            this.phase = 'locating';
+                            const captured = await this.capture();
+                            fix = captured.fix;
+                            if (fix === null && ! this.typed()) {
+                                window.Flux?.toast({ text: this.refusal(captured.reason), variant: 'warning' });
+                            }
                         }
                         this.phase = 'sending';
                         await $wire.punch(type, fix?.lat ?? null, fix?.lng ?? null, fix?.accuracy ?? null);

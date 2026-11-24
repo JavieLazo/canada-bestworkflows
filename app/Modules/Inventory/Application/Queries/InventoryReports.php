@@ -19,6 +19,7 @@ use App\Modules\Workforce\Contracts\InventoryEmployees;
 use App\Platform\ReadModels\QueryPage;
 use App\Platform\ReadModels\SqlText;
 use App\Support\Access;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
@@ -35,18 +36,51 @@ final class InventoryReports
         };
     }
 
-    /** @return array{stock:int,issued:int,exceptions:int,open_incidents:int,open_counts:int} */
+    /**
+     * The register-wide counts above the report, and for the three item
+     * reports the acquisition cost those items add up to (`values`).
+     *
+     * @return array{stock:int,issued:int,exceptions:int,open_incidents:int,open_counts:int,values:array{stock:array{items:int,value:float,without_cost:int},issued:array{items:int,value:float,without_cost:int},exceptions:array{items:int,value:float,without_cost:int}}}
+     */
     public function totals(Access $access): array
     {
         abort_unless($access->isSignedIn() && $access->mayReadAllData(ModuleCode::INVENTORY), 403);
+        $values = [
+            'stock' => self::valueOf($this->items('stock', '', '')),
+            'issued' => self::valueOf($this->items('holdings', '', '')),
+            'exceptions' => self::valueOf($this->items('exceptions', '', '')),
+        ];
 
         return [
-            'stock' => InventoryItem::query()->where('status', 'IN_STOCK')->count(),
-            'issued' => InventoryItem::query()->where('status', 'ISSUED')->count(),
-            'exceptions' => $this->exceptions()->count(),
+            'stock' => $values['stock']['items'],
+            'issued' => $values['issued']['items'],
+            'exceptions' => $values['exceptions']['items'],
             'open_incidents' => InventoryIncident::query()->where('status', 'OPEN')->count(),
             'open_counts' => InventoryCount::query()->where('status', 'OPEN')->count(),
+            'values' => $values,
         ];
+    }
+
+    /**
+     * What the items of one report add up to: how many, their total
+     * acquisition cost, and how many of them have no cost recorded (a cost
+     * of zero) and so add nothing to it — over EVERY row the report lists
+     * under these filters, not the page on screen. The Stock on hand report
+     * also splits it by category. Null for the movement history, which lists
+     * events and has no Cost column.
+     *
+     * @return array{items:int,value:float,without_cost:int,categories:list<array{name:string,items:int,value:float,without_cost:int}>}|null
+     */
+    public function value(Access $access, string $kind = 'holdings', string $search = '', string $employeeId = ''): ?array
+    {
+        abort_unless($access->isSignedIn() && $access->mayReadAllData(ModuleCode::INVENTORY), 403);
+        abort_unless(in_array($kind, ['holdings', 'stock', 'exceptions', 'movements'], true), 422, 'Choose an inventory report.');
+        if ($kind === 'movements') {
+            return null;
+        }
+        $query = $this->items($kind, $search, $employeeId);
+
+        return self::valueOf($query) + ['categories' => $kind === 'stock' ? self::valueByCategory($query) : []];
     }
 
     /** @return LengthAwarePaginator<int, ReportRow> */
@@ -57,13 +91,7 @@ final class InventoryReports
         if ($kind === 'movements') {
             return $this->movements($access, $search, $employeeId, $page, $perPage);
         }
-        $query = $kind === 'exceptions' ? $this->exceptions() : InventoryItem::query()->where('status', $kind === 'stock' ? 'IN_STOCK' : 'ISSUED');
-        if ($employeeId !== '') {
-            $query->where('employee_id', $employeeId);
-        }
-        if (trim($search) !== '') {
-            $query->where(fn (Builder $q) => $q->where('code', 'like', '%'.trim($search).'%')->orWhere('name', 'like', '%'.trim($search).'%')->orWhere('serial_no', 'like', '%'.trim($search).'%'));
-        }
+        $query = $this->items($kind, $search, $employeeId);
         SqlText::order($query, 'code', 'asc');
         $rows = QueryPage::get($query->orderBy('id'), $page, $perPage, InventoryReportSourceRow::class);
         $collection = $rows->getCollection();
@@ -108,6 +136,73 @@ final class InventoryReports
             InventoryIncident::query()->count(), InventoryIncident::query()->max('updated_at'),
             InventoryCount::query()->count(), InventoryCount::query()->max('updated_at'),
         ], JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * The items one report lists — its status or exception rule, then the
+     * employee and search filters — unordered. THE ROWS AND THEIR VALUE BOTH
+     * START HERE, so a total can never cover an item the table does not list.
+     *
+     * @param  string  $kind  'holdings', 'stock' or 'exceptions'
+     * @return Builder<InventoryItem>
+     */
+    private function items(string $kind, string $search, string $employeeId): Builder
+    {
+        $query = $kind === 'exceptions' ? $this->exceptions() : InventoryItem::query()->where('status', $kind === 'stock' ? 'IN_STOCK' : 'ISSUED');
+        if ($employeeId !== '') {
+            $query->where('employee_id', $employeeId);
+        }
+        if (trim($search) !== '') {
+            $query->where(fn (Builder $q) => $q->where('code', 'like', '%'.trim($search).'%')->orWhere('name', 'like', '%'.trim($search).'%')->orWhere('serial_no', 'like', '%'.trim($search).'%'));
+        }
+
+        return $query;
+    }
+
+    /**
+     * Count, total cost and the count with no cost for the items a query
+     * selects. A cost is required and never negative, so "no cost recorded"
+     * is a cost of zero.
+     *
+     * @param  Builder<InventoryItem>  $query
+     * @return array{items:int,value:float,without_cost:int}
+     */
+    private static function valueOf(Builder $query): array
+    {
+        return [
+            'items' => (clone $query)->count(),
+            'value' => Money::round((clone $query)->sum('cost')),
+            'without_cost' => (clone $query)->where('cost', '<=', 0)->count(),
+        ];
+    }
+
+    /**
+     * The same three figures per category, by category name, items with no
+     * category last.
+     *
+     * @param  Builder<InventoryItem>  $query
+     * @return list<array{name:string,items:int,value:float,without_cost:int}>
+     */
+    private static function valueByCategory(Builder $query): array
+    {
+        // A null category groups under the '' key.
+        $items = (clone $query)->toBase()->groupBy('category_id')->selectRaw('category_id, count(*) as items')->pluck('items', 'category_id');
+        $values = (clone $query)->toBase()->groupBy('category_id')->selectRaw('category_id, sum(cost) as value')->pluck('value', 'category_id');
+        $withoutCost = (clone $query)->toBase()->where('cost', '<=', 0)->groupBy('category_id')->selectRaw('category_id, count(*) as items')->pluck('items', 'category_id');
+        $names = InventoryCategory::query()->whereKey($items->keys()->filter()->all())->pluck('name', 'id');
+
+        $rows = [];
+        foreach ($items as $categoryId => $count) {
+            $rows[] = [
+                'name' => (string) $categoryId === '' ? '' : (string) ($names[$categoryId] ?? ''),
+                'items' => (int) $count,
+                'value' => Money::round($values[$categoryId] ?? 0),
+                'without_cost' => (int) ($withoutCost[$categoryId] ?? 0),
+            ];
+        }
+        usort($rows, static fn (array $a, array $b): int => [$a['name'] === '' ? 1 : 0, mb_strtolower($a['name'])] <=> [$b['name'] === '' ? 1 : 0, mb_strtolower($b['name'])]);
+
+        return $rows;
     }
 
     /** @return Builder<InventoryItem> */
